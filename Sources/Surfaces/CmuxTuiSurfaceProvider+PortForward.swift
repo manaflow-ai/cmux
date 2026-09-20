@@ -68,26 +68,27 @@ extension CmuxTuiSurfaceProvider {
     /// private address). The browser card therefore always has a real retry
     /// action instead of leaving the user on a dead loading surface.
     private func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
-        browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] in
+        browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] generation in
             guard let self, let browser else { return }
-            Task { @MainActor in
-                guard self.isRegisteredInCatalog() else { return }
-                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
-                await self.catalog.refresh(machine: self.machine, force: true)
-                guard let resource = self.catalog.snapshot.resources.first(where: { $0.id == resourceID }) else {
-                    browser.cloudAccess.showUnavailable(String(
-                        localized: "cloud.portAccess.resourceGone",
-                        defaultValue: "This Cloud port is no longer available. Refresh the machine and try again."
-                    ))
-                    return
-                }
-                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
-                case .privateDirect(let raw):
-                    guard let url = URL(string: raw) else { return }
-                    self.configureBrowser(browser, url: url)
-                case .unsupported(let nextMessage):
-                    self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
-                }
+            guard self.isRegisteredInCatalog() else { return }
+            _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            guard browser.cloudAccess.isCurrentUnavailableRetry(generation) else { return }
+            await self.catalog.refresh(machine: self.machine, force: true)
+            guard browser.cloudAccess.isCurrentUnavailableRetry(generation) else { return }
+            guard let resource = self.catalog.snapshot.resources.first(where: { $0.id == resourceID }) else {
+                browser.cloudAccess.showUnavailable(String(
+                    localized: "cloud.portAccess.resourceGone",
+                    defaultValue: "This Cloud port is no longer available. Refresh the machine and try again."
+                ))
+                return
+            }
+            switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
+            case .privateDirect(let raw):
+                guard let url = URL(string: raw), browser.cloudAccess.isCurrentUnavailableRetry(generation) else { return }
+                self.configureBrowser(browser, url: url)
+            case .unsupported(let nextMessage):
+                guard browser.cloudAccess.isCurrentUnavailableRetry(generation) else { return }
+                self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
             }
         }
     }

@@ -17,15 +17,33 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
-    private var unavailableRetry: (@MainActor () -> Void)?
+    private var unavailableRetry: (@MainActor (UInt64) async -> Void)?
+    private var unavailableRetryTask: Task<Void, Never>?
+    private var unavailableRetryGeneration: UInt64 = 0
 
-    func showUnavailable(_ message: String, retry: (@MainActor () -> Void)? = nil) {
+    func showUnavailable(_ message: String, retry: (@MainActor (UInt64) async -> Void)? = nil) {
+        unavailableRetryTask?.cancel()
+        unavailableRetryGeneration &+= 1
         leave()
         unavailable = message
         unavailableRetry = retry
     }
 
-    func retryUnavailable() { unavailableRetry?() }
+    func retryUnavailable() {
+        guard let unavailableRetry else { return }
+        unavailableRetryTask?.cancel()
+        unavailableRetryGeneration &+= 1
+        let generation = unavailableRetryGeneration
+        unavailableRetryTask = Task { @MainActor [weak self] in
+            await unavailableRetry(generation)
+            guard let self, !Task.isCancelled, self.unavailableRetryGeneration == generation else { return }
+            self.unavailableRetryTask = nil
+        }
+    }
+
+    func isCurrentUnavailableRetry(_ generation: UInt64) -> Bool {
+        unavailableRetryGeneration == generation && unavailable != nil && !Task.isCancelled
+    }
 
     var unavailableRetryAction: (() -> Void)? {
         guard unavailableRetry != nil else { return nil }
@@ -175,6 +193,9 @@ final class CloudBrowserAccessState {
     }
 
     func leave() {
+        unavailableRetryTask?.cancel()
+        unavailableRetryTask = nil
+        unavailableRetryGeneration &+= 1
         unavailableRetry = nil
         unavailable = nil
         model = nil

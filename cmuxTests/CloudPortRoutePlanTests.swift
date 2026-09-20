@@ -185,12 +185,13 @@ struct CloudPortRoutePlanTests {
     }
 
     @Test("An unavailable route exposes a retry action")
-    func unavailableRouteCanRetry() {
+    func unavailableRouteCanRetry() async {
         var retries = 0
         let state = CloudBrowserAccessState()
-        state.showUnavailable("Private address unavailable", retry: { retries += 1 })
+        state.showUnavailable("Private address unavailable", retry: { _ in retries += 1 })
         #expect(state.unavailableRetryAction != nil)
         state.unavailableRetryAction?()
+        await Task.yield()
         #expect(retries == 1)
     }
 
