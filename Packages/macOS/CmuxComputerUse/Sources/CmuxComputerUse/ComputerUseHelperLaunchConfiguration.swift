@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 /// LaunchServices arguments and environment for the cmux-cua helper daemon.
 struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
