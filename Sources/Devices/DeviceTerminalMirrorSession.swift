@@ -25,7 +25,10 @@ final class DeviceTerminalMirrorSession {
         case stopped
     }
 
-    let link: DeviceLink
+    private let isConnected: @MainActor () -> Bool
+    private let events: DeviceLinkTerminalEvents
+    private let clientID: String
+    private let requestData: @MainActor @Sendable (String, [String: Any]) async throws -> Data
     let remoteWorkspaceID: String
     let remoteSurfaceID: UUID
     let inputRouter: DeviceTerminalInputRouter
@@ -45,25 +48,56 @@ final class DeviceTerminalMirrorSession {
     private var attachingBytes: [(sequence: UInt64?, data: Data)] = []
     private var attachingByteCount = 0
 
-    init(link: DeviceLink, remoteWorkspaceID: String, remoteSurfaceID: UUID) {
-        self.link = link
+    convenience init(link: DeviceLink, remoteWorkspaceID: String, remoteSurfaceID: UUID) {
+        self.init(
+            remoteWorkspaceID: remoteWorkspaceID, remoteSurfaceID: remoteSurfaceID,
+            events: link.terminalEvents, clientID: link.clientID,
+            isConnected: { link.isConnected },
+            requestData: { method, params in try await link.requestData(method, params: params) }
+        )
+    }
+
+    init(
+        remoteWorkspaceID: String,
+        remoteSurfaceID: UUID,
+        events: DeviceLinkTerminalEvents,
+        clientID: String,
+        isConnected: @escaping @MainActor () -> Bool,
+        requestData: @escaping @MainActor @Sendable (String, [String: Any]) async throws -> Data
+    ) {
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteSurfaceID = remoteSurfaceID
-        let params: [String: Any] = [
-            "workspace_id": remoteWorkspaceID,
-            "surface_id": remoteSurfaceID.uuidString,
-        ]
+        self.events = events
+        self.clientID = clientID
+        self.isConnected = isConnected
+        self.requestData = requestData
         inputRouter = DeviceTerminalInputRouter(
-            send: { data in
+            send: { @MainActor data in
                 guard let text = String(data: data, encoding: .utf8) else { throw DeviceTerminalInputRouter.InputError.invalidEncoding }
-                var input = params
-                input["text"] = text
-                _ = try await link.request("mobile.terminal.input", params: input)
+                let input: [String: Any] = [
+                    "workspace_id": remoteWorkspaceID,
+                    "surface_id": remoteSurfaceID.uuidString,
+                    "text": text
+                ]
+                let response = try await requestData("mobile.terminal.input", input)
+                _ = try Self.responseObject(response, method: "mobile.terminal.input")
             },
             onFailure: { error in
                 deviceMirrorLog.error("device terminal input failed: \(String(describing: error), privacy: .private)")
             }
         )
+    }
+
+    private func request(_ method: String, params: [String: Any]) async throws -> [String: Any] {
+        let response = try await requestData(method, params)
+        return try Self.responseObject(response, method: method)
+    }
+
+    private static func responseObject(_ data: Data, method: String) throws -> [String: Any] {
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw DeviceLinkError.malformedResponse(method)
+        }
+        return object
     }
 
     private var surfaceParams: [String: Any] {
@@ -109,16 +143,16 @@ final class DeviceTerminalMirrorSession {
             surface.clearAssignedGrid()
         }
         surface = nil
-        if hadReport, link.isConnected {
+        if hadReport, isConnected() {
             let params = clearViewportParams()
-            Task { _ = try? await link.request("mobile.terminal.viewport", params: params) }
+            Task { _ = try? await request("mobile.terminal.viewport", params: params) }
         }
     }
 
     // MARK: - Attach and bytes
 
     private func startEventConsumer() {
-        let stream = link.terminalEvents.stream(surfaceID: remoteSurfaceID)
+        let stream = events.stream(surfaceID: remoteSurfaceID)
         eventTask = Task { [weak self] in
             for await event in stream {
                 guard let self, self.phase != .stopped else { return }
@@ -165,7 +199,7 @@ final class DeviceTerminalMirrorSession {
             pin(columns: columns, rows: rows)
             scheduleAttach()
         case .resyncRequired:
-            if link.isConnected {
+            if isConnected() {
                 reportedGrid = nil
                 scheduleAttach()
             } else if phase == .attached || phase == .attaching {
@@ -198,7 +232,7 @@ final class DeviceTerminalMirrorSession {
     }
 
     private func attach() async {
-        guard phase != .stopped, link.isConnected else {
+        guard phase != .stopped, isConnected() else {
             if phase != .stopped { phase = .detached }
             return
         }
@@ -210,9 +244,9 @@ final class DeviceTerminalMirrorSession {
         }
         guard !Task.isCancelled, phase != .stopped else { return }
         do {
-            let response = try await link.requestData("mobile.terminal.replay", params: surfaceParams)
+            let response = try await requestData("mobile.terminal.replay", surfaceParams)
             let replay = try await Self.decodeReplay(response)
-            guard !Task.isCancelled, phase == .attaching, link.isConnected else { return }
+            guard !Task.isCancelled, phase == .attaching, isConnected() else { return }
             if let columns = replay.columns, let rows = replay.rows { pin(columns: columns, rows: rows) }
             surface?.processRemoteOutput(replay.bytes)
             expectedSequence = replay.sequence
@@ -288,14 +322,14 @@ final class DeviceTerminalMirrorSession {
         isVisible = visible
         if visible {
             runtimeReady()
-        } else if viewportGeneration > 0, link.isConnected {
+        } else if viewportGeneration > 0, isConnected() {
             // A hidden pane must not keep capping the remote terminal.
             reportedGrid = nil
             pendingGrid = nil
             let params = clearViewportParams()
             viewportTask?.cancel()
             viewportTask = Task { [weak self] in
-                _ = try? await self?.link.request("mobile.terminal.viewport", params: params)
+                _ = try? await self?.request("mobile.terminal.viewport", params: params)
                 guard let self, self.isVisible, self.pendingGrid != nil, self.phase != .stopped else {
                     self?.viewportTask = nil
                     return
@@ -348,16 +382,16 @@ final class DeviceTerminalMirrorSession {
     }
 
     private func reportViewport(_ grid: (columns: Int, rows: Int)) async {
-        guard link.isConnected, isVisible, phase != .stopped else { return }
+        guard isConnected(), isVisible, phase != .stopped else { return }
         viewportGeneration &+= 1
         let generation = viewportGeneration
         var params = surfaceParams
-        params["client_id"] = link.clientID
+        params["client_id"] = clientID
         params["viewport_columns"] = grid.columns
         params["viewport_rows"] = grid.rows
         params["viewport_generation"] = viewportGeneration
         do {
-            let response = try await link.request("mobile.terminal.viewport", params: params)
+            let response = try await request("mobile.terminal.viewport", params: params)
             guard !Task.isCancelled, phase != .stopped, isVisible, viewportGeneration == generation else { return }
             reportedGrid = grid
             if let columns = (response["columns"] as? NSNumber)?.intValue,
@@ -372,7 +406,7 @@ final class DeviceTerminalMirrorSession {
     private func clearViewportParams() -> [String: Any] {
         viewportGeneration &+= 1
         var params = surfaceParams
-        params["client_id"] = link.clientID
+        params["client_id"] = clientID
         params["clear"] = true
         params["viewport_generation"] = viewportGeneration
         return params
