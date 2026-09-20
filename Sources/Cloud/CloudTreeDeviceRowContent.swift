@@ -16,9 +16,14 @@ struct CloudTreeDeviceRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                glyph(size: 9)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+            HStack(alignment: .top, spacing: style.iconGap) {
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: "desktopcomputer",
+                    tint: CloudTreeIconPalette.machine,
+                    dimmed: !row.isOnline
+                )
+                .frame(height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
                         name(weight: .medium)
@@ -47,18 +52,6 @@ struct CloudTreeDeviceRowContent: View {
 
     private func scaled(_ size: CGFloat) -> CGFloat {
         GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
-    }
-
-    private func glyph(size: CGFloat) -> some View {
-        Image(systemName: "desktopcomputer")
-            .font(.system(size: size, weight: .medium))
-            .foregroundStyle(glyphStyle)
-            .accessibilityHidden(true)
-    }
-
-    private var glyphStyle: AnyShapeStyle {
-        if !row.isOnline { return AnyShapeStyle(.tertiary) }
-        return AnyShapeStyle(.secondary)
     }
 
     private func name(weight: Font.Weight) -> some View {
