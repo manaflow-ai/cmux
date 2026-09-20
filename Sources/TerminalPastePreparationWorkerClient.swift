@@ -62,7 +62,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 #if compiler(>=6.2)
     @concurrent
 #else
-    nonisolated
+    @Sendable
 #endif
     func captureSnapshot(
         _ request: TerminalPasteboardContentsCaptureRequest
@@ -79,7 +79,7 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 #if compiler(>=6.2)
     @concurrent
 #else
-    nonisolated
+    @Sendable
 #endif
     func prepare(
         _ request: TerminalPastePreparationRequest

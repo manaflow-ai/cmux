@@ -130,6 +130,49 @@ struct TerminalPlainTextPasteStartupTests {
         await #expect(throws: CancellationError.self) { try await task.value }
     }
 
+    @MainActor
+    @Test("Rich text and image ownership match the full worker", arguments: [false, true])
+    func richAndImageControls(image: Bool) async throws {
+        let board = NSPasteboard(name: .init("cmux-rich-control-\(UUID())"))
+        defer { board.releaseGlobally() }
+        let owner = TerminalPasteboardService()
+        let png = try #require(Data(base64Encoded:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lS2cWQAAAABJRU5ErkJggg=="
+        ))
+        if image {
+            board.setData(png, forType: .png)
+            board.setString("https://example.com/auxiliary", forType: .URL)
+        } else {
+            board.setString("??", forType: .string)
+            board.setString("<p>日本語</p>", forType: .html)
+        }
+        for helper in [nil, try bundledHelper()] {
+            let client = TerminalPastePreparationWorkerClient(
+                executableURL: try #require(Bundle.main.executableURL),
+                pasteboardService: owner, plainTextExecutableURL: helper
+            )
+            let result = try await client.prepare(.init(
+                pasteboard: TerminalPasteboardReadRequest(pasteboard: board), mode: .paste, destination: .terminal
+            ))
+            defer { result.cleanupTransferredTemporaryFiles(using: owner) }
+            if image {
+                guard case .terminal(.fileURLs(let urls)) = result else {
+                    Issue.record("Image pixels must take priority over auxiliary URLs")
+                    return
+                }
+                let url = try #require(urls.first)
+                #expect(owner.isOwnedTemporaryImageFile(url))
+                #expect(try Data(contentsOf: url) == png)
+            } else {
+                guard case .terminal(.insertText(let text)) = result else {
+                    Issue.record("Expected faithful rich text")
+                    return
+                }
+                #expect(text == "日本語")
+            }
+        }
+    }
+
     private func bundledHelper() throws -> URL {
         try #require(Bundle.main.url(
             forResource: "cmux-paste-text-worker",
