@@ -76,11 +76,13 @@ def main() -> int:
     # Bucket credentials reach a save step only when that run saves to R2, and
     # never reach ci.yml, whose jobs run pull request code.
     ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    if "CF_R2_" in ci_text:
+    if "CF_R2_" in ci_text or "secrets.CI_CACHE_R2_" in ci_text:
         failures.append("ci.yml must not reference the R2 bucket credentials")
     for job_name, step in cache_steps("nightly.yml"):
         for name, value in (step.get("env") or {}).items():
-            if "secrets.CF_R2_" in str(value) and "== 'r2' &&" not in str(value):
+            if "secrets.CF_R2_" in str(value):
+                failures.append(f"nightly.yml {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
+            if "secrets.CI_CACHE_R2_" in str(value) and "== 'r2' &&" not in str(value):
                 failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
 
     for failure in failures:
