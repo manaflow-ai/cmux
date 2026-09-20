@@ -1,4 +1,36 @@
 {
+  "cloudTree.resources.provisionedCPU": {
+    "source": "%@ vCPU · %@",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
+    }
+  },
+  "cli.socketControlStatus.command": {
+    "source": "socket-status [--json]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
   "CFBundleDisplayName": {
     "source": "cmux Cloud Tunnel",
     "class": "brand"
@@ -3105,6 +3137,152 @@
       "fr": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
+    }
+  },
+  "sidebar.account.teamWithPlan": {
+    "source": "%1$@ · Pro",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Pro"
+        ]
+      }
+    }
+  },
+  "sidebar.account.headerLabel": {
+    "source": "%1$@, %2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@, %2$@"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamRowLabel": {
+    "source": "%1$@%2$@",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@%2$@"
+        ]
+      }
+    }
+  },
+  "sidebar.account.activeSuffix": {
+    "source": ", active",
+    "identityLocales": {
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          ", active"
+        ]
+      }
     }
   },
   "cli.workflow.literal.codex": {

@@ -67,11 +67,13 @@ final class CloudTreeNode: NSObject {
     var isPinned = false
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
-    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
+
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+        self.isPinned = isPinned
     }
     var isExpandable: Bool { !children.isEmpty }
     var contentSnapshot: CloudTreeNodeContentSnapshot {
@@ -177,7 +179,7 @@ final class CloudTreeNode: NSObject {
 
     /// What dragging this row into the main view projects: a single resource wrapped as a
     /// one-element group, or a workspace's whole collection (terminals, then browsers).
-    /// Machine rows and group headers only organize and are not draggable.
+    /// Machine rows reorder only inside the sidebar and never project panes.
     var dragGroup: SurfaceResourceGroup? {
         if let explicitDragGroup { return explicitDragGroup.isEmpty ? nil : explicitDragGroup }
         if case .terminal(let row) = kind,
@@ -210,7 +212,7 @@ final class CloudTreeNode: NSObject {
     }
 
     /// Whether a native drag may export a pane projection. Only terminals and
-    /// displays leave the tree; `canOrganize` also admits internal-only row
+    /// displays leave the tree; machine and descendant ordering admit internal-only row
     /// drags without granting an external projection capability.
     var isDragSource: Bool {
         switch kind {
@@ -544,6 +546,9 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        /// Pin state supplied by the account-scoped machine store for rows that
+        /// are present only in the catalog during a fleet refresh.
+        pinnedMachineIDs: Set<String> = [],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         now: Date = .now
     ) -> [CloudTreeNode] {
@@ -586,7 +591,10 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                // A machine pin is explicit sidebar priority, stamped by the panel;
+                // organization only pins the organizable rows below a machine.
+                isPinned: machine.isPinned || pinnedMachineIDs.contains(machine.id)
             ))
         }
         // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
@@ -613,7 +621,8 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                isPinned: pinnedMachineIDs.contains(id)
             ))
         }
         return nodes
@@ -1127,18 +1136,6 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
-    }
-
-    /// Returns canonical forwarded-port resources in stable port/key order.
-    ///
-    /// The tree treats any orphan browser resource with a listening port as a
-    /// port row; this narrower helper is retained for callers that need to
-    /// distinguish provider-minted `port:<n>` resources from ordinary daemon
-    /// browser tabs that happen to point at localhost.
-    static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
-        resources
-            .filter { $0.kind == .browser && $0.port != nil && $0.id.key.hasPrefix("port:") }
-            .sorted { ($0.port ?? 0, $0.id.key) < ($1.port ?? 0, $1.id.key) }
     }
 
     private static func placeholder(
