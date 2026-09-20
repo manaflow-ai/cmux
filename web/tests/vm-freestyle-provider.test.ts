@@ -115,6 +115,18 @@ describe("FreestyleProvider transport contract", () => {
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
   });
+
+  test("destroy keeps an unknown 404 unconfirmed", async () => {
+    const client = {
+      vms: {
+        ref: () => ({
+          delete: async () => { throw new FreestyleApiError(404, { code: "UNKNOWN", message: "endpoint missing" }); },
+        }),
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await expect(provider.destroy(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+  });
 });
 
 describe("Freestyle platform contract", () => {
