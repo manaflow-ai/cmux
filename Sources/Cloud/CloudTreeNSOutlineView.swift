@@ -154,6 +154,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onOpenSelection: (() -> Void)?
     let ownershipFeedback = SurfaceDropFeedback()
     var onMoveSelection: ((Int) -> Void)?
+    var onMoveMachine: ((Int) -> Bool)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
@@ -175,7 +176,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
-        super.draggingEnded(sender)
+        // NSOutlineView may not implement this optional destination notification.
         reorderPresentation.ended(sender)
     }
 
