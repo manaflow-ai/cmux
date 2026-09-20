@@ -593,7 +593,11 @@ final class MachinesPanelViewModel: ObservableObject {
     private func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
-        let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union([.local])
+        // The Cloud registry owns only Cloud account scope. The device registry
+        // independently retires unauthorized Macs, so a failed Cloud refresh
+        // must not hide live device rows and their already-open projections.
+        let independentMachines = snapshot.machines.filter { $0.id.cloudMachineID == nil }.map(\.id)
+        let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union(independentMachines)
         var scoped = snapshot
         scoped.machines.removeAll { !allowed.contains($0.id) }
         scoped.resources.removeAll { !allowed.contains($0.machine) }
