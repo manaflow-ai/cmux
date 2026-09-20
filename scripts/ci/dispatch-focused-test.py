@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 from urllib.parse import quote
 import uuid
@@ -15,6 +18,8 @@ import uuid
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
 ROOT = Path(__file__).resolve().parents[2]
+RUN_DISCOVERY_ATTEMPTS = 12
+RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
@@ -27,19 +32,61 @@ def positive_integer(value: str) -> int:
     return int(value)
 
 
-def output(*command: str) -> str:
-    return subprocess.check_output(command, cwd=ROOT, text=True).strip()
+def output(*command: str, timeout: float | None = None) -> str:
+    try:
+        return subprocess.check_output(
+            command, cwd=ROOT, text=True, timeout=timeout
+        ).strip()
+    except subprocess.TimeoutExpired as error:
+        raise ValueError("GitHub command timed out during focused-run discovery") from error
 
 
-def find_run(commit: str, selector: str, dispatch_id: str) -> dict:
+def wait_for_retry(cancel_event: threading.Event, delay_seconds: float) -> bool:
+    """Wait for the next discovery attempt, allowing cancellation to interrupt it."""
+    return cancel_event.wait(delay_seconds)
+
+
+@contextmanager
+def cancellation_scope():
+    """Turn termination signals into a cancellable run-discovery wait."""
+    cancel_event = threading.Event()
+    previous = {}
+
+    def cancel(_signum, _frame):
+        cancel_event.set()
+
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous[signum] = signal.signal(signum, cancel)
+        yield cancel_event
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def find_run(
+    commit: str,
+    selector: str,
+    dispatch_id: str,
+    *,
+    cancel_event: threading.Event | None = None,
+) -> dict:
     """Correlate this dispatch, never assume the newest run belongs to us."""
+    cancel_event = cancel_event or threading.Event()
     suffix = f" @ {commit} [{dispatch_id}]"
-    for attempt in range(12):
+    deadline = time.monotonic() + RUN_DISCOVERY_TIMEOUT_SECONDS
+    for attempt in range(RUN_DISCOVERY_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
         runs = json.loads(output(
             "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
             "--event", "workflow_dispatch", "--limit", "100",
             "--json", "databaseId,displayTitle,url",
+            timeout=remaining,
         ))
+        if cancel_event.is_set():
+            raise ValueError("focused-run discovery cancelled")
         matches = [
             run for run in runs
             if run["displayTitle"].startswith(f"{selector} on ")
@@ -49,8 +96,15 @@ def find_run(commit: str, selector: str, dispatch_id: str) -> dict:
             return matches[0]
         if matches:
             raise ValueError("multiple runs matched this dispatch; refusing to guess")
-        if attempt < 11:
-            time.sleep(5)
+        remaining = deadline - time.monotonic()
+        if attempt + 1 >= RUN_DISCOVERY_ATTEMPTS or remaining <= 0:
+            break
+        # Back off while the Actions API registers the run. The monotonic
+        # deadline bounds the total wait, and Event.wait lets cancellation
+        # interrupt the delay instead of trapping the caller in a fixed sleep.
+        delay = min(2 ** min(attempt, 3), 8, remaining)
+        if wait_for_retry(cancel_event, delay):
+            raise ValueError("focused-run discovery cancelled")
     raise ValueError(
         f"dispatch accepted but its run was not found; request {dispatch_id}. "
         f"Check https://github.com/{REPO}/actions/workflows/{WORKFLOW} "
@@ -112,7 +166,10 @@ def main() -> int:
         command.extend(["-f", f"{key}={value}"])
     print(f"Testing {args.test_filter} at {commit} (request {dispatch_id})", flush=True)
     subprocess.run(command, cwd=ROOT, check=True)
-    run = find_run(commit, args.test_filter, dispatch_id)
+    with cancellation_scope() as cancel_event:
+        run = find_run(
+            commit, args.test_filter, dispatch_id, cancel_event=cancel_event
+        )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
         return subprocess.run([

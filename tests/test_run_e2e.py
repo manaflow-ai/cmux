@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -136,17 +137,34 @@ class RunDiscoveryTests(unittest.TestCase):
     def test_waits_for_matching_dispatch_without_choosing_another_run(self):
         other = {"databaseId": 999, "displayTitle": "Other on mac @ " + HEAD + " [other]"}
         own = {"databaseId": 123, "displayTitle": "cmuxTests/Example on mac @ " + HEAD + " [mine]"}
-        with mock.patch.object(self.dispatch, "output", side_effect=[json.dumps([other]), json.dumps([other, own])]), mock.patch.object(self.dispatch.time, "sleep") as sleep:
+        with mock.patch.object(self.dispatch, "output", side_effect=[json.dumps([other]), json.dumps([other, own])]), mock.patch.object(self.dispatch, "wait_for_retry", return_value=False) as wait:
             result = self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
         self.assertEqual(result["databaseId"], 123)
-        sleep.assert_called_once_with(5)
+        wait.assert_called_once_with(mock.ANY, 1)
 
     def test_missing_dispatch_fails_without_redispatching(self):
-        with mock.patch.object(self.dispatch, "output", return_value="[]") as output, mock.patch.object(self.dispatch.time, "sleep"):
+        with mock.patch.object(self.dispatch, "output", return_value="[]") as output, mock.patch.object(self.dispatch, "wait_for_retry", return_value=False) as wait:
             with self.assertRaisesRegex(ValueError, "before dispatching again"):
                 self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
         self.assertEqual(output.call_count, 12)
+        self.assertEqual(wait.call_count, 11)
         self.assertTrue(all(call.args[1:3] == ("run", "list") for call in output.call_args_list))
+
+    def test_cancellation_interrupts_discovery(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        with mock.patch.object(self.dispatch, "output", return_value="[]"):
+            with self.assertRaisesRegex(ValueError, "cancelled"):
+                self.dispatch.find_run(
+                    HEAD, "cmuxTests/Example", "mine", cancel_event=cancelled
+                )
+
+    def test_cancellation_scope_handles_sigint_and_restores_handlers(self):
+        original = self.dispatch.signal.getsignal(self.dispatch.signal.SIGINT)
+        with self.dispatch.cancellation_scope() as cancelled:
+            self.dispatch.signal.raise_signal(self.dispatch.signal.SIGINT)
+            self.assertTrue(cancelled.is_set())
+        self.assertIs(self.dispatch.signal.getsignal(self.dispatch.signal.SIGINT), original)
 
     def test_ambiguous_dispatch_fails(self):
         run = {"databaseId": 123, "displayTitle": "cmuxTests/Example on mac @ " + HEAD + " [mine]"}
