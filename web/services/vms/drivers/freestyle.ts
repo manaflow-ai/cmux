@@ -1449,6 +1449,10 @@ export class FreestyleProvider implements VMProvider {
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
+          // Repair the guest CLI and machine identity before the daemon can
+          // consume an eligible first-use grant. This is idempotent and does
+          // not rearm the grant during attach.
+          await this.ensureGuestCli(vm, vmId);
           const promptSetup = `${guestWelcomeEligibilityCommand(vmId, options?.providerMetadata?.cloudWelcomeEligible === true)} && `
             + (options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "");
           let bundleResult = await this.execResult(

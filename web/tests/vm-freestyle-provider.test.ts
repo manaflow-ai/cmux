@@ -755,17 +755,27 @@ describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
    * A fake machine whose attach bundle answers `trusted[n]` on its n-th run.
    * Every other exec (pin check, daemon restart, readiness status) succeeds.
    */
-  function attachFake(input: { readonly trusted: readonly ("0" | "1")[]; readonly manifest: "ok" | "down" }) {
+  function attachFake(input: {
+    readonly trusted: readonly ("0" | "1")[];
+    readonly manifest: "ok" | "down";
+    readonly identityReady?: boolean;
+  }) {
     const execs: string[] = [];
     let bundles = 0;
+    let identityChecks = 0;
     const vm = {
       data: async () => PRIVATE,
+      fs: { writeTextFile: async () => {}, remove: async () => {} },
       exec: async ({ command }: { command: string }) => {
         execs.push(command);
         if (command.includes("__CMUX_PROBE__")) {
           const trusted = input.trusted[Math.min(bundles, input.trusted.length - 1)] ?? "0";
           bundles += 1;
           return { statusCode: 0, stdout: bundleStdout(trusted), stderr: "" };
+        }
+        if (command.includes("CMUX_CLOUD_WELCOME_IDENTITY_PATH") || command.includes("cloud-welcome-machine-id")) {
+          identityChecks += 1;
+          if (input.identityReady === false && identityChecks === 1) return { statusCode: 1, stdout: "", stderr: "" };
         }
         return { statusCode: 0, stdout: "", stderr: "" };
       },
@@ -810,6 +820,21 @@ describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
     const bootstrapBundles = fake.execs.filter((command) => command.includes("cloud-bootstrap"));
     expect(bootstrapBundles).toHaveLength(2);
     expect(bootstrapBundles.every((command) => command.includes('"welcome":true'))).toBe(true);
+  });
+
+  test("repairs a missing welcome identity before the bootstrap bundle", async () => {
+    const fake = attachFake({ trusted: ["1"], manifest: "down", identityReady: false });
+    const endpoint = await fake.provider.openCmuxRemote(VM_ID, {
+      clientCapabilities: [],
+      providerMetadata: { cloudWelcomeEligible: true },
+    });
+    expect(endpoint.trustedCarrier).toBe(true);
+    const identityCheck = fake.execs.findIndex((command) => command.includes("cloud-welcome-machine-id"));
+    const bootstrap = fake.execs.findIndex((command) => command.includes("cloud-bootstrap"));
+    const repair = fake.execs.findIndex((command) => command.includes("mv -f") && command.includes("cloud-welcome-machine-id"));
+    expect(identityCheck).toBeGreaterThanOrEqual(0);
+    expect(repair).toBeGreaterThan(identityCheck);
+    expect(bootstrap).toBeGreaterThan(repair);
   });
 
   test("a heal that leaves the daemon untrusted fails closed instead of returning an unusable endpoint", async () => {
