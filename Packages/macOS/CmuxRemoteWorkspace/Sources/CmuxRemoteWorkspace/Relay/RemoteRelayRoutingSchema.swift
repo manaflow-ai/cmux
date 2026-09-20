@@ -42,7 +42,7 @@ struct RemoteRelayRoutingSchema {
         case "agent.restore.admit": return surface.union(["kind", "session_id", "record_session_id"])
         case "agent.restore.release": return surface.union(["kind", "session_id", "claim_id"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
-        case "notification.create", "notification.create_for_target":
+        case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])
         default: return nil
         }

@@ -113,8 +113,8 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
-    @Test("relay notifications require an explicit owned surface")
-    func notificationRequiresOwnedSurface() {
+    @Test("relay notification delivery is confined to the targeted method")
+    func notificationCreateCannotUseRehomingPath() {
         let policy = RemoteRelayAuthorizationPolicy()
         let workspaceID = UUID()
         let surfaceID = UUID()
@@ -123,16 +123,16 @@ struct RemoteRelayAuthorizationPolicyTests {
             parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
-        ) == .allowed)
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay method is not permitted"
+        ))
         #expect(policy.validate(
-            method: "notification.create",
-            parameters: ["workspace_id": workspaceID.uuidString],
+            method: "notification.create_for_target",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
             ownerWorkspaceID: workspaceID,
             surfaceIDs: [surfaceID]
-        ) == .denied(
-            code: "remote_relay_surface_denied",
-            message: "Relay method requires an explicit surface selector"
-        ))
+        ) == .allowed)
     }
 
     @Test("respawn planner quotes remote directories and classifies transports")

@@ -52,7 +52,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "notification.create",
         "notification.create_for_target",
     ]).union(tmuxCompatibleMethods)
 
@@ -67,7 +66,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "agent.restore.release",
         "surface.read_text",
         "surface.read_selection",
-        "notification.create",
         "notification.create_for_target",
         "surface.report_tty",
         "surface.report_pwd",
@@ -84,7 +82,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.split",
         "surface.close",
         "surface.send_text",
-        "notification.create",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
