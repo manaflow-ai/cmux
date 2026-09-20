@@ -297,8 +297,7 @@ extension ControlWorkspaceContext {
             reorderManyDuplicateWorkspace: "",
             reorderManyWorkspaceNotFound: "",
             reorderManyInvalidWorkspace: "",
-            reorderManyTabManagerUnavailable: "",
-            relayOwnerUnavailable: ""
+            reorderManyTabManagerUnavailable: "", relayOwnerUnavailable: ""
         )
     }
 
