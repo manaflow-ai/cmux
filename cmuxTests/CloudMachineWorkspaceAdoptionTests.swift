@@ -9,6 +9,36 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudMachineWorkspaceAdoptionTests {
+    @Test("Abandoning the last creating card leaves no orphan and keeps the window usable")
+    func cancellationOfLastWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            app.manager.closeWorkspace(app.workspace, recordHistory: false)
+            #expect(app.manager.tabs.map(\.id) == [pending.id])
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            #expect(app.manager.tabs.count == 1)
+            #expect(app.manager.tabs.first?.id != pending.id)
+            #expect(app.manager.tabs.first?.panels.values.contains { $0 is CloudVMLoadingPanel } == false)
+            let remaining = app.manager.tabs.map(\.id)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            #expect(app.manager.tabs.map(\.id) == remaining)
+        }
+    }
+
+    @Test("Dismissal preserves an adopted terminal")
+    func adoptedWorkspaceIsNotDisposable() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let panel = try #require(app.workspace.focusedTerminalPanel)
+            NewMachineSheetPresenter.closeReservedWorkspace(app.workspace.id)
+            #expect(app.manager.tabs.contains { $0.id == app.workspace.id })
+            #expect(app.workspace.panels[panel.id] === panel)
+        }
+    }
+
     @Test("A create adopts the reserved workspace and tab once without selecting it")
     func adoptionAndReconnect() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
