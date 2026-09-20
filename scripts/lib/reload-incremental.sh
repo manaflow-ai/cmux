@@ -99,6 +99,25 @@ reload_incremental_app_digest() {
   reload_incremental_files_digest "${digest_inputs[@]}"
 }
 
+# Identity of the cmux-tui client a reload would bundle, so a reuse key follows the
+# client itself rather than the path or URL it comes from. A client preserved from
+# the built app is already covered by that app's digest. Fails when the source
+# cannot be resolved; the caller must then redo the install instead of reusing.
+reload_incremental_tui_client_identity() {
+  local installer="$1"
+  local built_app="$2"
+  local manifest_url="${3:-}"
+  if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$built_app/Contents/Resources/bin/cmux-tui" ]]; then
+    printf 'preserved\n'
+    return 0
+  fi
+  local installer_args=(--print-source-identity)
+  if [[ -n "$manifest_url" ]]; then
+    installer_args+=(--manifest-url "$manifest_url")
+  fi
+  "$installer" "${installer_args[@]}"
+}
+
 reload_incremental_output_digest() {
   local output="$1"
   if [[ -f "$output" ]]; then

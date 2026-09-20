@@ -1324,8 +1324,6 @@ RELOAD_INPUT_MANIFEST="$(printf '%s\n' \
   "iroh_relay=$CMUX_IROH_V2_FORCE_RELAY_VALUE" "auth_origin=$CMUX_AUTH_WWW_ORIGIN_VALUE" \
   "www_origin=$CMUX_WWW_ORIGIN_VALUE" "prod_auth=$PROD_AUTH" \
   "auth_file=$AUTH_CREDENTIALS_FILE" "auth_profile=$AUTH_PROFILE" \
-  "tui_manifest=$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
-  "tui_local=${CMUX_TUI_CLIENT_LOCAL:-}" "tui_skip=${CMUX_SKIP_CMUX_TUI_CLIENT:-0}" \
   "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "cmuxd=$RELOAD_CMUXD_SOURCE_DIGEST" \
   "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$RELOAD_SCRIPT_DIGEST")"
 
@@ -1733,7 +1731,15 @@ XCODEBUILD_OUTPUT_VALID=1
 # The app xcodebuild just produced is the main input of the post-build work. Its
 # fingerprint covers every compiled source and resource, whether the change was
 # uncommitted, committed, or came from switching branches.
+# The bundled cmux-tui client comes from outside the checkout, and a rolling manifest
+# URL or a local path can serve a new client under the same name. Key on the client
+# itself; when it cannot be resolved, redo the post-build work.
+RELOAD_TUI_CLIENT_RESOLVED=1
+RELOAD_TUI_CLIENT_IDENTITY="$(reload_incremental_tui_client_identity \
+  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH" "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE")" \
+  || { RELOAD_TUI_CLIENT_RESOLVED=0; RELOAD_TUI_CLIENT_IDENTITY="unresolved"; }
 RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "${RELOAD_INPUT_MANIFEST}
+tui_client=${RELOAD_TUI_CLIENT_IDENTITY}
 built_app=$(reload_incremental_app_digest "$APP_PATH")")"
 reload_phase_finished built_app_fingerprint
 RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
@@ -1751,7 +1757,7 @@ fi
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
-  if [[ -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" \
+  if [[ "$RELOAD_TUI_CLIENT_RESOLVED" -eq 1 && -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" \
       && /usr/bin/codesign --verify --deep --strict "$TAG_APP_FINAL_PATH" >/dev/null 2>&1 \
       && ! reload_incremental_needs_update "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$TAG_APP_FINAL_PATH"; then
     APP_PATH="$TAG_APP_FINAL_PATH"; TAG_APP_STAGING_PATH=""; RELOAD_POSTBUILD_NOOP=1
