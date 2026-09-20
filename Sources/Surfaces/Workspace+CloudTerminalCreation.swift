@@ -44,6 +44,17 @@ extension Workspace {
     func cloudTerminalSourcePlacement(forPanel panelID: UUID) -> CloudTerminalSourcePlacement? {
         guard panels[panelID] != nil else { return nil }
         let catalog = SurfaceCatalog.shared
+        if let projection = catalog.projection(forPanel: panelID) {
+            guard projection.workspaceID == id, !projection.resource.machine.isLocal else { return nil }
+            let resource = catalog.resources[projection.resource]
+            let remoteWorkspaceID = projection.remoteWorkspaceID ?? resource.flatMap {
+                catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: $0)
+            }
+            return CloudTerminalSourcePlacement(
+                machine: projection.resource.machine, resource: resource,
+                remoteWorkspaceID: remoteWorkspaceID, remoteTabID: projection.remoteTabID
+            )
+        }
         if let record = catalog.projectionRecord(forPanel: panelID), !record.resource.machine.isLocal {
             let resource = catalog.resources[record.resource]
             let remoteWorkspaceID = record.remoteWorkspaceID ?? resource.flatMap {
