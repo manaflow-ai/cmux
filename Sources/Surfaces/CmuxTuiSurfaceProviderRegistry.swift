@@ -104,30 +104,16 @@ final class CmuxTuiSurfaceProviderRegistry {
     var creationScope: UUID? { !isRetired && isCloudEnabled() ? creationEpoch : nil }
 
     /// Publishes the create response's friendly name before the first workspace bind.
-    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) async {
+    /// The response need not contain private addresses; provider discovery still
+    /// owns transport initialization and registration.
+    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) {
         guard let scope, scope == creationScope, let catalog else { return }
-        let addresses = [summary.addressIPv4, summary.addressIPv6].compactMap { $0 }
-        // Older responses without addresses still use normal discovery. A known
-        // provider bypasses discovery, so it must never precede its private route.
-        guard !addresses.isEmpty else { return }
+        // A replay cannot overwrite names or status already accepted by discovery.
+        guard catalog.machines[.cloud(summary.id)] == nil else { return }
         refreshGeneration &+= 1
-        let generation = refreshGeneration
-        await links.setPrivateAddresses(addresses, for: summary.id)
-        guard scope == creationScope, generation == refreshGeneration, !Task.isCancelled else { return }
-        installProvider(summary: summary, catalog: catalog)
-    }
-
-    private func installProvider(summary: VMSummary, catalog: SurfaceCatalog) {
-        if let provider = providers[summary.id] {
-            provider.update(summary: summary)
-        } else {
-            let provider = CmuxTuiSurfaceProvider(
-                summary: summary, links: links, catalog: catalog,
-                portForwards: portForwards, portAccessStore: portAccess
-            )
-            providers[summary.id] = provider
-            catalog.register(provider)
-        }
+        catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
+            from: summary, linkState: .connecting, linkError: nil, stats: nil
+        ))
     }
 
     /// True while the periodic fleet read is scheduled.
@@ -483,7 +469,16 @@ final class CmuxTuiSurfaceProviderRegistry {
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
             guard generation == refreshGeneration else { return nil }
-            installProvider(summary: summary, catalog: catalog)
+            if let provider = providers[summary.id] {
+                provider.update(summary: summary)
+            } else {
+                let provider = CmuxTuiSurfaceProvider(
+                    summary: summary, links: links, catalog: catalog,
+                    portForwards: portForwards, portAccessStore: portAccess
+                )
+                providers[summary.id] = provider
+                catalog.register(provider)
+            }
         }
         return page.vms.compactMap { providers[$0.id] }
     }
@@ -512,7 +507,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask = nil
         isFeatureSuspended = false
         let retiringProviders = providers
-        for id in retiringProviders.keys { catalog?.unregister(machine: .cloud(id)) }
+        let retiredIDs = Set(retiringProviders.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
+        for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         for provider in retiringProviders.values { await provider.stop() }
         let teardowns = Array(machineTeardowns.values)

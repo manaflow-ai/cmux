@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTerminal
 import Foundation
 
 /// Captures the initiating window before creation suspends; completion never reselects it.
@@ -40,6 +41,7 @@ struct CloudWorkspaceCreationHost {
         if focus, manager.selectedTabId == selectedWorkspaceID, manager.window?.isKeyWindow != false {
             manager.selectWorkspace(workspace)
             SurfacePaneFactory.focus(panelID: reservation.panelID, in: workspace.id)
+            workspace.terminalPanel(for: reservation.panelID)?.surface.requestInputDemandSurfaceStartIfNeeded()
         }
         return reservation
     }

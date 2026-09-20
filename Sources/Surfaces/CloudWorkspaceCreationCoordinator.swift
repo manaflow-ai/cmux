@@ -86,6 +86,9 @@ final class CloudWorkspaceCreationCoordinator {
         } else if let existingWorkspace {
             receipt = SurfaceWorkspaceCreationReceipt(workspace: existingWorkspace, terminal: existingTerminal, cursor: nil)
         } else {
+            // The shared admission boundary is the daemon's identity receipt,
+            // not PTY attachment or shell readiness. Before it, the existing
+            // workspace retains input ownership; afterwards the manual pane does.
             receipt = try await operation.provider.createRemoteWorkspaceReceipt(name: name)
         }
         try check(operation, catalog: catalog)

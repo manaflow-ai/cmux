@@ -10,31 +10,43 @@ import Testing
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
-    @Test("Create receipts publish friendly names before workspace binding and reject old accounts")
+    @Test("Create receipts publish friendly names without registering an unroutable provider")
     func createdMachineNameIsAvailableWithoutDiscovery() async {
         let catalog = SurfaceCatalog()
+        var summary = machine("vm-internal-id")
+        summary.slug = "bright-teal-otter"
+        var discovered = summary
+        discovered.addressIPv4 = "10.16.0.7"
+        var lists = 0
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
-            listPage: { Issue.record("A create receipt must not require another list request"); return nil }
+            listPage: { lists += 1; return VMListPage(vms: [discovered], limits: nil) }
         )
         registry.start(catalog: catalog)
         let scope = registry.creationScope
-        var summary = machine("vm-internal-id")
-        summary.slug = "bright-teal-otter"
-        summary.addressIPv4 = "10.16.0.7"
-        await registry.recordCreatedMachine(summary, scope: scope)
+        registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
+        #expect(registry.provider(machineID: summary.id) == nil)
+        #expect(lists == 0)
         #expect(await registry.privateRoute(machineID: summary.id) == "ws://10.16.0.7:1337/v1/link")
+        #expect(lists == 1)
         let provider = registry.provider(machineID: summary.id)
-        await registry.recordCreatedMachine(summary, scope: scope)
+        var renamed = discovered
+        renamed.displayName = "My renamed machine"
+        provider?.update(summary: renamed)
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.first?.name == "My renamed machine")
         #expect(registry.provider(machineID: summary.id) === provider)
         #expect(catalog.snapshot.machines.count == 1)
         await registry.accessDidEnd()
         registry.start(catalog: catalog)
-        await registry.recordCreatedMachine(summary, scope: scope)
+        registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.isEmpty)
+        registry.recordCreatedMachine(summary, scope: registry.creationScope)
+        #expect(catalog.snapshot.machines.count == 1)
         await registry.accessDidEnd()
+        #expect(catalog.snapshot.machines.isEmpty, "Account teardown also removes receipts that have no provider yet")
     }
 
     @Test("A saved machine can resolve its private route before the first background list")
