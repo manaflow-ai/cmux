@@ -1099,12 +1099,12 @@ final class SurfaceCatalog {
         _ previous: SurfaceProjection,
         withPanel panelID: UUID,
         in workspaceID: UUID,
-        remotePlacement: SurfaceRemotePlacement?
+        remotePlacement: SurfaceRemotePlacement?,
+        preservingSavedPlacement: Bool = false
     ) {
-        let views = resources[previous.resource]?.remoteViews
+        // Exact restores retain saved identity; legacy replacements may infer one live view.
+        let views = preservingSavedPlacement ? nil : resources[previous.resource]?.remoteViews
         let exactView = views?.first { $0.tabID == previous.remoteTabID }
-        // A dead saved ID cannot describe the rematerialized terminal. A unique
-        // live view is unambiguous; several live views must remain unresolved.
         let view = exactView ?? (views?.count == 1 ? views?.first : nil)
         let savedWorkspace = views == nil ? previous.remoteWorkspaceID : nil
         let savedTab = views == nil ? previous.remoteTabID : nil

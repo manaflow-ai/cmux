@@ -8818,7 +8818,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let source = cloudTerminalSourcePlacement(forPanel: panelId) {
             guard initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
                   remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty,
-                  !suppressWorkspaceRemoteStartupCommand else {
+                  initialDividerPosition == nil, !suppressWorkspaceRemoteStartupCommand else {
                 return rejectCloudTerminalCreation(source: source, panelID: panelId)
             }
             return routeCloudPaneTerminalSplit(

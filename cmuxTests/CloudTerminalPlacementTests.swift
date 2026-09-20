@@ -236,6 +236,7 @@ struct CloudTerminalPlacementTests {
             let before = Set(workspace.panels.keys)
             #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialCommand: "echo must-not-run-locally").isAccepted)
             #expect(!workspace.newTerminalSplitOutcome(from: source, orientation: .horizontal, workingDirectory: "/tmp").isAccepted)
+            #expect(!workspace.newTerminalSplitOutcome(from: source, orientation: .horizontal, initialDividerPosition: 0.3).isAccepted)
             #expect(Set(workspace.panels.keys) == before)
             #expect(workspace.cloudPaneCreationFailureStore.failure?.machine == provider.machine)
         }

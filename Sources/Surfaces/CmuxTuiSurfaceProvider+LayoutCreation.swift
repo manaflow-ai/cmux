@@ -14,6 +14,19 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         splitDirection: SurfaceSplitDirection?,
         request: CloudTerminalCreationRequest
     ) async throws -> SurfaceResource {
+        try await terminalMutationQueue.run {
+            try await self.createTerminalInMutationTurn(
+                nearTabID: nearTabID, splitDirection: splitDirection, request: request
+            )
+        }
+    }
+
+    private func createTerminalInMutationTurn(
+        nearTabID: String,
+        splitDirection: SurfaceSplitDirection?,
+        request: CloudTerminalCreationRequest
+    ) async throws -> SurfaceResource {
+        guard !isFeatureSuspended else { throw ProviderError.machineAsleep(machineID) }
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {

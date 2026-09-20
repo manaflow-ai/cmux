@@ -71,6 +71,8 @@ final class CloudTerminalPaneReservation {
     let workspaceID: UUID
     let panelID: UUID
     let sourcePlacement: CloudTerminalSourcePlacement
+    /// An existing terminal's saved target, never the source tab of a new create.
+    let attachmentPlacement: SurfaceResourcePlacement?
     let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
     /// When the pane was inserted. Adoption hands the elapsed wait to the
@@ -86,12 +88,18 @@ final class CloudTerminalPaneReservation {
         panelID: UUID,
         machine: SurfaceMachineID,
         sourcePlacement: CloudTerminalSourcePlacement? = nil,
+        attachmentPlacement: SurfaceResourcePlacement? = nil,
         inputRelay: CloudOptimisticInputRelay = CloudOptimisticInputRelay(),
         startedAt: ContinuousClock.Instant = .now
     ) {
         self.workspaceID = workspaceID
         self.panelID = panelID
-        self.sourcePlacement = sourcePlacement ?? CloudTerminalSourcePlacement(machine: machine)
+        self.sourcePlacement = sourcePlacement ?? CloudTerminalSourcePlacement(
+            machine: machine,
+            remoteWorkspaceID: attachmentPlacement?.remoteWorkspaceID,
+            remoteTabID: attachmentPlacement?.remoteTabID
+        )
+        self.attachmentPlacement = attachmentPlacement
         self.inputRelay = inputRelay
         self.startedAt = startedAt
     }
@@ -100,4 +108,27 @@ final class CloudTerminalPaneReservation {
     var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
     var remoteTabID: String? { sourcePlacement.remoteTabID }
     var elapsed: Duration { ContinuousClock.now - startedAt }
+
+    /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
+    func validatedAttachmentPlacement(
+        resourceID: SurfaceResourceID,
+        remoteTabID: String?,
+        materializedPlacement: SurfaceRemotePlacement? = nil,
+        catalog: SurfaceCatalog
+    ) throws -> SurfaceRemotePlacement? {
+        guard let expected = attachmentPlacement else { return materializedPlacement }
+        guard resourceID == expected.resource, resourceID.machine == machine,
+              remoteTabID == nil || expected.remoteTabID == nil || remoteTabID == expected.remoteTabID else {
+            throw CloudDiagnosticFailure.placement
+        }
+        guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
+        guard let view = try? catalog.remoteView(
+            for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
+        ) else { throw CloudDiagnosticFailure.placement }
+        if let materializedPlacement,
+           materializedPlacement.workspaceID != view.workspace.id || materializedPlacement.tabID != view.tabID {
+            throw CloudDiagnosticFailure.placement
+        }
+        return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+    }
 }

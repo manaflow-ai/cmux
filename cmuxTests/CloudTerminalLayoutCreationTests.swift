@@ -74,7 +74,7 @@ struct CloudTerminalLayoutCreationTests {
             responses.append(.success(try Self.snapshot(revision: String(revision))))
             responses.append(.failure(.exited(status: 1, output: #"{"code":"revision.conflict"}"#)))
         }
-        responses += [.success(try Self.snapshot(revision: "18")), .success(try Self.created())]
+        responses += [.success(try Self.snapshot(revision: "18")), .success(try Self.created(revision: "19"))]
         let runner = LayoutCreationRunner(responses: responses)
         let result = try await operation(runner).run(
             nearTabID: "tab_source", splitDirection: .right,
@@ -98,6 +98,64 @@ struct CloudTerminalLayoutCreationTests {
             try await operation(runner).run(nearTabID: "tab_source", splitDirection: .down)
         }
         #expect(await runner.commands.count == 2)
+    }
+
+    @Test("An exhausted operation budget cannot issue another create")
+    func operationDeadlineBoundsConflictReconciliation() async throws {
+        let runner = LayoutCreationRunner(responses: [])
+        var operation = operation(runner)
+        operation.commandDeadline = .zero
+        await #expect(throws: CloudDiagnosticFailure.timeout) {
+            try await operation.run(nearTabID: "tab_source", splitDirection: .right)
+        }
+        #expect(await runner.commands.isEmpty)
+    }
+
+    @MainActor
+    @Test("Parallel Cloud creates keep one machine mutation turn", .timeLimit(.minutes(1)), arguments: [false, true])
+    func parallelCreatesPreservePlacement(cancelQueuedIntent: Bool) async throws {
+        let queue = CloudTerminalMutationQueue()
+        let runner = BurstLayoutCreationRunner()
+        // Admission is synchronous: all twelve intents are reserved before the
+        // first snapshot is released. Each body executes the production operation.
+        let tasks = (0..<12).map { index in
+            queue.enqueue {
+                try await CloudTerminalLayoutCreation(
+                    machine: Self.machine, socketPath: Self.socketPath, commandRunner: runner
+                ).run(
+                    nearTabID: "tab_source", splitDirection: index.isMultiple(of: 2) ? .right : nil,
+                    idempotencyKey: "intent-\(index)", expectedWorkspaceID: "ws_target"
+                )
+            }
+        }
+        try await withTaskCancellationHandler {
+            var started = runner.firstSnapshot.makeAsyncIterator()
+            _ = try #require(await started.next())
+            if cancelQueuedIntent { tasks[3].cancel() }
+
+            // Another machine must continue while this machine's read is held.
+            let otherMachineQueue = CloudTerminalMutationQueue()
+            #expect(try await otherMachineQueue.run { SurfaceMachineID.cloud("other") } == .cloud("other"))
+            await runner.releaseFirstSnapshot()
+
+            var terminalIDs: Set<String> = []
+            for (index, task) in tasks.enumerated() {
+                if cancelQueuedIntent, index == 3 {
+                    await #expect(throws: CancellationError.self) { try await task.value }
+                } else {
+                    let result = try await task.value
+                    #expect(result.workspaceID == "ws_target")
+                    #expect(result.created.terminalID == "term_intent-\(index)")
+                    terminalIDs.insert(result.created.terminalID)
+                }
+            }
+            #expect(terminalIDs.count == (cancelQueuedIntent ? 11 : 12))
+            #expect(await runner.maximumConcurrentTransactions == 1)
+            #expect(await runner.conflicts == 0)
+        } onCancel: {
+            tasks.forEach { $0.cancel() }
+            Task { await runner.releaseFirstSnapshot() }
+        }
     }
 
     @Test
@@ -169,7 +227,7 @@ struct CloudTerminalLayoutCreationTests {
         CloudTerminalLayoutCreation(machine: Self.machine, socketPath: Self.socketPath, commandRunner: runner)
     }
 
-    private static func snapshot(revision: String = "10", paneID: String = "pane_target", workspaceID: String = "ws_target") throws -> Data {
+    fileprivate nonisolated static func snapshot(revision: String = "10", paneID: String = "pane_target", workspaceID: String = "ws_target") throws -> Data {
         try JSONSerialization.data(withJSONObject: [
             "cursor": ["generation": "fixture", "revision": revision],
             "workspaces": [["id": "ws_focused", "focused": true], ["id": workspaceID, "focused": false]],
@@ -181,9 +239,9 @@ struct CloudTerminalLayoutCreationTests {
         ] as [String: Any])
     }
 
-    private static func created() throws -> Data {
+    private static func created(revision: String = "12") throws -> Data {
         try JSONSerialization.data(withJSONObject: [
-            "generation": "fixture", "revision": "12",
+            "generation": "fixture", "revision": revision,
             "value": ["terminal_id": "term_created", "workspace_id": "ws_target", "tab_id": "tab_created"]
         ] as [String: Any])
     }
@@ -201,5 +259,55 @@ private actor LayoutCreationRunner: CloudTuiCommandRunning {
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
         return try responses.removeFirst().get()
+    }
+}
+
+/// Holds a transaction between its read and write so parallel admission cannot
+/// be mistaken for a set of synchronous, already-completed calls.
+private actor BurstLayoutCreationRunner: CloudTuiCommandRunning {
+    let firstSnapshot: AsyncStream<Bool>
+    private let firstSnapshotContinuation: AsyncStream<Bool>.Continuation
+    private let release: AsyncStream<Bool>
+    private let releaseContinuation: AsyncStream<Bool>.Continuation
+    private var hasRead = false
+    private var revision = 10
+    private var activeTransactions = 0
+    private(set) var maximumConcurrentTransactions = 0
+    private(set) var conflicts = 0
+
+    init() {
+        (firstSnapshot, firstSnapshotContinuation) = AsyncStream.makeStream(of: Bool.self)
+        (release, releaseContinuation) = AsyncStream.makeStream(of: Bool.self)
+    }
+
+    func releaseFirstSnapshot() {
+        releaseContinuation.yield(true)
+        releaseContinuation.finish()
+    }
+
+    func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
+        if arguments.operation == "session.snapshot" {
+            let snapshot = try CloudTerminalLayoutCreationTests.snapshot(revision: String(revision))
+            activeTransactions += 1
+            maximumConcurrentTransactions = max(maximumConcurrentTransactions, activeTransactions)
+            if !hasRead {
+                hasRead = true
+                firstSnapshotContinuation.yield(true)
+                for await _ in release { break }
+                try Task.checkCancellation()
+            }
+            return snapshot
+        }
+        activeTransactions -= 1
+        guard arguments.params["expected_revision"] as? String == String(revision) else {
+            conflicts += 1
+            throw CloudMachineLink.LinkError.exited(status: 1, output: #"{"code":"revision.conflict"}"#)
+        }
+        revision += 1
+        let key = arguments.idempotencyKey ?? "missing"
+        return try JSONSerialization.data(withJSONObject: [
+            "generation": "fixture", "revision": String(revision),
+            "value": ["terminal_id": "term_\(key)", "workspace_id": "ws_target", "tab_id": "tab_\(key)"]
+        ] as [String: Any])
     }
 }

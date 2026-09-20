@@ -38,8 +38,8 @@ extension Workspace {
                 workspaceID: id,
                 panelID: panelID,
                 machine: projection.resource.machine,
-                sourcePlacement: CloudTerminalSourcePlacement(
-                    machine: projection.resource.machine,
+                attachmentPlacement: SurfaceResourcePlacement(
+                    resource: projection.resource,
                     remoteWorkspaceID: projection.remoteWorkspaceID,
                     remoteTabID: projection.remoteTabID
                 ),
@@ -57,10 +57,12 @@ extension Workspace {
         machine: SurfaceMachineID,
         at destination: SurfaceDestination,
         focus: Bool,
-        sourcePlacement: CloudTerminalSourcePlacement? = nil
+        sourcePlacement: CloudTerminalSourcePlacement? = nil,
+        attachmentPlacement: SurfaceResourcePlacement? = nil
     ) -> CloudTerminalPaneReservation? {
         guard !isRetiredFromOwningTabManager,
               sourcePlacement.map({ $0.machine == machine }) ?? true,
+              attachmentPlacement.map({ $0.resource.machine == machine }) ?? true,
               surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
@@ -70,7 +72,7 @@ extension Workspace {
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(
             workspaceID: id, panelID: panel.id, machine: machine,
-            sourcePlacement: sourcePlacement, inputRelay: relay
+            sourcePlacement: sourcePlacement, attachmentPlacement: attachmentPlacement, inputRelay: relay
         )
         // Insertion can synchronously publish focus/selection. Establish Cloud
         // identity first so a reentrant action cannot observe a local surface.
