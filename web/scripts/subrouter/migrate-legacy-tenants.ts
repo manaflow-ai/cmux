@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { StackServerApp } from "@stackframe/stack";
+import { StackServerApp } from "@hexclave/next";
 import { Pool } from "pg";
 
 import {
