@@ -265,7 +265,7 @@ final class HiveComputersService {
                 return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
             },
             isSignedIn: identity != nil, error: error ?? directory?.registryError,
-            discoveryEnabled: registry.preferences?.discoveryEnabled ?? false,
+            discoveryEnabled: registry.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard),
             incomingAccessEnabled: registry.preferences?.incomingAccessEnabled ?? false
         )
     }
