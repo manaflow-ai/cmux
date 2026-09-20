@@ -9563,8 +9563,6 @@ final class GhosttySurfaceScrollView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
-    private var isPointerOverScrollbar = false
-    private var scrollbarRevealTask: Task<Void, Never>?
     private var lastSentRow: Int?
     var notificationScrollRestoreState = NotificationScrollRestoreState()
     /// Single source of truth for terminal follow/review intent. Layout and
@@ -10024,7 +10022,6 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = true
-            self?.updateScrollbarVisualVisibility()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10033,7 +10030,6 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            self?.updateScrollbarVisualVisibility()
             // Final user-gesture check to settle follow/review intent.
             self?.handleLiveScroll()
         })
@@ -10043,10 +10039,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
-            self?.isLiveScrolling = true
-            self?.revealScrollbarForInteraction()
             self?.handleLiveScroll()
-            self?.updateScrollbarVisualVisibility()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10094,7 +10087,6 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.revealScrollbarForInteraction()
                 if notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
                     as? Bool == true {
                     self.scrollbackViewportIntent = self.scrollbackViewportIntent
@@ -10155,14 +10147,6 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handleTerminalScrollBarPreferenceChange()
         })
 
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleTerminalScrollBarPreferenceChange()
-        })
-
     }
 
     private func applyKeyboardCopyModeBadgeFonts() {
@@ -10188,7 +10172,6 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        scrollbarRevealTask?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -10209,18 +10192,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        super.mouseEntered(with: event)
-        isPointerOverScrollbar = true
-        updateScrollbarVisualVisibility()
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        isPointerOverScrollbar = false
-        updateScrollbarVisualVisibility()
+        guard scrollView.hasVerticalScroller,
+              NSScroller.preferredScrollerStyle == .legacy else { return }
+        scrollView.flashScrollers()
     }
 
     override func updateTrackingAreas() {
@@ -10238,7 +10212,6 @@ final class GhosttySurfaceScrollView: NSView {
             rect: convert(scroller.bounds, from: scroller),
             options: [
                 .mouseMoved,
-                .mouseEnteredAndExited,
                 .activeInKeyWindow,
             ],
             owner: self,
@@ -13107,10 +13080,12 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // AppKit owns the style (Show scroll bars preference); the policy owns presence.
+        // AppKit owns style and transient visibility, including Automatic's
+        // input-device choice. Do not set alpha or add a separate hide timer.
+        // autohidesScrollers controls document-fit removal, not overlay fading;
+        // disabling it keeps the legacy gutter stable without pinning overlays.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
-        updateScrollbarVisualVisibility()
         return didChange
     }
 
@@ -13172,48 +13147,6 @@ final class GhosttySurfaceScrollView: NSView {
         guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
         guard TerminalScrollBarSettings.isVisible() else { return false }
         return true
-    }
-
-    private func terminalScrollBarDisplayPreference() -> TerminalScrollBarDisplayPreference {
-        switch UserDefaults.standard.string(forKey: "AppleShowScrollBars")?.lowercased() {
-        case "always":
-            return .always
-        case "whenscrolling":
-            return .whenScrolling
-        default:
-            return .automatic
-        }
-    }
-
-    private func updateScrollbarVisualVisibility() {
-        guard let scroller = scrollView.verticalScroller else { return }
-        guard scrollView.scrollerStyle == .legacy else {
-            scroller.alphaValue = 1
-            return
-        }
-        scroller.alphaValue = TerminalScrollBarDisplayPolicy().shouldDisplay(
-            allowedBySettings: terminalScrollBarAllowedBySettings(),
-            scrollerStyle: .legacy,
-            hasScrollback: surfaceHasScrollback(),
-            preference: terminalScrollBarDisplayPreference(),
-            isPointerOverScrollbar: isPointerOverScrollbar,
-            isLiveScrolling: isLiveScrolling || scrollbarRevealTask != nil
-        ) ? 1 : 0
-    }
-
-    private func revealScrollbarForInteraction() {
-        guard scrollView.hasVerticalScroller,
-              scrollView.scrollerStyle == .legacy else { return }
-        scrollView.verticalScroller?.alphaValue = 1
-        scrollView.flashScrollers()
-        scrollbarRevealTask?.cancel()
-        scrollbarRevealTask = Task { @MainActor [weak self] in
-            try? await ContinuousClock().sleep(for: .milliseconds(900))
-            guard !Task.isCancelled, let self else { return }
-            self.scrollbarRevealTask = nil
-            self.isLiveScrolling = false
-            self.updateScrollbarVisualVisibility()
-        }
     }
 
     private func surfaceHasScrollback() -> Bool? {
