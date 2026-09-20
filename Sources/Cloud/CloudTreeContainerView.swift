@@ -34,6 +34,7 @@ final class CloudTreeContainerView: NSView {
         outlineView.delegate = coordinator
         outlineView.target = coordinator
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
+        outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.registerForDraggedTypes([.cloudSidebarRow, DragOverlayRoutingPolicy.bonsplitTabTransferType])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
