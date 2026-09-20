@@ -12469,6 +12469,36 @@ impl Mux {
         mutation: &WorkspaceMutation,
         on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalPlacementResult> {
+        self.create_terminal_in_workspace_with_initial_output(
+            workspace,
+            argv,
+            cwd,
+            name,
+            size,
+            requested_terminal_id,
+            expected_generation,
+            expected_revision,
+            mutation,
+            on_exit,
+            Vec::new(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn create_terminal_in_workspace_with_initial_output(
+        self: &Arc<Self>,
+        workspace: WorkspaceId,
+        argv: Option<Vec<String>>,
+        cwd: Option<String>,
+        name: Option<String>,
+        size: Option<(u16, u16)>,
+        requested_terminal_id: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        on_exit: Option<TerminalOnExit>,
+        initial_output: Vec<u8>,
+    ) -> anyhow::Result<TerminalPlacementResult> {
         let workspace_key = self
             .state
             .lock()
@@ -12507,7 +12537,7 @@ impl Mux {
             expected_generation: expected_generation.map(str::to_string),
             expected_revision,
             on_exit: on_exit.unwrap_or_default(),
-            initial_output: Vec::new(),
+            initial_output,
         };
         let (placement, surface, created_path) = self.create_terminal_in_workspace_impl(
             workspace,

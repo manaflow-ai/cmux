@@ -34,13 +34,56 @@ beforeAll(() => {
 
 afterAll(async () => {
   if (database) {
-    for (const id of users) await database`delete from cloud_vms where user_id = ${id}`;
+    for (const id of users) {
+      await database`delete from cloud_vm_bases where created_by_user_id = ${id}`;
+      await database`delete from cloud_vms where user_id = ${id}`;
+    }
     await database.end();
   }
   await closeCloudDbForTests();
 });
 
 describe("Cloud welcome first-user eligibility", () => {
+  dbTest("Base and ordinary creates share one first-user grant; Base reset never rearms it", async () => {
+    const id = user();
+    const input = {
+      userId: id, billingTeamId: id, billingPlanId: "pro", billingCustomerType: "user" as const,
+      provider: "freestyle" as const, image: "welcome-fixture", maxActiveVms: null,
+    };
+    const base = await Effect.runPromise(repository.beginBaseOpen(input));
+    const baseInput = {
+      baseId: base.base.id, generation: base.generation.generation, vmId: base.vm.id,
+      providerVmId: `fixture-${base.vm.id}`, image: input.image, userId: id,
+    };
+    const first = await Effect.runPromise(repository.markBaseCreateRunning(baseInput));
+    expect(first.providerMetadata.cloudWelcomeEligible).toBe(true);
+    expect((await Effect.runPromise(repository.markBaseCreateRunning(baseInput))).providerMetadata.cloudWelcomeEligible).toBe(true);
+    expect((await create(id, `${id}-another-team`)).vm.providerMetadata.cloudWelcomeEligible).toBeUndefined();
+    const reset = await Effect.runPromise(repository.beginBaseReset(input));
+    const resetVm = await Effect.runPromise(repository.markBaseCreateRunning({
+      ...baseInput, baseId: reset.base.id, generation: reset.generation.generation,
+      vmId: reset.vm.id, providerVmId: `fixture-${reset.vm.id}`,
+    }));
+    expect(resetVm.providerMetadata.cloudWelcomeEligible).toBeUndefined();
+  });
+
+  dbTest("concurrent Base and ordinary successful finalizations grant exactly one machine", async () => {
+    const id = user();
+    const base = await Effect.runPromise(repository.beginBaseOpen({
+      userId: id, billingTeamId: id, billingPlanId: "pro", billingCustomerType: "user",
+      provider: "freestyle", image: "welcome-fixture", maxActiveVms: null,
+    }));
+    const ordinary = await create(id, `${id}-another-team`, randomUUID(), true, false);
+    const finalized = await Promise.all([
+      finish(ordinary.vm.id),
+      Effect.runPromise(repository.markBaseCreateRunning({
+        baseId: base.base.id, generation: base.generation.generation, vmId: base.vm.id,
+        providerVmId: `fixture-${base.vm.id}`, image: "welcome-fixture", userId: id,
+      })),
+    ]);
+    expect(finalized.filter(vm => vm.providerMetadata.cloudWelcomeEligible === true)).toHaveLength(1);
+  });
+
   dbTest("concurrent creations across teams grant one machine and replay keeps its receipt", async () => {
     const id = user();
     const keys = [randomUUID(), randomUUID()];
