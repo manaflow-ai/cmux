@@ -11,6 +11,48 @@ import Testing
 @MainActor
 @Suite("Recoverable main window lifecycle", .serialized)
 struct RecoverableMainWindowLifecycleTests {
+    @Test("Deleting a Cloud machine retires workspaces retained by a recoverable window")
+    func deletedCloudMachineCannotSurviveContextReplacement() throws {
+        _ = NSApplication.shared
+        let previousApp = AppDelegate.shared
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        window.orderBack(nil)
+        app.registerMainWindow(
+            window, windowId: windowID, tabManager: manager,
+            sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            manager.finalizeAllWorkspacesForWindowClose()
+            app.forgetRecoverableMainWindowRoute(windowId: windowID)
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(previousManager)
+            AppDelegate.shared = previousApp
+        }
+        let local = try #require(manager.selectedWorkspace)
+        let deleted = manager.addWorkspace(title: "Deleted Cloud", select: false)
+        let machineID = "delete-regression-" + UUID().uuidString.lowercased()
+        deleted.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machineID, isBase: false)
+        app.unregisterMainWindowContextForTesting(windowId: windowID)
+        app.tabManager = nil
+        #expect(app.mainWindowContexts.isEmpty)
+        #expect(app.liveWorkspaceIdentityTabManagers().contains { $0 === manager })
+
+        app.closeWorkspaces(forManagedCloudVMID: machineID)
+
+        #expect(manager.tabs.map(\.id) == [local.id])
+        #expect(deleted.cloudVMID == nil)
+        #expect(deleted.panels.isEmpty)
+        // Repeated deletion must be harmless to the local workspace.
+        app.closeWorkspaces(forManagedCloudVMID: machineID)
+        #expect(manager.tabs.map(\.id) == [local.id])
+        #expect(!local.panels.isEmpty)
+    }
+
     @Test("Production windowless prune preserves the orphaned session")
     func productionWindowlessPrunePreservesOrphanedSession() throws {
         _ = NSApplication.shared
