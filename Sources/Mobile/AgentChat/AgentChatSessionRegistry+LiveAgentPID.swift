@@ -2,6 +2,12 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
+enum AgentLiveProcessLookupResult: Sendable {
+    case found(Int)
+    case notFound
+    case unavailable
+}
+
 extension AgentChatSessionRegistry {
     /// Observe-floor liveness: the pid of a live foreground agent process
     /// matching `kind` under `surfaceID`'s process tree, or nil if none.
@@ -16,24 +22,61 @@ extension AgentChatSessionRegistry {
     /// classifier is shared with observe-floor detection, so argv-hosted agents
     /// (`node .../claude-code`, `npx .../codex`) rebind the same way they are
     /// first discovered.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func liveAgentPIDResult(
+        surfaceID: String,
+        kind: ChatAgentKind,
+        matchingSessionIDs expectedSessionIDs: Set<String>,
+        allowUnidentifiedFallback: Bool = false
+    ) async -> AgentLiveProcessLookupResult {
+        guard !expectedSessionIDs.isEmpty else { return .notFound }
+        let snapshot = await CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: true, includeCMUXScope: true, includeResources: false
+        )
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { return .unavailable }
+        guard let livePID = liveAgentPID(
+            in: snapshot, surfaceID: surfaceID, kind: kind,
+            matchingSessionIDs: expectedSessionIDs,
+            allowUnidentifiedFallback: allowUnidentifiedFallback,
+            processArgumentsAndEnvironment: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
+        ) else { return .notFound }
+        return .found(livePID)
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func liveAgentPID(
         surfaceID: String,
         kind: ChatAgentKind,
         matchingSessionIDs expectedSessionIDs: Set<String>,
         allowUnidentifiedFallback: Bool = false
-    ) -> Int? {
+    ) async -> Int? {
         guard !expectedSessionIDs.isEmpty else { return nil }
-        let snapshot = CmuxTopProcessSnapshot.capture(
+        let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
-            includeCMUXScope: true
+            includeCMUXScope: true, includeResources: false
         )
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { return nil }
         return liveAgentPID(
             in: snapshot,
             surfaceID: surfaceID,
             kind: kind,
             matchingSessionIDs: expectedSessionIDs,
             allowUnidentifiedFallback: allowUnidentifiedFallback,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+            processArgumentsAndEnvironment: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
         )
     }
 
