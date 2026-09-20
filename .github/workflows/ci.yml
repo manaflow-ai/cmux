@@ -1105,6 +1105,7 @@ jobs:
           done
 
       - name: Run remote tmux mirror detach and placement regressions
+        id: remote-tmux-mirror
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Closing a mirrored workspace must never kill the remote tmux session,
@@ -1152,6 +1153,39 @@ jobs:
               exit "$suite_status"
             done
           done
+
+      - name: Collect RemoteTmuxMirror crash diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -u
+          diagnostics="$RUNNER_TEMP/cmux-remote-tmux-mirror-diagnostics"
+          mkdir -p "$diagnostics"
+
+          # XCTest runs with an isolated HOME. Preserve its reports before the
+          # always-running app-host cleanup removes that home.
+          if [ -n "${CMUX_APP_HOST_HOME:-}" ] && [ -d "$CMUX_APP_HOST_HOME/.local/state/cmux/crash" ]; then
+            cp -R "$CMUX_APP_HOST_HOME/.local/state/cmux/crash" "$diagnostics/crash-reports" || true
+          fi
+
+          shopt -s nullglob
+          suite_logs=("$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt)
+          if [ "${#suite_logs[@]}" -gt 0 ]; then
+            cp "${suite_logs[@]}" "$diagnostics/" || true
+          fi
+
+          find "$diagnostics" -type f -print || true
+
+      - name: Upload RemoteTmuxMirror crash diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-remote-tmux-mirror-diagnostics-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-remote-tmux-mirror-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
