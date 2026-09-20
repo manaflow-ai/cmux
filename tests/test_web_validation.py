@@ -28,6 +28,39 @@ class WebValidationTests(unittest.TestCase):
                 self.assertTrue(gate.requires_web([path, "README.md"]))
         self.assertFalse(gate.requires_web(["README.md", "docs/cli.md", "Sources/AppDelegate.swift"]))
 
+    def test_pull_request_routes_from_the_merge_parent_when_the_event_base_is_gone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output([
+                    "git", "-c", "user.name=CI", "-c", "user.email=ci@example.test",
+                    "-c", "core.hooksPath=/dev/null", *args,
+                ], cwd=repo, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-q", "-b", "main")
+            (repo / "README.md").write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            git("branch", "feature")
+            (repo / "web").mkdir()
+            (repo / "web/main-only.ts").write_text("export const value = 1;\n")
+            git("add", ".")
+            git("commit", "-qm", "main gains a web file")
+            git("checkout", "-q", "feature")
+            (repo / "docs").mkdir()
+            (repo / "docs/note.md").write_text("docs only\n")
+            git("add", ".")
+            git("commit", "-qm", "docs")
+            git("checkout", "-q", "main")
+            git("merge", "-q", "--no-ff", "feature", "-m", "synthetic merge")
+            output = repo / "outputs"
+            output.write_text("")
+            # The event base is a commit this checkout does not have.
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "route"],
+                cwd=repo, env={**os.environ, "EVENT_NAME": "pull_request", "BASE_SHA": "1" * 40,
+                    "HEAD_SHA": git("rev-parse", "HEAD"), "GITHUB_OUTPUT": str(output)}, check=True,
+                capture_output=True)
+            self.assertEqual(output.read_text().strip(), "required=false")
+
     def test_real_pr_and_push_diffs_and_missing_history(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)
