@@ -639,6 +639,7 @@ final class SurfaceCatalog {
         let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
         let keyDestination = loadingReservation?.materializationDestination ?? destination
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: keyDestination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
+        if let loadingReservation { _ = try loadingReservation.loadingPanel(at: destination, machineID: id.machine.cloudMachineID) }
         if reuseExisting, let existing = projections.first(where: { projection in
             guard projection.resource == id, reuseInWorkspace == nil || projection.workspaceID == reuseInWorkspace else { return false }
             // Explicit placements must match their projection.
