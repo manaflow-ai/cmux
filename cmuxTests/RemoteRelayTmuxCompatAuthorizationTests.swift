@@ -204,7 +204,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let aliasWorkspace = try fixture.authorize(method: "workspace.current", params: [
             "preferred_workspace_id": fixture.workspace.id.uuidString,
         ])
-        #expect(aliasWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)
+        #expect(aliasWorkspace.errorResponse?.contains("remote_relay_method_denied") == true)
 
         let aliasSurface = try fixture.authorize(method: "surface.split", params: [
             "workspace_id": fixture.workspace.id.uuidString,

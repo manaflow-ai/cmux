@@ -9,7 +9,7 @@ struct RemoteRelayRoutingSchema {
         let terminal = surface.union(["terminal_id"])
         switch method {
         case "system.ping", "system.capabilities": return []
-        case "workspace.list", "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
+        case "workspace.list", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
         case "workspace.remote.reconnect": return surface
         case "workspace.equalize_splits": return workspace.union(["orientation"])
@@ -39,8 +39,6 @@ struct RemoteRelayRoutingSchema {
             return terminal.union(["claim_checkpoint_id", "claim_source", "claim_updated_at"])
         case "surface.resume.clear":
             return terminal.union(["checkpoint_id", "checkpointId", "source", "expected_updated_at", "agent_session_ended"])
-        case "agent.restore.admit": return surface.union(["kind", "session_id", "record_session_id"])
-        case "agent.restore.release": return surface.union(["kind", "session_id", "claim_id"])
         case "agent.resolve_delivery_target": return workspace.union(["tty_name", "tty_resolution"])
         case "notification.create_for_target":
             return surface.union(["title", "subtitle", "body", "reply_shape"])

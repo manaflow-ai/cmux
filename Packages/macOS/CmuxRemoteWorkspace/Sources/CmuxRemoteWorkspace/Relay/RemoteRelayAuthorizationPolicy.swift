@@ -33,7 +33,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     ]
 
     private static let workspaceRequiredMethods: Set<String> = Set([
-        "workspace.current",
         "workspace.remote.status",
         "workspace.remote.reconnect",
         "workspace.remote.terminal_session_launching",
@@ -44,8 +43,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
-        "agent.restore.admit",
-        "agent.restore.release",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
@@ -62,8 +59,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
-        "agent.restore.admit",
-        "agent.restore.release",
         "surface.read_text",
         "surface.read_selection",
         "notification.create_for_target",
