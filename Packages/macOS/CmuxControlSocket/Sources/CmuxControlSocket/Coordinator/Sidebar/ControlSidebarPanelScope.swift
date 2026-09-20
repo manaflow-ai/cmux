@@ -10,6 +10,9 @@ public struct ControlSidebarPanelScope: Sendable, Equatable {
     public let panelID: UUID
     /// The reporting terminal process generation, when supplied.
     public let terminalLifecycleID: UUID?
+    /// Relay owner and connection generation, when the report arrived over a relay.
+    public let remoteRelayOwnerWorkspaceID: UUID?
+    public let remoteRelayConnectionID: UUID?
 
     /// Creates a scope.
     ///
@@ -21,10 +24,14 @@ public struct ControlSidebarPanelScope: Sendable, Equatable {
     public init(
         workspaceID: UUID,
         panelID: UUID,
-        terminalLifecycleID: UUID? = nil
+        terminalLifecycleID: UUID? = nil,
+        remoteRelayOwnerWorkspaceID: UUID? = nil,
+        remoteRelayConnectionID: UUID? = nil
     ) {
         self.workspaceID = workspaceID
         self.panelID = panelID
         self.terminalLifecycleID = terminalLifecycleID
+        self.remoteRelayOwnerWorkspaceID = remoteRelayOwnerWorkspaceID
+        self.remoteRelayConnectionID = remoteRelayConnectionID
     }
 }

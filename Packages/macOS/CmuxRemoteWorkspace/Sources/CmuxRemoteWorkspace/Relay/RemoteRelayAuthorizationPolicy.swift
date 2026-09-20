@@ -35,7 +35,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
-        "workspace.remote.reconnect",
         "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "workspace.remote.terminal_session_end",

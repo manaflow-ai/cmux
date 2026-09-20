@@ -153,8 +153,18 @@ extension TerminalController {
         workspaceID: UUID,
         surfaceID: UUID,
         terminalLifecycleID: UUID?,
-        state: PanelShellActivityState
+        state: PanelShellActivityState,
+        remoteRelayOwnerWorkspaceID: UUID? = nil,
+        remoteRelayConnectionID: UUID? = nil
     ) -> Bool {
+        if let owner = remoteRelayOwnerWorkspaceID {
+            guard let connectionID = remoteRelayConnectionID,
+                  let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
+                  workspace.activeRemoteSessionControllerID == connectionID,
+                  workspace.isRemoteTerminalContext(surfaceID) else {
+                return false
+            }
+        }
         let registry = GhosttyApp.terminalSurfaceRegistry
         let registeredSurface: TerminalSurface?
         if let terminalLifecycleID {

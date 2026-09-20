@@ -86,6 +86,14 @@ struct RemoteRelayCoreRPCPolicyTests {
         #expect(decision(method, [:]) != .allowed)
     }
 
+    @Test("remote reconnect remains withheld until its surface execution is scoped")
+    func reconnectIsDenied() {
+        #expect(decision("workspace.remote.reconnect", [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+        ]) == .denied(code: "remote_relay_method_denied", message: "Relay method is not permitted"))
+    }
+
     private func decision(_ method: String, _ parameters: [String: Any]) -> RemoteRelayAuthorizationPolicy.Decision {
         RemoteRelayAuthorizationPolicy().validate(method: method, parameters: parameters,
             ownerWorkspaceID: owner, surfaceIDs: [surface])

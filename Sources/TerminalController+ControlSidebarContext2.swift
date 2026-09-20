@@ -3,7 +3,6 @@ import CmuxRemoteSession
 import Foundation
 import CmuxWorkspaces
 import CmuxSidebar
-
 /// The live-app half of the v1 sidebar telemetry/report commands
 /// (`report_git_branch` / `report_pr` / `report_ports` / `report_pwd` /
 /// `report_shell_state` / `report_tty` / `ports_kick` / `sidebar_state` /
@@ -11,7 +10,6 @@ import CmuxSidebar
 /// former `TerminalController` v1 handlers ran.
 extension TerminalController {
     // MARK: - Git branch
-
     /// All scoped schedulers below enqueue with a replace key: the worker
     /// lane replies before main drains, so a client can keep reporting while
     /// the main actor is blocked. Last-write-wins coalescing per
@@ -50,7 +48,6 @@ extension TerminalController {
             )
         }
     }
-
     func controlSidebarUpdateGitBranch(tabArg: String?, branch: String, isDirty: Bool?) -> Bool {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
@@ -69,7 +66,6 @@ extension TerminalController {
         )
         return true
     }
-
     /// Shares `.gitBranch` with the update scheduler: update-then-clear (or
     /// clear-then-update) coalesces to the newest write, matching what the
     /// serialized path leaves as the final state.
@@ -91,7 +87,6 @@ extension TerminalController {
             tabManager.clearSurfaceGitBranch(tabId: scope.workspaceID, surfaceId: scope.panelID)
         }
     }
-
     func controlSidebarClearGitBranch(tabArg: String?) -> Bool {
         guard let tab = controlSidebarResolveTabForReport(tabArg: tabArg) else {
             return false
@@ -99,13 +94,10 @@ extension TerminalController {
         tab.gitBranch = nil
         return true
     }
-
     // MARK: - Pull requests (panel metadata mutations)
-
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool {
         SidebarPullRequestStatus(rawValue: raw) != nil
     }
-
     /// PR metadata mutations intentionally do NOT coalesce:
     /// `shouldReplacePullRequest` applies an ordering guard against the state
     /// current at drain, so collapsing an update chain to its newest entry
@@ -129,7 +121,6 @@ extension TerminalController {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
-
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -261,6 +252,14 @@ extension TerminalController {
         return TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
             replaceKey: .shellActivity(surfaceId: scope.panelID),
             admitting: {
+                if let owner = scope.remoteRelayOwnerWorkspaceID {
+                    guard let connectionID = scope.remoteRelayConnectionID,
+                          let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
+                          workspace.activeRemoteSessionControllerID == connectionID,
+                          workspace.isRemoteTerminalContext(scope.panelID) else {
+                        return false
+                    }
+                }
                 guard registry.isCurrentSurface(
                     id: scope.panelID,
                     terminalLifecycleID: admittedTerminalLifecycleID
@@ -280,7 +279,9 @@ extension TerminalController {
                 workspaceID: scope.workspaceID,
                 surfaceID: scope.panelID,
                 terminalLifecycleID: admittedTerminalLifecycleID,
-                state: state
+                state: state,
+                remoteRelayOwnerWorkspaceID: scope.remoteRelayOwnerWorkspaceID,
+                remoteRelayConnectionID: scope.remoteRelayConnectionID
             )
         }
     }

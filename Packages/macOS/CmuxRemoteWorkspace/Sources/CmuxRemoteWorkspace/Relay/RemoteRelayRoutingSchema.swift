@@ -11,7 +11,6 @@ struct RemoteRelayRoutingSchema {
         case "system.ping", "system.capabilities": return []
         case "workspace.list", "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
-        case "workspace.remote.reconnect": return surface
         case "workspace.equalize_splits": return workspace.union(["orientation"])
         case "surface.read_text": return terminal.union(["scrollback", "lines"])
         case "surface.read_selection": return terminal
