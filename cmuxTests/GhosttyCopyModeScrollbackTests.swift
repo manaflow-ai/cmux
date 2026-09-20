@@ -91,7 +91,7 @@ struct GhosttyCopyModeScrollbackTests {
         }
     }
 
-    @Test func stalePrimaryCopyCursorDoesNotSuppressAlternateScreenScroll() async throws {
+    @Test func copyModeKeepsWheelOwnershipAcrossScreenSwitch() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let terminal = try ScrollbackTestTerminal()
             defer { terminal.close() }
@@ -101,11 +101,14 @@ struct GhosttyCopyModeScrollbackTests {
             let alternate = try terminal.scrollbar()
             #expect(alternate.total == alternate.len)
 
-            // The copy cursor still belongs to the primary screen. Alternate
-            // scroll must retain its application cursor-key behavior.
+            // Program output must not return user-owned input to the program
+            // before the copy cursor is reconciled by the next rendered frame.
+            try terminal.wheel()
+            #expect(try await terminal.inputBeforeBarrier().isEmpty)
+            #expect(try terminal.scrollbar().offset == alternate.offset)
+            #expect(terminal.surface.toggleKeyboardCopyMode())
             try terminal.wheel()
             #expect(try await terminal.inputBeforeBarrier().contains("\u{1b}[A"))
-            #expect(try terminal.scrollbar().offset == alternate.offset)
         }
     }
 }
