@@ -245,7 +245,7 @@ struct CloudTreeMachineMenuTests {
         let workspaceNode = CloudTreeNode(
             id: "workspace-row",
             kind: .workspace(
-                .cloud(Self.machineID), workspace,
+                machine: .cloud(Self.machineID), workspace,
                 terminalCount: 0, hiddenTabCount: 0, openIn: nil
             )
         )
