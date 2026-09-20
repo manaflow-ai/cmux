@@ -1,3 +1,4 @@
+import { initializeAgentPath } from "./path-environment";
 import type {
   Adapter,
   AgentEvent,
@@ -106,13 +107,7 @@ export async function writeStateFileForTest(path: string, port: number) {
   await writeStateFilePath(path, port);
 }
 
-// Under launchd the PATH is minimal; make sure the agent CLIs resolve.
-{
-  const home = process.env.HOME ?? "";
-  const extra = [`${home}/.local/bin`, `${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin"];
-  const cur = (process.env.PATH ?? "").split(":");
-  process.env.PATH = [...extra.filter((p) => !cur.includes(p)), ...cur].join(":");
-}
+initializeAgentPath(process.env, process.platform);
 const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
 const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
