@@ -47,7 +47,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             guard !state.discarded,
                   retainedInputCountLocked(state) < pendingLimit else { return nil }
             if state.remoteSink != nil {
-                appendRemoteLocked(input, to: &state)
+                appendRemoteLocked([input], to: &state)
                 startRemoteWorkerLocked(&state)
             } else {
                 state.pending.append(input)
