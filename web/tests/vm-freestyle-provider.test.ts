@@ -49,7 +49,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const vm = {
     exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      const statusCode = command.includes("sha256sum") ? (input.guestCliExit ?? 0)
+      const statusCode = command.includes(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`) ? (input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
       return { statusCode, stdout: "", stderr: statusCode === 0 ? "" : "probe failed" };
     },
@@ -314,10 +314,10 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toHaveLength(2);
+    expect(fake.execs).toHaveLength(3);
     const command = fake.execs[0] ?? "";
     expect(command).toContain(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`);
-    expect(fake.execs[1]).toBe("echo hi");
+    expect(fake.execs[2]).toBe("echo hi");
     expect(fake.writes).toHaveLength(0);
     expect(command).not.toContain("crt_");
   });
@@ -328,6 +328,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
+    expect(fake.execs.some(command => command.includes("os.replace(source, target)"))).toBe(true);
     expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 

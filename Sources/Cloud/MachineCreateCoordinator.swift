@@ -105,6 +105,14 @@ final class MachineCreateCoordinator {
         let attempt = lifecycle.reserve(request.lifecycleRequest)
         requests[attempt.operationID] = request
         launches[attempt.operationID] = launch
+#if DEBUG
+        let presentationWorkspace = request.presentationWorkspaceID?.uuidString ?? "none"
+        cmuxDebugLog(
+            "cloud.create.accepted operation=\(attempt.operationID.uuidString) " +
+            "workspace=\(presentationWorkspace) " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         postDidChange()
         return attempt
     }
@@ -222,6 +230,15 @@ final class MachineCreateCoordinator {
             lastFinished = finished
             let id = finished.operation.id
             handles[id] = nil
+#if DEBUG
+            let presentationWorkspace = finished.operation.request.presentationWorkspaceID?.uuidString ?? "none"
+            cmuxDebugLog(
+                "cloud.create.completed operation=\(id.uuidString) " +
+                "workspace=\(presentationWorkspace) " +
+                "outcome=\(String(describing: finished.outcome)) " +
+                "elapsed=\(Date().timeIntervalSince(finished.operation.startedAt))"
+            )
+#endif
             if case .created(_, let workspaceID) = finished.outcome {
                 resumeWaiter(id, workspaceID: workspaceID)
                 if let workspaceID {
@@ -240,8 +257,10 @@ final class MachineCreateCoordinator {
         // where they remain actionable.
         if let finished {
             switch finished.outcome {
-            case .created:
-                if !didSelectCreatedWorkspace {
+            case .created(_, let workspaceID):
+                let alreadyPresented = finished.operation.request.reservedWorkspaceID != nil
+                    && workspaceID != nil
+                if !didSelectCreatedWorkspace, !alreadyPresented {
                     notifier(MachineCreateNotice(finished: finished))
                 }
             case .createdButOpenFailed, .failed:

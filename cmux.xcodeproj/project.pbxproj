@@ -1061,6 +1061,8 @@
 		7A0CE1000000000000000502 /* CloudTunnelTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000501 /* CloudTunnelTiming.swift */; };
 		7A0CE1000000000000000902 /* CloudTunnelWireGuardAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000901 /* CloudTunnelWireGuardAdapter.swift */; };
 		C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D00020000000000000002 /* CloudVMActionLauncher.swift */; };
+		C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0581DFBCDBEE482A8D4CDB70 /* CloudVMLoadingPanel.swift */; };
+		C7F29A7CD7C6410F87BB8540 /* CloudVMLoadingPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0581DFBCDBEE482A8D4CDB71 /* CloudVMLoadingPanelTests.swift */; };
 		C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */; };
 		C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */; };
 		2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */; };
@@ -5144,6 +5146,8 @@
 		7A0CE1000000000000000501 /* CloudTunnelTiming.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTunnelTiming.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000901 /* CloudTunnelWireGuardAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTunnelWireGuardAdapter.swift; sourceTree = "<group>"; };
 		C10D00020000000000000002 /* CloudVMActionLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMActionLauncher.swift; sourceTree = "<group>"; };
+		0581DFBCDBEE482A8D4CDB70 /* CloudVMLoadingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudVMLoadingPanel.swift; sourceTree = "<group>"; };
+		0581DFBCDBEE482A8D4CDB71 /* CloudVMLoadingPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMLoadingPanelTests.swift; sourceTree = "<group>"; };
 		0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CloudVMLoadingPanelView.swift; sourceTree = "<group>"; };
 		C75740010000000000000002 /* CloudVMMenuItemMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVMMenuItemMetricsTests.swift; sourceTree = "<group>"; };
 		F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVMState+SnapshotComparison.swift"; sourceTree = "<group>"; };
@@ -10759,6 +10763,7 @@
 				D0C2DEE58D119E3588D1DEBE /* TerminalNotificationOrigin.swift */,
 				719B6457B507938674F1E684 /* NSView+WindowPointHitTest.swift */,
 				B2EFC94293EC97FE78539D9E /* NotificationTextSanitizer.swift */,
+				0581DFBCDBEE482A8D4CDB70 /* CloudVMLoadingPanel.swift */,
 				0581DFBCDBEE482A8D4CDB6C /* CloudVMLoadingPanelView.swift */,
 				4810623B845CB74732ACAD0A /* MachineCreateLoadingContent.swift */,
 				9720CD7F02C94F41A07E193D /* CloudTerminalCreationCoordinator.swift */,
@@ -11578,6 +11583,7 @@
 				5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */,
 				E56499DF099E405122930472 /* MachineCreateCoordinatorTests.swift */,
 				D2A7B1F4C8E54A6B9D3E7F21 /* MachineCreateOptimisticProjectionTests.swift */,
+				0581DFBCDBEE482A8D4CDB71 /* CloudVMLoadingPanelTests.swift */,
 				70D01FA1A02DF947CEAEA499 /* NewMachineModelUncappedPlanTests.swift */,
 				9A986C3063FCE5F28AA10ACA /* MachinesPanelUncappedPlanTests.swift */,
 				E87BDCAB46A44D7596A4784D /* VMTunnelStalenessTests.swift */,
@@ -13410,6 +13416,7 @@
 				7A0CE1000000000000000722 /* CloudTunnelStatusModel.swift in Sources */,
 				7A0CE1000000000000000502 /* CloudTunnelTiming.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
+				C7F29A7CD7C6410F87BB8537 /* CloudVMLoadingPanel.swift in Sources */,
 				C7F29A7CD7C6410F87BB8536 /* CloudVMLoadingPanelView.swift in Sources */,
 				2F48EE37A14B4D76A8013B83 /* CloudVMState+SnapshotComparison.swift in Sources */,
 				E34036E08961479A9D9BF649 /* CloudVMTabState.swift in Sources */,
@@ -15921,6 +15928,7 @@
 				7A0CE1000000000000000707 /* CloudTunnelRuntimeConfigurationRedactorTests.swift in Sources */,
 				7A0CE100000000000000072E /* CloudTunnelStatusBlockerTests.swift in Sources */,
 				7A0CE1000000000000000402 /* CloudTunnelTestFakes.swift in Sources */,
+				C7F29A7CD7C6410F87BB8540 /* CloudVMLoadingPanelTests.swift in Sources */,
 				C75740010000000000000001 /* CloudVMMenuItemMetricsTests.swift in Sources */,
 				2D7F228001C24ABD865AFD66 /* CloudVMStateSnapshotComparisonTests.swift in Sources */,
 				C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */,
