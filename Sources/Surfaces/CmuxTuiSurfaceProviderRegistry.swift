@@ -282,7 +282,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
                             guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            await self.refreshProvider(provider, force); self.refreshedMachineIDs.insert(provider.machine)
+                            let before = provider.refreshGeneration; await self.refreshProvider(provider, force); if provider.isRegisteredInCatalog(), (provider.refreshGeneration == before || provider.info.linkState != .error) { self.refreshedMachineIDs.insert(provider.machine) }
                         }
                     }
                 }
@@ -359,7 +359,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
-        pendingMachineCreationIDs.remove(id)
+        pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
         let provider = providers.removeValue(forKey: id)
         provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
