@@ -165,6 +165,15 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertIs(service.websockify_processes[number], new_websockify)
         service.shutdown.set()
 
+    def test_additional_desktop_clients_use_display_scoped_process_names(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        source = self.root / "openbox"
+        source.write_text("#!/bin/sh\n")
+        runtime = self.root / "runtime" / "2"
+        scoped = service.scoped_component_path("openbox", str(source), 2, runtime)
+        self.assertEqual(Path(scoped).name, "cmux-display-2-openbox")
+        self.assertTrue(Path(scoped).exists())
+
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         request = str(uuid.uuid4())

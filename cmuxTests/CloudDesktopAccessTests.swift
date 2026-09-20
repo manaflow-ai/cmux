@@ -301,6 +301,15 @@ struct CloudDesktopAccessTests {
         #expect(browser.cloudResourceForSession == nil)
     }
 
+    @Test("A delayed Cloud restore keeps the saved path and query")
+    func delayedCloudRestoreKeepsSavedURL() throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        browser.pendingCloudRestoreURL = try #require(URL(string: "http://10.0.0.7:8000/projects/123?tab=logs#tail"))
+        let target = try #require(URL(string: "http://10.0.0.7:8000/"))
+        #expect(browser.cloudRestoreURL(on: target).absoluteString == "http://10.0.0.7:8000/projects/123?tab=logs#tail")
+    }
+
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
     func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
         let state = CloudBrowserAccessState()
