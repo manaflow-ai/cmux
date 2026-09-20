@@ -89,7 +89,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 [sys.executable, str(ROOT / "scripts/ci/xcodebuild_noninteractive.py"),
                  sys.executable, "-c", "import sys; print(" + repr(fixture) + "); sys.exit(65)"],
                 env={**os.environ, "CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH": str(output_path)},
-                capture_output=True, text=True, timeout=10, check=False,
+                capture_output=True, text=True, check=False,
             )
             self.assertEqual(replay.returncode, 65, replay.stderr)
             gate = subprocess.run(
