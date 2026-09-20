@@ -1221,6 +1221,7 @@ extension SurfaceCatalogTests {
         catalog.replaceResources(ids.map {
             terminal(machine, $0.key, remoteView: SurfaceRemoteView(tabID: "tab-\($0.key)", workspace: remoteWorkspace))
         }, on: machine)
+        let placements = ids.map { SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "tab-\($0.key)") }
         let newWorkspace = UUID()
         let starter = UUID()
         var reserved: [(SurfaceDestination, Bool)] = []
@@ -1245,16 +1246,15 @@ extension SurfaceCatalogTests {
         )
         let layout = SurfaceProjectionLayout.split(
             direction: .right, ratio: 0.5,
-            first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[0]), SurfaceResourcePlacement(resource: ids[1])]),
+            first: .leaf(placements: [placements[0], placements[1]]),
             second: .split(
                 direction: .down, ratio: 0.5,
-                first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[2])]),
-                second: .leaf(placements: [SurfaceResourcePlacement(resource: ids[3])])
+                first: .leaf(placements: [placements[2]]),
+                second: .leaf(placements: [placements[3]])
             )
         )
-
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-            SurfaceResourceGroup(title: "main", resources: ids, remoteWorkspaceID: remoteWorkspace.id), title: "vm-1: main", focus: true, host: host, layout: layout
+            SurfaceResourceGroup(title: "main", placements: placements, remoteWorkspaceID: remoteWorkspace.id), title: "vm-1: main", focus: true, host: host, layout: layout
         )
 
         #expect(opened.workspaceID == newWorkspace)
