@@ -151,7 +151,7 @@ final class CloudBrowserAccessState {
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
         observationGeneration &+= 1
         unavailable = nil
-        if let resourceID { self.resourceID = resourceID }
+        self.resourceID = resourceID
         self.model = model
         remoteURL = url
         navigationURL = nil
@@ -277,6 +277,7 @@ final class CloudBrowserAccessState {
         navigate = nil
         connectionDeadline.cancel()
         desktopConnected = false
+        resourceID = nil
         activeNavigationID = nil
         hasCommittedNavigation = false
         unavailable = nil

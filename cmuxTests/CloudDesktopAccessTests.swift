@@ -232,6 +232,18 @@ struct CloudDesktopAccessTests {
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
     }
 
+    @Test("Leaving a Cloud page clears its resource provenance")
+    func leavingCloudClearsResourceIdentity() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:1")
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!, resourceID: display)
+        #expect(state.resourceID == display)
+        state.leave()
+        #expect(state.resourceID == nil)
+    }
+
     @Test("Desktop bootstrap does not paint WebKit's default white background")
     func desktopBackgroundUsesNativeBackingUntilCanvasPaints() async throws {
         let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())

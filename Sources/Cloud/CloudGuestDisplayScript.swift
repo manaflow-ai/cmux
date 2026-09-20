@@ -122,6 +122,26 @@ class DisplayCatalog:
             return number
 
 
+class OwnedProcess:
+    """A handle for a daemon started by dbus-launch rather than by Popen."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def terminate(self):
+        try:
+            os.kill(self.pid, 15)
+        except OSError:
+            pass
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None
+        except OSError:
+            return 0
+
+
 class DisplayService:
     def __init__(self, catalog, runtime, starter=STARTER):
         self.catalog = catalog
@@ -183,6 +203,12 @@ class DisplayService:
                 continue
             key, value = line.split("=", 1)
             environment[key] = value.strip().strip("'")
+        try:
+            dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
+        except ValueError:
+            dbus_pid = 0
+        if dbus_pid > 1:
+            processes.append(OwnedProcess(dbus_pid))
         for executable, args in [
             ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
             ("vncconfig", ["-nowin"]),

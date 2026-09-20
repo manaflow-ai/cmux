@@ -2,7 +2,10 @@ import Foundation
 import CmuxFoundation
 
 extension CmuxTuiSurfaceProvider {
-    var supportsDisplayCreation: Bool { isAwake && isRegisteredInCatalog() && displayCoordinator.canCreate }
+    var supportsDisplayCreation: Bool {
+        isAwake && info.hasDesktop && summary.resolvedKind.hasDesktop
+            && isRegisteredInCatalog() && displayCoordinator.canCreate
+    }
 
     var displayResources: [SurfaceResource] {
         if let snapshot = displayCoordinator.snapshot {
@@ -17,19 +20,21 @@ extension CmuxTuiSurfaceProvider {
     func refreshDisplays() async {
         guard isAwake, info.hasDesktop, isRegisteredInCatalog() else { return }
         let generation = currentLifecycleGeneration
+        let refresh = refreshGeneration
         await displayCoordinator.refresh()
-        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { return }
         publishDisplays()
     }
 
     func createDisplay() async throws -> SurfaceResource {
         guard supportsDisplayCreation else { throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
         let generation = currentLifecycleGeneration
+        let refresh = refreshGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }
         }
         let snapshot = try await displayCoordinator.create()
-        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
+        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { throw CancellationError() }
         guard let display = snapshot.displays.first(where: { $0.id == snapshot.created }) else {
             throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
         }
