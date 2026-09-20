@@ -607,6 +607,7 @@
       "title": "Mobile devices",
       "description": "Manage access to your connected computers, phones, and tablets.",
       "team": "Team",
+      "teamSwitchError": "Could not switch teams. Try again.",
       "loading": "Loading devices…",
       "empty": "No devices are registered for this team.",
       "unavailable": "Could not load your devices. Refresh the page to try again.",

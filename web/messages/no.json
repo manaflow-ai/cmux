@@ -373,6 +373,7 @@
       "title": "Mobile enheter",
       "description": "Administrer tilgang til tilkoblede datamaskiner, telefoner og nettbrett.",
       "team": "Team",
+      "teamSwitchError": "Kunne ikke bytte team. Prøv igjen.",
       "loading": "Laster inn enheter…",
       "empty": "Ingen enheter er registrert for dette teamet.",
       "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden og prøv igjen.",

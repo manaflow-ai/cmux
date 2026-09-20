@@ -177,6 +177,40 @@ test("permanent authorization failures do not schedule another session", async (
   } finally { await controller.stop(); globalThis.fetch = original; timers.mockRestore(); }
 });
 
+test("transient token retrieval failures use the bounded recovery path", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSocket = globalThis.WebSocket;
+  const timers: Array<() => void> = [];
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler) => {
+    timers.push(callback as () => void);
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  FakeSocket.instances = [];
+  globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+  let tokenCalls = 0;
+  const errors: string[] = [];
+  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => { tokenCalls += 1; if (tokenCalls === 1) throw new Error("temporary token provider failure"); return "s"; }, onDirectory: () => {}, onError: value => errors.push(value) });
+  try {
+    await controller.start();
+    expect(tokenCalls).toBe(1);
+    expect(errors).toEqual(["Dashboard request failed (token_unavailable)"]);
+    timers.shift()?.();
+    const socket = await FakeSocket.waitForInstance();
+    socket.open();
+    const request = JSON.parse(await socket.waitForSent(0));
+    socket.message({ schemaId: "dashboard.directory.v1", requestId: request.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: false, managedDeviceIds: [] } });
+    await Promise.resolve();
+    expect(tokenCalls).toBe(2);
+  } finally {
+    await controller.stop();
+    globalThis.fetch = originalFetch;
+    globalThis.WebSocket = originalSocket;
+    FakeSocket.instances = [];
+    timeout.mockRestore();
+  }
+});
+
 test("transient startup failures stop after a bounded retry budget", async () => {
   const original = globalThis.fetch;
   const timers: Array<() => void> = [];

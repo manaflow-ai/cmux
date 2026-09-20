@@ -373,6 +373,7 @@
       "title": "Mobil cihazlar",
       "description": "Bağlı bilgisayarlarınıza, telefonlarınıza ve tabletlerinize erişimi yönetin.",
       "team": "Ekip",
+      "teamSwitchError": "Ekip değiştirilemedi. Tekrar deneyin.",
       "loading": "Cihazlar yükleniyor…",
       "empty": "Bu ekip için kayıtlı cihaz yok.",
       "unavailable": "Cihazlarınız yüklenemedi. Sayfayı yenileyip tekrar deneyin.",

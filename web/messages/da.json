@@ -373,6 +373,7 @@
       "title": "Mobile enheder",
       "description": "Administrer adgang til dine tilsluttede computere, telefoner og tablets.",
       "team": "Team",
+      "teamSwitchError": "Teamet kunne ikke skiftes. Prøv igen.",
       "loading": "Indlæser enheder…",
       "empty": "Der er ingen registrerede enheder for dette team.",
       "unavailable": "Dine enheder kunne ikke indlæses. Opdater siden, og prøv igen.",

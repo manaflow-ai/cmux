@@ -373,6 +373,7 @@
       "title": "Dispositivos móviles",
       "description": "Administra el acceso a tus ordenadores, teléfonos y tabletas conectados.",
       "team": "Equipo",
+      "teamSwitchError": "No se ha podido cambiar de equipo. Vuelve a intentarlo.",
       "loading": "Cargando dispositivos…",
       "empty": "No hay dispositivos registrados para este equipo.",
       "unavailable": "No se han podido cargar tus dispositivos. Actualiza la página y vuelve a intentarlo.",

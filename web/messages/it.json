@@ -373,6 +373,7 @@
       "title": "Dispositivi mobili",
       "description": "Gestisci l’accesso ai computer, telefoni e tablet collegati.",
       "team": "Team",
+      "teamSwitchError": "Impossibile cambiare team. Riprova.",
       "loading": "Caricamento dei dispositivi…",
       "empty": "Non ci sono dispositivi registrati per questo team.",
       "unavailable": "Impossibile caricare i dispositivi. Aggiorna la pagina e riprova.",

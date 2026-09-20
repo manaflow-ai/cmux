@@ -373,6 +373,7 @@
       "title": "Dispositivos móveis",
       "description": "Gerencie o acesso aos computadores, telefones e tablets conectados.",
       "team": "Equipe",
+      "teamSwitchError": "Não foi possível trocar de equipe. Tente novamente.",
       "loading": "Carregando dispositivos…",
       "empty": "Não há dispositivos registrados para esta equipe.",
       "unavailable": "Não foi possível carregar seus dispositivos. Atualize a página e tente novamente.",

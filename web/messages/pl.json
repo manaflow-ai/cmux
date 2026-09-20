@@ -373,6 +373,7 @@
       "title": "Urządzenia mobilne",
       "description": "Zarządzaj dostępem do połączonych komputerów, telefonów i tabletów.",
       "team": "Zespół",
+      "teamSwitchError": "Nie można przełączyć zespołu. Spróbuj ponownie.",
       "loading": "Ładowanie urządzeń…",
       "empty": "Brak urządzeń zarejestrowanych dla tego zespołu.",
       "unavailable": "Nie można załadować urządzeń. Odśwież stronę i spróbuj ponownie.",

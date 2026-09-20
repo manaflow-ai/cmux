@@ -373,6 +373,7 @@
       "title": "Mobile Geräte",
       "description": "Verwalte den Zugriff auf deine verbundenen Computer, Telefone und Tablets.",
       "team": "Team",
+      "teamSwitchError": "Das Team konnte nicht gewechselt werden. Versuche es erneut.",
       "loading": "Geräte werden geladen…",
       "empty": "Für dieses Team sind keine Geräte registriert.",
       "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",

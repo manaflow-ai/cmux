@@ -373,6 +373,7 @@
       "title": "Mobilni uređaji",
       "description": "Upravljajte pristupom povezanim računarima, telefonima i tabletima.",
       "team": "Tim",
+      "teamSwitchError": "Tim nije moguće promijeniti. Pokušajte ponovo.",
       "loading": "Učitavanje uređaja…",
       "empty": "Nema registrovanih uređaja za ovaj tim.",
       "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",

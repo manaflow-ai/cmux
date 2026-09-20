@@ -373,6 +373,7 @@
       "title": "Appareils mobiles",
       "description": "Gérez l’accès à vos ordinateurs, téléphones et tablettes connectés.",
       "team": "Équipe",
+      "teamSwitchError": "Impossible de changer d’équipe. Réessayez.",
       "loading": "Chargement des appareils…",
       "empty": "Aucun appareil n’est enregistré pour cette équipe.",
       "unavailable": "Impossible de charger vos appareils. Actualisez la page et réessayez.",

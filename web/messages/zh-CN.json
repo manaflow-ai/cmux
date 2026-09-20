@@ -373,6 +373,7 @@
       "title": "移动设备",
       "description": "管理对已连接电脑、手机和平板电脑的访问。",
       "team": "团队",
+      "teamSwitchError": "无法切换团队。请重试。",
       "loading": "正在加载设备…",
       "empty": "此团队没有注册设备。",
       "unavailable": "无法加载你的设备。刷新页面后重试。",

@@ -18,12 +18,20 @@ export function MobileDevicesDashboard({ userId }: Props) {
   const t = useTranslations("dashboard.mobileDevices");
   const stack = useStackApp();
   const scope = useDashboardTeamScope(userId);
+  const [teamError, setTeamError] = useState(false);
+  const chooseTeam = (teamId: string) => {
+    const team = scope.status === "ready" ? scope.teams.find(candidate => candidate.id === teamId) : undefined;
+    if (!team || scope.status !== "ready") return;
+    setTeamError(false);
+    void scope.switchTeam(team).catch(() => setTeamError(true));
+  };
   return <div className="space-y-4" data-testid="mobile-devices-dashboard">
     {scope.status === "loading" ? <p className="text-muted">{t("loading")}</p> :
       scope.status === "unavailable" ? <p role="alert" className="text-muted">{t("unavailable")}</p> :
         <>
+          {teamError ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{t("teamSwitchError")}</p> : null}
           <label className="block text-xs text-muted" htmlFor="mobile-devices-team">{t("team")}</label>
-          <select id="mobile-devices-team" value={scope.selected.id} onChange={event => void scope.switchTeam(scope.teams.find(team => team.id === event.target.value) ?? scope.selected)} className="border border-border bg-background px-2 py-1.5">
+          <select id="mobile-devices-team" value={scope.selected.id} onChange={event => chooseTeam(event.target.value)} className="border border-border bg-background px-2 py-1.5">
             {scope.teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
           </select>
           <ConnectedDevices key={`${userId}:${scope.selected.id}`} teamId={scope.selected.id} userId={userId} stack={stack} />
