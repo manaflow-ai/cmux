@@ -191,8 +191,7 @@ struct CloudPortRoutePlanTests {
         state.showUnavailable("Private address unavailable", retry: { _ in retries += 1 })
         #expect(state.unavailableRetryAction != nil)
         state.unavailableRetryAction?()
-        await Task.yield()
-        #expect(retries == 1)
+        #expect(await wait { retries == 1 })
     }
 
     @Test("A canceled forward cannot publish a late local address")

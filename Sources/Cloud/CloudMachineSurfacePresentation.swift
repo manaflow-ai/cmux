@@ -43,28 +43,12 @@ struct CloudMachineSurfacePresentation {
 
     static func emptyPorts(info: SurfaceMachineInfo) -> CloudTreeNode {
         let presentation = CloudPortsStatusPresentation.make(info: info)
-        let style: CloudTreePlaceholder.Style = {
-            switch info.portDiscoveryState {
-            case .loading:
-                return .connecting
-            case .notRequested:
-                switch info.linkState {
-                case .connecting: return .connecting
-                case .error: return .error
-                default: return .dimmed
-                }
-            case .unavailable, .stale:
-                return .error
-            case .empty, .unsupported, .available:
-                return .dimmed
-            }
-        }()
         return CloudTreeNode(
             id: "machine:\(info.id.rawValue)/ports/status",
             kind: .placeholder(machine: info.id, CloudTreePlaceholder(
                 text: presentation.title,
-                style: style,
-                opensMachine: info.linkState == .asleep || presentation.action == .openMachine,
+                style: presentation.style,
+                opensMachine: presentation.action == .openMachine,
                 portStatus: presentation
             ))
         )
@@ -77,7 +61,7 @@ struct CloudMachineSurfacePresentation {
             id: "machine:\(info.id.rawValue)/ports/status",
             kind: .placeholder(machine: info.id, CloudTreePlaceholder(
                 text: presentation.title,
-                style: .error,
+                style: presentation.style,
                 portStatus: presentation
             ))
         )

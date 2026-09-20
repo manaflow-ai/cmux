@@ -8,6 +8,8 @@ enum CloudPortDiscoveryState: Hashable, Codable, Sendable {
     case loading
     /// A completed scan found at least one reachable service.
     case available
+    /// The proxy can open these services; a system VPN cannot reach their loopback-only bindings.
+    case loopbackOnly
     /// A completed scan found no service that cmux can reach.
     case empty(CloudPortDiscoveryEmptyReason)
     /// The scan or the route could not be used to produce a trustworthy result.
@@ -20,9 +22,9 @@ enum CloudPortDiscoveryState: Hashable, Codable, Sendable {
     /// Whether the Ports group should keep a status row after real port rows.
     var keepsStatusAlongsideRows: Bool {
         switch self {
-        case .unavailable, .stale, .unsupported:
+        case .unavailable, .stale, .unsupported, .loopbackOnly, .loading:
             return true
-        case .notRequested, .loading, .available, .empty:
+        case .notRequested, .available, .empty:
             return false
         }
     }
@@ -33,6 +35,7 @@ enum CloudPortDiscoveryState: Hashable, Codable, Sendable {
         case .notRequested: return "not_requested"
         case .loading: return "loading"
         case .available: return "available"
+        case .loopbackOnly: return "loopback_only"
         case .empty(let reason): return "empty_\(reason.rawValue)"
         case .unavailable(let reason): return "unavailable_\(reason.rawValue)"
         case .stale: return "stale"

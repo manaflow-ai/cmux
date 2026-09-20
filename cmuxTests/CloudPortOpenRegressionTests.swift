@@ -162,7 +162,7 @@ struct CloudPortOpenRegressionTests {
             localWorkspaces: [],
             includeLocalMachine: false
         ))
-        #expect(emptyNodes.first { $0.structureTag == "portsGroup" } == nil)
+        #expect(emptyNodes.first { $0.structureTag == "portsGroup" }?.children.first?.structureTag == "placeholder")
     }
 
     @Test("A localhost browser view is folded into the canonical port in its cloud workspace")
@@ -280,13 +280,13 @@ struct CloudPortOpenRegressionTests {
         ) == [3000])
     }
 
-    @Test("A missing private address does not make loopback-only listeners reachable")
-    func missingAddressDoesNotAdvertiseLoopback() {
+    @Test("Loopback services remain discoverable independently of private-address metadata")
+    func loopbackDiscoveryIsIndependentOfAddress() {
         let listing = "State Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\n"
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(exitCode: 0, stdout: listing, stderr: ""),
             privateAddress: nil
-        ) == [])
+        ) == [8000])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
@@ -306,7 +306,7 @@ struct CloudPortOpenRegressionTests {
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
             privateAddress: "10.0.0.7"
-        ) == [9000])
+        ) == [8000, 9000])
         #expect(CmuxTuiSurfaceProvider.ports(
             from: VMExecResult(
                 exitCode: 0,
@@ -314,7 +314,7 @@ struct CloudPortOpenRegressionTests {
                 stderr: ""
             ),
             privateAddress: "10.0.0.7"
-        ) == [], "IPv4-mapped loopback must not be advertised through the private address")
+        ) == [9200], "the browser proxy opens the service on guest loopback")
         let previous = [discoveredPort(8000, in: workspace)]
         let retained = CmuxTuiSurfaceProvider.portResources(
             machine: machine,

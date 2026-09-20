@@ -41,6 +41,81 @@ struct CloudPortsVPNAffordanceTests {
         #expect(descendants(of: cell).allSatisfy { !($0 is NSButton) })
     }
 
+    @Test("Status actions hit-test in AppKit coordinates and fit narrow rows", arguments: [140.0, 260.0])
+    func nativeActionLayout(width: Double) throws {
+        let status = CloudPortsStatusPresentation(state: .unavailable(.transport))
+        let height = CloudPortsStatusContent.height(width: width, presentation: status, style: .defaultStyle)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        let parent = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 700))
+        window.contentView = parent
+        let content = CloudPortsStatusContent(frame: NSRect(x: 23, y: 41, width: width, height: height))
+        parent.addSubview(content)
+        defer { window.contentView = nil }
+        var calls = 0
+        content.configure(presentation: status, style: .defaultStyle) { calls += 1 }
+        content.layoutSubtreeIfNeeded()
+        let button = try #require(descendants(of: content).compactMap { $0 as? NSButton }.first)
+        #expect(button.frame.maxY <= content.bounds.height)
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: parent)
+        #expect(content.hitTest(point) === button)
+        #expect(content.hitTest(content.convert(NSPoint(x: 4, y: 4), to: parent)) == nil)
+        #expect(button.accessibilityPerformPress())
+        #expect(calls == 1)
+    }
+
+    @Test("Default expansion requests discovery once; collapsed machines do not scan")
+    func defaultExpansionDemand() throws {
+        let suite = "ports-demand-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        var requested: [SurfaceMachineID] = []
+        var actions = nodeActions()
+        actions.discoverPorts = { requested.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(machineActions: machineActions(), nodeActions: actions,
+            expansionStore: store, tabDragTransferRegistry: { nil })
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil }
+        let first = machineNode(id: "visible")
+        let collapsed = machineNode(id: "collapsed")
+        store.setExpanded(false, node: collapsed)
+        coordinator.apply(nodes: [first, collapsed])
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        coordinator.portsDemand.reconcile(coordinator: coordinator)
+        #expect(requested == [.cloud("visible")])
+    }
+
+    @Test("Ports Wake shares the expired-machine gate and rejects removed machines")
+    func wakeUsesCurrentPlan() throws {
+        var upgrades = 0
+        var terminals: [SurfaceMachineID] = []
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: machineActions(upgrade: { upgrades += 1 }),
+            nodeActions: nodeActions(newTerminal: { terminals.append($0) }),
+            expansionStore: CloudTreeExpansionStore(defaults: try #require(UserDefaults(suiteName: "ports-plan-\(UUID())"))),
+            tabDragTransferRegistry: { nil })
+        coordinator.nodes = [machineNode(id: "expired", expired: true), machineNode(id: "paid")]
+        coordinator.performPortAction(.openMachine, machineID: .cloud("expired"))
+        coordinator.performPortAction(.openMachine, machineID: .cloud("paid"))
+        coordinator.performPortAction(.openMachine, machineID: .cloud("removed"))
+        #expect(upgrades == 1 && terminals == [.cloud("paid")])
+    }
+
+    private func machineNode(id: String, expired: Bool = false) -> CloudTreeNode {
+        let machine = SurfaceMachineID.cloud(id)
+        var snapshot = MachineSnapshot(id: id, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)
+        snapshot.freeAccess = expired ? .expired : .unrestricted
+        let info = SurfaceMachineInfo(id: machine, name: id, status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil, cpuPercent: nil, memoryUsedMb: nil,
+            diskUsedMb: nil, privateAddress: "10.0.0.7")
+        return CloudTreeNode(id: "machine:\(id)", kind: .machine(snapshot, info), children: [
+            CloudTreeNode(id: "machine:\(id)/ports", kind: .portsGroup(machine: machine),
+                children: [CloudMachineSurfacePresentation.emptyPorts(info: info)])
+        ])
+    }
+
     private func emptyPorts(link: SurfaceLinkState) -> CloudTreeNode {
         CloudMachineSurfacePresentation.emptyPorts(info: SurfaceMachineInfo(
             id: .cloud("test"), name: "test", status: "running", image: "base", hasDesktop: false,
@@ -53,16 +128,16 @@ struct CloudPortsVPNAffordanceTests {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
     }
 
-    private func machineActions() -> MachineRowActions {
+    private func machineActions(upgrade: @escaping @MainActor () -> Void = {}) -> MachineRowActions {
         MachineRowActions( openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
             confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
-            resizeMemory: { _, _ in }, promptUpgrade: {})
+            resizeMemory: { _, _ in }, promptUpgrade: upgrade)
     }
 
-    private func nodeActions() -> CloudTreeNodeActions {
+    private func nodeActions(newTerminal: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }) -> CloudTreeNodeActions {
         CloudTreeNodeActions(project: { _, _, _ in }, projectRemoteView: { _, _, _, _ in },
             projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
-            newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
+            newTerminal: { machine, _ in newTerminal(machine) }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
             newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in }, renameWorkspace: { _, _ in },
             renameTerminal: { _, _ in }, selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {})
     }

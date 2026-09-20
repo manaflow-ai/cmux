@@ -16,7 +16,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                     if state.showsPage || state.failureMessage == nil { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            message: state.error ?? model.failureMessage,
+                            message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
                                 navigateIfReady()

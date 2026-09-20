@@ -1,6 +1,24 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Re-read only this machine's metadata, fencing deletion, replacement, account changes, and newer summaries.
+    func refreshPortMetadata() async throws {
+        guard isRegisteredInCatalog() else { throw CancellationError() }
+        let lifecycle = currentLifecycleGeneration
+        let summaryVersion = summaryGeneration
+        let next = try await loadPortSummary(machineID)
+        try Task.checkCancellation()
+        guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { throw CancellationError() }
+        guard next.id == machineID else { throw ProviderError.invalidSnapshot(machineID) }
+        guard summaryGeneration == summaryVersion else { return }
+        await links.setPrivateAddresses([next.addressIPv4, next.addressIPv6].compactMap { $0 }, for: machineID)
+        try Task.checkCancellation()
+        guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog(), summaryGeneration == summaryVersion else {
+            throw CancellationError()
+        }
+        update(summary: next)
+    }
+
     static func info(
         from summary: VMSummary,
         linkState: SurfaceLinkState,
@@ -28,19 +46,6 @@ extension CmuxTuiSurfaceProvider {
         )
     }
 
-    static func portDiscoveryState(
-        for scan: CloudPortScanResult,
-        privateAddress: String?
-    ) -> CloudPortDiscoveryState {
-        if privateAddress == nil, !scan.ports.isEmpty {
-            return .unavailable(.privateAddress)
-        }
-        if let emptyReason = scan.emptyReason {
-            return .empty(emptyReason)
-        }
-        return .available
-    }
-
     func ports(
         link: CloudMachineLink,
         socketPath: String,
@@ -48,19 +53,24 @@ extension CmuxTuiSurfaceProvider {
         generation: UInt64,
         privateAddress: String?
     ) async -> CloudPortScanResult? {
-        if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
-            return cached.scan
+        guard portDiscovery.mayScan else { return nil }
+        if let cached = portDiscovery.cachedScan(at: Date.now, socketPath: socketPath, force: force) {
+            return cached
         }
-        guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
-              let data = try? await link.run(arguments: arguments),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let stdout = object["stdout"] as? String else {
-            return nil
+        let request = portDiscovery.beginScan()
+        publishPortDiscovery()
+        let scan: CloudPortScanResult?
+        if let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
+           let data = try? await link.run(arguments: arguments),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let stdout = object["stdout"] as? String {
+            scan = Self.portScan(from: VMExecResult(exitCode: 0, stdout: stdout, stderr: ""))
+        } else {
+            scan = nil
         }
-        let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        guard let scan = Self.portScan(from: result, privateAddress: privateAddress) else { return nil }
-        guard generation == refreshGeneration else { return nil }
-        portsCache = (scan, Date.now)
+        guard !Task.isCancelled, generation == refreshGeneration, isRegisteredInCatalog(),
+              portDiscovery.complete(scan, request: request, at: Date.now, socketPath: socketPath) else { return nil }
+        publishPortDiscovery()
         return scan
     }
 }

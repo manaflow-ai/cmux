@@ -63,7 +63,8 @@ final class CloudTreeCellView: NSTableCellView {
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        portAction: @escaping @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
@@ -83,14 +84,8 @@ final class CloudTreeCellView: NSTableCellView {
         if let status {
             let view = portsStatus ?? makePortsStatus(style: style)
             view.isHidden = false
-            view.configure(presentation: status, style: style) { [weak self, weak node] in
-                guard let self, let node else { return }
-                switch status.action {
-                case .none: break
-                case .refresh: nodeActions.refreshMachine(node.machine)
-                case .openMachine: nodeActions.newTerminal(node.machine, nil)
-                case .openShell: machineActions.openShell(node.machine.rawValue)
-                }
+            view.configure(presentation: status, style: style) {
+                portAction(status.action, node.machine)
             }
             portsStatusTrailingConstraint?.constant = -style.rowGrid.trailingPadding
         } else {
@@ -136,6 +131,8 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
         } else if case .display(let resource, _, _) = node.kind {
             setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
+        } else if case .port(let resource, _, _) = node.kind {
+            setAccessibilityLabel([node.searchableTitle, resource.detail ?? CloudPortsStatusPresentation.routeNote].joined(separator: ", "))
         } else if let status {
             setAccessibilityLabel("\(status.title), \(status.message)")
         } else {

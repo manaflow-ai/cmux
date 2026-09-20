@@ -46,6 +46,7 @@ struct CloudTreeNodeActions {
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -410,6 +411,7 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
+        actions.discoverPorts = refreshMachine
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,

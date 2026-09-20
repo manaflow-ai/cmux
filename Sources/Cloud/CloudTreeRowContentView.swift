@@ -108,6 +108,7 @@ struct CloudTreeRowContentView: View {
                 titleIsLink: url != nil,
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )
+            .help(resource.detail ?? CloudPortsStatusPresentation.routeNote)
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }

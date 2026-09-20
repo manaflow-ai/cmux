@@ -1712,29 +1712,6 @@ enum SurfacePlacement: String, Codable, Sendable {
     case tab
 }
 
-/// What a provider knows about its machine, for the tree header.
-struct SurfaceMachineInfo: Hashable, Codable, Sendable {
-    var id: SurfaceMachineID
-    var name: String
-    /// `running`, `standby`, … for cloud machines; `running` for the local Mac.
-    var status: String
-    var image: String?
-    var hasDesktop: Bool
-    var memoryMb: Int?
-    var diskMb: Int?
-    var linkState: SurfaceLinkState
-    var linkError: String?
-    var cpuPercent: Double?
-    var memoryUsedMb: Int?
-    var diskUsedMb: Int?
-    /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
-    /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
-    var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
-    /// The machine's address on its owner's private network (v4 preferred), reachable through WireGuard; nil for local or legacy machines.
-    var privateAddress: String? = nil
-    var portDiscoveryState: CloudPortDiscoveryState = .notRequested
-}
-
 enum SurfaceLinkState: String, Codable, Sendable {
     case connected
     case connecting

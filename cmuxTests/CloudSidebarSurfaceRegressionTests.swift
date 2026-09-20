@@ -188,7 +188,7 @@ struct CloudSidebarSurfaceRegressionTests {
             Issue.record("Ports must explain why there are no rows")
             return
         }
-        if link == .connecting { #expect(value.style == .connecting) }
+        if link == .connecting { #expect(value.style == .dimmed) }
         if link == .error { #expect(value.style == .error) }
     }
 
@@ -197,7 +197,8 @@ struct CloudSidebarSurfaceRegressionTests {
         let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
             (.loading, .none, "Discovering ports"),
             (.empty(.noListeningService), .refresh, "No service is listening"),
-            (.empty(.loopbackOnly), .refresh, "loopback"),
+            (.empty(.otherInterfaceOnly), .refresh, "interface"),
+            (.loopbackOnly, .none, "loopback"),
             (.unavailable(.privateAddress), .refresh, "private address"),
             (.unavailable(.transport), .refresh, "discovery unavailable"),
             (.stale, .refresh, "out of date"),
@@ -214,7 +215,7 @@ struct CloudSidebarSurfaceRegressionTests {
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
             if state != .loading && state != .unsupported {
-                #expect(presentation.message.contains("system-wide Cloud VPN"), "cmux forwarding truth must remain visible")
+                #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
             }
         }
     }

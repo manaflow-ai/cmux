@@ -310,7 +310,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             #expect(CloudTreeRowHoverButtons.hasButtons(for: group.kind), "\(groupID) keeps its hover +")
         }
         let placeholders = tree.filter { $0.structureTag == "placeholder" }
-        #expect(placeholders.map(\.searchableTitle) == ["No workspaces yet", "No reachable ports", "No displays available", "No terminals yet"])
+        #expect(placeholders.map(\.searchableTitle) == ["No workspaces yet", "Ports not checked yet", "No displays available", "No terminals yet"])
         #expect(placeholders.allSatisfy { $0.machine == machine })
         for row in placeholders {
             guard case .placeholder(_, let placeholder) = row.kind else { Issue.record("expected a placeholder"); continue }

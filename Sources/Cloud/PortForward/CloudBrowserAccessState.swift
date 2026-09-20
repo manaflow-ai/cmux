@@ -22,16 +22,13 @@ final class CloudBrowserAccessState {
     private var unavailableRetryGeneration: UInt64 = 0
 
     func showUnavailable(_ message: String, retry: (@MainActor (UInt64) async -> Void)? = nil) {
-        unavailableRetryTask?.cancel()
-        unavailableRetryGeneration &+= 1
         leave()
         unavailable = message
         unavailableRetry = retry
     }
 
     func retryUnavailable() {
-        guard let unavailableRetry else { return }
-        unavailableRetryTask?.cancel()
+        guard unavailableRetryTask == nil, let unavailableRetry else { return }
         unavailableRetryGeneration &+= 1
         let generation = unavailableRetryGeneration
         unavailableRetryTask = Task { @MainActor [weak self] in
@@ -107,6 +104,7 @@ final class CloudBrowserAccessState {
     }
 
     func configure(model: CloudPortAccessModel, url: URL) {
+        cancelUnavailableRetry()
         unavailable = nil
         self.model = model
         remoteURL = url
@@ -192,15 +190,20 @@ final class CloudBrowserAccessState {
         return CloudPortRoutePlan.privateURL(url.absoluteString, address: address)
     }
 
-    func leave() {
+    private func cancelUnavailableRetry() {
         unavailableRetryTask?.cancel()
         unavailableRetryTask = nil
         unavailableRetryGeneration &+= 1
         unavailableRetry = nil
+    }
+
+    func leave() {
+        cancelUnavailableRetry()
         unavailable = nil
         model = nil
         remoteURL = nil
         navigationURL = nil
+        hasCommittedNavigation = false
         loaded = false
         error = nil
         desktopFailure = nil

@@ -8,14 +8,17 @@ extension CloudTreeNodeBuilder {
         resources: [SurfaceResource],
         projectionIndex: LocalProjectionIndex
     ) -> [CloudTreeNode] {
-        var children = resources.map { resource in
+        var children = resources.filter { $0.machine == machine }.map { resource in
             CloudTreeNode(
                 id: nodeID(resource: resource.id),
                 kind: .port(
                     resource,
-                    url: resource.url ?? info.privateAddress.flatMap { address in
-                        guard let port = resource.id.forwardedPort ?? resource.port else { return nil }
-                        return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
+                    url: info.privateAddress.flatMap { address in
+                        guard resource.machine == machine else { return nil }
+                        switch CloudPortRoutePlan.plan(resource: resource, privateAddress: address) {
+                        case .privateDirect(let url): return url
+                        case .unsupported: return nil
+                        }
                     },
                     openIn: projectionIndex.localWorkspaceShowing(resource: resource.id)
                 )

@@ -1,159 +1,108 @@
 import Foundation
 
-/// Localized, actionable copy for a Ports group that cannot show a trustworthy
-/// list or route. The model is independent of AppKit so the state matrix stays
-/// testable without constructing an outline view.
+/// One immutable Ports reason shared by native status rows and their actions.
 struct CloudPortsStatusPresentation: Equatable {
-    let title: String
-    let message: String
-    let action: CloudPortsStatusAction
-    let actionTitle: String?
+    let state: CloudPortDiscoveryState
 
     static func make(info: SurfaceMachineInfo) -> Self {
-        if case .notRequested = info.portDiscoveryState {
+        if info.portDiscoveryState == .notRequested {
             switch info.linkState {
-            case .connecting:
-                return Self(
-                    title: String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…"),
-                    message: String(localized: "cloudTree.ports.loading.detail", defaultValue: "cmux is reading the machine’s listening services."),
-                    action: .none,
-                    actionTitle: nil
-                )
-            case .error:
-                return Self(
-                    title: String(localized: "cloudTree.ports.failed", defaultValue: "Cloud link unavailable"),
-                    message: info.linkError ?? String(localized: "cloudTree.ports.failed", defaultValue: "Reconnect the machine or refresh to discover ports again."),
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            case .asleep:
-                return Self(
-                    title: String(localized: "cloudTree.ports.asleep", defaultValue: "Machine is asleep"),
-                    message: String(localized: "cloudTree.ports.asleep.detail", defaultValue: "Wake the machine to discover its listening services."),
-                    action: .openMachine,
-                    actionTitle: String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
-                )
-            case .unavailable:
-                return Self(
-                    title: String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable"),
-                    message: String(localized: "cloudTree.ports.unavailable.detail", defaultValue: "Refresh to retry port discovery."),
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            case .connected, .notApplicable:
-                break
+            case .asleep: return Self(state: .unavailable(.machineAsleep))
+            case .error: return Self(state: .unavailable(.link))
+            case .unavailable: return Self(state: .unavailable(.transport))
+            default: break
             }
         }
-        let routeNote = String(
-            localized: "cloudTree.ports.routeNote",
-            defaultValue: "cmux’s authenticated in-app forwarding works without the system-wide Cloud VPN. Safari, Chrome, and other Mac apps using the machine’s private address do require Cloud VPN."
-        )
-        switch info.portDiscoveryState {
+        return Self(state: info.portDiscoveryState)
+    }
+
+    var title: String {
+        switch state {
         case .notRequested:
-                return Self(
-                    title: String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports"),
-                    message: String(localized: "cloudTree.ports.notRequested", defaultValue: "Expand this group to scan the machine for reachable services."),
-                action: .none,
-                actionTitle: nil
-            )
+            return String(localized: "cloudTree.ports.notRequested.title", defaultValue: "Ports not checked yet")
         case .loading:
-            return Self(
-                title: String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…"),
-                message: String(localized: "cloudTree.ports.loading.detail", defaultValue: "cmux is reading the machine’s listening services."),
-                action: .none,
-                actionTitle: nil
-            )
+            return String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…")
         case .available:
-            return Self(
-                title: String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports"),
-                message: routeNote,
-                action: .none,
-                actionTitle: nil
-            )
-        case .empty(let reason):
-            switch reason {
-            case .noListeningService:
-                return Self(
-                    title: String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports"),
-                    message: String(
-                        format: String(localized: "cloudTree.ports.empty.noService", defaultValue: "No service is listening on a reachable port. Start an HTTP service on the machine, then refresh. %@"),
-                        routeNote
-                    ),
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            case .loopbackOnly:
-                return Self(
-                    title: String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports"),
-                    message: String(
-                        format: String(localized: "cloudTree.ports.empty.loopback", defaultValue: "A service is listening only on loopback. Bind it to the machine network, then refresh. %@"),
-                        routeNote
-                    ),
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            }
-        case .unavailable(let reason):
-            switch reason {
-            case .privateAddress:
-                let privateAddressMessage = String(
-                    format: String(localized: "cloudTree.port.noPrivateAddress", defaultValue: "%@ has no private network address yet; refresh the machine list and retry."),
-                    info.id.rawValue
-                )
-                return Self(
-                    title: String(localized: "cloudTree.ports.privateAddress", defaultValue: "Private address unavailable"),
-                    message: "\(privateAddressMessage) \(routeNote)",
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            case .machineAsleep:
-                return Self(
-                    title: String(localized: "cloudTree.ports.asleep", defaultValue: "Open the machine to discover ports"),
-                    message: String(localized: "cloudTree.ports.asleep.detail", defaultValue: "Wake the machine to discover its listening services."),
-                    action: .openMachine,
-                    actionTitle: String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
-                )
-            case .link:
-                let linkMessage = String(localized: "cloudTree.ports.failed", defaultValue: "Couldn’t discover ports. Refresh to retry.")
-                return Self(
-                    title: String(localized: "cloudTree.ports.failed", defaultValue: "Couldn’t discover ports. Refresh to retry."),
-                    message: "\(linkMessage) \(routeNote)",
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-                )
-            case .transport:
-                let transportMessage = String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry.")
-                return Self(
-                    title: String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry."),
-                    message: "\(transportMessage) \(routeNote)",
-                    action: .refresh,
-                    actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh Ports")
-                )
-            case .hub:
-                return Self(
-                    title: String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry."),
-                    message: String(localized: "cloudTree.ports.hub.detail", defaultValue: "This build cannot start cmux’s authenticated Cloud forward. Update cmux, then retry."),
-                    action: .refresh,
-                    actionTitle: String(localized: "common.retry", defaultValue: "Retry")
-                )
-            }
+            return String(localized: "cloudTree.ports.available.title", defaultValue: "Listening services")
+        case .loopbackOnly:
+            return String(localized: "cloudTree.ports.loopback.title", defaultValue: "Loopback services available")
+        case .empty(.noListeningService):
+            return String(localized: "cloudTree.ports.empty", defaultValue: "No reachable ports")
+        case .empty(.otherInterfaceOnly):
+            return String(localized: "cloudTree.ports.binding.title", defaultValue: "Services use another interface")
+        case .unavailable(.privateAddress):
+            return String(localized: "cloudTree.ports.privateAddress", defaultValue: "Private address unavailable")
+        case .unavailable(.machineAsleep):
+            return String(localized: "cloudTree.ports.asleep", defaultValue: "Open the machine to discover ports")
+        case .unavailable(.link):
+            return String(localized: "cloudTree.ports.link.title", defaultValue: "Cloud link unavailable")
+        case .unavailable:
+            return String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry.")
         case .stale:
-            return Self(
-                title: String(localized: "cloudTree.ports.stale", defaultValue: "Port list may be out of date"),
-                message: String(
-                    format: String(localized: "cloudTree.ports.stale.detail", defaultValue: "Reconnect or refresh before relying on this list. %@"),
-                    routeNote
-                ),
-                action: .refresh,
-                actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
-            )
+            return String(localized: "cloudTree.ports.stale", defaultValue: "Port list may be out of date")
         case .unsupported:
-            return Self(
-                title: String(localized: "cloudTree.ports.unsupported", defaultValue: "Ports are not supported by this provider."),
-                message: String(format: String(localized: "cloudTree.port.unsupported", defaultValue: "%@’s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec %@ -- …`."), info.id.rawValue, info.id.rawValue),
-                action: .openShell,
-                actionTitle: String(localized: "machines.menu.openShell", defaultValue: "Open Shell")
-            )
+            return String(localized: "cloudTree.ports.unsupported", defaultValue: "Ports are not supported by this provider.")
+        }
+    }
+
+    var message: String {
+        switch state {
+        case .notRequested:
+            return String(localized: "cloudTree.ports.notRequested", defaultValue: "Expand Ports or refresh to check this machine’s listening services.")
+        case .loading:
+            return String(localized: "cloudTree.ports.loading.detail", defaultValue: "Checking services through cmux’s authenticated Cloud link. No system VPN is needed.")
+        case .available:
+            return Self.routeNote
+        case .loopbackOnly:
+            return String(localized: "cloudTree.ports.loopback.detail", defaultValue: "These services open in cmux without Cloud VPN. They listen on the machine’s loopback address, so other apps cannot reach them through its private IP, even with VPN connected.")
+        case .empty(.noListeningService):
+            return String(localized: "cloudTree.ports.empty.noService", defaultValue: "No application service is listening. Start an HTTP service on the machine, then refresh. cmux’s in-app forwarding does not need Cloud VPN.")
+        case .empty(.otherInterfaceOnly):
+            return String(localized: "cloudTree.ports.binding.detail", defaultValue: "cmux’s browser route connects to 127.0.0.1 on the machine. Bind the service to 127.0.0.1 or 0.0.0.0, then refresh. Turning on Cloud VPN does not change this route.")
+        case .unavailable(.privateAddress):
+            return String(localized: "cloudTree.ports.privateAddress.detail", defaultValue: "cmux’s authenticated route needs this machine’s private address. Refresh to retrieve it. Turning on Cloud VPN does not assign a missing address.")
+        case .unavailable(.machineAsleep):
+            return String(localized: "cloudTree.ports.asleep.detail", defaultValue: "Wake the machine to check its services. cmux’s in-app forwarding does not need Cloud VPN.")
+        case .unavailable(.link):
+            return String(localized: "cloudTree.ports.link.detail", defaultValue: "Port discovery could not connect to this machine. Existing cmux ports may still work. Refresh to reconnect; Cloud VPN is not required.")
+        case .unavailable(.transport):
+            return String(localized: "cloudTree.ports.unavailable.detail", defaultValue: "The port scan failed; this does not mean no service is listening. Existing cmux ports may still work. Refresh to retry; Cloud VPN is not required.")
+        case .unavailable(.hub):
+            return String(localized: "cloudTree.ports.hub.detail", defaultValue: "This build cannot start cmux’s authenticated Cloud forward. Update cmux, then retry.")
+        case .stale:
+            return String(localized: "cloudTree.ports.stale.detail", defaultValue: "The last scan could not be refreshed. Listed services may have changed; refresh to check again. cmux forwarding does not need Cloud VPN.")
+        case .unsupported:
+            return String(localized: "cloudTree.ports.unsupported.detail", defaultValue: "This provider has no supported in-app port route. Open a shell to access the service inside the machine. Cloud VPN does not add provider support.")
+        }
+    }
+
+    static var routeNote: String {
+        String(localized: "cloudTree.ports.routeNote", defaultValue: "cmux forwards ports without Cloud VPN. Safari, Chrome, and other Mac apps need Cloud VPN to reach services bound to the machine’s private address.")
+    }
+
+    var action: CloudPortsStatusAction {
+        switch state {
+        case .unavailable(.machineAsleep): return .openMachine
+        case .unsupported: return .openShell
+        case .loading, .available, .loopbackOnly: return .none
+        default: return .refresh
+        }
+    }
+
+    var actionTitle: String? {
+        switch action {
+        case .none: return nil
+        case .refresh: return String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
+        case .openMachine: return String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
+        case .openShell: return String(localized: "machines.menu.openShell", defaultValue: "Open Shell")
+        }
+    }
+
+    var style: CloudTreePlaceholder.Style {
+        switch state {
+        case .loading: return .connecting
+        case .unavailable(.machineAsleep), .notRequested, .available, .loopbackOnly, .empty, .unsupported: return .dimmed
+        case .unavailable, .stale: return .error
         }
     }
 }

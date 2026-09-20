@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 
 /// Native, wrapping Ports guidance hosted above the outline's passthrough SwiftUI row.
 @MainActor
@@ -13,9 +14,9 @@ final class CloudPortsStatusContent: NSView {
     override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let localPoint = convert(point, from: superview)
-        guard !actionButton.isHidden, actionButton.frame.contains(localPoint) else { return nil }
-        return actionButton
+        // AppKit receives points in the receiver's superview; let its implementation own conversion.
+        guard let hit = super.hitTest(point), hit === actionButton || hit.isDescendant(of: actionButton) else { return nil }
+        return hit
     }
 
     override init(frame frameRect: NSRect) {
@@ -59,6 +60,7 @@ final class CloudPortsStatusContent: NSView {
             ? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             : .systemFont(ofSize: fontSize)
         setAccessibilityLabel("\(presentation.title), \(presentation.message)")
+        invalidateIntrinsicContentSize()
         needsLayout = true
     }
 
@@ -74,13 +76,13 @@ final class CloudPortsStatusContent: NSView {
         if actionButton.isHidden {
             actionButton.frame = .zero
         } else {
-            actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: actionButton.fittingSize.width, height: 22)
+            actionButton.frame = NSRect(x: inset, y: messageLabel.frame.maxY + 4, width: min(width - inset * 2, actionButton.fittingSize.width), height: 22)
         }
     }
 
     override var intrinsicContentSize: NSSize {
         guard let presentation else { return NSSize(width: NSView.noIntrinsicMetric, height: 0) }
-        return NSSize(width: NSView.noIntrinsicMetric, height: Self.height(width: max(180, bounds.width), presentation: presentation, style: style))
+        return NSSize(width: NSView.noIntrinsicMetric, height: Self.height(width: max(1, bounds.width), presentation: presentation, style: style))
     }
 
     static func height(width: CGFloat, presentation: CloudPortsStatusPresentation, style: CloudTreeStyle) -> CGFloat {
@@ -98,7 +100,7 @@ final class CloudPortsStatusContent: NSView {
 
     private static func textHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
         ceil(NSAttributedString(string: text, attributes: [.font: font]).boundingRect(
-            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            with: NSSize(width: max(1, width - 4), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         ).height)
     }
