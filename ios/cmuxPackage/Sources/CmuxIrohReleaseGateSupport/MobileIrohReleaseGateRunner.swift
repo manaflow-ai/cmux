@@ -212,12 +212,14 @@ final class MobileIrohReleaseGateRunner {
                     try await uiProbe.exercise(
                         workspaceID: identity.workspace, surfaceID: identity.surface
                     )
+                    let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
+                    defer { terminalSession.reset() }
                     return try await soakRunner.run(
                         marker: marker,
                         connection: { await store.irohSoakConnection() },
-                        probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker) },
+                        probe: { marker in try await store.runIrohReleaseGateProbe(marker: marker, terminalSession: terminalSession) },
                         stress: { cycle, marker in
-                            try await store.runIrohSoakUsageStep(cycle: cycle, marker: marker)
+                            try await store.runIrohSoakUsageStep(cycle: cycle, marker: marker, terminalSession: terminalSession)
                         }
                     )
                 }

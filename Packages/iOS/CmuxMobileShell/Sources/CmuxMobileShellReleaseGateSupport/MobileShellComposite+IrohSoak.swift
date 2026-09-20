@@ -27,7 +27,7 @@ extension MobileShellComposite {
     ///   - marker: Unique terminal output marker for this cycle.
     /// - Returns: Operation names and elapsed durations whose postconditions passed.
     /// - Throws: A gate failure when navigation, terminal output or reconnection fails.
-    public func runIrohSoakUsageStep(cycle: Int, marker: String) async throws -> [String: Double] {
+    public func runIrohSoakUsageStep(cycle: Int, marker: String, terminalSession: MobileIrohReleaseGateTerminalSession? = nil) async throws -> [String: Double] {
         guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
@@ -50,7 +50,7 @@ extension MobileShellComposite {
                 throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
             }
             let navigationSeconds = soakSeconds(navigationStarted)
-            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_NAV")
+            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_NAV", session: terminalSession)
             return [
                 "workspace_navigation": navigationSeconds,
                 "workspace_refresh": refreshSeconds,
@@ -63,7 +63,7 @@ extension MobileShellComposite {
                 Data("for i in {1..128}; do printf 'soak %s café 日本語 🔧\\n' \"$i\"; done\n".utf8),
                 surfaceID: target.terminalID.rawValue
             )
-            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_BURST")
+            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_BURST", session: terminalSession)
             return ["unicode_output_burst": soakSeconds(started)]
         case 2:
             let title = "cmux soak \(marker.suffix(16))"
@@ -82,7 +82,7 @@ extension MobileShellComposite {
                 guard selectedWorkspaceID == scratch.id else {
                     throw MobileIrohReleaseGateProbeFailure.workspaceMutationFailed
                 }
-                try await verifyTerminalRoundTrip(surfaceID: terminal.id.rawValue, marker: marker + "_NEW")
+                try await verifyTerminalRoundTrip(surfaceID: terminal.id.rawValue, marker: marker + "_NEW", session: terminalSession)
             } catch {
                 _ = await closeWorkspace(id: scratch.id)
                 throw error
@@ -97,7 +97,7 @@ extension MobileShellComposite {
             let closeSeconds = soakSeconds(closeStarted)
             await openWorkspace(original.id)
             let terminalStarted = ContinuousClock.now
-            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_RESTORED")
+            try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_RESTORED", session: terminalSession)
             return [
                 "workspace_create": createSeconds,
                 "workspace_switch": switchSeconds,
@@ -108,7 +108,7 @@ extension MobileShellComposite {
             guard cycle % 120 == 119 else {
                 let started = ContinuousClock.now
                 await refreshWorkspaces()
-                try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_REFRESH")
+                try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_REFRESH", session: terminalSession)
                 return ["terminal_after_refresh": soakSeconds(started)]
             }
             let before = await irohSoakConnectionID()
@@ -116,6 +116,7 @@ extension MobileShellComposite {
             // Exercise recovery by tearing down the test connection while
             // preserving its pairing, then invoke the shared retry action.
             let reconnectStarted = ContinuousClock.now
+            terminalSession?.reset()
             disconnectLiveConnection()
             guard await retryActiveMacReconnect(stackUserID: nil, force: true) else {
                 throw MobileIrohReleaseGateProbeFailure.soakReconnectFailed
@@ -128,7 +129,7 @@ extension MobileShellComposite {
             }
             let reconnectSeconds = soakSeconds(reconnectStarted)
             let terminalStarted = ContinuousClock.now
-            _ = try await runIrohReleaseGateProbe(marker: marker + "_RECONNECTED")
+            _ = try await runIrohReleaseGateProbe(marker: marker + "_RECONNECTED", terminalSession: terminalSession)
             return [
                 "forced_reconnect": reconnectSeconds,
                 "terminal_after_reconnect": soakSeconds(terminalStarted),

@@ -67,3 +67,10 @@ The supervisor runs from cmuxterm-hq. It records the installed source revision,
 retains evidence, and queues every result until Slack acknowledges it. Refresh
 both tagged builds together after merging an app change. A build older than
 48 hours reports a stale-build failure rather than current app health.
+
+The transport workload owns one terminal output consumer for the currently
+probed surface. It drains and acknowledges idle output between commands rather
+than reattaching and rehydrating up to 4,000 history rows for every marker.
+Switching surfaces and explicit reconnects replace the consumer. Unexpected
+ownership loss or stream termination still fails the run. The initial UI launch
+and workspace-open measurements continue to use real rendered app surfaces.

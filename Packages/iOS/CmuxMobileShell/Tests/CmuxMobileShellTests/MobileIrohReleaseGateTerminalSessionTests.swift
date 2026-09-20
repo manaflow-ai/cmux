@@ -51,7 +51,6 @@ struct MobileIrohReleaseGateTerminalSessionTests {
         pending.cancel()
         do { try await pending.value; Issue.record("cancelled probe passed") }
         catch is CancellationError {}
-        session.reset()
         for await _ in client.terminated.stream.prefix(1) {}
         #expect(client.owners.isEmpty)
     }
