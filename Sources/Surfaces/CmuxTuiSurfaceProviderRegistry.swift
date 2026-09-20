@@ -55,7 +55,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
-    /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
@@ -212,6 +211,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
+        Task { await wireGuardHub?.prepareForCloudUse() }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
