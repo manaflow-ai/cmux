@@ -23,11 +23,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     var isPresenting: Bool { sheetWindow != nil }
 
-    /// Reserves the local loading workspace at the acceptance boundary. The
-    /// placeholder is inserted with `select: false`, so it is visible and
-    /// truthful immediately while the create runs without moving keyboard
-    /// focus away from the person's current workspace.
-    private func reserveNewMachineWorkspace(preferredWindow: NSWindow?) -> UUID? {
+    /// Reserves and immediately selects the local loading workspace at the
+    /// acceptance boundary. Completion never selects again, so later network
+    /// callbacks cannot steal focus after the person navigates away.
+    private func reserveNewMachineWorkspace(title: String, preferredWindow: NSWindow?) -> UUID? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         let context = appDelegate.contextForMainWindow(preferredWindow)
             ?? appDelegate.preferredMainWindowContextForWorkspaceCreation(
@@ -36,20 +35,26 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         guard let tabManager = context?.tabManager
             ?? appDelegate.activeTabManagerForCommands(preferredWindow: preferredWindow),
               let workspace = tabManager.addWorkspaceIfActive(
-                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                title: title,
                 titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
-                select: false,
+                select: true,
                 autoWelcomeIfNeeded: false
               ) else { return nil }
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.create.reserve workspace=\(workspace.id.uuidString) focus=1 " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         return workspace.id
     }
 
     /// Every entrypoint reserves before launch; inability to reserve is an inline refusal.
     private func reserving(_ request: MachineCreateRequest, preferredWindow: NSWindow?) -> MachineCreateRequest? {
         if request.reservedWorkspaceID != nil { return request }
-        guard let workspaceID = reserveNewMachineWorkspace(preferredWindow: preferredWindow) else { return nil }
+        guard let workspaceID = reserveNewMachineWorkspace(title: request.displayName, preferredWindow: preferredWindow) else { return nil }
         return request.targetingReservedWorkspace(workspaceID)
     }
 
