@@ -82,8 +82,8 @@ fileprivate actor MobileRemoteNativeSSHHandle {
                 ? Int32(CMUX_SSH_OK)
                 : try await repeatAuthentication { cmux_ssh_auth_none(raw) }
         case let .privateKey(bytes, passphrase):
-            let encoded = bytes.base64EncodedString()
-            result = encoded.withCString { key in passphrase?.withCString { cmux_ssh_load_private_key(raw, key, $0) } ?? cmux_ssh_load_private_key(raw, key, nil) }
+            guard let keyText = String(data: bytes, encoding: .utf8) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+            result = keyText.withCString { key in passphrase?.withCString { cmux_ssh_load_private_key(raw, key, $0) } ?? cmux_ssh_load_private_key(raw, key, nil) }
             let authenticated = try await repeatAuthentication({ cmux_ssh_auth_key(raw) })
             guard result == Int32(CMUX_SSH_OK), authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
         }

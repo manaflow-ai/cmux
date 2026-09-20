@@ -132,7 +132,8 @@ async def run(args):
                 raise SystemExit("--server-info is required with --server-only")
             pathlib.Path(args.server_info).write_text(json.dumps({
                 "host": "127.0.0.1", "port": port, "username": USER,
-                "password": PASSWORD, "hostFingerprint": hostfp
+                "password": PASSWORD, "hostFingerprint": hostfp,
+                "ed25519PrivateKey": base64.b64encode(ed_key.read_bytes()).decode()
             }) + "\n")
             await asyncio.Event().wait()
             return

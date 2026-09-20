@@ -67,4 +67,26 @@ import Testing
         )
         await session.close()
     }
+
+    @Test func liveEd25519KeyAuthenticationAgainstFixture() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let port = Int(environment["CMUX_NATIVE_SSH_PORT"] ?? ""),
+              let keyBase64 = environment["CMUX_NATIVE_SSH_ED25519_KEY"],
+              let key = Data(base64Encoded: keyBase64) else { return }
+        let gate = MobileRemoteAccountGate(validate: { _ in })
+        try await gate.setAuthenticatedAccount(accountID: "fixture-account", sessionGeneration: 1)
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: MobileRemoteNativeSSHConnector(),
+            hostKeyApprover: { _, _ in .accept }
+        )
+        let profile = try MobileRemoteProfile(
+            id: UUID(), host: "127.0.0.1", port: port, username: "fixture",
+            carrier: .ssh, authentication: .publicKey
+        )
+        let session = try await coordinator.connect(
+            profile: profile,
+            credential: MobileRemoteSSHCredentialSource { .privateKey(key, passphrase: nil) }
+        )
+        await session.close()
+    }
 }

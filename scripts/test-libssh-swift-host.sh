@@ -23,15 +23,16 @@ python3 - "$info" <<'PY' >/dev/null
 import json,sys
 with open(sys.argv[1]) as file: json.load(file)
 PY
-IFS=$'\t' read -r port password fingerprint < <(python3 - "$info" <<'PY'
+IFS=$'\t' read -r port password fingerprint ed25519_key < <(python3 - "$info" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
-print("\t".join(str(d[key]) for key in ("port","password","hostFingerprint")))
+print("\t".join(str(d[key]) for key in ("port","password","hostFingerprint","ed25519PrivateKey")))
 PY
 )
 export CMUX_NATIVE_SSH_PORT="$port"
 export CMUX_NATIVE_SSH_PASSWORD="$password"
 export CMUX_NATIVE_SSH_FINGERPRINT="$fingerprint"
+export CMUX_NATIVE_SSH_ED25519_KEY="$ed25519_key"
 swift test --package-path "$root/Packages/Shared/CmuxSSHNative" \
   --scratch-path "$RUNNER_TEMP/cmux-native-ssh-swift" \
   --filter LiveNativeSSHTests \
