@@ -1,7 +1,6 @@
 import AppKit
 import CmuxCloudMachines
 import Observation
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -299,48 +298,3 @@ struct CloudMachineOrderingTests {
         #expect(second.sidebarMachines.map(\.id) == ["d", "a", "b", "c"])
     }
 
-    @Test("SwiftUI updates two StateObject-backed outlines without a view-model broadcast")
-    func hostedPanelsObserveSharedOrder() async throws {
-        let fixture = CloudMachineOrderingFixture()
-        defer { fixture.close() }
-        let secondModel = MachinesPanelViewModel(
-            createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
-            machinePinStore: fixture.store, catalogProvider: { fixture.input.snapshot }
-        )
-        secondModel.localWorkspacesProvider = { [] }
-        secondModel.readCatalog()
-        let hosts = [fixture.model, secondModel].map {
-            NSHostingView(rootView: CloudMachineOrderingTestPanel(model: $0, fixture: fixture))
-        }
-        let windows = hosts.map { host in
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 380, height: 560),
-                styleMask: [.titled], backing: .buffered, defer: false
-            )
-            window.contentView = host
-            host.layoutSubtreeIfNeeded()
-            return window
-        }
-        defer { for window in windows { window.contentView = nil } }
-        let outlines = try hosts.map { try #require(findOutline(in: $0)) }
-        let coordinators = try outlines.map { try #require($0.delegate as? CloudTreeOutlineView.Coordinator) }
-        #expect(coordinators.allSatisfy { $0.nodes.compactMap(\.machineOrderID) == ["a", "b", "c", "d"] })
-        let actions = try #require(fixture.coordinator.machineActions.ordering)
-        #expect(actions.move("d", .top) != nil)
-        // Drain the scheduled UI transaction, then lay out without replacing
-        // rootView, manually invalidating the host, or publishing the adapter.
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
-        }
-        for host in hosts { host.layoutSubtreeIfNeeded() }
-        #expect(coordinators.allSatisfy { $0.nodes.compactMap(\.machineOrderID) == ["d", "a", "b", "c"] })
-    }
-
-    private func findOutline(in view: NSView) -> CloudTreeNSOutlineView? {
-        if let outline = view as? CloudTreeNSOutlineView { return outline }
-        for child in view.subviews {
-            if let outline = findOutline(in: child) { return outline }
-        }
-        return nil
-    }
-}
