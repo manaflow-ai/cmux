@@ -99,6 +99,7 @@ import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape }
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
+  CREATE_CLEANUP_PROVIDER_VM_ID_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -211,6 +212,11 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const CREATE_CLEANUP_CONCURRENCY = 4;
+const CREATE_CLEANUP_PROVIDER_TIMEOUT = "15 seconds";
+const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
+const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
+const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -385,6 +391,9 @@ export function reconcileVmProviderStatuses(input: {
     yield* reconcileLegacyResourceReservations(repo, providers, {
       limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
     });
+    yield* reconcilePendingCreateCleanups(repo, providers, {
+      limit: boundedVmStatusReconcileLimit(input.limit),
+    });
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -439,6 +448,84 @@ export function reconcileVmProviderStatuses(input: {
       skipped,
       skippedNoGetStatus: false,
     };
+  });
+}
+
+/**
+ * A provider allocation retained after a failed create is not a normal VM row:
+ * its public provider id is intentionally absent until deletion is confirmed.
+ * Reconcile those ids before ordinary status probing so a failed provider
+ * cleanup cannot remain reserved forever or block the next Base generation.
+ */
+function reconcilePendingCreateCleanups(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: { readonly limit: number },
+): Effect.Effect<void, never> {
+  const listCandidates = repo.pendingCreateCleanupCandidates;
+  const claimCleanup = repo.claimCreateCleanup;
+  const deferCleanup = repo.deferCreateCleanup;
+  const resolveCleanup = repo.resolveCreateCleanup;
+  if (!listCandidates || !claimCleanup || !deferCleanup || !resolveCleanup) return Effect.void;
+  return Effect.gen(function* () {
+    const candidates = yield* listCandidates({ limit: input.limit }).pipe(
+      Effect.catchAll(() => Effect.succeed([] as CloudVmRow[])),
+    );
+    yield* Effect.forEach(
+      candidates,
+      (vm) => {
+        // The row can outlive its provider driver. Never pass a retired
+        // provider or a coderouter/model-plane failure to the cleanup worker.
+        if (isRetiredProviderRow(vm) || vm.failureCode !== PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+          return Effect.void;
+        }
+        const rawProviderVmId = vm.providerMetadata?.[CREATE_CLEANUP_PROVIDER_VM_ID_KEY];
+        if (typeof rawProviderVmId !== "string" || rawProviderVmId.trim().length === 0) return Effect.void;
+        const providerVmId = rawProviderVmId.trim();
+        const leaseId = randomUUID();
+        const now = new Date();
+        const leaseExpiresAt = new Date(now.getTime() + CREATE_CLEANUP_LEASE_MS);
+        return claimCleanup({
+          id: vm.id,
+          providerVmId,
+          leaseId,
+          now,
+          leaseExpiresAt,
+        }).pipe(
+          Effect.flatMap((claim) => {
+            if (!claim) return Effect.void;
+            const destroy = providers.destroy(vm.provider, providerVmId).pipe(
+              Effect.timeoutFail({
+                duration: CREATE_CLEANUP_PROVIDER_TIMEOUT,
+                onTimeout: () => new Error("provider cleanup deadline"),
+              }),
+              Effect.catchAll((error) => isProviderNotFoundError(error)
+                ? Effect.succeed("confirmed" as const)
+                : Effect.fail(error)),
+            );
+            return destroy.pipe(
+              Effect.flatMap(() => resolveCleanup({ id: vm.id, providerVmId, leaseId })),
+              Effect.asVoid,
+              Effect.catchAll(() => {
+                const backoff = Math.min(
+                  CREATE_CLEANUP_BACKOFF_MAX_MS,
+                  CREATE_CLEANUP_BACKOFF_BASE_MS * 2 ** Math.min(20, Math.max(0, claim.attempt - 1)),
+                );
+                return deferCleanup({
+                  id: vm.id,
+                  providerVmId,
+                  leaseId,
+                  nextAttemptAt: new Date(Date.now() + backoff),
+                  now: new Date(),
+                }).pipe(Effect.asVoid, Effect.catchAll(() => Effect.void));
+              }),
+            );
+          }),
+          Effect.catchAll(() => Effect.void),
+        );
+      },
+      { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
+    );
   });
 }
 

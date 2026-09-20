@@ -265,6 +265,89 @@ describe("VM Effect workflows", () => {
     expect(fixture.liveVms.size).toBe(1);
   });
 
+  dbTest("reconciles retained guest allocations before allowing a retry", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    let failInstall = true;
+    const fixture = freestyleGuestFixture({
+      exec: async () => Response.json({ statusCode: failInstall ? 1 : 0 }),
+      deleteFailure: true,
+    });
+    let destroyCalls = 0;
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+      destroy: (_, providerVmId) => Effect.sync(() => {
+        destroyCalls += 1;
+        fixture.liveVms.delete(providerVmId);
+      }),
+    });
+    const input = {
+      ...guestCreateOptions, userId: "user-guest-cleanup-reconcile", billingTeamId: "team-guest-cleanup-reconcile",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      idempotencyKey: "guest-cleanup-reconcile", maxActiveVms: 1,
+    };
+
+    expect((await Effect.runPromise(Effect.either(createVm(input).pipe(Effect.provide(layer)))))._tag).toBe("Left");
+    expect(fixture.liveVms.size).toBe(1);
+    await Promise.all([
+      Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer))),
+      Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer))),
+    ]);
+    expect(destroyCalls).toBe(1);
+    const [resolved] = await sql<{ status: string; providerVmId: string | null; metadata: Record<string, unknown> }[]>`
+      select status, provider_vm_id as "providerVmId", provider_metadata as metadata
+      from cloud_vms where user_id = 'user-guest-cleanup-reconcile'
+    `;
+    expect(resolved.status).toBe("failed");
+    expect(resolved.providerVmId).toBeNull();
+    expect(resolved.metadata.createCleanupProviderVmId).toBeUndefined();
+
+    failInstall = false;
+    const retry = await Effect.runPromise(createVm(input).pipe(Effect.provide(layer)));
+    expect(retry.providerVmId).toBe("vm-fixture-2");
+    expect(fixture.liveVms).toEqual(new Set(["vm-fixture-2"]));
+  });
+
+  dbTest("retains failed cleanup with durable backoff and does not duplicate the provider delete", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });
+    let destroyCalls = 0;
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+      destroy: () => Effect.sync(() => {
+        destroyCalls += 1;
+      }).pipe(Effect.andThen(Effect.fail(new VmProviderOperationError({
+        provider: "freestyle",
+        operation: "destroy",
+        cause: new Error("synthetic cleanup outage"),
+      })))),
+    });
+    const input = {
+      ...guestCreateOptions, userId: "user-guest-cleanup-backoff", billingTeamId: "team-guest-cleanup-backoff",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      idempotencyKey: "guest-cleanup-backoff", maxActiveVms: 1,
+    };
+
+    expect((await Effect.runPromise(Effect.either(createVm(input).pipe(Effect.provide(layer)))))._tag).toBe("Left");
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+    expect(destroyCalls).toBe(1);
+    const [row] = await sql<{ status: string; metadata: Record<string, unknown> }[]>`
+      select status, provider_metadata as metadata from cloud_vms where user_id = 'user-guest-cleanup-backoff'
+    `;
+    expect(row.status).toBe("provisioning");
+    expect(row.metadata.createCleanupProviderVmId).toBe("vm-fixture-1");
+    expect(Number(row.metadata.createCleanupNextAttemptAtMs)).toBeGreaterThan(Date.now());
+    expect(row.metadata.createCleanupLeaseId).toBeUndefined();
+  });
+
   dbTest("unconfirmed guest rollback keeps the Base generation reserved", async () => {
     if (!sql) throw new Error("test database not initialized");
     const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });

@@ -11,13 +11,21 @@ const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 /** Isolated guest filesystem; run the actual uploaded bytes and install command. */
-function guest(options: { corruptUpload?: boolean } = {}) {
+function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publishFails?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-install-"));
   roots.push(root);
   mkdirSync(join(root, "bin"));
   mkdirSync(join(root, "fixture-bin"));
-  writeFileSync(join(root, "fixture-bin/getent"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-  writeFileSync(join(root, "fixture-bin/xdg-mime"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  const trigger = options.promptFails || options.publishFails;
+  writeFileSync(join(root, "fixture-bin/getent"), trigger
+    ? "#!/bin/sh\n[ \"$1\" = passwd ] || exit 1\ncase \"$2\" in root|cmux|ubuntu) printf '%s:x:0:0::%s:/bin/sh\\n' \"$2\" \"$CMUX_GUEST_FIXTURE_ROOT/home/$2\"; exit 0;; esac\nexit 1\n"
+    : "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  writeFileSync(join(root, "fixture-bin/runuser"), trigger
+    ? "#!/bin/sh\n[ \"$1\" = -u ] || exit 1\nuser=\"$2\"; shift 2; [ \"$1\" = -- ] || exit 1; shift\nHOME=\"$CMUX_GUEST_FIXTURE_ROOT/home/$user\"; export HOME\nexec \"$@\"\n"
+    : "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+  writeFileSync(join(root, "fixture-bin/xdg-mime"), trigger
+    ? "#!/bin/sh\nif [ \"$CMUX_GUEST_FAILURE_STAGE\" = prompt ]; then rm -f \"$CMUX_GUEST_FIXTURE_ROOT/etc/prompt.bash\"; mkdir -p \"$CMUX_GUEST_FIXTURE_ROOT/etc/prompt.bash\"; fi\nif [ \"$CMUX_GUEST_FAILURE_STAGE\" = publish ]; then rm -f \"$CMUX_GUEST_FIXTURE_ROOT/bin/cmux\"; mkdir -p \"$CMUX_GUEST_FIXTURE_ROOT/bin/cmux\"; fi\nexit 0\n"
+    : "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const prefixes: Record<string, string> = {
     "/usr/local/bin": join(root, "bin"), "/usr/local/share": join(root, "share"),
     "/etc/cmux": join(root, "etc"), "/etc": join(root, "system-etc"),
@@ -31,7 +39,12 @@ function guest(options: { corruptUpload?: boolean } = {}) {
     exec: async (request) => {
       const result = spawnSync("/bin/sh", ["-c", rebase(request.command)], {
         encoding: "utf8", timeout: 5_000,
-        env: { ...process.env, HOME: root, PATH: `${join(root, "fixture-bin")}:${process.env.PATH}` },
+        env: {
+          ...process.env, HOME: root, PATH: `${join(root, "fixture-bin")}:${process.env.PATH}`,
+          CMUX_GUEST_FIXTURE_ROOT: root,
+          ...(options.promptFails ? { CMUX_GUEST_FAILURE_STAGE: "prompt" } : {}),
+          ...(options.publishFails ? { CMUX_GUEST_FAILURE_STAGE: "publish" } : {}),
+        },
       });
       return Response.json({ statusCode: result.status, stdout: result.stdout, stderr: result.stderr });
     },
@@ -93,16 +106,53 @@ describe("guest CLI publication in an isolated filesystem", () => {
   });
 
   test("prompt failure does not publish a new shim generation", async () => {
-    const { fixture, target, root } = guest();
+    const { fixture, target, root } = guest({ promptFails: true });
     writeFileSync(target, "previous generation");
+    const browserOpener = join(root, "bin/cmux-open-url");
+    writeFileSync(browserOpener, "previous browser generation");
     mkdirSync(join(root, "etc"));
-    mkdirSync(join(root, "etc/.prompt-lock"));
+    writeFileSync(join(root, "etc/prompt.bash"), "previous prompt generation");
+    writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
+    writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
+    writeFileSync(join(root, "etc/vm-name"), "previous name\n");
     const failure = await fixture.provider.create({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
     }).then(() => undefined, (error) => error);
     expect(failure?.cause?.stage).toBe("prompt");
     expect(readFileSync(target, "utf8")).toBe("previous generation");
+    expect(readFileSync(browserOpener, "utf8")).toBe("previous browser generation");
+    expect(readFileSync(join(root, "etc/prompt.bash"), "utf8")).toBe("previous prompt generation");
+    expect(readFileSync(join(root, "etc/bashrc"), "utf8")).toBe("previous bashrc generation");
+    expect(readFileSync(join(root, "etc/.prompt-identity"), "utf8")).toBe("previous identity");
+    expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("previous name\n");
+    const promptArtifacts = readdirSync(join(root, "etc"));
+    expect(promptArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
+    expect(fixture.liveVms.size).toBe(0);
+  });
+
+  test("publish failure restores browser, prompt, and shim generations without temp artifacts", async () => {
+    const { fixture, target, root } = guest({ publishFails: true });
+    writeFileSync(target, "previous generation");
+    writeFileSync(join(root, "bin/cmux-open-url"), "previous browser generation");
+    mkdirSync(join(root, "etc"));
+    writeFileSync(join(root, "etc/prompt.bash"), "previous prompt generation");
+    writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
+    writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
+    writeFileSync(join(root, "etc/vm-name"), "previous name\n");
+    const failure = await fixture.provider.create({
+      ...guestCreateOptions,
+      promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
+    }).then(() => undefined, (error) => error);
+    expect(failure?.cause?.stage).toBe("publish");
+    expect(readFileSync(target, "utf8")).toBe("previous generation");
+    expect(readFileSync(join(root, "bin/cmux-open-url"), "utf8")).toBe("previous browser generation");
+    expect(readFileSync(join(root, "etc/prompt.bash"), "utf8")).toBe("previous prompt generation");
+    expect(readFileSync(join(root, "etc/bashrc"), "utf8")).toBe("previous bashrc generation");
+    expect(readFileSync(join(root, "etc/.prompt-identity"), "utf8")).toBe("previous identity");
+    expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("previous name\n");
+    const publishArtifacts = readdirSync(join(root, "etc"));
+    expect(publishArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
     expect(fixture.liveVms.size).toBe(0);
   });
 });
