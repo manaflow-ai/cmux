@@ -13,6 +13,7 @@ final class CloudMachineWorkspaceTestProvider: SurfaceProvider {
     var info: SurfaceMachineInfo
     var beforeMaterialization: (() async throws -> Void)?
     private(set) var materializations = 0
+    var returnMismatchedPlacement = false
 
     init(id: String = UUID().uuidString) {
         machine = .cloud(id)
@@ -50,7 +51,9 @@ final class CloudMachineWorkspaceTestProvider: SurfaceProvider {
             onRuntimeReady: {}, onFocus: {}, attachment: CloudTerminalAttachmentStatus(machineID: machine.rawValue)
         )
         return SurfaceProjection(resource: resource.id, workspaceID: native.workspaceID,
-            panelID: native.panelID, remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+            panelID: native.panelID,
+            remoteWorkspaceID: returnMismatchedPlacement ? "moved-workspace" : remoteView?.workspace.id,
+            remoteTabID: remoteView?.tabID)
     }
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {

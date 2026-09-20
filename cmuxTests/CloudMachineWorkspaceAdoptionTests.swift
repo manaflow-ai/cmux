@@ -215,6 +215,31 @@ struct CloudMachineWorkspaceAdoptionTests {
         }
     }
 
+    @Test("Placement rejection restores the creating card for retry")
+    func placementFailureRestoresLoadingCard() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let catalog = makeCatalog(app.manager)
+            let provider = CloudMachineWorkspaceTestProvider()
+            provider.returnMismatchedPlacement = true
+            catalog.register(provider)
+            defer { catalog.unregister(machine: provider.machine) }
+            try provider.install(in: catalog)
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
+            let originalID = try #require(pending.panels.values.first?.id)
+            await #expect(throws: (any Error).self) { try await open(pending, provider: provider, catalog: catalog) }
+            #expect(pending.panels.count == 1)
+            #expect(pending.panels[originalID] is CloudVMLoadingPanel)
+            #expect(catalog.projections.isEmpty)
+            provider.returnMismatchedPlacement = false
+            let retry = try await open(pending, provider: provider, catalog: catalog)
+            #expect(retry.panelID == originalID)
+            #expect(pending.panels[originalID] is TerminalPanel)
+        }
+    }
+
     private func makeCatalog(_ manager: TabManager) -> SurfaceCatalog {
         SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
             workspace: { manager.workspacesById[$0] }, tabManager: { _ in manager }, workspaces: { manager.tabs }
