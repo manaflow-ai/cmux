@@ -790,9 +790,9 @@ actor VMClient {
     }
 
     func listPage() async throws -> VMListPage {
-        let retentionToken = await resourceStats.beginRetention()
-        let listIdentity = await auth.authenticatedSessionIdentity
-        let listTeamID = await auth.resolvedTeamID
+        let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
+            (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
+        }
         return try await withOperation(.list, foreground: false) {
             let (data, http) = try await request("GET", path: "/api/vm")
             try ensureOK(http, data: data)
@@ -855,12 +855,12 @@ actor VMClient {
             // complete fleet before returning, but only when the auth account
             // and team are still the ones that produced this response. The
             // store token fences reset and out-of-order list responses.
-            let currentIdentity = await auth.authenticatedSessionIdentity
-            let currentTeamID = await auth.resolvedTeamID
-            if let listIdentity,
-               currentIdentity == listIdentity,
-               currentTeamID == listTeamID {
-                await resourceStats.retain(machineIDs: Set(vms.map(\.id)), token: retentionToken)
+            let machineIDs = Set(vms.map(\.id))
+            await MainActor.run { [auth, resourceStats] in
+                guard !Task.isCancelled, let listIdentity,
+                      auth.authenticatedSessionIdentity == listIdentity,
+                      auth.resolvedTeamID == listTeamID else { return }
+                resourceStats.retain(machineIDs: machineIDs, token: retentionToken)
             }
             return VMListPage(vms: vms, limits: limits)
         }

@@ -80,23 +80,10 @@ final class VMResourceStatsStore {
         return RetentionToken(generation: retentionGeneration, sequence: nextRetentionSequence)
     }
 
-    /// Retain the entire authoritative fleet, including teams larger than the
-    /// CLI cache bound. Removed machines cannot reappear from outstanding reads.
-    func retain(machineIDs: Set<String>) {
-        nextRetentionSequence &+= 1
-        acceptRetention(machineIDs: machineIDs, token: RetentionToken(
-            generation: retentionGeneration,
-            sequence: nextRetentionSequence
-        ))
-    }
-
     /// Accept a list response only if it belongs to the current auth/reset
-    /// generation and is not older than an already accepted response.
+    /// generation and is not older than an already accepted response. Retain
+    /// the entire authoritative fleet, including teams larger than the CLI cache.
     func retain(machineIDs: Set<String>, token: RetentionToken) {
-        acceptRetention(machineIDs: machineIDs, token: token)
-    }
-
-    private func acceptRetention(machineIDs: Set<String>, token: RetentionToken) {
         guard token.generation == retentionGeneration,
               token.sequence >= acceptedRetentionSequence else { return }
         acceptedRetentionSequence = token.sequence

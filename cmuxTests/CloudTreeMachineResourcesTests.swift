@@ -42,6 +42,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.memory.percent == 50)
         #expect(resources.disk.percent == 75)
         #expect(resources.cpu.value == (0.094).formatted(.percent.precision(.fractionLength(0))))
+        #expect(resources.cpu.detail == "CPU 9%")
         #expect(resources.memory.detail.contains("2/4"))
         #expect(resources.disk.detail.contains("3/4"))
     }

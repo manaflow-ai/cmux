@@ -76,9 +76,9 @@ struct VMResourceStatsStoreTests {
         store.finishRead(store.beginRead(machineID: "b"), stats: stats(memory: 8192, disk: 32768))
         store.finishRead(store.beginRead(machineID: "a"), stats: stats(memory: 8192, disk: 32768))
         #expect(changes.takeMachineIDs() == Set(["a", "b"]))
-        store.retain(machineIDs: ["a", "b", "c"])
+        store.retain(machineIDs: ["a", "b", "c"], token: store.beginRetention())
         #expect(changes.takeMachineIDs() == Set<String>())
-        store.retain(machineIDs: ["a", "c"])
+        store.retain(machineIDs: ["a", "c"], token: store.beginRetention())
         #expect(changes.takeMachineIDs() == Set(["b"]))
     }
 
@@ -139,7 +139,7 @@ struct VMResourceStatsStoreTests {
         store.finishResize(resize, stats: stats(memory: 8192, disk: 32768))
         #expect(store.snapshot.isEmpty)
         let removed = store.beginRead(machineID: "removed")
-        store.retain(machineIDs: [])
+        store.retain(machineIDs: [], token: store.beginRetention())
         store.finishRead(removed, stats: stats(memory: 8192, disk: 32768))
         #expect(store.snapshot.isEmpty)
     }
@@ -158,7 +158,7 @@ struct VMResourceStatsStoreTests {
         let store = VMResourceStatsStore(now: { self.time })
         let fleet = Set((0..<300).map { "vm-\($0)" })
         let reading = stats(memory: 8192, disk: 32768)
-        store.retain(machineIDs: fleet)
+        store.retain(machineIDs: fleet, token: store.beginRetention())
         // The panel starts a read for every machine before the network replies.
         let reads = fleet.map { store.beginRead(machineID: $0) }
         for read in reads { store.finishRead(read, stats: reading) }
@@ -174,7 +174,7 @@ struct VMResourceStatsStoreTests {
         #expect(store.stats(for: "cli-299") == reading)
 
         let removedRead = store.beginRead(machineID: "vm-0")
-        store.retain(machineIDs: fleet.subtracting(["vm-0"]))
+        store.retain(machineIDs: fleet.subtracting(["vm-0"]), token: store.beginRetention())
         store.finishRead(removedRead, stats: reading)
         #expect(store.snapshot.count == fleet.count - 1)
         #expect(store.stats(for: "vm-0") == nil)
@@ -183,7 +183,7 @@ struct VMResourceStatsStoreTests {
     @Test func authResetClearsAuthoritativeFleetRetention() {
         let store = VMResourceStatsStore(now: { self.time })
         let fleet = Set((0..<300).map { "vm-\($0)" })
-        store.retain(machineIDs: fleet)
+        store.retain(machineIDs: fleet, token: store.beginRetention())
         store.reset()
         for id in fleet {
             store.finishRead(store.beginRead(machineID: id), stats: stats(memory: 8192, disk: 32768))
@@ -196,22 +196,23 @@ struct VMResourceStatsStoreTests {
         let oldFleet = Set(["old-a", "old-b"])
         let newFleet = Set(["new-a", "new-b"])
         let reading = stats(memory: 8192, disk: 32768)
-        store.retain(machineIDs: oldFleet)
+        store.retain(machineIDs: oldFleet, token: store.beginRetention())
         store.finishRead(store.beginRead(machineID: "old-a"), stats: reading)
         store.reset()
 
-        // The panel calls retain only after its list response passes its
-        // refresh-generation and account-scope guards.
-        store.retain(machineIDs: newFleet)
+        // The shared client accepts the list only in its current auth scope.
+        store.retain(machineIDs: newFleet, token: store.beginRetention())
         store.finishRead(store.beginRead(machineID: "new-a"), stats: reading)
         for id in oldFleet { #expect(store.stats(for: id) == nil) }
         #expect(store.stats(for: "new-a") == reading)
         #expect(store.stats(for: "new-b") == nil)
     }
 
-    @Test func olderListResponseCannotReplaceNewerFleetRetention() {
+    @Test(arguments: [false, true])
+    func olderListResponseCannotReplaceNewerFleetRetention(resetDuringRequest: Bool) {
         let store = VMResourceStatsStore(now: { self.time })
         let oldToken = store.beginRetention()
+        if resetDuringRequest { store.reset() }
         let newToken = store.beginRetention()
         store.retain(machineIDs: ["new"], token: newToken)
         store.retain(machineIDs: ["old"], token: oldToken)

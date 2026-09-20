@@ -37,7 +37,8 @@ private func capacity(
     // while preserving the actual reported amounts in the detail.
     let percent = min(100, Double(used) / Double(total) * 100)
     let value = (percent / 100).formatted(.percent.precision(.fractionLength(0)))
-    let capacity = String(localized: "machines.stats.provisioned", defaultValue: "\(gb(used))/\(gb(total)) GB")
+    let usedAndTotal = "\(gb(used))/\(gb(total))"
+    let capacity = String(localized: "machines.stats.provisioned", defaultValue: "\(usedAndTotal) GB")
     return .init(
         label: label,
         percent: percent,
@@ -165,7 +166,7 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
             label: cpuLabel,
             percent: cpuPercent,
             detail: cpuPercent.map {
-                String(localized: "cloudTree.stats.cpu", defaultValue: "CPU \(Int($0.rounded()))%")
+                String(localized: "cloudTree.stats.cpu", defaultValue: "CPU \(Int32($0.rounded()))%")
             } ?? "\(cpuLabel): \(cpuUnavailable)",
             inlineDetail: cpuPercent.map {
                 ($0 / 100).formatted(.percent.precision(.fractionLength(0)))
