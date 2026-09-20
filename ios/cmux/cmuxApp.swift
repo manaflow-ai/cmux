@@ -110,7 +110,23 @@ struct cmuxApp: App {
         )
     }()
 
+    #if DEBUG
+    private let releaseGateUIProbe: MobileReleaseGateUIProbe
+    #endif
+
     init() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        #if targetEnvironment(simulator)
+        let launchUptime = environment["CMUX_IROH_UI_LAUNCH_UPTIME_NS"].flatMap(UInt64.init)
+        #else
+        let launchUptime: UInt64? = nil
+        #endif
+        releaseGateUIProbe = MobileReleaseGateUIProbe(
+            enabled: !(environment["CMUX_IROH_SOAK_PROFILE"] ?? "").isEmpty && launchUptime != nil,
+            launchUptimeNanoseconds: launchUptime
+        )
+        #endif
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
         appDelegate.analytics = Self.root.analytics.emitter
@@ -135,6 +151,7 @@ struct cmuxApp: App {
         Group {
             #if DEBUG
             MobileIrohReleaseGateScene(
+                uiProbe: releaseGateUIProbe,
                 root: mobileRootScene,
                 irx: Self.root.irx,
                 settingsController: Self.root.irohSettingsController

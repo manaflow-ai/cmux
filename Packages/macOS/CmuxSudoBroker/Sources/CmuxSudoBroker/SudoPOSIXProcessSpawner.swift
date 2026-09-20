@@ -90,6 +90,7 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             }
         }
         if actionStatus == 0 {
+#if compiler(>=6.2)
             if #available(macOS 26, *) {
                 actionStatus = posix_spawn_file_actions_addfchdir(
                     &fileActions,
@@ -101,6 +102,13 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
                     directoryDescriptor
                 )
             }
+#else
+            // Xcode 16.x SDKs do not declare the macOS 26 replacement API.
+            actionStatus = Self.addLegacyFDChdir(
+                &fileActions,
+                directoryDescriptor
+            )
+#endif
         }
         if actionStatus == 0 {
             actionStatus = posix_spawn_file_actions_adddup2(

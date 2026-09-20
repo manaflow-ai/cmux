@@ -3467,7 +3467,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.ignoresSafeArea())
+        view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost().allowsHitTesting(false)))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         })
@@ -15980,7 +15980,7 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
-                SidebarCloudWorkspaceBadgeView(label: workspaceSnapshot.cloudWorkspaceLabel, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
+                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.cloudWorkspaceLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
 
                 if isEditing {
                     SidebarInlineRenameField(

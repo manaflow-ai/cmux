@@ -1,6 +1,6 @@
 import { trace } from "@opentelemetry/api";
 import { cache } from "react";
-import { StackServerApp } from "@stackframe/stack";
+import { StackServerApp } from "@hexclave/next";
 import { env } from "../env";
 import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";

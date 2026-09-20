@@ -23,6 +23,11 @@
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     },
+    "displayName": {
+      "title": "ឈ្មោះម៉ាស៊ីនមិនត្រឹមត្រូវ",
+      "message": "ឈ្មោះម៉ាស៊ីនត្រូវតែជាអត្ថបទដែលអាចបង្ហាញបាន និងមានប្រវែងមិនលើសពី {maxLength} តួអក្សរ។",
+      "action": "ប្រើឈ្មោះខ្លីជាងនេះដោយគ្មានតួអក្សរត្រួតពិនិត្យ ឬទុកវាឲ្យទទេដើម្បីលុបវាចោល។"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "ផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក ដើម្បីបន្ត",
     "emailUnverifiedBody": "ចូលដោយប្រើវិធីដែលអ្នកបានប្រើដំបូង បន្ទាប់មកផ្ទៀងផ្ទាត់អ៊ីមែល មុនពេលប្រើវិធីចូលនេះ។",
+    "signupPendingBody": "ប្រសិនបើអ្នកមានគណនីរួចហើយ សូមចូលដោយប្រើវិធីដែលអ្នកបានប្រើពីមុន។ ប្រសិនបើអ្នកទើបបង្កើតគណនី សូមបញ្ជាក់អ៊ីមែលរបស់អ្នកមុនពេលចូល។",
     "genericTitle": "មិនអាចបញ្ចប់ការចូលបានទេ",
     "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
     "backToSignIn": "ត្រឡប់ទៅការចូល"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "ឧបករណ៍ចល័ត"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,25 @@
         "loading": "កំពុងផ្ទុក…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "ឧបករណ៍ចល័ត",
+      "description": "គ្រប់គ្រងការចូលប្រើកុំព្យូទ័រ ទូរស័ព្ទ និងថេប្លេតដែលបានភ្ជាប់។",
+      "team": "ក្រុម",
+      "teamSwitchError": "មិនអាចប្តូរក្រុមបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+      "loading": "កំពុងផ្ទុកឧបករណ៍…",
+      "empty": "មិនមានឧបករណ៍បានចុះឈ្មោះសម្រាប់ក្រុមនេះទេ។",
+      "unavailable": "មិនអាចផ្ទុកឧបករណ៍របស់អ្នកបានទេ។ ផ្ទុកទំព័រឡើងវិញ ហើយព្យាយាមម្តងទៀត។",
+      "retry": "ព្យាយាមម្ដងទៀត",
+      "mutationError": "មិនអាចបញ្ចប់ការផ្លាស់ប្តូរឧបករណ៍បានទេ។",
+      "revoke": "ដកសិទ្ធិចូលប្រើ",
+      "deviceId": "ឧបករណ៍",
+      "revision": "កំណែ",
+      "status": "ស្ថានភាព",
+      "active": "សកម្ម",
+      "revoked": "បានដកហូត",
+      "relaySettings": "ការកំណត់ relay",
+      "relaySettingsDescription": "ជ្រើសរើសម៉ាស៊ីនមេ relay ដែលក្រុមនេះប្រើ។ បញ្ចូល URL មួយក្នុងមួយជួរ។",
+      "saveRelaySettings": "រក្សាទុកការកំណត់ relay"
     },
     "coderouterAccounts": {
       "shareWithTeam": "ចែករំលែកជាមួយក្រុម",

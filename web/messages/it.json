@@ -23,6 +23,11 @@
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
     },
+    "displayName": {
+      "title": "Nome macchina non valido",
+      "message": "Il nome della macchina deve essere testo stampabile di al massimo {maxLength} caratteri.",
+      "action": "Usa un nome più corto senza caratteri di controllo, oppure lascialo vuoto per cancellarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica la tua e-mail per continuare",
     "emailUnverifiedBody": "Accedi con il metodo usato inizialmente, poi verifica la tua e-mail prima di usare questo metodo di accesso.",
+    "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "panoramica",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Dispositivi mobili"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,25 @@
         "loading": "Caricamento…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Dispositivi mobili",
+      "description": "Gestisci l’accesso ai computer, telefoni e tablet collegati.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "teamSwitchError": "Impossibile cambiare team. Riprova.",
+      "loading": "Caricamento dei dispositivi…",
+      "empty": "Non ci sono dispositivi registrati per questo team.",
+      "unavailable": "Impossibile caricare i dispositivi. Aggiorna la pagina e riprova.",
+      "retry": "Riprova",
+      "mutationError": "Non è stato possibile completare la modifica del dispositivo.",
+      "revoke": "Revoca accesso",
+      "deviceId": "Dispositivo",
+      "revision": "Revisione",
+      "status": "Stato",
+      "active": "Attivo",
+      "revoked": "Revocato",
+      "relaySettings": "Impostazioni relay",
+      "relaySettingsDescription": "Scegli i server relay usati da questo team. Inserisci un URL per riga.",
+      "saveRelaySettings": "Salva impostazioni relay"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Condividi con il team",
