@@ -1408,7 +1408,7 @@ extension Workspace {
         using surfaceResumeBindingIndex: SurfaceResumeBindingIndex,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) {
-        for panelId in panels.keys {
+        guard surfaceResumeBindingIndex.isAvailable else { return }; for panelId in panels.keys {
             let storedBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
             if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {

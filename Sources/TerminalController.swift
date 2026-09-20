@@ -1720,9 +1720,22 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                let response = await self.v2SystemTopAsync(ControlRequest(
+                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                ))
+                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                }
+                switch typed {
+                case .ok(let value): return .ok(value.foundationObject)
+                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                }
+            }
         case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemMemory(params: request.params)
+            }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2VaultSessions(params: request.params)
@@ -3658,115 +3671,6 @@ class TerminalController {
 #if DEBUG
 #endif
 
-    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
-        let identifyPayload = v2Identify(params: [:])
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        var windowNodes: [[String: Any]] = []
-
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
-
-            for (windowIndex, summary) in summaries.enumerated() {
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                }
-                windowNodes.append(
-                    v2TopWindowNode(
-                        summary: summary,
-                        index: windowIndex,
-                        workspaceNodes: workspaceNodes
-                    )
-                )
-            }
-        }
-        v2AttachTopApplicationProcess(to: &windowNodes)
-
-        let processSnapshot = await withTaskGroup(
-            of: CmuxTopProcessSnapshot.self,
-            returning: CmuxTopProcessSnapshot.self
-        ) { group in
-            group.addTask(priority: .utility) {
-                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-            }
-            return await group.next()!
-        }
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
-            &annotatedWindows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: annotatedWindows
-        )
-
-        return [
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": NSNull(),
-            "sample": processSnapshot.samplePayload(),
-            "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "memory_diagnostic": memoryDiagnostic,
-            "program_totals": aggregates.programs,
-            "coding_agents": aggregates.codingAgents,
-            "windows": annotatedWindows
-        ]
-    }
-
-    nonisolated func processAggregates(
-        from processSnapshot: CmuxTopProcessSnapshot,
-        totalPIDs: Set<Int>
-    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
-        (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
-    }
-
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: params)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-        }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes
-        )
-
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
-        payload["memory_diagnostic"] = memoryDiagnostic
-        payload["program_totals"] = aggregates.programs
-        payload["coding_agents"] = aggregates.codingAgents
-        payload["windows"] = windowNodes
-        return .ok(payload)
-    }
-
     func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
@@ -3862,7 +3766,7 @@ class TerminalController {
         ])
     }
 
-    private func v2TopWindowNode(
+    func v2TopWindowNode(
         summary: AppDelegate.MainWindowSummary,
         index: Int,
         workspaceNodes: [[String: Any]]
@@ -3881,7 +3785,7 @@ class TerminalController {
         ]
     }
 
-    private func v2TopWorkspaceNode(
+    func v2TopWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
