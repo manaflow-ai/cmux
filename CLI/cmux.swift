@@ -35107,6 +35107,84 @@ export default CMUXSessionRestore;
             )
 
         case .codexSubagentStart, .codexSubagentStop:
+            if def.name == "omp" || def.name == "pi" {
+                // Headless nested-child lifecycle: OMP/Pi subagents run inside
+                // the parent's process with no live bound process of their own,
+                // so attribute by session identity to the existing parent record
+                // only. Never upsert the session store, publish resume bindings
+                // or pids, or supersede sibling sessions; with no live target
+                // the event still journals unattributed.
+                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                let target = resolveAgentHookTarget(mapped: mapped)
+                if target == nil {
+                    reportTargetResolutionFailure()
+                }
+                // Suppress the generic defer telemetry: it mints a fresh request
+                // id per event, which would fork a duplicate child. The frame
+                // below carries the stable child id instead.
+                didSendFeedTelemetry = true
+                let agentId = input.rawObject.flatMap {
+                    firstString(in: $0, keys: ["agent_id", "agentId"])
+                } ?? input.object.flatMap {
+                    firstString(in: $0, keys: ["agent_id", "agentId"])
+                }
+                let childLabel = input.rawObject.flatMap {
+                    firstString(in: $0, keys: ["description"])
+                } ?? input.object.flatMap {
+                    firstString(in: $0, keys: ["description"])
+                }
+                let childStarts = {
+                    if case .codexSubagentStart = action { return true }
+                    return false
+                }()
+                if !sessionId.isEmpty,
+                   let workstreamID = Self.feedWorkstreamID(source: def.name, sessionID: sessionId) {
+                    var childEvent: [String: Any] = [
+                        "session_id": workstreamID,
+                        "hook_event_name": childStarts ? "SubagentStart" : "SubagentStop",
+                        "_source": def.name,
+                    ]
+                    if let agentId {
+                        childEvent["_opencode_request_id"] = agentId
+                    }
+                    if let workspaceId = target?.workspaceId {
+                        childEvent["workspace_id"] = workspaceId
+                    }
+                    if let surfaceId = target?.surfaceId, !surfaceId.isEmpty {
+                        childEvent["surface_id"] = surfaceId
+                    }
+                    if let cwd = hookCwd, !cwd.isEmpty {
+                        childEvent["cwd"] = cwd
+                    }
+                    if childStarts, let childLabel {
+                        childEvent["tool_input"] = ["description": childLabel]
+                    }
+                    let frame: [String: Any] = [
+                        "method": "feed.push",
+                        "params": [
+                            "event": childEvent,
+                            "wait_timeout_seconds": 0,
+                        ],
+                    ]
+                    if let data = try? JSONSerialization.data(withJSONObject: frame),
+                       let line = String(data: data, encoding: .utf8) {
+                        sendBestEffortFeedTelemetry(
+                            socketPath: client.socketPath,
+                            line: line,
+                            socketPassword: socketPassword
+                        )
+                    }
+                }
+                emitJournal(
+                    childStarts ? .childSpawned : .childCompleted,
+                    workspaceId: target?.workspaceId,
+                    surfaceId: target?.surfaceId,
+                    unattributedReason: target == nil ? "target-unresolved" : nil,
+                    isSubagent: true,
+                    responseTimeout: target == nil ? 0.5 : nil
+                )
+                break
+            }
             guard def.name == "codex", let codexLifecycle else {
                 break
             }
