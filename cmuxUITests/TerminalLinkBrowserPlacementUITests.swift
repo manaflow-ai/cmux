@@ -182,9 +182,18 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         picker.click()
         let title = placement == "samePane" ? "Tab in Same Pane" : "Split Right"
-        let option = picker.menuItems[title]
-        XCTAssertTrue(option.waitForExistence(timeout: 5))
-        option.click()
+        let menus = [picker.menuItems, settings.menuItems, app.menuItems]
+        var option: XCUIElement?
+        XCTAssertTrue(poll(timeout: 5) {
+            for menu in menus {
+                if let visible = menu.matching(identifier: title).allElementsBoundByIndex.first(where: { $0.isHittable }) {
+                    option = visible
+                    return true
+                }
+            }
+            return false
+        }, "No visible placement option named \(title)")
+        try XCTUnwrap(option).click()
         XCTAssertTrue(poll { picker.value as? String == title })
         attach(app, name: "\(placement)-settings-picker")
         settings.typeKey("w", modifierFlags: .command)
