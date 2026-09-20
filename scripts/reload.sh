@@ -1483,11 +1483,12 @@ trap reload_finalize EXIT
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
 # Managed profiles already supply their own SourcePackages path. Warm that
-# exact path before resolution; populated native state is never replaced.
+# exact path from local seeds before resolution; cache warming never downloads
+# on the reload path, and populated native state is never replaced.
 if [[ "${GITHUB_ACTIONS:-false}" != "true" && -n "${CMUX_SOURCE_PACKAGES_DIR:-}" && "${CMUX_LOCAL_CACHE_PREFLIGHT:-1}" == "1" ]]; then
   CACHE_PREFLIGHT_RECEIPT="${RELOAD_LOG}.cache.json"
   if python3 "$PWD/scripts/local-build-cache-preflight.py" \
-      --source-packages-dir "$CMUX_SOURCE_PACKAGES_DIR" --receipt "$CACHE_PREFLIGHT_RECEIPT"; then
+      --local-only --source-packages-dir "$CMUX_SOURCE_PACKAGES_DIR" --receipt "$CACHE_PREFLIGHT_RECEIPT"; then
     if python3 - "$CACHE_PREFLIGHT_RECEIPT" <<'PY'
 import json
 import sys

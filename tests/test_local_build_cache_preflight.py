@@ -57,7 +57,7 @@ class PreflightTests(unittest.TestCase):
 
     def seed(self, destination=None):
         return preflight.seed_spm(self.repo, destination or self.destination, self.cache,
-                                  "https://example.invalid", "macOS-ARM64", self.deadline)
+                                  "https://example.invalid", "macOS-ARM64", self.deadline, allow_network=True)
 
     def test_actions_single_file_hash_vector(self):
         self.assertEqual(self.key, "spm-4f8b42c22dd3729b519ba6f68d2da7cc5b2d606d05daed5ad5128cc03e6c6358")
@@ -168,7 +168,7 @@ class PreflightTests(unittest.TestCase):
         (self.repo / "GhosttyKit.xcframework").mkdir()
         (self.repo / "GhosttyKit.xcframework/Info.plist").write_text("native")
         with patch.object(preflight.subprocess, "check_output", side_effect=AssertionError("no probes")):
-            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
+            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline, allow_network=True)
         self.assertFalse(result["verified_install"])
         self.assertEqual(result["status"], "existing")
 
@@ -196,24 +196,24 @@ class PreflightTests(unittest.TestCase):
                 "LibraryPath":"ghostty-internal.a"}]}))
         with patch.object(preflight.subprocess, "check_output", side_effect=[revision, ""]), \
                 patch.object(preflight, "run", side_effect=download) as helper:
-            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
+            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline, allow_network=True)
         self.assertTrue(result["verified_install"])
         self.assertEqual(sum(call.args[0][0] == "bash" for call in helper.call_args_list), 1)
         self.assertEqual((self.repo / "GhosttyKit.xcframework/macos-arm64/ghostty-internal.a").read_bytes(), b"indexed")
         self.assertTrue((self.repo / "GhosttyKit.xcframework").is_symlink())
         with patch.object(preflight.subprocess, "check_output", side_effect=[revision, ""]), \
                 patch.object(preflight, "run", side_effect=AssertionError("must not redownload")):
-            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
+            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline, allow_network=True)
         self.assertTrue(result["verified_install"])
         self.assertEqual(result["materialization"], "existing-immutable-link")
         with patch.object(preflight.subprocess, "check_output", side_effect=[revision, " M source.zig"]):
-            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
+            result = preflight.seed_ghostty(self.repo, self.cache, self.deadline, allow_network=True)
         self.assertFalse(result["verified_install"])
         newer, newer_checksum = "c" * 40, "d" * 64
         (self.repo / "scripts/ghosttykit-checksums.txt").write_text(newer + " " + newer_checksum + "\n")
         with patch.object(preflight.subprocess, "check_output", side_effect=[newer, ""]), \
                 patch.object(preflight, "run", side_effect=AssertionError("must preserve existing destination")):
-            changed = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
+            changed = preflight.seed_ghostty(self.repo, self.cache, self.deadline, allow_network=True)
         self.assertFalse(changed["verified_install"])
         self.assertIn(checksum, str((self.repo / "GhosttyKit.xcframework").resolve()))
 
@@ -237,12 +237,12 @@ class PreflightTests(unittest.TestCase):
         try:
             url = "http://127.0.0.1:" + str(server.server_port)
             result = preflight.seed_spm(self.repo, self.destination, self.cache, url,
-                                        "macOS-ARM64", self.deadline)
+                                        "macOS-ARM64", self.deadline, allow_network=True)
             self.assertEqual(result["transport"], "r2")
             self.assertEqual((self.destination / "checkouts/package/file.swift").read_text(), "source")
             with patch.object(preflight, "fetch", side_effect=AssertionError("second caller needs no HTTP")):
                 result = preflight.seed_spm(self.repo, self.root / "second", self.cache, url,
-                                            "macOS-ARM64", self.deadline)
+                                            "macOS-ARM64", self.deadline, allow_network=True)
             self.assertEqual(result["transport"], "local-seed")
         finally:
             server.shutdown()
@@ -335,6 +335,8 @@ class PreflightTests(unittest.TestCase):
                    GITHUB_ACTIONS="false", CMUX_LOCAL_CACHE_PREFLIGHT="1")
         subprocess.run(["bash", "-c", "set -euo pipefail\n"+hook], env=env, cwd=self.repo, check=True)
         self.assertIn(str(self.root/'glaeda-managed'), trace.read_text().splitlines())
+        self.assertIn("--local-only", trace.read_text().splitlines())
+        self.assertNotIn("--warm", trace.read_text().splitlines())
         trace.unlink()
         env['GITHUB_ACTIONS']='true'
         subprocess.run(["bash", "-c", "set -euo pipefail\n"+hook], env=env, cwd=self.repo, check=True)

@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import unittest
+from unittest.mock import patch
 
 import test_local_build_cache_preflight as fixtures
 
@@ -128,6 +130,47 @@ class CachePolicyTests(unittest.TestCase):
         self.assertEqual(receipt["swiftpm"]["status"], "miss")
         self.assertEqual(list(self.cache.rglob("SourcePackages")), [])
         self.assertFalse(self.destination.exists())
+
+    def ghostty_fixture(self):
+        shutil.rmtree(self.repo / "GhosttyKit.xcframework")
+        revision, checksum = "a" * 40, "b" * 64
+        (self.repo / "scripts").mkdir()
+        (self.repo / "scripts/ghosttykit-checksums.txt").write_text(revision + " " + checksum + "\n")
+        return revision, checksum
+
+    def test_local_ghostty_miss_never_invokes_downloader(self):
+        revision, _ = self.ghostty_fixture()
+        with patch.object(fixtures.preflight.subprocess, "check_output", side_effect=[revision, ""]), \
+                patch.object(fixtures.preflight, "run", side_effect=AssertionError("no remote helper")):
+            result = fixtures.preflight.seed_ghostty(self.repo, self.cache, time.monotonic() + 10)
+        self.assertEqual(result["status"], "miss")
+        self.assertFalse((self.repo / "GhosttyKit.xcframework").exists())
+
+    def test_warm_only_ghostty_does_not_install_workspace_output(self):
+        revision, checksum = self.ghostty_fixture()
+        key = checksum + "-" + fixtures.preflight.GHOSTTY_SEED_RECIPE
+        entry = self.cache / "ghostty" / key
+        framework = entry / "GhosttyKit.xcframework"
+        framework.mkdir(parents=True)
+        (framework / "Info.plist").write_text("prepared fixture")
+        (entry / "receipt.json").write_text(json.dumps({
+            "schema_version": 1, "revision": revision, "archive_sha256": checksum,
+            "recipe": fixtures.preflight.GHOSTTY_SEED_RECIPE, "indexed_archives": ["macos/libghostty.a"],
+        }))
+        with patch.object(fixtures.preflight.subprocess, "check_output", side_effect=[revision, ""]), \
+                patch.object(fixtures.preflight, "run", side_effect=AssertionError("seed already local")):
+            result = fixtures.preflight.seed_ghostty(self.repo, self.cache, time.monotonic() + 10,
+                                                     allow_network=True, warm_only=True)
+        self.assertEqual(result["status"], "warmed")
+        self.assertFalse(result["verified_install"])
+        self.assertFalse((self.repo / "GhosttyKit.xcframework").exists())
+        # A simultaneous warmer cannot stall a reader of the complete seed.
+        with (entry.parent / (key + ".lock")).open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            with patch.object(fixtures.preflight.subprocess, "check_output", side_effect=[revision, ""]):
+                result = fixtures.preflight.seed_ghostty(self.repo, self.cache, time.monotonic() + 1)
+        self.assertTrue(result["verified_install"])
+        self.assertTrue((self.repo / "GhosttyKit.xcframework").is_symlink())
 
 
 if __name__ == "__main__":

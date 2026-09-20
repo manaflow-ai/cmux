@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read shared build seeds before a local build; never run a compiler or upload.
+"""Reuse local build seeds; explicit --warm fetches compressed remote seeds.
 
 Mutable SourcePackages directories belong to one caller. Populated destinations
 are preserved. Only immutable, staged seeds are shared between callers.
@@ -7,7 +7,7 @@ are preserved. Only immutable, staged seeds are shared between callers.
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
 import json
@@ -232,17 +232,52 @@ def internal_worker(arguments):
     return 0
 
 
-def seed_spm(repo, destination, cache, url, namespace, deadline):
+def local_spm_seed(seed_root, requested):
+    candidates = [requested]
+    try:
+        previous = (seed_root / "latest-local").read_text().strip()
+        if re.fullmatch(r"spm-[0-9a-f]{64}", previous) and previous != requested:
+            candidates.append(previous)
+    except OSError:
+        pass
+    for candidate in candidates:
+        entry = seed_root / candidate
+        try:
+            saved = json.loads((entry / "receipt.json").read_text())
+            if (saved.get("schema_version") == 1 and saved.get("key") == candidate
+                    and (entry / "SourcePackages").is_dir()):
+                return entry / "SourcePackages", candidate
+        except (OSError, ValueError):
+            pass
+    return None, None
+
+
+def remember_local_spm(seed_root, key):
+    # Readers never wait behind a remote warm-up. Only publish complete seeds.
+    with tempfile.NamedTemporaryFile(mode="w", dir=seed_root, prefix=".latest-", delete=False) as pointer:
+        temporary = Path(pointer.name)
+        pointer.write(key + "\n")
+    try:
+        os.replace(temporary, seed_root / "latest-local")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def seed_spm(repo, destination, cache, url, namespace, deadline, *, allow_network=False, warm_only=False):
     requested = spm_key(repo / LOCKFILE)
-    result = {"requested_key": requested, "namespace": namespace, "destination": str(destination)}
-    if populated(destination):
+    result = {"requested_key": requested, "namespace": namespace,
+              "destination": str(destination) if destination is not None else None}
+    if destination is not None and populated(destination):
         return {**result, "status": "existing", "reason": "preserved populated destination"}
     origin = hashlib.sha256(url.encode()).hexdigest()[:16]
     seed_root = cache / "spm" / origin / namespace
     seed_root.mkdir(parents=True, exist_ok=True)
-    matched = None
-    source = None
+    source, matched = local_spm_seed(seed_root, requested)
+    if source is not None:
+        result["transport"] = "local-seed"
     for candidate in (requested, None):
+        if source is not None or not allow_network:
+            break
         if candidate is None:
             with tempfile.TemporaryDirectory(dir=seed_root) as temporary:
                 pointer = Path(temporary) / "pointer"
@@ -291,7 +326,11 @@ def seed_spm(repo, destination, cache, url, namespace, deadline):
                 if source:
                     break
     if source is None:
-        return {**result, "status": "miss", "reason": "no usable exact or prefix seed"}
+        return {**result, "status": "miss", "reason": "no usable local seed" if not allow_network else "no usable exact or prefix seed"}
+    remember_local_spm(seed_root, matched)
+    if warm_only:
+        return {**result, "status": "warmed", "matched_key": matched,
+                "match": "exact" if matched == requested else "prefix"}
     destination.parent.mkdir(parents=True, exist_ok=True)
     with locked(destination.parent / ("." + destination.name + ".cache-preflight.lock"), deadline):
         if populated(destination):
@@ -329,7 +368,7 @@ def prepare_ghostty_index(framework, deadline):
     return indexed
 
 
-def seed_ghostty(repo, cache, deadline):
+def seed_ghostty(repo, cache, deadline, *, allow_network=False, warm_only=False):
     cache = cache.resolve()
     destination = repo / "GhosttyKit.xcframework"
     managed = destination.is_symlink() and (cache / "ghostty") in destination.resolve().parents
@@ -350,7 +389,10 @@ def seed_ghostty(repo, cache, deadline):
     root.mkdir(parents=True, exist_ok=True)
     seed_key = checksum + "-" + GHOSTTY_SEED_RECIPE
     entry = root / seed_key
-    with locked(root / (seed_key + ".lock"), deadline):
+    if not entry.exists() and not allow_network:
+        return {"status": "miss", "reason": "no usable local GhosttyKit seed", "verified_install": False}
+    # Published seeds are immutable. Local readers must not wait for a warmer.
+    with locked(root / (seed_key + ".lock"), deadline) if allow_network else nullcontext():
         if managed and destination.resolve() != entry / "GhosttyKit.xcframework":
             return {"status": "existing", "reason": "preserved GhosttyKit from another revision", "verified_install": False}
         if not entry.exists():
@@ -378,6 +420,9 @@ def seed_ghostty(repo, cache, deadline):
                 or receipt.get("recipe") != GHOSTTY_SEED_RECIPE or not receipt.get("indexed_archives")
                 or not (entry / "GhosttyKit.xcframework/Info.plist").is_file()):
             raise ValueError("Ghostty seed receipt mismatch")
+        if warm_only:
+            return {"status": "warmed", "revision": revision, "archive_sha256": checksum,
+                    "verified_install": False}
         if managed:
             return {"status": "hit", "revision": revision, "archive_sha256": checksum,
                     "verified_install": True, "materialization": "existing-immutable-link"}
@@ -394,24 +439,35 @@ def seed_ghostty(repo, cache, deadline):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-packages-dir", required=True, type=Path)
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--warm", action="store_true", help="Fetch compressed shared seeds only; do not change workspace outputs")
+    modes.add_argument("--local-only", action="store_true", help="Reuse local seeds without cache downloads (default)")
+    parser.add_argument("--source-packages-dir", type=Path)
     parser.add_argument("--receipt", required=True, type=Path)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--cache-root", type=Path, default=Path.home() / "Projects/.cmux-build-cache")
     parser.add_argument("--timeout", type=float, default=120)
     args = parser.parse_args(argv)
+    if args.warm and args.source_packages_dir is not None:
+        parser.error("--warm populates shared seeds only; omit --source-packages-dir")
+    if not args.warm and args.source_packages_dir is None:
+        parser.error("local reuse requires --source-packages-dir")
     if not 0 < args.timeout <= 600:
         parser.error("timeout must be greater than zero and at most 600 seconds")
     deadline = time.monotonic() + args.timeout
-    receipt = {"schema_version": 1, "compiler_cache": "not_restored", "whole_app": "not_restored"}
+    receipt = {"schema_version": 1, "mode": "warm" if args.warm else "local-only",
+               "network_allowed": args.warm, "compiler_cache": "not_restored", "whole_app": "not_restored"}
     namespace = "macOS-" + {"arm64": "ARM64", "x86_64": "X64"}.get(platform.machine(), "unsupported")
-    repo, destination, cache = args.repo.resolve(), args.source_packages_dir.absolute(), args.cache_root.resolve()
-    if destination.resolve() == cache or cache in destination.resolve().parents:
+    repo, cache = args.repo.resolve(), args.cache_root.resolve()
+    destination = args.source_packages_dir.absolute() if args.source_packages_dir is not None else None
+    if destination is not None and (destination.resolve() == cache or cache in destination.resolve().parents):
         parser.error("the mutable source-packages directory must be outside the shared seed cache")
     url = os.environ.get("CI_CACHE_R2_PUBLIC_URL", DEFAULT_URL).rstrip("/")
     for name, operation in (
-        ("swiftpm", lambda: seed_spm(repo, destination, cache, url, namespace, deadline)),
-        ("ghosttykit", lambda: seed_ghostty(repo, cache, deadline)),
+        ("swiftpm", lambda: seed_spm(repo, destination, cache, url, namespace, deadline,
+                                     allow_network=args.warm, warm_only=args.warm)),
+        ("ghosttykit", lambda: seed_ghostty(repo, cache, deadline,
+                                          allow_network=args.warm, warm_only=args.warm)),
     ):
         try:
             receipt[name] = operation()
