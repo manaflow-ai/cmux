@@ -12,6 +12,31 @@ import Testing
 
 struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     @MainActor
+    @Test func releasingTheServiceOffTheMainThreadDoesNotTrap() async throws {
+        let home = try temporaryHomeDirectory()
+        var service: AgentChatTranscriptService? = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            emitEventPayload: { _ in }
+        )
+        // Hold the only strong reference outside Swift's ownership tracking, then
+        // drop it from a background thread, the way a test-owned AppDelegate can be
+        // released from a Swift concurrency thread.
+        let lastReference = OffMainReleaseBox(Unmanaged.passRetained(try #require(service)))
+        service = nil
+        // Resume when the background release returns, without blocking the main actor
+        // that the released service hands its prose-streaming cleanup back to.
+        await withCheckedContinuation { (released: CheckedContinuation<Void, Never>) in
+            Thread {
+                lastReference.release()
+                released.resume()
+            }.start()
+        }
+        // Give the main actor a turn so that cleanup runs inside this test.
+        await Task.yield()
+    }
+
+    @MainActor
     @Test func liveCodexHookDefersFallbackTranscriptScanUntilHistoryOpen() async throws {
         let home = try temporaryHomeDirectory()
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
@@ -468,5 +493,17 @@ private actor AgentChatConcurrentFallbackResolutionProbe {
 
     func callCount() -> Int {
         calls
+    }
+}
+
+private final class OffMainReleaseBox: @unchecked Sendable {
+    private let unmanaged: Unmanaged<AgentChatTranscriptService>
+
+    init(_ unmanaged: Unmanaged<AgentChatTranscriptService>) {
+        self.unmanaged = unmanaged
+    }
+
+    func release() {
+        unmanaged.release()
     }
 }

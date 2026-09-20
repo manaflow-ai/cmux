@@ -1301,7 +1301,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+    func computerUseHelperArtworkIsOneRenditionForBothAppearances() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
         let staticArtwork = NSImage(
             size: NSSize(width: 32, height: 32),
@@ -1328,13 +1328,12 @@ struct ComputerUseUXTests {
 
         let lightIcon = try resolvedIcon(named: .aqua)
         let darkIcon = try resolvedIcon(named: .darkAqua)
-        let lightPlate = try Self.compositedIconColor(lightIcon, appearance: .aqua)
-        let darkPlate = try Self.compositedIconColor(darkIcon, appearance: .darkAqua)
         let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
         let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
-        #expect(lightPlate.brightnessComponent > 0.7)
-        #expect(darkPlate.brightnessComponent < 0.4)
+        // The bundled icon owns its own appearance handling, so both
+        // appearances resolve to the same artwork.
+        #expect(lightIcon.tiffRepresentation == darkIcon.tiffRepresentation)
         #expect(lightCorner.alphaComponent < 0.01)
         #expect(darkCorner.alphaComponent < 0.01)
     }
@@ -1697,12 +1696,14 @@ struct ComputerUseUXTests {
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             authenticationToken: "production-token"
         )
         let staging = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app.staging",
             authenticationToken: "staging-token"
@@ -2628,7 +2629,8 @@ struct ComputerUseUXTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+                && !$0.isTerminated
                 && $0.bundleIdentifier?.isEmpty == false
                 && $0.localizedName?.isEmpty == false
                 && $0.launchDate != nil
@@ -3792,25 +3794,6 @@ struct ComputerUseUXTests {
             y: y ?? bitmap.pixelsHigh * 4 / 5
         ))
         return try #require(color.usingColorSpace(.sRGB))
-    }
-
-    private static func compositedIconColor(
-        _ image: NSImage,
-        appearance appearanceName: NSAppearance.Name
-    ) throws -> NSColor {
-        let appearance = try #require(NSAppearance(named: appearanceName))
-        let composite = NSImage(
-            size: NSSize(width: 128, height: 128),
-            flipped: false
-        ) { rect in
-            appearance.performAsCurrentDrawingAppearance {
-                NSColor.windowBackgroundColor.setFill()
-                rect.fill()
-                image.draw(in: rect)
-            }
-            return true
-        }
-        return try sampledIconColor(composite)
     }
 
     private func runShim(

@@ -85,9 +85,10 @@ struct WorkspaceGroupMoveToMenuStateTests {
         #expect(manager.workspaceGroups.contains { $0.id == groupId })
         #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
             group.anchorWorkspaceId,
+            originalIds[1],
             memberID,
         ])
-        #expect(manager.tabs.suffix(2).map(\.id) == [group.anchorWorkspaceId, memberID])
+        #expect(manager.tabs.suffix(3).map(\.id) == [group.anchorWorkspaceId, originalIds[1], memberID])
     }
 
     @Test func mobileWorkspaceGroupDeleteRejectsGroupContainingEveryWorkspace() throws {

@@ -11,6 +11,15 @@ struct SidebarWorkspaceSnapshotBuilder {
         let usesViewportAwarePath: Bool
         let showsAgentActivity: Bool
         let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
+        // Effective row color (manual color, else resolved origin color). Part of
+        // the key so the cached snapshot is rebuilt when the color changes — e.g.
+        // toggling the origin-colors flag or a mirror host resolving after appear,
+        // neither of which is a Workspace @Published change that would otherwise
+        // refresh the snapshot.
+        let customColorHex: String?
+        // Host named after a colliding title (beta). Part of the key because it depends on the other
+        // workspaces' titles, so a rename elsewhere must rebuild this row's cached snapshot.
+        var hostTitleSuffix: String? = nil
     }
 
     struct VerticalBranchDirectoryLine: Equatable {
@@ -38,7 +47,12 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isPinned: Bool
         /// Whether any workspace-scoped notification mute is active.
         let isMuted: Bool
+        // Effective row color: the manually chosen workspace color, else the
+        // per-host origin color when that beta flag is on. Rendering reads this;
+        // affordances that only make sense for a manual color (Clear Color)
+        // check `hasManualCustomColor` instead.
         let customColorHex: String?
+        let hasManualCustomColor: Bool
         /// Stable Cloud identity, independent of connection status and detail visibility.
         let cloudWorkspaceLabel: String?
         let remoteWorkspaceSidebarText: String?
@@ -73,11 +87,22 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+        /// Remote host named after the title when another workspace shares it (beta), else nil.
+        var hostTitleSuffix: String? = nil
+
+        /// The title as the row shows it. Renaming and other title affordances keep using `title`.
+        var displayTitle: String {
+            guard let hostTitleSuffix else { return title }
+            return String(
+                localized: "sidebar.workspace.titleWithHost",
+                defaultValue: "\(title) · \(hostTitleSuffix)"
+            )
+        }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(
                 localized: "accessibility.workspacePosition",
-                defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
+                defaultValue: "\(displayTitle), workspace \(index + 1) of \(workspaceCount)"
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)

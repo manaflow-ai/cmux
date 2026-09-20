@@ -4899,6 +4899,242 @@
         }
       }
     },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيفين البعيدين في العناوين المكررة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Hostnamen bei doppelten Titeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants dans les titres en double"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複したタイトルにリモートホスト名を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 제목에 원격 호스트 이름 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重复标题中显示远程主机名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重複標題中顯示遠端主機名稱"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى عناوين مساحات العمل المكررة كما هي حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelte Arbeitsbereichstitel bleiben unverändert, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves duplicate workspace titles as they are until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos duplicados de los espacios de trabajo se mantienen igual hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres d’espaces de travail en double restent tels quels tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、重複したワークスペースのタイトルはそのまま表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 중복된 작업 공간 제목은 그대로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，重复的工作区标题保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，重複的工作區標題維持不變。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تتشارك مساحات العمل عنوانًا واحدًا، يُعرض اسم مضيف كل مساحة بعيدة بعد العنوان دون النطاق المشترك بين المضيفين."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Arbeitsbereiche denselben Titel haben, wird bei jedem Remote-Arbeitsbereich der Host nach dem Titel angezeigt, ohne die gemeinsame Domain der Hosts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando varios espacios de trabajo comparten título, muestra el host de cada espacio remoto después del título, sin el dominio que comparten los hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque des espaces de travail portent le même titre, affiche l’hôte de chaque espace distant après le titre, sans le domaine que les hôtes partagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルが重複している場合、各リモートワークスペースのタイトルの後にホスト名を表示します。ホストに共通するドメインは省略します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간의 제목이 같으면 각 원격 작업 공간의 제목 뒤에 호스트 이름을 표시하며, 호스트에 공통된 도메인은 생략합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当多个工作区标题相同时，在每个远程工作区的标题后显示主机名，并省略这些主机共有的域名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當多個工作區標題相同時，在每個遠端工作區的標題後顯示主機名稱，並省略這些主機共用的網域。"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.titleWithHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "socket.agentHook.error.barrierTimeout": {
       "extractionState": "manual",
       "localizations": {
@@ -84810,121 +85046,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nاعكس جلسات tmux للمضيف البعيد داخل نافذة cmux الحالية عبر وضع تحكم tmux بواسطة SSH. تصبح كل جلسة مساحة عمل، وكل نافذة علامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب ذلك تفعيل الإصدار التجريبي \"Remote tmux\".\n\nعند الحاجة إلى مصادقة تفاعلية، يشغّل cmux أمر ssh في هذه الطرفية ثم يعيد المحاولة عبر الاتصال المشترك. تُحترم الأسماء المستعارة وإعدادات ~/.ssh/config.\n\nFlags:\n  --port <n>          منفذ SSH\n  --identity <path>   مسار ملف هوية SSH\n  --no-focus          عدم تحديد مساحة العمل المعكوسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nيعكس جلسات tmux لمضيف بعيد في الشريط الجانبي للنافذة الحالية عبر وضع\nالتحكم في tmux عبر SSH (tmux -CC). تصبح كل جلسة مساحة عمل، وكل نافذة\nعلامة تبويب، وكل نافذة متعددة الأجزاء تقسيمًا أصليًا. يتطلب تفعيل\nإعداد الميزة التجريبية \"Remote tmux\".\n\nإذا احتاج المضيف إلى مصادقة تفاعلية (كلمة مرور، أو تأكيد مفتاح المضيف، أو MFA،\nأو لمس مفتاح أمان)، يشغّل cmux الأمر ssh مباشرة في هذه الطرفية لتتمكن من\nالمصادقة، ثم يعكس الجلسات عبر اتصال SSH المشترك. أما المضيفون الذين\nتتم مصادقتهم دون تفاعل (ssh-agent أو مفتاح في ~/.ssh/config) فيُعكَسون\nدون أي مطالبة. تُحترم الأسماء المستعارة في ~/.ssh/config وإعدادات IdentityFile/ProxyJump/Port الخاصة بها.\n\nFlags:\n  --port <n>            منفذ SSH\n  --identity <path>     مسار ملف هوية SSH\n  --transport <name>    ssh (الافتراضي) أو et. ينقل et تدفق التحكم عبر\n                        EternalTerminal الذي يعيد الاتصال تلقائيًا، لذا تبقى\n                        المرآة قائمة عند تغيّر الشبكة بدلًا من إعادة تشغيلها.\n  --transport-port <n>  المنفذ الذي يتصل به النقل: منفذ sshd لـ ssh، ومنفذ etserver\n                        لـ et (الافتراضي 22 لـ ssh و2022 لـ et)\n  --broker <name>       يصل إلى المضيف عبر وسيط مُعرّف ضمن remoteTmux.brokers\n                        في cmux.json بدلًا من الاتصال المباشر. يحدد اسم إدخال\n                        كتبته مسبقًا، ولا يقبل أمرًا. استخدمه عندما لا يمكن\n                        الوصول إلى المضيف إلا عبر مضيف وسيط أو وكيل\n                        أو برنامج تغليف.\n  --no-focus            عدم تحديد مساحة العمل المنعكسة أو تنشيط نافذتها\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nPreslikava tmux sesije udaljenog hosta u trenutni cmux prozor putem SSH tmux kontrolnog režima. Svaka sesija postaje radni prostor, svaki prozor kartica, a prozor s više okana izvorna podjela. Potrebno je uključiti beta opciju \"Remote tmux\".\n\nAko je potrebna interaktivna autentifikacija, cmux pokreće ssh u ovom terminalu i zatim pokušava ponovo preko dijeljene veze. Poštuju se aliasi i postavke iz ~/.ssh/config.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   putanja SSH identiteta\n  --no-focus          ne biraj preslikani radni prostor niti aktiviraj prozor\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpejl en fjernværts tmux-sessioner i det aktuelle cmux-vindue via SSH tmux-kontroltilstand. Hver session bliver et arbejdsområde, hvert vindue en fane og hvert vindue med flere ruder en integreret opdeling. Kræver at betaindstillingen \"Remote tmux\" er slået til.\n\nHvis interaktiv godkendelse er nødvendig, kører cmux ssh i denne terminal og prøver derefter igen via den delte forbindelse. Aliasser og indstillinger i ~/.ssh/config respekteres.\n\nFlags:\n  --port <n>          SSH-port\n  --identity <path>   sti til SSH-identitetsfil\n  --no-focus          vælg ikke det spejlede arbejdsområde eller aktivér vinduet\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts per SSH-tmux-Steuermodus in das aktuelle cmux-Fenster. Jede Sitzung wird zu einem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren Bereichen zu einer nativen Teilung. Erfordert die aktivierte Betaoption \"Remote tmux\".\n\nWenn eine interaktive Authentifizierung nötig ist, führt cmux ssh in diesem Terminal aus und versucht es anschließend über die gemeinsame Verbindung erneut. Aliase und Einstellungen aus ~/.ssh/config werden berücksichtigt.\n\nFlags:\n  --port <n>          SSH-Port\n  --identity <path>   Pfad zur SSH-Identitätsdatei\n  --no-focus          Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht aktivieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSpiegelt die tmux-Sitzungen eines entfernten Hosts über den SSH-tmux-Steuermodus\n(tmux -CC) in die Seitenleiste des aktuellen Fensters. Jede Sitzung wird zu\neinem Arbeitsbereich, jedes Fenster zu einem Tab und jedes Fenster mit mehreren\nBereichen zu einer nativen Teilung. Erfordert die Betaoption \"Remote tmux\".\n\nWenn der Host eine interaktive Authentifizierung braucht (Passwort, Bestätigung\ndes Hostschlüssels, MFA oder Berührung eines Sicherheitsschlüssels), führt cmux\nssh direkt in diesem Terminal aus, damit du dich anmelden kannst, und spiegelt die\nSitzungen dann über die gemeinsame SSH-Verbindung. Hosts ohne interaktive Anmeldung\n(ssh-agent oder Schlüssel in ~/.ssh/config) werden ohne Rückfrage gespiegelt. Aliase aus ~/.ssh/config und deren IdentityFile/ProxyJump/Port-Einstellungen werden berücksichtigt.\n\nFlags:\n  --port <n>            SSH-Port\n  --identity <path>     Pfad zur SSH-Identitätsdatei\n  --transport <name>    ssh (Standard) oder et. et überträgt den Steuerstrom über\n                        EternalTerminal, das sich selbst neu verbindet, sodass der\n                        Spiegel einen Netzwechsel übersteht, statt neu zu starten.\n  --transport-port <n>  Port, mit dem sich der Transport verbindet: der von sshd für ssh,\n                        der von etserver für et (Standard 22 für ssh, 2022 für et)\n  --broker <name>       Verbindet über einen Broker, der unter remoteTmux.brokers in\n                        cmux.json deklariert ist, statt direkt. Nennt einen Eintrag,\n                        den du bereits angelegt hast; ein Befehl wird nicht akzeptiert.\n                        Für Hosts, die nur über einen Jump-Host, Proxy oder\n                        Wrapper erreichbar sind.\n  --no-focus            Spiegel-Arbeitsbereich nicht auswählen und Fenster nicht fokussieren\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current cmux window over SSH tmux control mode. Each session becomes a workspace, each window a tab, and each multi-pane window a native split. Requires the \"Remote tmux\" beta setting.\n\nIf interactive authentication is needed, cmux runs ssh in this terminal and then retries over the shared connection. ~/.ssh/config aliases and settings are honored.\n\nFlags:\n  --port <n>          SSH port\n  --identity <path>   SSH identity file path\n  --no-focus          Do not select the mirror workspace or activate its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nMirror a remote host's tmux sessions into the current window's sidebar over\nSSH tmux control mode (tmux -CC). Each session becomes a workspace, each\nwindow a tab, and each multi-pane window a native split. Requires the\n\"Remote tmux\" beta setting.\n\nIf the host needs interactive authentication (password, host-key confirmation,\nMFA, or a security-key touch), cmux runs ssh inline in this terminal so you can\nauthenticate, then mirrors the sessions over the shared SSH connection. Hosts\nthat authenticate non-interactively (ssh-agent / key in ~/.ssh/config) mirror\nwith no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.\n\nFlags:\n  --port <n>            SSH port\n  --identity <path>     SSH identity file path\n  --transport <name>    ssh (default) or et. et carries the control stream over\n                        EternalTerminal, which reconnects on its own, so the\n                        mirror survives a network change instead of respawning.\n  --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's\n                        for et (default 22 for ssh, 2022 for et)\n  --broker <name>       Reach the host through a broker declared under\n                        remoteTmux.brokers in cmux.json, instead of connecting\n                        directly. Names an entry you have already written down;\n                        it does not take a command. Use this where the host is\n                        only reachable through a jump host, proxy or wrapper.\n  --no-focus            Do not select the mirror workspace or focus its window\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nRefleja las sesiones tmux de un host remoto en la ventana actual de cmux mediante el modo de control tmux por SSH. Cada sesión se convierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con varios paneles en una división nativa. Requiere activar la función beta \"Remote tmux\".\n\nSi se necesita autenticación interactiva, cmux ejecuta ssh en este terminal y luego reintenta mediante la conexión compartida. Se respetan los alias y ajustes de ~/.ssh/config.\n\nFlags:\n  --port <n>          puerto SSH\n  --identity <path>   ruta del archivo de identidad SSH\n  --no-focus          no seleccionar el espacio reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nRefleja las sesiones de tmux de un host remoto en la barra lateral de la ventana\nactual mediante el modo de control de tmux por SSH (tmux -CC). Cada sesión se\nconvierte en un espacio de trabajo, cada ventana en una pestaña y cada ventana con\nvarios paneles en una división nativa. Requiere el ajuste beta \"Remote tmux\".\n\nSi el host necesita autenticación interactiva (contraseña, confirmación de la clave\ndel host, MFA o tocar una llave de seguridad), cmux ejecuta ssh directamente en este\nterminal para que puedas autenticarte y luego refleja las sesiones por la conexión\nSSH compartida. Los hosts que se autentican sin interacción (ssh-agent / clave en\n~/.ssh/config) se reflejan sin preguntar. Se respetan los alias de ~/.ssh/config y sus ajustes IdentityFile/ProxyJump/Port.\n\nFlags:\n  --port <n>            Puerto SSH\n  --identity <path>     Ruta del archivo de identidad SSH\n  --transport <name>    ssh (predeterminado) o et. et lleva el flujo de control por\n                        EternalTerminal, que se reconecta por sí solo, así que el\n                        reflejo sobrevive a un cambio de red en lugar de reiniciarse.\n  --transport-port <n>  Puerto al que se conecta el transporte: el de sshd para ssh,\n                        el de etserver para et (predeterminado 22 para ssh, 2022 para et)\n  --broker <name>       Llega al host a través de un broker declarado en\n                        remoteTmux.brokers de cmux.json, en lugar de conectar\n                        directamente. Nombra una entrada que ya escribiste; no acepta\n                        un comando. Úsalo cuando el host solo es accesible mediante\n                        un host de salto, un proxy o un wrapper.\n  --no-focus            No seleccionar el espacio de trabajo reflejado ni activar su ventana\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReproduit les sessions tmux d’un hôte distant dans la fenêtre cmux actuelle via le mode de contrôle tmux sur SSH. Chaque session devient un espace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets une division native. Nécessite l’option bêta \"Remote tmux\".\n\nSi une authentification interactive est nécessaire, cmux exécute ssh dans ce terminal puis réessaie via la connexion partagée. Les alias et réglages de ~/.ssh/config sont respectés.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   chemin du fichier d’identité SSH\n  --no-focus          ne pas sélectionner l’espace miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nReflète les sessions tmux d’un hôte distant dans la barre latérale de la fenêtre\nactuelle via le mode de contrôle tmux de SSH (tmux -CC). Chaque session devient un\nespace de travail, chaque fenêtre un onglet et chaque fenêtre à plusieurs volets\nune division native. Nécessite le réglage bêta « Remote tmux ».\n\nSi l’hôte exige une authentification interactive (mot de passe, confirmation de\nla clé d’hôte, MFA ou contact d’une clé de sécurité), cmux exécute ssh directement\ndans ce terminal pour que vous puissiez vous authentifier, puis reflète les sessions\nvia la connexion SSH partagée. Les hôtes qui s’authentifient sans interaction\n(ssh-agent / clé dans ~/.ssh/config) sont reflétés sans invite. Les alias de ~/.ssh/config et leurs réglages IdentityFile/ProxyJump/Port sont respectés.\n\nFlags:\n  --port <n>            Port SSH\n  --identity <path>     Chemin du fichier d’identité SSH\n  --transport <name>    ssh (par défaut) ou et. et transporte le flux de contrôle via\n                        EternalTerminal, qui se reconnecte tout seul : le miroir\n                        survit à un changement de réseau au lieu d’être relancé.\n  --transport-port <n>  Port auquel le transport se connecte : celui de sshd pour ssh,\n                        celui d’etserver pour et (22 par défaut pour ssh, 2022 pour et)\n  --broker <name>       Joint l’hôte via un broker déclaré sous remoteTmux.brokers\n                        dans cmux.json, au lieu d’une connexion directe. Désigne une\n                        entrée déjà écrite ; n’accepte pas de commande. À utiliser\n                        quand l’hôte n’est joignable que par un hôte de rebond,\n                        un proxy ou un wrapper.\n  --no-focus            Ne pas sélectionner l’espace de travail miroir ni activer sa fenêtre\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nReplica le sessioni tmux di un host remoto nella finestra cmux corrente tramite la modalità di controllo tmux su SSH. Ogni sessione diventa uno spazio di lavoro, ogni finestra una scheda e ogni finestra con più riquadri una suddivisione nativa. Richiede l’opzione beta \"Remote tmux\".\n\nSe serve l’autenticazione interattiva, cmux esegue ssh in questo terminale e poi riprova tramite la connessione condivisa. Gli alias e le impostazioni di ~/.ssh/config vengono rispettati.\n\nFlags:\n  --port <n>          porta SSH\n  --identity <path>   percorso del file di identità SSH\n  --no-focus          non selezionare lo spazio replicato né attivarne la finestra\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH の tmux コントロールモードで、リモートホストの tmux セッションを現在の cmux ウィンドウにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。「Remote tmux」ベータ設定を有効にする必要があります。\n\n対話型認証が必要な場合、cmux はこのターミナルで ssh を実行し、共有接続を使って再試行します。~/.ssh/config のエイリアスと設定も使用されます。\n\nFlags:\n  --port <n>          SSH ポート\n  --identity <path>   SSH 識別ファイルのパス\n  --no-focus          ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSSH の tmux コントロールモード (tmux -CC) で、リモートホストの tmux セッションを\n現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、\n各ウィンドウはタブに、複数ペインのウィンドウはネイティブな分割になります。\n「Remote tmux」ベータ設定を有効にする必要があります。\n\nホストが対話型認証 (パスワード、ホストキーの確認、MFA、セキュリティキーのタッチ) を\n必要とする場合、cmux はこのターミナルで ssh を直接実行して認証できるようにし、\nその後、共有 SSH 接続でセッションをミラーリングします。\n非対話で認証できるホスト (ssh-agent や ~/.ssh/config の鍵) は\n確認なしでミラーリングされます。~/.ssh/config のエイリアスと IdentityFile/ProxyJump/Port の設定も使用されます。\n\nFlags:\n  --port <n>            SSH ポート\n  --identity <path>     SSH 識別ファイルのパス\n  --transport <name>    ssh (既定) または et。et はコントロールストリームを\n                        EternalTerminal 経由で送ります。自動で再接続するため、\n                        ネットワークが変わってもミラーは再起動せずに維持されます。\n  --transport-port <n>  トランスポートの接続先ポート。ssh では sshd、et では etserver\n                        のポートです (既定は ssh が 22、et が 2022)\n  --broker <name>       直接接続せず、cmux.json の remoteTmux.brokers に定義した\n                        ブローカー経由でホストに接続します。すでに記述済みの\n                        エントリ名を指定し、コマンドは受け付けません。\n                        ジャンプホスト、プロキシ、ラッパー経由でしか到達できない\n                        ホストで使用します。\n  --no-focus            ミラーワークスペースを選択せず、ウィンドウもアクティブにしない\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nឆ្លុះសម័យ tmux របស់ម៉ាស៊ីនពីចម្ងាយចូលក្នុងបង្អួច cmux បច្ចុប្បន្ន តាមរយៈរបៀបបញ្ជា tmux លើ SSH។ សម័យនីមួយៗក្លាយជាកន្លែងធ្វើការ បង្អួចនីមួយៗក្លាយជាផ្ទាំង និងបង្អួចដែលមានផ្ទាំងច្រើនក្លាយជាការបំបែកដើម។ ត្រូវបើកមុខងារសាកល្បង \"Remote tmux\"។\n\nបើត្រូវការផ្ទៀងផ្ទាត់អន្តរកម្ម cmux នឹងដំណើរការ ssh ក្នុងស្ថានីយនេះ ហើយសាកល្បងម្តងទៀតតាមការតភ្ជាប់រួម។ ឈ្មោះកាត់ និងការកំណត់ក្នុង ~/.ssh/config ត្រូវបានគោរព។\n\nFlags:\n  --port <n>          ច្រក SSH\n  --identity <path>   ផ្លូវឯកសារអត្តសញ្ញាណ SSH\n  --no-focus          កុំជ្រើសកន្លែងធ្វើការឆ្លុះ ឬបើកបង្អួចរបស់វា\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSSH tmux 제어 모드로 원격 호스트의 tmux 세션을 현재 cmux 창에 미러링합니다. 각 세션은 작업 공간이 되고, 각 창은 탭이 되며, 여러 패널이 있는 창은 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정을 켜야 합니다.\n\n대화형 인증이 필요하면 cmux가 이 터미널에서 ssh를 실행한 뒤 공유 연결을 통해 다시 시도합니다. ~/.ssh/config의 별칭과 설정도 적용됩니다.\n\nFlags:\n  --port <n>          SSH 포트\n  --identity <path>   SSH ID 파일 경로\n  --no-focus          미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\nSSH tmux 제어 모드(tmux -CC)를 통해 원격 호스트의 tmux 세션을 현재 창의\n사이드바에 미러링합니다. 각 세션은 작업 공간, 각 윈도우는 탭, 여러 패널이 있는\n윈도우는 네이티브 분할이 됩니다. \"Remote tmux\" 베타 설정이\n필요합니다.\n\n호스트에 대화형 인증(비밀번호, 호스트 키 확인, MFA, 보안 키 터치)이 필요하면\ncmux가 이 터미널에서 ssh를 직접 실행해 인증할 수 있게 한 뒤,\n공유 SSH 연결로 세션을 미러링합니다. 대화 없이 인증되는 호스트\n(ssh-agent 또는 ~/.ssh/config의 키)는 확인 없이\n미러링됩니다. ~/.ssh/config 별칭과 IdentityFile/ProxyJump/Port 설정이 적용됩니다.\n\nFlags:\n  --port <n>            SSH 포트\n  --identity <path>     SSH ID 파일 경로\n  --transport <name>    ssh(기본값) 또는 et. et는 제어 스트림을\n                        스스로 다시 연결하는 EternalTerminal로 전달하므로\n                        네트워크가 바뀌어도 미러가 다시 시작되지 않고 유지됩니다.\n  --transport-port <n>  전송이 연결할 포트: ssh는 sshd, et는 etserver의 포트\n                        (기본값: ssh 22, et 2022)\n  --broker <name>       직접 연결하는 대신 cmux.json의 remoteTmux.brokers에\n                        선언한 브로커를 통해 호스트에 연결합니다. 이미 작성한\n                        항목의 이름을 지정하며 명령은 받지 않습니다.\n                        점프 호스트, 프록시, 래퍼를 통해서만 접근할 수 있는\n                        호스트에 사용하세요.\n  --no-focus            미러 작업 공간을 선택하거나 창을 활성화하지 않음\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nSpeil tmux-øktene på en ekstern vert i det gjeldende cmux-vinduet via tmux-kontrollmodus over SSH. Hver økt blir et arbeidsområde, hvert vindu en fane og hvert vindu med flere ruter en integrert deling. Krever at betaalternativet \"Remote tmux\" er aktivert.\n\nHvis interaktiv autentisering er nødvendig, kjører cmux ssh i denne terminalen og prøver deretter på nytt via den delte forbindelsen. Aliaser og innstillinger i ~/.ssh/config blir brukt.\n\nFlags:\n  --port <n>          SSH-port\n  --identity <path>   bane til SSH-identitetsfil\n  --no-focus          ikke velg det speilede arbeidsområdet eller aktiver vinduet\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nOdzwierciedla sesje tmux zdalnego hosta w bieżącym oknie cmux przez tryb sterowania tmux po SSH. Każda sesja staje się obszarem roboczym, każde okno kartą, a okno z wieloma panelami natywnym podziałem. Wymaga włączenia funkcji beta \"Remote tmux\".\n\nJeśli potrzebne jest interaktywne uwierzytelnianie, cmux uruchamia ssh w tym terminalu, a następnie ponawia próbę przez współdzielone połączenie. Aliasy i ustawienia z ~/.ssh/config są respektowane.\n\nFlags:\n  --port <n>          port SSH\n  --identity <path>   ścieżka pliku tożsamości SSH\n  --no-focus          nie wybieraj obszaru lustrzanego ani nie aktywuj jego okna\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nEspelha as sessões tmux de um host remoto na janela atual do cmux pelo modo de controle tmux via SSH. Cada sessão vira um espaço de trabalho, cada janela uma aba e cada janela com vários painéis uma divisão nativa. Requer a opção beta \"Remote tmux\".\n\nSe for necessária autenticação interativa, o cmux executa ssh neste terminal e tenta novamente pela conexão compartilhada. Os aliases e ajustes de ~/.ssh/config são respeitados.\n\nFlags:\n  --port <n>          porta SSH\n  --identity <path>   caminho do arquivo de identidade SSH\n  --no-focus          não selecionar o espaço espelhado nem ativar sua janela\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nОтображает сеансы tmux удалённого узла в текущем окне cmux через режим управления tmux по SSH. Каждый сеанс становится рабочим пространством, каждое окно — вкладкой, а окно с несколькими панелями — нативным разделением. Требуется включить бета-функцию \"Remote tmux\".\n\nЕсли нужна интерактивная аутентификация, cmux запускает ssh в этом терминале, а затем повторяет попытку через общее соединение. Псевдонимы и настройки из ~/.ssh/config учитываются.\n\nFlags:\n  --port <n>          порт SSH\n  --identity <path>   путь к файлу идентификации SSH\n  --no-focus          не выбирать зеркальное пространство и не активировать его окно\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nมิเรอร์เซสชัน tmux ของโฮสต์ระยะไกลมายังหน้าต่าง cmux ปัจจุบันผ่านโหมดควบคุม tmux บน SSH แต่ละเซสชันจะเป็นพื้นที่ทำงาน แต่ละหน้าต่างจะเป็นแท็บ และหน้าต่างหลายบานจะเป็นการแบ่งแบบเนทีฟ ต้องเปิดใช้รุ่นเบต้า \"Remote tmux\"\n\nหากต้องยืนยันตัวตนแบบโต้ตอบ cmux จะเรียก ssh ในเทอร์มินัลนี้แล้วลองใหม่ผ่านการเชื่อมต่อที่ใช้ร่วมกัน โดยใช้ชื่อแทนและการตั้งค่าจาก ~/.ssh/config\n\nFlags:\n  --port <n>          พอร์ต SSH\n  --identity <path>   พาธไฟล์ข้อมูลประจำตัว SSH\n  --no-focus          ไม่เลือกพื้นที่ทำงานที่มิเรอร์หรือเปิดใช้งานหน้าต่าง\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nUzak bir ana makinenin tmux oturumlarını SSH tmux denetim modu üzerinden geçerli cmux penceresine yansıtır. Her oturum bir çalışma alanına, her pencere bir sekmeye ve çok bölmeli her pencere yerel bir bölmeye dönüşür. \"Remote tmux\" beta ayarının etkin olması gerekir.\n\nEtkileşimli kimlik doğrulama gerekirse cmux bu terminalde ssh çalıştırır ve ardından paylaşılan bağlantı üzerinden yeniden dener. ~/.ssh/config içindeki takma adlar ve ayarlar kullanılır.\n\nFlags:\n  --port <n>          SSH bağlantı noktası\n  --identity <path>   SSH kimlik dosyası yolu\n  --no-focus          yansıtılan çalışma alanını seçme veya penceresini etkinleştirme\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\nВіддзеркалює сеанси tmux віддаленого вузла в поточному вікні cmux через режим керування tmux по SSH. Кожен сеанс стає робочим простором, кожне вікно — вкладкою, а вікно з кількома панелями — нативним поділом. Потрібно ввімкнути бета-функцію \"Remote tmux\".\n\nЯкщо потрібна інтерактивна автентифікація, cmux запускає ssh у цьому терміналі, а потім повторює спробу через спільне з’єднання. Псевдоніми й налаштування з ~/.ssh/config враховуються.\n\nFlags:\n  --port <n>          порт SSH\n  --identity <path>   шлях до файлу ідентифікації SSH\n  --no-focus          не вибирати віддзеркалений простір і не активувати його вікно\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n通过 SSH tmux 控制模式，将远程主机的 tmux 会话镜像到当前 cmux 窗口中。每个会话成为一个工作区，每个窗口成为一个标签页，多窗格窗口则成为原生分栏。需要启用“Remote tmux”测试功能。\n\n如果需要交互式身份验证，cmux 会在此终端中运行 ssh，然后通过共享连接重试。系统会采用 ~/.ssh/config 中的别名和设置。\n\nFlags:\n  --port <n>          SSH 端口\n  --identity <path>   SSH 身份文件路径\n  --no-focus          不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\n通过 SSH tmux 控制模式（tmux -CC）将远程主机的 tmux 会话镜像到当前窗口的\n侧边栏。每个会话成为一个工作区，每个窗口成为一个标签页，\n每个多窗格窗口成为原生分屏。需要启用\n“Remote tmux”测试版设置。\n\n如果主机需要交互式认证（密码、主机密钥确认、MFA 或触碰安全密钥），\ncmux 会直接在此终端中运行 ssh 以便你完成认证，\n然后通过共享的 SSH 连接镜像会话。无需交互即可认证的主机\n（ssh-agent 或 ~/.ssh/config 中的密钥）\n会直接镜像，不会提示。会遵循 ~/.ssh/config 中的别名及其 IdentityFile/ProxyJump/Port 设置。\n\nFlags:\n  --port <n>            SSH 端口\n  --identity <path>     SSH 身份文件路径\n  --transport <name>    ssh（默认）或 et。et 通过会自动重连的\n                        EternalTerminal 传输控制流，\n                        因此网络变化时镜像会保持而不是重新启动。\n  --transport-port <n>  传输连接的端口：ssh 为 sshd 的端口，et 为 etserver 的端口\n                        （默认 ssh 为 22，et 为 2022）\n  --broker <name>       不直接连接，而是通过 cmux.json 中\n                        remoteTmux.brokers 下声明的 broker 访问主机。\n                        指定的是你已写好的条目名称，\n                        不接受命令。适用于只能通过跳板机、代理\n                        或包装器访问的主机。\n  --no-focus            不选择镜像工作区，也不激活其窗口\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為標籤頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+            "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]\n                     [--transport ssh|et] [--transport-port <n>] [--no-focus]\n\n透過 SSH tmux 控制模式（tmux -CC）將遠端主機的 tmux 工作階段鏡像到目前視窗的\n側邊欄。每個工作階段會成為一個工作區，每個視窗成為一個分頁，\n每個多窗格視窗成為原生分割。需要啟用\n「Remote tmux」測試版設定。\n\n如果主機需要互動式驗證（密碼、主機金鑰確認、MFA 或觸碰安全金鑰），\ncmux 會直接在此終端機中執行 ssh 讓你完成驗證，\n然後透過共用的 SSH 連線鏡像工作階段。不需互動即可驗證的主機\n（ssh-agent 或 ~/.ssh/config 中的金鑰）\n會直接鏡像，不會提示。會遵循 ~/.ssh/config 中的別名及其 IdentityFile/ProxyJump/Port 設定。\n\nFlags:\n  --port <n>            SSH 連接埠\n  --identity <path>     SSH 身分檔案路徑\n  --transport <name>    ssh（預設）或 et。et 透過會自動重新連線的\n                        EternalTerminal 傳送控制串流，\n                        因此網路變更時鏡像會維持，而不是重新啟動。\n  --transport-port <n>  傳輸連線的連接埠：ssh 為 sshd 的連接埠，et 為 etserver 的連接埠\n                        （預設 ssh 為 22，et 為 2022）\n  --broker <name>       不直接連線，而是透過 cmux.json 中\n                        remoteTmux.brokers 下宣告的 broker 連到主機。\n                        指定的是你已寫好的項目名稱，\n                        不接受指令。適用於只能透過跳板主機、代理\n                        或包裝程式連到的主機。\n  --no-focus            不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519\n  cmux ssh-tmux dev@my-host --transport et --transport-port 8080\n  cmux ssh-tmux my-host --transport et --broker corp"
           }
         }
       }
@@ -158917,6 +159153,12 @@
             "value": "OK"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -177321,6 +177563,131 @@
         }
       }
     },
+    "detectedSSH.fileDrop.error.uploadFailedWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر رفع الملف إلى الجلسة البعيدة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otpremiti fajl u udaljenu sesiju: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke uploade filen til fjernsessionen: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Datei konnte nicht in die Remote-Sitzung hochgeladen werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the file to the remote session: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el archivo a la sesión remota: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de téléverser le fichier vers la session distante : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il file nella sessione remota: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートセッションにファイルをアップロードできませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកឯកសារឡើងទៅវគ្គពីចម្ងាយបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 세션에 파일을 업로드할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste opp filen til den eksterne økten: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przesłać pliku do sesji zdalnej: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo para a sessão remota: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить файл в удалённый сеанс: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอัปโหลดไฟล์ไปยังเซสชันระยะไกลได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya uzak oturuma yüklenemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вивантажити файл у віддалений сеанс: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将文件上传到远程会话：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法將檔案上傳到遠端工作階段：%@"
+          }
+        }
+      }
+    },
     "dialog.closeAnchor.message.lone": {
       "extractionState": "manual",
       "localizations": {
@@ -184655,6 +185022,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "要結束 cmux 嗎？"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتمكن cmux من بدء جلسة tmux جديدة على المضيف البعيد، لذلك لم يتم إنشاء أي مساحة عمل. تحقق من أن المضيف لا يزال قابلاً للوصول ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao pokrenuti novu tmux sesiju na udaljenom hostu, pa nijedan radni prostor nije kreiran. Provjerite je li host još dostupan i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte en ny tmux-session på den eksterne vært, så der blev ikke oprettet noget arbejdsområde. Kontrollér, at værten stadig kan nås, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte auf dem Remote-Host keine neue tmux-Sitzung starten, daher wurde kein Arbeitsbereich erstellt. Prüfen Sie, ob der Host noch erreichbar ist, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start a new tmux session on the remote host, so no workspace was created. Check that the host is still reachable and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo iniciar una nueva sesión tmux en el host remoto, por lo que no se creó ningún espacio de trabajo. Comprueba que el host siga siendo accesible e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu démarrer une nouvelle session tmux sur l’hôte distant, donc aucun espace de travail n’a été créé. Vérifiez que l’hôte est toujours accessible, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito ad avviare una nuova sessione tmux sull'host remoto, quindi non è stata creata alcuna area di lavoro. Verifica che l'host sia ancora raggiungibile e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はリモートホストで新しい tmux セッションを開始できなかったため、ワークスペースは作成されませんでした。ホストに到達できるか確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចចាប់ផ្តើម tmux session ថ្មីនៅលើម៉ាស៊ីនពីចម្ងាយបានទេ ដូច្នេះគ្មាន workspace ត្រូវបានបង្កើតទេ។ សូមពិនិត្យមើលថាម៉ាស៊ីននៅតែអាចចូលដល់បាន ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 원격 호스트에서 새 tmux 세션을 시작할 수 없어 작업 공간이 만들어지지 않았습니다. 호스트에 아직 연결할 수 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke starte en ny tmux-økt på den eksterne verten, så det ble ikke opprettet noe arbeidsområde. Kontroller at verten fortsatt kan nås, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł uruchomić nowej sesji tmux na zdalnym hoście, więc nie utworzono żadnej przestrzeni roboczej. Sprawdź, czy host jest nadal osiągalny, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux não conseguiu iniciar uma nova sessão tmux no host remoto, então nenhuma área de trabalho foi criada. Verifique se o host ainda está acessível e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось запустить новый сеанс tmux на удалённом хосте, поэтому рабочее пространство не создано. Проверьте, доступен ли хост, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถเริ่ม tmux session ใหม่บนโฮสต์ระยะไกลได้ จึงไม่มีการสร้างเวิร์กสเปซ ตรวจสอบว่าโฮสต์ยังเข้าถึงได้และลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux uzak ana makinede yeni bir tmux oturumu başlatamadı, bu nedenle hiçbir çalışma alanı oluşturulmadı. Ana makineye hâlâ erişilebildiğini doğrulayın ve yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося запустити новий сеанс tmux на віддаленому хості, тому робочу область не створено. Перевірте, чи хост усе ще доступний, і спробуйте ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法在远程主机上启动新的 tmux 会话，因此没有创建工作区。请确认主机仍可访问，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法在遠端主機上啟動新的 tmux 工作階段，因此沒有建立工作區。請確認主機仍可連線，然後再試一次。"
+          }
+        }
+      }
+    },
+    "dialog.remoteTmux.newSessionFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إنشاء جلسة tmux على %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće kreirati tmux sesiju na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oprette en tmux-session på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Sitzung auf %@ konnte nicht erstellt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't Create a tmux Session on %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo crear una sesión tmux en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de créer une session tmux sur %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare una sessione tmux su %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で tmux セッションを作成できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើត tmux session នៅលើ %@ បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 tmux 세션을 만들 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette en tmux-økt på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć sesji tmux na %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar uma sessão tmux em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать сеанс tmux на %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้าง tmux session บน %@ ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerinde tmux oturumu oluşturulamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити сеанс tmux на %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在 %@ 上创建 tmux 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在 %@ 上建立 tmux 工作階段"
           }
         }
       }
@@ -243221,6 +243838,125 @@
         }
       }
     },
+    "menu.file.newLocalWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل محلية جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi lokalni radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt lokalt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer lokaler Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Local Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova area di lavoro locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ローカルワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 로컬 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt lokalt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa lokalna przestrzeń robocza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova Área de Trabalho Local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое локальное рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซในเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Yerel Çalışma Alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова локальна робоча область"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建本地工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增本機工作區"
+          }
+        }
+      }
+    },
     "menu.file.newWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -265132,6 +265868,256 @@
         }
       }
     },
+    "notification.terminalUpload.failed.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتم كتابة أي شيء في الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ništa nije upisano u terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke skrevet noget i terminalen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Terminal wurde nichts eingegeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was typed into the terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se escribió nada en el terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien n’a été saisi dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel terminale non è stato digitato nulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルには何も入力されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានអ្វីត្រូវបានវាយបញ្ចូលក្នុងទែមីណាល់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에 아무것도 입력되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingenting ble skrevet inn i terminalen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nic nie zostało wpisane do terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada foi digitado no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В терминал ничего не введено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการพิมพ์สิ่งใดลงในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminale hiçbir şey yazılmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У термінал нічого не введено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未向终端输入任何内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未在終端機中輸入任何內容"
+          }
+        }
+      }
+    },
+    "notification.terminalUpload.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر رفع الملف المُفلت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće otpremiti ispušteni fajl"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke uploade den slupne fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die abgelegte Datei konnte nicht hochgeladen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't upload the dropped file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo subir el archivo soltado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de téléverser le fichier déposé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile caricare il file trascinato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップしたファイルをアップロードできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចផ្ទុកឯកសារដែលបានទម្លាក់ឡើងបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끌어다 놓은 파일을 업로드할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke laste opp den slupne filen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można przesłać upuszczonego pliku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível enviar o arquivo solto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось загрузить перетащенный файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอัปโหลดไฟล์ที่วางได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bırakılan dosya yüklenemedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вивантажити перетягнутий файл"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法上传拖放的文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法上傳拖放的檔案"
+          }
+        }
+      }
+    },
     "notificationHook.failure.body": {
       "extractionState": "manual",
       "localizations": {
@@ -282646,6 +283632,131 @@
         }
       }
     },
+    "remoteTmux.error.authenticationRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب %@ بيانات اعتماد ولا يوجد لدى cmux مكان لكتابتها. سجّل الدخول إلى المضيف، ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je zatražio pristupne podatke, a cmux ih nema gdje upisati. Prijavite se na host, a zatim pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bad om loginoplysninger, og cmux har ingen steder at indtaste dem. Log ind på værten, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat nach Anmeldedaten gefragt, und cmux kann sie nirgends eingeben. Melden Sie sich beim Host an, und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asked for credentials and cmux has nowhere to type them. Log in to the host, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solicitó credenciales y cmux no tiene dónde escribirlas. Inicia sesión en el host y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a demandé des identifiants et cmux n'a nulle part où les saisir. Connectez-vous à l'hôte, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha richiesto le credenziali e cmux non ha modo di digitarle. Accedi all'host, quindi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が認証情報を要求しましたが、cmux には入力する場所がありません。ホストにログインしてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានស្នើសុំព័ត៌មានផ្ទៀងផ្ទាត់ ហើយ cmux គ្មានកន្លែងបញ្ចូលវាទេ។ សូមចូលទៅកាន់ម៉ាស៊ីនបម្រើ បន្ទាប់មកព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 자격 증명을 요청했지만 cmux에는 입력할 곳이 없습니다. 호스트에 로그인한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ba om påloggingsinformasjon, og cmux har ingen steder å skrive den. Logg på verten, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ poprosił o dane uwierzytelniające, a cmux nie ma gdzie ich wpisać. Zaloguj się na hoście, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pediu credenciais e o cmux não tem onde digitá-las. Faça login no host e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросил учётные данные, а cmux негде их ввести. Войдите на хост, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ขอข้อมูลรับรอง แต่ cmux ไม่มีที่ให้พิมพ์ กรุณาเข้าสู่ระบบโฮสต์ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kimlik bilgileri istedi ve cmux bunları yazacak bir yer bulamıyor. Ana makinede oturum açın, ardından yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запросив облікові дані, а cmux не має де їх увести. Увійдіть на хост, потім повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 请求了凭据，而 cmux 无处输入。请先登录该主机，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 要求了憑證，而 cmux 沒有地方輸入。請先登入該主機，然後重試。"
+          }
+        }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -284227,6 +285338,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "向右分割"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل تسجيل الدخول. شغّل الأمر أعلاه مرة أخرى لإعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava nije uspjela. Ponovno pokrenite naredbu iznad da pokušate opet."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login mislykkedes. Kør kommandoen ovenfor igen for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldung fehlgeschlagen. Führen Sie den Befehl oben erneut aus, um es noch einmal zu versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in failed. Run the command above again to retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar sesión. Vuelve a ejecutar el comando anterior para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de la connexion. Relancez la commande ci-dessus pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso non riuscito. Esegui di nuovo il comando sopra per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインに失敗しました。上のコマンドをもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចូលបានបរាជ័យ។ ដំណើរការពាក្យបញ្ជាខាងលើម្តងទៀត ដើម្បីព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인에 실패했습니다. 위 명령을 다시 실행해 재시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Påloggingen mislyktes. Kjør kommandoen ovenfor på nytt for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logowanie nie udało się. Uruchom ponownie powyższe polecenie, aby spróbować jeszcze raz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha ao entrar. Execute o comando acima novamente para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось войти. Запустите команду выше ещё раз, чтобы повторить попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ไม่สำเร็จ เรียกใช้คำสั่งด้านบนอีกครั้งเพื่อลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açılamadı. Yeniden denemek için yukarıdaki komutu tekrar çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося увійти. Запустіть команду вище ще раз, щоб повторити спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录失败。请再次运行上面的命令重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入失敗。請再次執行上方的指令重試。"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.success": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الدخول. جارٍ إعادة توصيل المرآة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavljeni ste. Ponovno povezivanje zrcala…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er logget ind. Opretter forbindelse til spejlingen igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angemeldet. Spiegelung wird neu verbunden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed in. Reconnecting the mirror…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión iniciada. Volviendo a conectar la duplicación…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion réussie. Reconnexion du miroir…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso effettuato. Riconnessione del mirror…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインインしました。ミラーを再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចូល។ កំពុងភ្ជាប់កញ្ចក់ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인되었습니다. 미러를 다시 연결하고 있습니다…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pålogget. Kobler til speilingen igjen…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zalogowano. Ponowne łączenie kopii…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão iniciada. Reconectando o espelho…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход выполнен. Переподключение зеркала…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้แล้ว กำลังเชื่อมต่อมิเรอร์อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum açıldı. Yansıma yeniden bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід виконано. Повторне підключення дзеркала…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登录。正在重新连接镜像…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已登入。正在重新連線鏡像…"
+          }
+        }
+      }
+    },
+    "remoteTmux.reconnectAuth.workspaceTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijava na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei %@ anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にサインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için oturum açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід у %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入 %@"
           }
         }
       }
@@ -316797,6 +318283,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh tmux -CC를 통해 원격 호스트의 tmux 세션을 사이드바에 미러링합니다. 세션은 작업 공간이 되고 창은 탭이 됩니다. cmux를 종료해도 원격 tmux 서버는 계속 실행 중인 상태로 유지됩니다."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيفين البعيدين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben für Remote-Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات العمل البعيدة بلا لون للمصدر حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsbereiche erhalten keine Herkunftsfarbe, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves remote workspaces without an origin color until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo remotos no tienen color de origen hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail distants restent sans couleur d’origine tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 원격 작업 공간에는 출처 색상이 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，远程工作区不会显示来源颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，遠端工作區不會顯示來源顏色。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلوّن صف كل مساحة عمل بعيدة في الشريط الجانبي وعلامة تبويبها بلون ثابت خاص بكل مضيف لتسهيل التمييز بين الخوادم. يبقى اللون الذي تختاره يدويًا لمساحة العمل هو المُعتمد دائمًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbt die Seitenleistenzeile und den Tab jedes Remote-Arbeitsbereichs mit einer festen Farbe pro Host, damit sich Server leicht unterscheiden lassen. Eine manuell gewählte Arbeitsbereichsfarbe hat immer Vorrang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tints each remote workspace's sidebar row and tab with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe la fila de la barra lateral y la pestaña de cada espacio de trabajo remoto con un color estable por host para distinguir fácilmente los servidores. El color que asignes manualmente al espacio de trabajo siempre tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte la ligne de la barre latérale et l’onglet de chaque espace de travail distant avec une couleur stable par hôte, pour distinguer facilement les serveurs. La couleur choisie manuellement pour un espace de travail l’emporte toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートワークスペースのサイドバー行とタブを、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 원격 작업 공간의 사이드바 행과 탭에 호스트별 고정 색상을 입혀 서버를 쉽게 구분할 수 있습니다. 직접 지정한 작업 공간 색상이 항상 우선합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个远程工作区的侧边栏行和标签页添加按主机固定的颜色，便于区分服务器。你手动设置的工作区颜色始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個遠端工作區的側邊欄列和分頁加上依主機固定的顏色，方便區分伺服器。你手動設定的工作區顏色一律優先。"
           }
         }
       }
@@ -387719,6 +389382,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增視窗"
+          }
+        }
+      }
+    },
+    "shortcut.newLocalWorkspace.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل محلية جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novi lokalni radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyt lokalt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer lokaler Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Local Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova area di lavoro locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ローカルワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 로컬 작업 공간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nytt lokalt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa lokalna przestrzeń robocza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova Área de Trabalho Local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новое локальное рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวิร์กสเปซในเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Yerel Çalışma Alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова локальна робоча область"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建本地工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增本機工作區"
           }
         }
       }
@@ -531530,6 +533312,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "チームを更新できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "remoteTmux.mirrorPublishedNoTopology": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصل الاتصال إلى tmux لكن لم تصل أي نافذة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Verbindung hat tmux erreicht, aber es kam nie ein Fenster an"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the connection reached tmux but no window ever arrived"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la conexión llegó a tmux, pero nunca llegó ninguna ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la connexion a atteint tmux, mais aucune fenêtre n’est jamais arrivée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux には接続できましたが、ウィンドウが届きませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 tmux에 도달했지만 창이 하나도 도착하지 않았습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已到达 tmux，但始终没有收到任何窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已到達 tmux，但始終沒有收到任何視窗"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerMalformed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ليس اسمًا صالحًا للاستخدام: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker ist kein verwendbarer Name: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker is not a usable name: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker no es un nombre utilizable: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker n’est pas un nom utilisable : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker は使用できる名前ではありません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker는 사용할 수 있는 이름이 아닙니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名称：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "transport_broker 不是可用的名稱：%@"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerNotUsedByTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستخدم النقل '%@' وسيطًا؛ مرّر --transport et للاتصال عبر وسيط"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Transport '%@' verwendet keinen Broker; übergib --transport et, um über einen zu verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the '%@' transport does not use a broker; pass --transport et to connect through one"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el transporte '%@' no usa un broker; pasa --transport et para conectarte a través de uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le transport '%@' n’utilise pas de broker ; passez --transport et pour vous connecter via un broker"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' トランスポートはブローカーを使用しません。ブローカー経由で接続するには --transport et を指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 전송은 브로커를 사용하지 않습니다. 브로커를 통해 연결하려면 --transport et를 전달하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 传输不使用 broker；传入 --transport et 以通过 broker 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'%@' 傳輸不使用 broker；傳入 --transport et 以透過 broker 連線"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد وسيط باسم '%@' مُعرّف ضمن remoteTmux.brokers في cmux.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in cmux.json ist unter remoteTmux.brokers kein Broker namens '%@' deklariert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no broker named '%@' is declared under remoteTmux.brokers in cmux.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no hay ningún broker llamado '%@' declarado en remoteTmux.brokers de cmux.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "aucun broker nommé '%@' n’est déclaré sous remoteTmux.brokers dans cmux.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json の remoteTmux.brokers に '%@' という名前のブローカーは宣言されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json의 remoteTmux.brokers에 '%@'라는 이름의 브로커가 선언되어 있지 않습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下没有声明名为 '%@' 的 broker"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux.json 的 remoteTmux.brokers 下沒有宣告名為 '%@' 的 broker"
+          }
+        }
+      }
+    },
+    "socket.remoteTmux.brokerUnusable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسيط '%@' مُعرّف لكن لا يمكن استخدامه: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "der Broker '%@' ist deklariert, kann aber nicht verwendet werden: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' is declared but cannot be used: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el broker '%@' está declarado, pero no se puede usar: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le broker '%@' est déclaré mais ne peut pas être utilisé : %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブローカー '%@' は宣言されていますが使用できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브로커 '%@'가 선언되어 있지만 사용할 수 없습니다: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已声明，但无法使用：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "broker '%@' 已宣告，但無法使用：%@"
           }
         }
       }

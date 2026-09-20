@@ -35,11 +35,20 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%window-add @<id>` — a window was added to the attached session.
     case windowAdd(windowId: Int)
 
+    /// `%unlinked-window-add @<id>` — a window was added to a session this client is not
+    /// attached to. The multiplexer's view stream sees every window created outside cmux this
+    /// way, because a window is not in the view until cmux links it.
+    case unlinkedWindowAdd(windowId: Int)
+
     /// `%window-close @<id>` / `%unlinked-window-close @<id>` — a window closed.
     case windowClose(windowId: Int)
 
     /// `%window-renamed @<id> <name>` — a window was renamed.
     case windowRenamed(windowId: Int, name: String)
+
+    /// `%unlinked-window-renamed @<id> <name>` — a window the attached session does not hold
+    /// was renamed. tmux sends it for every automatic rename in such a window.
+    case unlinkedWindowRenamed(windowId: Int, name: String)
 
     /// `%layout-change @<id> <layout> <visible-layout> <flags>` — a window's
     /// pane layout changed. `layout` is the BASE tree (full tree even while

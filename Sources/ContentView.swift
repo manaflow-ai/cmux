@@ -10632,10 +10632,14 @@ struct ContentView: View {
 
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
+            let externalNavigationHandler = BrowserExternalNavigationHandler()
             for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                // The external-open rules outrank the embedded-browser
+                // preference: rule-listed sites cannot work in the embedded
+                // web view at all.
+                let openedEmbedded = !externalNavigationHandler.linkEscapesToSystemBrowser(pullRequest.url)
+                    && tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil
+                if openedEmbedded || NSWorkspace.shared.open(pullRequest.url) {
                     openedCount += 1
                 }
             }
@@ -11257,6 +11261,11 @@ struct VerticalTabsSidebar: View, Equatable {
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    // Per-host origin colors (beta). Read here so toggling the flag re-evaluates
+    // the sidebar and rebuilds each row's snapshot with the resolved color.
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginColors) private var remoteTmuxOriginColorsEnabled
+    // Names the remote host after a workspace title another workspace shares (beta).
+    @LiveSetting(\.betaFeatures.remoteTmuxOriginHostTitles) private var remoteTmuxOriginHostTitlesEnabled
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
@@ -11548,6 +11557,11 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
+        /// Mirror destinations for the origin-color resolve, walked once for this render
+        /// pass so a row doesn't rescan the session mirrors. Nil when origin colors are off.
+        let mirrorOriginDestinations: [UUID: String]?
+        /// Hosts named after colliding titles for this render pass (beta), keyed by workspace id.
+        let hostTitleSuffixes: [UUID: String]
 
         var workspaceIds: [UUID] { tabIds }
     }
@@ -11703,6 +11717,7 @@ struct VerticalTabsSidebar: View, Equatable {
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
         )
 #endif
+        let mirrorOriginDestinations = mirrorDestinationsForOriginPresentation()
         let renderContext = WorkspaceListRenderContext(
             environment: tableEnvironment,
             tabs: tabs,
@@ -11728,7 +11743,9 @@ struct VerticalTabsSidebar: View, Equatable {
             memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
             workspaceRenderItems: workspaceRenderItems,
-            visibleWorkspaceRowIds: visibleWorkspaceRowIds
+            visibleWorkspaceRowIds: visibleWorkspaceRowIds,
+            mirrorOriginDestinations: mirrorOriginDestinations,
+            hostTitleSuffixes: hostTitleSuffixes(tabs: tabs, mirrorDestinations: mirrorOriginDestinations)
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
@@ -11892,6 +11909,17 @@ struct VerticalTabsSidebar: View, Equatable {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
+        }
+        .onChange(of: remoteTmuxOriginColorsEnabled) { _, _ in
+            // The origin color feeds the snapshot's effective color, so a flag
+            // toggle must repopulate the cache like any other presentation change;
+            // otherwise every row keeps missing the cache and rebuilds its
+            // snapshot on each evaluation.
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: remoteTmuxOriginHostTitlesEnabled) { _, _ in
+            // The host after a colliding title is part of each snapshot's presentation key too.
+            refreshWorkspaceSnapshots()
         }
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
@@ -12540,7 +12568,11 @@ struct VerticalTabsSidebar: View, Equatable {
             snapshotProvider: { [snapshot = input.workspace] in snapshot }
         )
         let openInBrowser: @MainActor (URL, Bool) -> Void = { [weak tabManager, workspaceId = tab.id] url, preferBrowser in
+            // The external-open rules outrank the embedded-browser preference
+            // here just like on the SwiftUI sidebar path: rule-listed sites
+            // cannot work in the embedded web view at all.
             if preferBrowser,
+               !BrowserExternalNavigationHandler().linkEscapesToSystemBrowser(url),
                let tabManager,
                tabManager.openBrowser(
                    inWorkspace: workspaceId,
@@ -12890,9 +12922,20 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
+        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabManager.tabs, mirrorDestinations: mirrorDestinations)
+        // A rename can start or end a title collision, which changes the host shown on OTHER rows.
+        // Rebuild every row whose saved snapshot carries a different host than it should now.
+        let staleHostIds = tabManager.tabs.compactMap { workspace -> UUID? in
+            let saved = featureFlags.isAppKitSidebarListEnabled
+                ? appKitRowSnapshotCache.value(for: workspace.id)
+                : workspaceSnapshotsById[workspace.id]
+            guard let saved, saved.hostTitleSuffix != hostTitleSuffixes[workspace.id] else { return nil }
+            return workspace.id
+        }
         var next = workspaceSnapshotsById
         var changed = false
-        for workspaceId in workspaceIds {
+        for workspaceId in workspaceIds.union(staleHostIds) {
             guard let workspace = workspaceById[workspaceId] else {
                 changed = next.removeValue(forKey: workspaceId) != nil || changed
                 continue
@@ -12900,7 +12943,9 @@ struct VerticalTabsSidebar: View, Equatable {
             let snapshot = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations,
+                hostTitleSuffixes: hostTitleSuffixes
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
@@ -12926,13 +12971,17 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
             && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let mirrorDestinations = mirrorDestinationsForOriginPresentation()
+        let hostTitleSuffixes = hostTitleSuffixes(tabs: tabs, mirrorDestinations: mirrorDestinations)
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
         for workspace in tabs {
             next[workspace.id] = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                mirrorDestinations: mirrorDestinations,
+                hostTitleSuffixes: hostTitleSuffixes
             )
         }
         guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
@@ -12942,7 +12991,9 @@ struct VerticalTabsSidebar: View, Equatable {
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        mirrorDestinations: [UUID: String]?,
+        hostTitleSuffixes: [UUID: String]
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -12950,8 +13001,60 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            originColorHex: originColorHex(for: workspace, mirrorDestinations: mirrorDestinations),
+            hostTitleSuffix: hostTitleSuffixes[workspace.id]
         ).makeSnapshot()
+    }
+
+    /// Per-host origin color (beta), resolved here — above the row boundary — to
+    /// a plain value. Nil when the flag is off or the workspace has no host.
+    ///
+    /// Mirror workspaces carry their host only through the session mirror, so callers
+    /// pass `mirrorDestinations` and the mirrors get walked once for a whole refresh
+    /// rather than once per row. That map comes from `mirrorDestinationsForOriginPresentation()`.
+    private func originColorHex(
+        for workspace: Workspace,
+        mirrorDestinations: [UUID: String]?
+    ) -> String? {
+        guard remoteTmuxOriginColorsEnabled,
+              let destination = originDestination(for: workspace, mirrorDestinations: mirrorDestinations)
+        else { return nil }
+        return AppDelegate.shared?.remoteTmuxController.hostColorRegistry.colorHex(for: destination)
+    }
+
+    /// Hosts to name after colliding workspace titles (beta), over the whole workspace list because
+    /// whether a title collides depends on every other title. Empty while the flag is off.
+    private func hostTitleSuffixes(tabs: [Workspace], mirrorDestinations: [UUID: String]?) -> [UUID: String] {
+        guard remoteTmuxOriginHostTitlesEnabled else { return [:] }
+        return RemoteHostTitleSuffixes.suffixes(for: tabs.map { workspace in
+            RemoteHostTitleSuffixes.Entry(
+                id: workspace.id,
+                title: workspace.title,
+                destination: RemoteHostTitleSuffixes.origin(
+                    destination: originDestination(for: workspace, mirrorDestinations: mirrorDestinations),
+                    cloudVMID: workspace.cloudVMID
+                )
+            )
+        })
+    }
+
+    /// The remote destination a workspace comes from, or nil for a local workspace or a mirror whose
+    /// host has not resolved yet.
+    private func originDestination(for workspace: Workspace, mirrorDestinations: [UUID: String]?) -> String? {
+        var destination = workspace.remoteConfiguration?.destination
+        if destination == nil, workspace.isRemoteTmuxMirror {
+            destination = mirrorDestinations?[workspace.id]
+        }
+        guard let destination, !destination.isEmpty else { return nil }
+        return destination
+    }
+
+    /// The mirror destinations a batch snapshot refresh needs, or nil when neither origin colors nor
+    /// host titles are on (then no row resolves a destination and the walk would be wasted).
+    private func mirrorDestinationsForOriginPresentation() -> [UUID: String]? {
+        guard remoteTmuxOriginColorsEnabled || remoteTmuxOriginHostTitlesEnabled else { return nil }
+        return AppDelegate.shared?.remoteTmuxController.hostDestinationsByWorkspaceId() ?? [:]
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -14765,7 +14868,12 @@ struct VerticalTabsSidebar: View, Equatable {
         opensInCmuxBrowser: Bool
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
+        // The external-open rules outrank the embedded-browser preference:
+        // a matching link goes to the system browser even when the setting
+        // prefers embedded, because rule-listed sites cannot work in the
+        // embedded web view at all.
         if opensInCmuxBrowser,
+           !BrowserExternalNavigationHandler().linkEscapesToSystemBrowser(url),
            tabManager.openBrowser(
                inWorkspace: workspace.id,
                url: url,
@@ -14850,9 +14958,17 @@ struct VerticalTabsSidebar: View, Equatable {
             indicatorScope: dragState.dropIndicatorScope
         )
         let settings = renderContext.tabItemSettings
+        // The effective row color (manual color, else resolved origin color) is
+        // part of the key so the cached snapshot is rebuilt when the color
+        // changes — e.g. toggling the origin-colors flag or a mirror host
+        // resolving after the row first appears, neither of which is a Workspace
+        // @Published change that would otherwise refresh the snapshot.
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            customColorHex: tab.customColor
+                ?? originColorHex(for: tab, mirrorDestinations: renderContext.mirrorOriginDestinations),
+            hostTitleSuffix: renderContext.hostTitleSuffixes[tab.id]
         )
         let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
             ? appKitRowSnapshotCache.value(for: tab.id)
@@ -14865,7 +14981,9 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceSnapshot = makeWorkspaceSnapshot(
                 workspace: tab,
                 settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
+                showsAgentActivity: renderContext.showsAgentActivity,
+                mirrorDestinations: renderContext.mirrorOriginDestinations,
+                hostTitleSuffixes: renderContext.hostTitleSuffixes
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
@@ -15951,7 +16069,7 @@ struct TabItemView: View, Equatable {
         let displayedSubtitle = effectiveSubtitle?.sidebarBoundedDisplayString(maxDisplayedLines: subtitleLineLimit, maxDisplayedCharacters: 4096)
         let detailVisibility = visibleAuxiliaryDetails
         let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
-        let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
+        let displayedTitle = workspaceSnapshot.displayTitle.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
@@ -16412,7 +16530,7 @@ struct TabItemView: View, Equatable {
                 beginInlineRename()
             }
         )
-        .safeHelp(workspaceSnapshot.title)
+        .safeHelp(workspaceSnapshot.displayTitle)
         .modifier(SidebarRowAccessibilityModifier(
             isEditing: isEditing,
             label: accessibilityTitle,

@@ -863,6 +863,19 @@ struct cmuxApp: App {
                     }
                 }
 
+                // In a remote-tmux mirror window, plain New Workspace (above) spawns a
+                // tmux session on the window's host, leaving no way to open LOCAL work
+                // there. Offer an explicit escape hatch, shown only when New Workspace
+                // would go remote so it never clutters ordinary windows.
+                if newLocalWorkspaceMenuItemVisible {
+                    splitCommandButton(title: String(localized: "menu.file.newLocalWorkspace", defaultValue: "New Local Workspace"), shortcut: menuShortcut(for: .newLocalWorkspace)) {
+                        AppDelegate.shared?.performNewLocalWorkspaceAction(
+                            tabManager: activeTabManager,
+                            debugSource: "menu.newLocalWorkspace"
+                        )
+                    }
+                }
+
                 splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
                     if let appDelegate = AppDelegate.shared {
                         appDelegate.performNewBrowserWorkspaceAction(
@@ -1344,6 +1357,18 @@ struct cmuxApp: App {
         AppDelegate.shared?.activeTabManagerForCommands(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
+    }
+
+    /// Whether the "New Local Workspace" File-menu item should be shown: true only
+    /// when plain New Workspace in the active window would route to a remote tmux
+    /// host. Reads `historyMenuCoordinator.state` so the menu re-evaluates on
+    /// window-focus and workspace-selection changes: the coordinator refreshes its
+    /// state when focus history changes and when a window becomes key, and a window
+    /// must become key before its menu bar opens.
+    private var newLocalWorkspaceMenuItemVisible: Bool {
+        let _ = historyMenuCoordinator.state
+        guard let appDelegate = AppDelegate.shared else { return false }
+        return appDelegate.remoteTmuxController.wouldNewWorkspaceSpawnRemote(in: activeTabManager)
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
