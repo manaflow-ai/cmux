@@ -63,6 +63,10 @@ impl Mux {
             self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
             return Ok(());
         };
+        // Share ordinary terminal creation's handoff guard, including the
+        // user-content check, so another creator cannot fill the starter slot
+        // between that check and the durable creation.
+        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         if self
             .workspace_registry
             .lock()
