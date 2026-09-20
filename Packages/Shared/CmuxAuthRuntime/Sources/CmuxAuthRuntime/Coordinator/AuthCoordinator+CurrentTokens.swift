@@ -23,7 +23,11 @@ extension AuthCoordinator {
         }
         try Task.checkCancellation()
         guard !deadline.hasExpired() else { throw AuthError.timedOut }
-        return try await runTokenTouchingPhase(.accessToken, timeout: deadline.remaining()) {
+        return try await runTokenTouchingPhase(
+            .accessToken,
+            timeout: deadline.remaining(),
+            deadline: deadline
+        ) {
             return try await self.captureCloudTokens()
         }
     }
