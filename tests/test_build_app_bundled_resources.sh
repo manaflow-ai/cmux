@@ -14,6 +14,13 @@ mkdir -p "$SRCROOT/ghostty/zig-out/share/ghostty/nested" \
   "$SRCROOT/Resources/terminfo-overlay" \
   "$SRCROOT/scripts" "$BUILD_DIR/Resources" "$BUILD_DIR/Products"
 
+FAKE_TOOLCHAIN="$TMP_DIR/toolchain"
+mkdir -p "$FAKE_TOOLCHAIN"
+for tool in rustc cargo; do
+  printf '#!/bin/bash\necho "%s 1.88.0 (fixture)"\n' "$tool" > "$FAKE_TOOLCHAIN/$tool"
+  chmod +x "$FAKE_TOOLCHAIN/$tool"
+done
+
 printf 'resource-v1\n' > "$SRCROOT/ghostty/zig-out/share/ghostty/nested/file"
 printf 'shell\n' > "$SRCROOT/ghostty/src/shell-integration/zsh/ghostty-integration"
 printf 'term\n' > "$SRCROOT/ghostty/zig-out/share/terminfo/x"
@@ -60,6 +67,7 @@ run_phase() {
   UNLOCALIZED_RESOURCES_FOLDER_PATH=Resources \
   INFOPLIST_PATH=Products/Info.plist \
   SRCROOT="$SRCROOT" \
+  PATH="$FAKE_TOOLCHAIN:$PATH" \
   ARCHS=arm64 \
   bash "$ROOT_DIR/scripts/build-app-bundled-resources.sh" "$@"
 }
@@ -67,6 +75,20 @@ run_phase() {
 run_phase > "$TMP_DIR/first.log"
 run_phase > "$TMP_DIR/second.log"
 grep -q 'skipping helper rebuilds' "$TMP_DIR/second.log"
+
+# Changing the compiler identity must invalidate the helper cache even when all
+# source trees and build settings are unchanged.
+for tool in rustc cargo; do
+  printf '#!/bin/bash\necho "%s 1.89.0 (fixture)"\n' "$tool" > "$FAKE_TOOLCHAIN/$tool"
+  run_phase > "$TMP_DIR/$tool-changed.log"
+  if grep -q 'skipping helper rebuilds' "$TMP_DIR/$tool-changed.log"; then
+    echo "FAIL: $tool toolchain change did not invalidate resource cache" >&2
+    exit 1
+  fi
+  run_phase > "$TMP_DIR/$tool-warm.log"
+  grep -q 'skipping helper rebuilds' "$TMP_DIR/$tool-warm.log"
+done
+echo 'PASS: Rust and Cargo toolchain changes invalidate bundled resources'
 
 rm "$BUILD_DIR/Resources/ghostty/nested/file"
 run_phase > "$TMP_DIR/third.log"

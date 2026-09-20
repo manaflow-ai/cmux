@@ -120,6 +120,8 @@ if [[ -n "${CMUX_DIFF_SIDECAR_STAMP:-}" ]]; then
   {
     printf 'requested_archs=%s\n' "$requested_archs"
     printf 'min_macos=%s\n' "${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}"
+    printf 'code_signing_allowed=%s\n' "${CODE_SIGNING_ALLOWED:-YES}"
+    printf 'expanded_code_sign_identity=%s\n' "${EXPANDED_CODE_SIGN_IDENTITY:-}"
     shasum -a 256 "$destination"
   } > "$stamp_tmp"
   mv -f "$stamp_tmp" "$CMUX_DIFF_SIDECAR_STAMP"

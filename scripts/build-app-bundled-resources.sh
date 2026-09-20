@@ -49,6 +49,15 @@ hash_git_worktree() {
   python3 "$FINGERPRINT_HELPER" git "$1"
 }
 
+# Match build-cmux-cua.sh's inherited PATH and working directory. Resolve these
+# before the hash pipeline so failed probes cannot certify reusable outputs.
+RUST_TOOLCHAIN_IDENTITY="$(
+  command -v rustc
+  rustc --version --verbose
+  command -v cargo
+  cargo --version --verbose
+)" || { echo "error: cannot identify cmux-cua Rust toolchain" >&2; exit 1; }
+
 output_fingerprint() {
   {
     hash_tree "$GHOSTTY_DEST"
@@ -81,6 +90,7 @@ fingerprint="$({
   hash_tree "$FINGERPRINT_HELPER"
   hash_tree "$BUILD_GHOSTTY_HELPER"
   hash_tree "$BUILD_CMUX_CUA"
+  printf 'rust-toolchain=%s\n' "$RUST_TOOLCHAIN_IDENTITY"
   hash_tree "$GHOSTTY_SRC"
   hash_tree "$FALLBACK_GHOSTTY"
   hash_tree "$TERMINFO_SRC"

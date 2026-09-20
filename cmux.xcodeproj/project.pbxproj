@@ -12321,11 +12321,11 @@
 			);
 			outputPaths = (
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-diff-sidecar",
-				"$(TARGET_TEMP_DIR)/cmux-diff-sidecar.arch-$(ARCHS).min-$(MACOSX_DEPLOYMENT_TARGET).stamp",
+				"$(TARGET_TEMP_DIR)/cmux-diff-sidecar.arch-$(ARCHS).min-$(MACOSX_DEPLOYMENT_TARGET).sign-$(CODE_SIGNING_ALLOWED)-$(EXPANDED_CODE_SIGN_IDENTITY).stamp",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "CMUX_DIFF_SIDECAR_ARCHS=\"${ARCHS}\" CMUX_DIFF_SIDECAR_MIN_MACOS=\"${MACOSX_DEPLOYMENT_TARGET}\" CMUX_DIFF_SIDECAR_STAMP=\"${TARGET_TEMP_DIR}/cmux-diff-sidecar.arch-${ARCHS}.min-${MACOSX_DEPLOYMENT_TARGET}.stamp\" \"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
+			shellScript = "CMUX_DIFF_SIDECAR_ARCHS=\"${ARCHS}\" CMUX_DIFF_SIDECAR_MIN_MACOS=\"${MACOSX_DEPLOYMENT_TARGET}\" CMUX_DIFF_SIDECAR_STAMP=\"${TARGET_TEMP_DIR}/cmux-diff-sidecar.arch-${ARCHS}.min-${MACOSX_DEPLOYMENT_TARGET}.sign-${CODE_SIGNING_ALLOWED}-${EXPANDED_CODE_SIGN_IDENTITY}.stamp\" \"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
 		};
 		A9E030000000000000000009 /* Reject Bundled Provider Binaries */ = {
 			isa = PBXShellScriptBuildPhase;
