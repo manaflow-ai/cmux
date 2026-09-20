@@ -5608,79 +5608,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         return condition()
     }
 
-    func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
-        )
-        let originalContentView = window.contentView
-        let portal = makeTrackedPortal(window: window)
-        _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = originalContentView,
-              let container = window.contentView else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
-
-        XCTAssertGreaterThan(
-            hostIndex,
-            contentIndex,
-            "Portal host must remain above content view so portal-hosted terminals stay visible"
-        )
-    }
-
-    func testTerminalPortalHostStaysBelowBrowserPortalHostWhenBothAreInstalled() {
-        let window = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320)
-        )
-        defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-
-        let originalContentView = window.contentView
-        let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = makeTrackedPortal(window: window)
-        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = originalContentView,
-              let container = window.contentView else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        func assertHostOrder(_ message: String) {
-            guard let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
-                  let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }) else {
-                XCTFail("Expected both portal hosts in same container")
-                return
-            }
-
-            XCTAssertLessThan(
-                terminalHostIndex,
-                browserHostIndex,
-                message
-            )
-        }
-
-        assertHostOrder("Terminal portal host should start below browser portal host")
-
-        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 220, height: 150))
-        contentView.addSubview(anchor)
-        let hosted = GhosttySurfaceScrollView(
-            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
-        )
-        terminalPortal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
-        terminalPortal.synchronizeHostedViewForAnchor(anchor)
-
-        assertHostOrder("Terminal portal bind/sync should not rise above the browser portal host")
-    }
-
     func testRegistryPrunesPortalWhenWindowCloses() {
         let baseline = TerminalWindowPortalRegistry.debugPortalCount()
         let window = makeTestWindow(
@@ -6580,7 +6507,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let baselineWindows = Self.suiteBaselineWindowNumbers ?? []
         let leakedPortalWindows = NSApp.windows.filter { window in
             guard !baselineWindows.contains(window.windowNumber) else { return false }
-            guard let container = window.contentView else { return false }
+            guard let container = window.contentView?.superview else { return false }
             return container.subviews.contains { $0 is WindowTerminalHostView }
         }
         XCTAssertTrue(

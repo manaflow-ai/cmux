@@ -79,15 +79,12 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
                 .path
         }
     }
-
     if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
        let normalized = agentHookDebugNonEmpty(lastPath) {
         return NSString(string: normalized).expandingTildeInPath
     }
-
     return "/tmp/cmux-debug.log"
 }
-
 private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
@@ -95,18 +92,15 @@ private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     }
     return trimmed
 }
-
 private func agentHookDebugShort(_ value: String?) -> String {
     guard let value = agentHookDebugNonEmpty(value) else { return "nil" }
     return String(value.prefix(12))
 }
-
 private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
 #endif
-
 struct ClaudeHookSessionRecord: Codable {
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
@@ -4915,6 +4909,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
@@ -5316,7 +5311,6 @@ struct CMUXCLI {
             }
         }
         defer { client.close() }
-
         try authenticateClientIfNeeded(
             client,
             explicitPassword: socketPasswordArg,
@@ -5324,7 +5318,6 @@ struct CMUXCLI {
             responseTimeout: cursorHookSocketTimeout,
             deadline: cursorHookDeadline
         )
-
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
         // beside renumberable refs unless the caller explicitly chooses a format.
@@ -5340,33 +5333,26 @@ struct CMUXCLI {
                 throw error
             }
         }
-
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "automation":
             try runAutomationCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
-
         case "__sidebar_footer_icon_balance":
             let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
             print(response)
-
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
-
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
-
         case "iroh-diag":
             let response = try sendV1Command("iroh_diag", client: client)
             print(response)
-
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
-
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
@@ -5464,9 +5450,17 @@ struct CMUXCLI {
                 } else {
                     print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
                 }
-
+            case "team":
+                try runAuthTeamCommand(
+                    commandArgs: Array(authArgs.dropFirst()),
+                    client: client,
+                    jsonOutput: jsonOutput
+                )
             default:
-                throw CLIError(message: "Usage: cmux auth <status|login|logout>")
+                throw CLIError(message: String(
+                    localized: "cli.auth.usage",
+                    defaultValue: "Usage: cmux auth <status|login|logout|team>"
+                ))
             }
 
         case "agent":
@@ -18199,13 +18193,14 @@ struct CMUXCLI {
         case "billing":
             return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
-            return """
-            Usage: cmux auth <status|login|logout>
+            return String(localized: "cli.auth.help", defaultValue: """
+            Usage: cmux auth <status|login|logout|team>
 
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
-            """
+            team     List teams or select one (`team list|use <team-id>|create <name>`).
+            """)
         case "login":
             return """
             Usage: cmux login
@@ -18475,6 +18470,8 @@ struct CMUXCLI {
 
             Print whether cmux browser creation and link interception are enabled.
             """
+        case "socket-status":
+            return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
         case "agent-hibernation":
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
@@ -41129,6 +41126,7 @@ export default CMUXSessionRestore;
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
+          \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]"))
           agent-hibernation <on|off>
           \(restoreCommandUsageLine)
           \(forkCommandUsageLine)
@@ -41156,7 +41154,7 @@ export default CMUXSessionRestore;
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           automation <list|show|test|enable|disable|logs|reload> [args]
-          auth <status|login|logout>
+          auth <status|login|logout|team>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())

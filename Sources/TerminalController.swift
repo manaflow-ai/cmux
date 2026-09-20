@@ -25,9 +25,7 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
-
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -64,7 +62,6 @@ private struct RemotePTYSocketTarget {
     let workspaceRef: Any
     let workspaceTitle: String
 }
-
 nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
     let nsError = error as NSError
     guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
@@ -73,11 +70,9 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
     return error.localizedDescription
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
     v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "remote PTY operation failed" }
@@ -112,7 +107,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     return "remote PTY operation failed"
 }
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -239,7 +233,6 @@ class TerminalController {
         subsystem: "com.cmux.socket",
         category: .dynamicTracing
     )
-
     /// True while a tool (e.g. Instruments' os_signpost instrument) is
     /// recording the main-hop signposts. The single predicate consulted by
     /// both `withSocketCommandPolicy` (command-key stack bookkeeping) and
@@ -276,25 +269,21 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
-
     nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
-
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
-
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
@@ -332,7 +321,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
-        "debug.app.activate",
+        "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -1169,7 +1158,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1512,7 +1501,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1532,7 +1520,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1575,6 +1562,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -2078,6 +2067,8 @@ class TerminalController {
                 )
                 return
             }
+            // Recheck after admission so a policy refresh cannot cross into execution.
+            guard socketAuthorizationIsCurrent(authorizationGeneration, passwordAuthorization: &passwordAuthorization) else { _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8)); return }
             // Only a process in cmux's own descendant tree may attach the
             // internal automation envelope. Same-UID clients are authorized
             // for ordinary automation RPCs, but cannot forge a rule chain.
@@ -2966,6 +2957,10 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.spacing":
+            // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
+            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            return v2Ok(id: id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
@@ -3183,10 +3178,10 @@ class TerminalController {
             "auth.status",
             "auth.sign_in_url",
             "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.sign_out", "auth.team.list", "auth.team.use",
+            "auth.team.create",
             "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
+            "vm.list", "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",

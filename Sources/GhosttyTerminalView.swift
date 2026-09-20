@@ -13080,7 +13080,10 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // AppKit owns the style (Show scroll bars preference); the policy owns presence.
+        // AppKit owns style and transient visibility, including Automatic's
+        // input-device choice. Do not set alpha or add a separate hide timer.
+        // autohidesScrollers controls document-fit removal, not overlay fading;
+        // disabling it keeps the legacy gutter stable without pinning overlays.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
         return didChange

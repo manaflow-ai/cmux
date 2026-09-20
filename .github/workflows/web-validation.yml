@@ -5,6 +5,9 @@ on:
   # The changes job owns routing; no separate fallback may report success.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue waits for this required status on the merge group commit.
+  # The router has no diff for this event, so the full validation runs.
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:

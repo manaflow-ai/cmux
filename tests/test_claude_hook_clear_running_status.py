@@ -97,7 +97,12 @@ class HookSocketServer:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
                     self.commands.append(line)
-                    conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    try:
+                        conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+                    except (BrokenPipeError, ConnectionResetError):
+                        # Hook commands are fire-and-forget: the CLI may close the socket
+                        # without reading the reply. The command is already recorded.
+                        return
 
     def _response_for(self, line: str) -> str:
         if not line.startswith("{"):
