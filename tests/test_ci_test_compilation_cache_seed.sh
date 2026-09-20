@@ -157,6 +157,7 @@ echo "PASS: the fingerprint follows the build path and the toolchain"
 
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
 for expected in \
+  cmux \
   cmux-unit \
   cmux-numeric-locale \
   build-for-testing \
@@ -169,8 +170,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 2 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run both schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 3 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run all three schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -179,7 +180,7 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles both schemes for testing with the compilation cache on"
+echo "PASS: the build compiles all three schemes for testing with the compilation cache on"
 
 # A restored package cache can make resolution succeed without the binary
 # artifacts, and the build cannot resolve again.
