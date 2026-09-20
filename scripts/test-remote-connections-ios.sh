@@ -46,6 +46,8 @@ xcodebuild build-for-testing \
   -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
   -parallel-testing-enabled NO \
   CODE_SIGN_IDENTITY="-" \
+  ENTITLEMENTS_ALLOWED=YES \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   | tee "$evidence/ios-tests.log"
 
 test_host="$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/Build/Products/Debug-iphonesimulator/RemoteConnectionsTestHost.app"
