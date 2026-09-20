@@ -1,0 +1,51 @@
+name: Terminal hang diagnostics
+
+on:
+  pull_request:
+    paths:
+      - Packages/Shared/CMUXMobileCore/**
+      - Packages/Shared/CmuxSentryTelemetry/**
+      - scripts/terminal-hang-release-gate.py
+      - tests/test_terminal_hang_release_gate.py
+      - .github/workflows/terminal-hang-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terminal-hang-diagnostics-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  release-gate:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: python3 tests/test_terminal_hang_release_gate.py
+
+  phase-attribution:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify phase ingress and serialization
+        run: swift test --package-path Packages/Shared/CMUXMobileCore --filter TerminalWorkIntervalTests
+      - name: Verify attribution and privacy with the package SDK pin
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
+      - name: Resolve the shipping SDK pin
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          app = json.loads(Path("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved").read_text())
+          path = Path("Packages/Shared/CmuxSentryTelemetry/Package.resolved")
+          package = json.loads(path.read_text())
+          package["pins"] = [next(pin for pin in app["pins"] if pin["identity"] == "sentry-cocoa")]
+          path.write_text(json.dumps(package, indent=2) + "\n")
+          PY
+      - name: Verify attribution and privacy with the shipping SDK pin
+        run: swift test --package-path Packages/Shared/CmuxSentryTelemetry --force-resolved-versions --filter 'TerminalWorkSentryContextTests|SentryEventScrubberTests|TransportSentryReporterTests'
