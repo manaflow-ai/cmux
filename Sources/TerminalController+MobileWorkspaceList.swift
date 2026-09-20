@@ -280,7 +280,7 @@ extension TerminalController {
             "description": v2OrNull(description.value),
             "description_truncated": description.isTruncated,
             "custom_color": v2OrNull(workspace.customColor),
-            "current_directory": v2OrNull(workspace.presentedCurrentDirectory),
+            "current_directory": v2OrNull(workspace.presentedWorkspaceDirectory),
             "is_selected": isSelected,
             "is_pinned": workspace.isPinned,
             // Group membership so the phone can fold contiguous same-group

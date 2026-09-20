@@ -174,6 +174,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$workspaceDirectory.map { _ in () }.eraseToAnyPublisher(),
             workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
             workspace.currentDirectoryChangeRevisionPublisher()
                 .map { _ in () }
@@ -220,7 +221,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory = (workspace.presentedWorkspaceDirectory ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !directory.isEmpty else {
             store.applyWorkspaceRoot(.none)
             return
@@ -235,7 +236,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             return
         }
 
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directory = (workspace.presentedWorkspaceDirectory ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         store.setCurrentDirectoryIfChanged(directory.isEmpty ? nil : directory)
     }
 }

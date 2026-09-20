@@ -58,6 +58,31 @@ Environment:
 
 ## Top-Level Commands
 
+`workspace set` assigns persistent workspace context independently of terminal
+directories. An agent can stay in its superrepo while pointing the sidebars and
+new terminals at its task worktree:
+
+```sh
+cmux workspace set --directory ./worktrees/task
+cmux workspace set --pr https://github.com/acme/project/pull/123
+```
+
+`--cwd` and `--working-directory` alias `--directory`. `--pr` also accepts a
+positive number with `--pr-url`; `--pr-label`, `--pr-state open|merged|closed`,
+and `--pr-branch` supply optional metadata. The explicit PR replaces the
+terminal-derived PR display until cleared; its status is reported by the caller
+and is not automatically polled. `--clear-directory` and `--clear-pr` independently
+restore terminal-derived behavior. Existing terminals and restored terminal
+directories are unchanged; an explicit directory on a new-terminal request wins
+over the workspace default. Directory assignment is local-workspace-only.
+
+The command targets `--workspace`, then `CMUX_WORKSPACE_ID`, then the selected
+workspace. With `--window`, the ambient workspace is ignored. The socket command
+is `workspace.action` with action `set_context`, using `workspace_directory`,
+`pr_number`, `pr_url`, `pr_label`, `pr_state`, `pr_branch`, `clear_directory`, and
+`clear_pull_request`. Validation precedes both mutations. `--json` returns the
+assigned `workspace_directory` and `pull_request` (null when unset).
+
 | Command | Contract |
 | --- | --- |
 | `welcome` | Print the welcome screen. |

@@ -1813,6 +1813,11 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var notifications: [SessionNotificationSnapshot]? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
+    /// Optional workspace context directory. Unlike `currentDirectory`, this
+    /// value is never updated by terminal shell reports.
+    var workspaceDirectory: String? = nil
+    /// Optional pull request explicitly associated with the workspace.
+    var workspacePullRequest: SessionWorkspacePullRequestSnapshot? = nil
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots (treated as splits).

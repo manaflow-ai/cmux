@@ -27,7 +27,7 @@ extension Workspace {
             isSelected: id == selectedId,
             isPinned: isPinned,
             index: index,
-            directory: presentedCurrentDirectory ?? "",
+            directory: presentedWorkspaceDirectory ?? "",
             listeningPorts: listeningPorts,
             unreadCount: unreadCount,
             surfaces: customSidebarSurfaceSnapshots(focusedPanelId: focusedPanelId),

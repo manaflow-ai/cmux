@@ -759,6 +759,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 }
                 let directoryChangeRevision = workspace.currentDirectoryChangeRevisionPublisher()
                 return workspace.$currentDirectory
+                    .combineLatest(workspace.$workspaceDirectory)
+                    .map { current, assigned in assigned ?? current }
                     .combineLatest(
                         workspace.$remoteConfiguration,
                         workspace.$remoteConnectionState,
@@ -2514,7 +2516,7 @@ struct ContentView: View {
             return
         }
 
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dir = (tab.presentedWorkspaceDirectory ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
@@ -2541,6 +2543,7 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
+        if !tab.usesRemoteDirectoryProvenance, let directory = tab.workspaceDirectory { return directory }
         if let focusedPanelId = tab.focusedPanelId,
            !tab.isRemoteTerminalSurface(focusedPanelId),
            let panelDir = tab.reportedPanelDirectory(panelId: focusedPanelId)?.trimmingCharacters(in: .whitespacesAndNewlines),

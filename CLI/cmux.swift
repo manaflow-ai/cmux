@@ -10734,7 +10734,7 @@ struct CMUXCLI {
         guard let sub = commandArgs.first?.lowercased() else {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceSubcommandRequired",
-                defaultValue: "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+                defaultValue: "workspace requires a subcommand. Try: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
             ))
         }
         let rest = Array(commandArgs.dropFirst())
@@ -10768,6 +10768,14 @@ struct CMUXCLI {
             )
         case "env":
             try runWorkspaceEnvCommand(
+                commandArgs: rest,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowOverride
+            )
+        case "set":
+            try runWorkspaceSetCommand(
                 commandArgs: rest,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -10838,7 +10846,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.error.workspaceSubcommandUnknown",
-                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
+                    defaultValue: "Unknown workspace subcommand: %@. Try: list, create, set, env, close, rename, select, status, reconnect, disconnect, loading, group"
                 ),
                 locale: .current,
                 sub
@@ -19031,7 +19039,7 @@ struct CMUXCLI {
               cmux list-workspaces
             """
         case "workspace":
-            return Self.workspaceCommandUsage
+            return Self.workspaceCommandUsage + "\n\n" + Self.workspaceContextUsage
         case "layout":
             return Self.layoutHelpText()
         case "workspace-group":
