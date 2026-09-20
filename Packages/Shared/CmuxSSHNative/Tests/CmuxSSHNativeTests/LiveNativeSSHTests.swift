@@ -38,6 +38,7 @@ import Testing
         #expect(output.contains(Data("PONG".utf8)))
         let sftp = try #require(session as? any MobileRemoteSFTPProviding)
         #expect(try await sftp.readFile(path: "/fixture.txt", maxBytes: 1024) == Data("fixture-sftp\n".utf8))
+        #expect(try await sftp.listDirectory(path: "/", maxEntries: 100, maxBytes: 16 * 1024).contains("fixture.txt"))
         await session.close()
     }
 
