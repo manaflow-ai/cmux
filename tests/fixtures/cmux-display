@@ -262,7 +262,8 @@ class DisplayService:
         for name in ("openbox", "tint2", "vncconfig"):
             marker = f"cmux-display-{number}-{name}"
             try:
-                output = subprocess.check_output(["pgrep", "-u", uid, "-x", marker], text=True)
+                pattern = rf"(^|/| ){marker}([[:space:]]|$)"
+                output = subprocess.check_output(["pgrep", "-u", uid, "-f", pattern], text=True)
                 pid = int(output.splitlines()[0])
             except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
                 continue
