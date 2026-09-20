@@ -17,9 +17,11 @@ final class PlainPastePTYFixture {
     let launches: URL
     let surface: TerminalSurface
     let window: NSWindow
+    private let previousMenu: NSMenu?
     var view: GhosttyNSView { surface.hostedView.surfaceView }
 
     init(optimized: Bool) throws {
+        previousMenu = NSApp.mainMenu
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-paste-pty-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         launches = root.appendingPathComponent("launches.txt")
@@ -68,9 +70,7 @@ final class PlainPastePTYFixture {
                     if select.select([0], [], [], 0.1)[0]:
                         pending += os.read(0, 65536)
                 received_at = time.time()
-                if b'\\x1b[201~' not in pending:
-                    raise TimeoutError('No bracketed paste arrived')
-                end = pending.index(b'\\x1b[201~') + 6
+                end = pending.index(b'\\x1b[201~') + 6 if b'\\x1b[201~' in pending else len(pending)
                 data, pending = pending[:end], pending[end:]
                 temp = root / ('receipt-%d.tmp' % trial)
                 temp.write_text(json.dumps({'hex': data.hex(), 'received_at': received_at}))
@@ -95,7 +95,18 @@ final class PlainPastePTYFixture {
         content.layoutSubtreeIfNeeded()
         hosted.setVisibleInUI(true)
         hosted.setActive(true)
-        window.makeFirstResponder(hosted.surfaceView)
+        try #require(window.makeFirstResponder(hosted.surfaceView))
+        // The app-host's normal menu targets its workspace window, not this
+        // isolated terminal. Keep AppKit menu dispatch, with an explicit target.
+        let menu = NSMenu()
+        let edit = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Edit")
+        let paste = NSMenuItem(title: "Paste", action: #selector(GhosttyNSView.paste(_:)), keyEquivalent: "v")
+        paste.target = hosted.surfaceView
+        submenu.addItem(paste)
+        edit.submenu = submenu
+        menu.addItem(edit)
+        NSApp.mainMenu = menu
     }
 
     func waitUntilReady() async throws {
@@ -113,10 +124,15 @@ final class PlainPastePTYFixture {
         while !FileManager.default.fileExists(atPath: url.path), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+        try #require(FileManager.default.fileExists(atPath: url.path), Comment(rawValue:
+            "No PTY receipt; launches=\(String(describing: try? String(contentsOf: launches, encoding: .utf8))) " +
+            "screen=\(surface.readText(region: .screen) ?? "unavailable")"
+        ))
         return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
     }
 
     func close() {
+        NSApp.mainMenu = previousMenu
         surface.teardownSurface()
         window.orderOut(nil)
         try? FileManager.default.removeItem(at: root)
