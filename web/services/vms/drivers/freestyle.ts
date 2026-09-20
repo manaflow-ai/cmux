@@ -1490,7 +1490,10 @@ export class FreestyleProvider implements VMProvider {
             }
             await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand({ replaceExisting: true }), 60_000);
             await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
-            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({
+              deviceFingerprint: fingerprint,
+              cloudWelcome: options?.providerMetadata?.cloudWelcomeEligible === true,
+            }));
             if (!bundleResult || bundleResult.exitCode !== 0) {
               throw new ProviderError("freestyle", `cmux-tui attach bundle retry in ${vmId} failed`);
             }

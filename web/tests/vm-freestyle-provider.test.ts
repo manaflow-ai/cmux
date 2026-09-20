@@ -801,6 +801,17 @@ describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
     expect(start).toContain("pkill -f 'cmux-tui server [s]tart'");
   });
 
+  test("keeps first-machine welcome eligibility on the trusted-listener retry", async () => {
+    const fake = attachFake({ trusted: ["0", "1"], manifest: "ok" });
+    await fake.provider.openCmuxRemote(VM_ID, {
+      clientCapabilities: [],
+      providerMetadata: { cloudWelcomeEligible: true },
+    });
+    const bootstrapBundles = fake.execs.filter((command) => command.includes("cloud-bootstrap"));
+    expect(bootstrapBundles).toHaveLength(2);
+    expect(bootstrapBundles.every((command) => command.includes('"welcome":true'))).toBe(true);
+  });
+
   test("a heal that leaves the daemon untrusted fails closed instead of returning an unusable endpoint", async () => {
     const fake = attachFake({ trusted: ["0", "0"], manifest: "ok" });
     await expect(fake.provider.openCmuxRemote(VM_ID, { clientCapabilities: [] })).rejects.toThrow(ProviderError);
