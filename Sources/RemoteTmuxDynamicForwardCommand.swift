@@ -1,23 +1,23 @@
 import Foundation
 
-/// Pure argv construction and stderr classification for adding/removing a
-/// SOCKS5 dynamic forward on an ssh-tmux host's already-running SSH
-/// ControlMaster, via OpenSSH's multiplex `-O forward`/`-O cancel` control
-/// commands. No process launching here — that's `RemoteTmuxSSHTransport`.
-/// Kept as pure functions specifically so argv exactness and stderr
-/// classification are unit-testable without a real SSH process.
-///
-/// Static members only: pure argv/string transforms with no per-instance
-/// state to hold (one-line justification per the no-namespace-enum
-/// convention; see `LoopbackPortAllocator`/`RemoteLoopbackProxyAlias`).
-enum RemoteTmuxDynamicForwardCommand {
+/// Argv construction and stderr classification for adding/removing a SOCKS5
+/// dynamic forward on an ssh-tmux host's already-running SSH ControlMaster,
+/// via OpenSSH's multiplex `-O forward`/`-O cancel` control commands. No
+/// process launching here — that's `RemoteTmuxSSHTransport`, which holds one
+/// instance and injects it (constructable/injectable per the repository's
+/// no-ambient-global-state policy). Instance methods rather than static
+/// members specifically so argv exactness and stderr classification stay
+/// unit-testable without a real SSH process.
+struct RemoteTmuxDynamicForwardCommand {
+    init() {}
+
     /// `ssh -O forward -D 127.0.0.1:<localPort> -o ControlPath=<path> -- <destination>`.
     ///
     /// The bind address is always the literal `127.0.0.1`, never a bare port:
     /// a bare `-D <port>` honors `GatewayPorts`/`BindAddress` from the user's
     /// `ssh_config` and could expose the SOCKS listener on a LAN interface.
     /// This is a security requirement, not a style choice.
-    static func openArguments(controlSocketPath: String, destination: String, localPort: Int) -> [String] {
+    func openArguments(controlSocketPath: String, destination: String, localPort: Int) -> [String] {
         [
             "-O", "forward",
             "-D", "127.0.0.1:\(localPort)",
@@ -27,7 +27,7 @@ enum RemoteTmuxDynamicForwardCommand {
     }
 
     /// The inverse of ``openArguments(controlSocketPath:destination:localPort:)``.
-    static func cancelArguments(controlSocketPath: String, destination: String, localPort: Int) -> [String] {
+    func cancelArguments(controlSocketPath: String, destination: String, localPort: Int) -> [String] {
         [
             "-O", "cancel",
             "-D", "127.0.0.1:\(localPort)",
@@ -57,7 +57,7 @@ enum RemoteTmuxDynamicForwardCommand {
     /// failure, a remote-side forwarding refusal distinct from a local port
     /// collision) — a wrong classification would make the registry retry or
     /// give up on the wrong signal.
-    static func classify(exitCode: Int32, stderr: String) -> Failure? {
+    func classify(exitCode: Int32, stderr: String) -> Failure? {
         guard exitCode != 0 else { return nil }
         let text = stderr.lowercased()
 
