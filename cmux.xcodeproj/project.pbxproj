@@ -12513,6 +12513,7 @@
 		};
 		C12758000000000000000005 /* Build Plain Text Paste Worker */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = ();
 			inputPaths = (
