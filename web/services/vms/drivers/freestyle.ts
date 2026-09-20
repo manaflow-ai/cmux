@@ -622,6 +622,10 @@ function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
 }
 
+function isConfirmedDeleteNotFound(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 404 && err.code === "NOT_FOUND";
+}
+
 /**
  * The Freestyle-side half of cmux private networking: one VPC per owner, and
  * one WireGuard tunnel per owner's computer attached to it.
@@ -1086,7 +1090,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           await this.deps.client().vms.ref(vmId).delete();
         } catch (err) {
-          if (isNotFound(err)) return; // already gone; destroy is idempotent
+          if (isConfirmedDeleteNotFound(err)) return; // already gone; destroy is idempotent
           throw new ProviderError("freestyle", `destroy(${vmId})`, err);
         }
       },
