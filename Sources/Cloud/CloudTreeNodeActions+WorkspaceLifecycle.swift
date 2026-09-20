@@ -132,13 +132,10 @@ extension CloudTreeNodeActions {
             committed = true
             return (workspace, terminal, (reservation.workspaceID, projections))
         } catch {
-            // This awaited task lets rollback finish even when the creation task was
-            // cancelled. It only closes IDs returned by this operation's provider.
+            // Cleanup uses only IDs returned by this operation's provider.
             let ownedWorkspace = createdWorkspace
             let ownedTerminal = createdTerminal
-            await Task { @MainActor in
-                await cleanupRemoteWorkspaceCreation(provider: provider, workspace: ownedWorkspace, terminal: ownedTerminal)
-            }.value
+            await cleanupRemoteWorkspaceCreation(provider: provider, workspace: ownedWorkspace, terminal: ownedTerminal)
             throw error
         }
     }
