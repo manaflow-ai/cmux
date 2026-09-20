@@ -184,8 +184,9 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
     cancelled = False
     if swift_requested:
         items.insert(0, ("swift-syntax", "parsing", f"Swift syntax ({len(paths)} selected files)",
-                        [compiler or "swiftc", "-frontend", "-parse", "-swift-version", "5",
-                         "-D", "DEBUG", "-enable-bare-slash-regex"] + [str(p) for p in paths]))
+                        ["swiftc", "-frontend", "-parse", "-swift-version", "5",
+                         "-D", "DEBUG", "-enable-bare-slash-regex"] +
+                        ["./" + str(p.relative_to(repo.resolve())) for p in paths]))
         if compiler:
             try:
                 version = subprocess.run([compiler, "--version"], capture_output=True, text=True,

@@ -65,10 +65,11 @@
     "toolchain": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0"
   },
   "evidence": {
+    "argv_normalization": "Historical absolute parser paths normalized to checkout-relative replay arguments; this is the recorded original result, not a new execution.",
     "executions": [
       {
         "argv": [
-          "/usr/bin/swiftc",
+          "swiftc",
           "-frontend",
           "-parse",
           "-swift-version",
@@ -76,11 +77,11 @@
           "-D",
           "DEBUG",
           "-enable-bare-slash-regex",
-          "/Users/leoli/Projects/cmux/Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
-          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceCatalogQueryService.swift",
-          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
-          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceSocketCommands.swift",
-          "/Users/leoli/Projects/cmux/cmuxTests/SurfaceProjectionIdentityTests.swift"
+          "./Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+          "./Sources/Surfaces/SurfaceCatalogQueryService.swift",
+          "./Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+          "./Sources/Surfaces/SurfaceSocketCommands.swift",
+          "./cmuxTests/SurfaceProjectionIdentityTests.swift"
         ],
         "cancelled": false,
         "elapsed_seconds": 0.091,
