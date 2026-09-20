@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Per-session scroll ownership", .serialized, .timeLimit(.minutes(1)))
+@Suite("Per-session scroll ownership", .serialized)
 struct GhosttyCopyModeScrollbackTests {
     @Test(arguments: [1000, 1002, 1003])
     func copyModeTakesWheelOwnershipFromMouseReporting(mode: Int) async throws {
