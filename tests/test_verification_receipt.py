@@ -182,6 +182,34 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(assessment["review_current"])
         self.assertFalse(assessment["exact_verification"])
 
+    def test_missing_python_returns_unsupported_without_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "tests").mkdir()
+            (repo / a.RECIPE).write_text("raise AssertionError('must not run')")
+            with patch.object(a, "observe", return_value={"commit": None, "clean": None}), \
+                 patch.object(a.subprocess, "check_output", side_effect=FileNotFoundError("python3")), \
+                 patch.object(a.subprocess, "run", side_effect=FileNotFoundError("python3")):
+                result = a.local(repo)
+            self.assertEqual(a.check(result, "tests")["status"], "unsupported")
+            self.assertFalse(a.check(result, "tests")["executed"])
+            self.assertIsNone(result["environment"]["toolchain"])
+            self.assertIsNone(result["tests"]["executed"])
+
+    def test_python_version_failure_does_not_hide_test_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / "tests").mkdir()
+            (repo / a.RECIPE).write_text("# fixture")
+            completed = subprocess.CompletedProcess([], 0, "Ran 1 test in 0.01s\nOK\n", "")
+            with patch.object(a, "observe", return_value={"commit": None, "clean": None}), \
+                 patch.object(a.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, "python3")), \
+                 patch.object(a.subprocess, "run", return_value=completed):
+                result = a.local(repo)
+            self.assertEqual(a.check(result, "tests")["status"], "passed")
+            self.assertTrue(a.check(result, "tests")["executed"])
+            self.assertIsNone(result["environment"]["toolchain"])
+
     def test_interrupted_local_stays_interrupted(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
