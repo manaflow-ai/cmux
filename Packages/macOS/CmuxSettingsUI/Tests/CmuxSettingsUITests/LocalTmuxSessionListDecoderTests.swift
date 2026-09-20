@@ -81,4 +81,22 @@ struct LocalTmuxSessionListDecoderTests {
             }
         }
     }
+    @Test func publicConstructionKeepsDisplayAndAttachmentIdentityTogether() {
+        let id = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let managed = LocalTmuxSessionSummary(
+            selector: .managed(id: id, name: "work"), cwd: nil, clientCount: 0, isLive: true
+        )
+        #expect(managed.id == id.uuidString)
+        #expect(managed.logicalID == id)
+        #expect(managed.isManaged)
+        #expect(managed.name == "work")
+        let unmanaged = LocalTmuxSessionSummary(
+            selector: .unmanaged(name: "manual"), cwd: nil, clientCount: 0, isLive: true
+        )
+        #expect(unmanaged.id == "tmux:manual")
+        #expect(unmanaged.logicalID == nil)
+        #expect(!unmanaged.isManaged)
+        #expect(unmanaged.name == "manual")
+    }
+
 }

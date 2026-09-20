@@ -2,55 +2,57 @@ import Foundation
 
 /// One local tmux session returned by the authoritative bundled CLI.
 public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
-    /// Stable UI identity.
-    ///
-    /// Managed sessions use their logical UUID string. Unmanaged sessions use
-    /// a tmux:<name> identity because the CLI intentionally has no logical id.
-    public let id: String
+    /// The complete attachment identity; display and action selectors derive from it.
+    public enum Selector: Equatable, Sendable {
+        /// A registry-owned session, including its display name.
+        case managed(id: UUID, name: String)
+        /// A session addressed by its tmux name.
+        case unmanaged(name: String)
+    }
+
+    /// Authoritative selector for this session.
+    public let selector: Selector
+
+    /// Stable UI identity, derived from the attachment selector.
+    public var id: String {
+        switch selector {
+        case .managed(let id, _): return id.uuidString
+        case .unmanaged(let name): return "tmux:\(name)"
+        }
+    }
 
     /// Registry-backed logical UUID for managed sessions.
-    public let logicalID: UUID?
+    public var logicalID: UUID? {
+        if case .managed(let id, _) = selector { return id }
+        return nil
+    }
 
     /// tmux session name used for display and unmanaged attachment.
-    public let name: String
+    public var name: String {
+        switch selector {
+        case .managed(_, let name), .unmanaged(let name): return name
+        }
+    }
 
     /// Last known working directory, when the CLI can report one.
     public let cwd: String?
-
     /// Number of currently attached tmux clients.
     public let clientCount: Int
-
     /// Whether the tmux session is currently live.
     public let isLive: Bool
-
     /// Whether cmux owns a registry record for this session.
-    public let isManaged: Bool
+    public var isManaged: Bool { logicalID != nil }
 
-    /// Creates one decoded local tmux session summary.
-    ///
-    /// - Parameters:
-    ///   - id: Stable UI identity.
-    ///   - logicalID: Registry-backed UUID for a managed session.
-    ///   - name: tmux session name.
-    ///   - cwd: Last known working directory.
-    ///   - clientCount: Number of attached clients.
-    ///   - isLive: Whether the tmux session is live.
-    ///   - isManaged: Whether cmux owns a registry record for the session.
+    /// Creates a summary whose UI identity and attachment selector cannot diverge.
     public init(
-        id: String,
-        logicalID: UUID?,
-        name: String,
+        selector: Selector,
         cwd: String?,
         clientCount: Int,
-        isLive: Bool,
-        isManaged: Bool
+        isLive: Bool
     ) {
-        self.id = id
-        self.logicalID = logicalID
-        self.name = name
+        self.selector = selector
         self.cwd = cwd
         self.clientCount = clientCount
         self.isLive = isLive
-        self.isManaged = isManaged
     }
 }

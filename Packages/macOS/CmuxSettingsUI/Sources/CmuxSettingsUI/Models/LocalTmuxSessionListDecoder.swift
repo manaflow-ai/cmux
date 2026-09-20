@@ -75,13 +75,11 @@ public struct LocalTmuxSessionListDecoder: Sendable {
             }
 
             return LocalTmuxSessionSummary(
-                id: logicalID?.uuidString ?? "tmux:\(row.sessionName)",
-                logicalID: logicalID,
-                name: row.sessionName,
+                selector: logicalID.map { .managed(id: $0, name: row.sessionName) }
+                    ?? .unmanaged(name: row.sessionName),
                 cwd: row.cwd,
                 clientCount: row.clients ?? 0,
-                isLive: row.live,
-                isManaged: row.managed
+                isLive: row.live
             )
         }
         .sorted {

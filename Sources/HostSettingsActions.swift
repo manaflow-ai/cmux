@@ -252,14 +252,17 @@ final class HostSettingsActions: SettingsHostActions {
 
     func startLocalTmuxSession(name: String) async throws {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cwd = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace else {
+            throw LocalTmuxSettingsActionError.unavailable
+        }
+        let workspaceID = workspace.id
+        let cwd = workspace.currentDirectory
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
         _ = try await runLocalTmuxCLI(arguments: Self.localTmuxStartArguments(
             name: trimmedName,
-            workspaceID: AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace?.id,
+            workspaceID: workspaceID,
             cwd: cwd,
             socketPath: socketPath
         ))
@@ -267,11 +270,12 @@ final class HostSettingsActions: SettingsHostActions {
 
     nonisolated static func localTmuxStartArguments(
         name: String,
-        workspaceID: UUID?,
+        workspaceID: UUID,
         cwd: String,
         socketPath: String
     ) -> [String] {
-        ["--socket", socketPath, "local-tmux", "start", name, "--cwd", cwd, "--json"]
+        ["--socket", socketPath, "local-tmux", "start", name,
+         "--workspace", workspaceID.uuidString, "--cwd", cwd, "--json"]
     }
 
     func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
@@ -279,10 +283,11 @@ final class HostSettingsActions: SettingsHostActions {
             preferredPath: SocketControlSettings.socketPath()
         )
         var arguments = ["--socket", socketPath, "local-tmux", "attach"]
-        if let logicalID = session.logicalID {
-            arguments.append(contentsOf: ["--id", logicalID.uuidString])
-        } else {
-            arguments.append(session.name)
+        switch session.selector {
+        case .managed(let id, _):
+            arguments.append(contentsOf: ["--id", id.uuidString])
+        case .unmanaged(let name):
+            arguments.append(name)
         }
         arguments.append("--json")
         _ = try await runLocalTmuxCLI(arguments: arguments)

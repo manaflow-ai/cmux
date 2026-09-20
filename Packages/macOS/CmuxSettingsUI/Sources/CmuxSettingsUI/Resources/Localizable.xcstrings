@@ -2114,121 +2114,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local session persistence is unavailable in this settings host."
+            "value": "Open a workspace and try again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lokale Sitzungspersistenz ist in diesem Einstellungs-Host nicht verfügbar."
+            "value": "Öffne einen Arbeitsbereich und versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La persistance des sessions locales est indisponible dans cet hôte de réglages."
+            "value": "Ouvrez un espace de travail et réessayez."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La persistencia de sesiones locales no está disponible en este host de ajustes."
+            "value": "Abre un espacio de trabajo e inténtalo de nuevo."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La persistenza delle sessioni locali non è disponibile in questo host delle impostazioni."
+            "value": "Apri uno spazio di lavoro e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この設定ホストではローカルセッションの永続化を利用できません。"
+            "value": "ワークスペースを開いて、もう一度お試しください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 설정 호스트에서는 로컬 세션 지속성을 사용할 수 없습니다."
+            "value": "작업 공간을 열고 다시 시도하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此设置宿主无法使用本地会话持久化。"
+            "value": "请打开一个工作区，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此設定主機無法使用本機工作階段持久化。"
+            "value": "請開啟工作區，然後重試。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استمرارية الجلسات المحلية غير متاحة في مضيف الإعدادات هذا."
+            "value": "افتح مساحة عمل وحاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trajnost lokalnih sesija nije dostupna u ovom hostu postavki."
+            "value": "Otvorite radni prostor i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vedvarende lokale sessioner er ikke tilgængelige i denne indstillingsvært."
+            "value": "Åbn et arbejdsområde, og prøv igen."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការរក្សាសម័យមូលដ្ឋានមិនមាននៅក្នុងផ្ទាំងការកំណត់នេះទេ។"
+            "value": "បើកកន្លែងធ្វើការ ហើយព្យាយាមម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vedvarende lokale økter er ikke tilgjengelig i denne innstillingsverten."
+            "value": "Åpne et arbeidsområde og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trwałość lokalnych sesji jest niedostępna w tym hoście ustawień."
+            "value": "Otwórz obszar roboczy i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A persistência de sessões locais não está disponível neste host de ajustes."
+            "value": "Abra um espaço de trabalho e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сохранение локальных сеансов недоступно в этом хосте настроек."
+            "value": "Откройте рабочую область и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การคงอยู่ของเซสชันภายในเครื่องไม่พร้อมใช้งานในโฮสต์การตั้งค่านี้"
+            "value": "เปิดพื้นที่ทำงานแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yerel oturum kalıcılığı bu ayar ana bilgisayarında kullanılamıyor."
+            "value": "Bir çalışma alanı açıp tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збереження локальних сеансів недоступне в цьому хості налаштувань."
+            "value": "Відкрийте робочу область і спробуйте ще раз."
           }
         }
       }
@@ -2238,121 +2238,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux returned an invalid session list."
+            "value": "Could not update saved sessions. Try again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux hat eine ungültige Sitzungsliste zurückgegeben."
+            "value": "Gespeicherte Sitzungen konnten nicht aktualisiert werden. Versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux a renvoyé une liste de sessions invalide."
+            "value": "Impossible de mettre à jour les sessions enregistrées. Réessayez."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux devolvió una lista de sesiones no válida."
+            "value": "No se pudieron actualizar las sesiones guardadas. Inténtalo de nuevo."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux ha restituito un elenco di sessioni non valido."
+            "value": "Impossibile aggiornare le sessioni salvate. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux が無効なセッション一覧を返しました。"
+            "value": "保存済みセッションを更新できませんでした。もう一度お試しください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux가 잘못된 세션 목록을 반환했습니다."
+            "value": "저장된 세션을 업데이트하지 못했습니다. 다시 시도하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux 返回了无效的会话列表。"
+            "value": "无法更新已保存的会话。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux 傳回了無效的工作階段清單。"
+            "value": "無法更新已儲存的工作階段。請重試。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أعاد cmux local-tmux قائمة جلسات غير صالحة."
+            "value": "تعذر تحديث الجلسات المحفوظة. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux je vratio nevažeću listu sesija."
+            "value": "Nije moguće ažurirati sačuvane sesije. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux returnerede en ugyldig sessionsliste."
+            "value": "De gemte sessioner kunne ikke opdateres. Prøv igen."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux បានត្រឡប់បញ្ជីសម័យមិនត្រឹមត្រូវ។"
+            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាពសម័យដែលបានរក្សាទុកទេ។ ព្យាយាមម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux returnerte en ugyldig øktliste."
+            "value": "Kunne ikke oppdatere lagrede økter. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux zwrócił nieprawidłową listę sesji."
+            "value": "Nie udało się zaktualizować zapisanych sesji. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux retornou uma lista de sessões inválida."
+            "value": "Não foi possível atualizar as sessões salvas. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux вернул недопустимый список сеансов."
+            "value": "Не удалось обновить сохранённые сеансы. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux ส่งคืนรายการเซสชันที่ไม่ถูกต้อง"
+            "value": "อัปเดตเซสชันที่บันทึกไว้ไม่ได้ โปรดลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux geçersiz bir oturum listesi döndürdü."
+            "value": "Kaydedilen oturumlar güncellenemedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux повернув недійсний список сеансів."
+            "value": "Не вдалося оновити збережені сеанси. Спробуйте ще раз."
           }
         }
       }
@@ -2362,121 +2362,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The bundled cmux command-line tool could not be found."
+            "value": "Session persistence is unavailable. Reinstall cmux and try again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das mitgelieferte cmux-Befehlszeilentool wurde nicht gefunden."
+            "value": "Sitzungen können nicht dauerhaft gespeichert werden. Installiere cmux neu und versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’outil en ligne de commande cmux intégré est introuvable."
+            "value": "La persistance des sessions est indisponible. Réinstallez cmux et réessayez."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontró la herramienta de línea de comandos cmux incluida."
+            "value": "La persistencia de sesiones no está disponible. Reinstala cmux e inténtalo de nuevo."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile trovare lo strumento da riga di comando cmux incluso."
+            "value": "La persistenza delle sessioni non è disponibile. Reinstalla cmux e riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同梱の cmux コマンドラインツールが見つかりません。"
+            "value": "セッションの永続化を利用できません。cmux を再インストールして、もう一度お試しください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "번들 cmux 명령줄 도구를 찾을 수 없습니다."
+            "value": "세션 유지를 사용할 수 없습니다. cmux를 다시 설치하고 다시 시도하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "找不到随附的 cmux 命令行工具。"
+            "value": "会话持久化不可用。请重新安装 cmux，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "找不到隨附的 cmux 命令列工具。"
+            "value": "工作階段持續保存功能無法使用。請重新安裝 cmux，然後重試。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر العثور على أداة سطر أوامر cmux المضمنة."
+            "value": "الاحتفاظ بالجلسات غير متاح. أعد تثبيت cmux وحاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ugrađeni cmux alat komandne linije nije pronađen."
+            "value": "Trajno čuvanje sesija nije dostupno. Ponovo instalirajte cmux i pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Det medfølgende cmux-kommandolinjeværktøj blev ikke fundet."
+            "value": "Bevaring af sessioner er ikke tilgængelig. Geninstaller cmux, og prøv igen."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រកមិនឃើញឧបករណ៍បន្ទាត់ពាក្យបញ្ជា cmux ដែលបានភ្ជាប់មកជាមួយទេ។"
+            "value": "មិនអាចប្រើមុខងាររក្សាទុកសម័យបានទេ។ ដំឡើង cmux ឡើងវិញ ហើយព្យាយាមម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Det medfølgende cmux-kommandolinjeverktøyet ble ikke funnet."
+            "value": "Lagring av vedvarende økter er utilgjengelig. Installer cmux på nytt og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie znaleziono dołączonego narzędzia wiersza poleceń cmux."
+            "value": "Zachowywanie sesji jest niedostępne. Zainstaluj ponownie cmux i spróbuj jeszcze raz."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A ferramenta de linha de comando cmux incluída não foi encontrada."
+            "value": "A persistência de sessões está indisponível. Reinstale o cmux e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось найти встроенный инструмент командной строки cmux."
+            "value": "Сохранение сеансов недоступно. Переустановите cmux и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่พบเครื่องมือบรรทัดคำสั่ง cmux ที่รวมมา"
+            "value": "ไม่สามารถใช้การเก็บรักษาเซสชันได้ โปรดติดตั้ง cmux ใหม่แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paketlenmiş cmux komut satırı aracı bulunamadı."
+            "value": "Oturum kalıcılığı kullanılamıyor. cmux uygulamasını yeniden yükleyip tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося знайти вбудований інструмент командного рядка cmux."
+            "value": "Збереження сеансів недоступне. Перевстановіть cmux і спробуйте ще раз."
           }
         }
       }
@@ -2486,121 +2486,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux could not complete the requested action."
+            "value": "Could not update saved sessions. Try again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux konnte die angeforderte Aktion nicht abschließen."
+            "value": "Gespeicherte Sitzungen konnten nicht aktualisiert werden. Versuche es erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux n’a pas pu terminer l’action demandée."
+            "value": "Impossible de mettre à jour les sessions enregistrées. Réessayez."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux no pudo completar la acción solicitada."
+            "value": "No se pudieron actualizar las sesiones guardadas. Inténtalo de nuevo."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux non ha potuto completare l’azione richiesta."
+            "value": "Impossibile aggiornare le sessioni salvate. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux は要求された操作を完了できませんでした。"
+            "value": "保存済みセッションを更新できませんでした。もう一度お試しください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux가 요청한 작업을 완료하지 못했습니다."
+            "value": "저장된 세션을 업데이트하지 못했습니다. 다시 시도하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux 无法完成请求的操作。"
+            "value": "无法更新已保存的会话。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux 無法完成要求的操作。"
+            "value": "無法更新已儲存的工作階段。請重試。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux local-tmux إكمال الإجراء المطلوب."
+            "value": "تعذر تحديث الجلسات المحفوظة. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux nije mogao dovršiti traženu radnju."
+            "value": "Nije moguće ažurirati sačuvane sesije. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux kunne ikke fuldføre den ønskede handling."
+            "value": "De gemte sessioner kunne ikke opdateres. Prøv igen."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux មិនអាចបញ្ចប់សកម្មភាពដែលបានស្នើទេ។"
+            "value": "មិនអាចធ្វើបច្ចុប្បន្នភាពសម័យដែលបានរក្សាទុកទេ។ ព្យាយាមម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux kunne ikke fullføre den forespurte handlingen."
+            "value": "Kunne ikke oppdatere lagrede økter. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux nie mógł ukończyć żądanej operacji."
+            "value": "Nie udało się zaktualizować zapisanych sesji. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux não conseguiu concluir a ação solicitada."
+            "value": "Não foi possível atualizar as sessões salvas. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux не смог выполнить запрошенное действие."
+            "value": "Не удалось обновить сохранённые сеансы. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux ไม่สามารถดำเนินการที่ร้องขอให้เสร็จสิ้นได้"
+            "value": "อัปเดตเซสชันที่บันทึกไว้ไม่ได้ โปรดลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux istenen işlemi tamamlayamadı."
+            "value": "Kaydedilen oturumlar güncellenemedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux local-tmux не зміг виконати запитану дію."
+            "value": "Не вдалося оновити збережені сеанси. Спробуйте ще раз."
           }
         }
       }
