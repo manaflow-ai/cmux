@@ -123,15 +123,18 @@ struct CloudBrowserRouting {
             return parsed.href;
           };
           window.__cmuxCloudWebSocketBridgeRewrite = rewrite;
+          const originalURLs = new WeakMap();
           const CmuxWebSocket = class extends NativeWebSocket {
             constructor(input, protocols) {
             const rewritten = rewrite(input);
             if (!rewritten) { super(input, protocols); return; }
-            const values = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols.slice() : [protocols]);
+            const values = protocols === undefined ? [] : (typeof protocols === 'string' ? [protocols] : Array.from(protocols));
             const auth = 'cmux-proxy-' + token;
             if (!values.includes(auth)) values.push(auth);
             super(rewritten, values);
+            originalURLs.set(this, new URL(input, document.baseURI).href);
             }
+            get url() { return originalURLs.get(this) || super.url; }
           };
           window.__cmuxCloudWebSocketBridgeConstructor = CmuxWebSocket;
           window.WebSocket = CmuxWebSocket;

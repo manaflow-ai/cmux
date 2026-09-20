@@ -497,7 +497,7 @@ async fn serve_websocket_bridge(
             .await??
             .ok_or_else(|| anyhow!("WebSocket response closed"))?;
         response_data.extend_from_slice(&chunk.payload);
-        if response_data.len() > 32 * 1024 {
+        if !response_data.windows(4).any(|part| part == b"\r\n\r\n") && response_data.len() > 32 * 1024 {
             return Err(anyhow!("WebSocket response headers too large"));
         }
     }
@@ -549,10 +549,13 @@ async fn read_http_headers(
     let mut buffer = [0_u8; 2048];
     while !data.windows(4).any(|window| window == b"\r\n\r\n") {
         let read = tokio::time::timeout_at(deadline, socket.read(&mut buffer)).await??;
-        if read == 0 || data.len() + read > 32 * 1024 {
+        if read == 0 {
             return Err(anyhow!("invalid WebSocket headers"));
         }
         data.extend_from_slice(&buffer[..read]);
+        if !data.windows(4).any(|part| part == b"\r\n\r\n") && data.len() > 32 * 1024 {
+            return Err(anyhow!("WebSocket headers too large"));
+        }
     }
     split_http_headers(data)
 }
@@ -588,6 +591,9 @@ mod tests {
         let (parsed, remainder) = split_http_headers([headers.as_slice(), &frame].concat()).unwrap();
         assert_eq!(parsed.as_bytes(), headers);
         assert_eq!(remainder, frame);
+        let large_frame = vec![0xff; 65536];
+        let (_, remainder) = split_http_headers([headers.as_slice(), &large_frame].concat()).unwrap();
+        assert_eq!(remainder, large_frame);
         assert!(split_http_headers(b"HTTP/1.1 101\r\n".to_vec()).is_err());
     }
 }
