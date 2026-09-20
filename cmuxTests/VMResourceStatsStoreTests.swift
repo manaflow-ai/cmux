@@ -208,4 +208,17 @@ struct VMResourceStatsStoreTests {
         #expect(store.stats(for: "new-a") == reading)
         #expect(store.stats(for: "new-b") == nil)
     }
+
+    @Test func olderListResponseCannotReplaceNewerFleetRetention() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let oldToken = store.beginRetention()
+        let newToken = store.beginRetention()
+        store.retain(machineIDs: ["new"], token: newToken)
+        store.retain(machineIDs: ["old"], token: oldToken)
+        store.finishRead(store.beginRead(machineID: "new"), stats: stats(memory: 8192, disk: 32768))
+        for index in 0..<256 {
+            store.finishRead(store.beginRead(machineID: "cli-\(index)"), stats: stats(memory: 8192, disk: 32768))
+        }
+        #expect(store.stats(for: "new") != nil)
+    }
 }

@@ -548,11 +548,6 @@ final class MachinesPanelViewModel: ObservableObject {
             try Task.checkCancellation()
             guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
                   CloudMachinesFeature.isEnabled else { return }
-            // Only this validated panel response may define the visible fleet.
-            // listPage is also used by CLI, menus, and background discovery; if
-            // it mutated retention directly, a late response from an old
-            // account could evict the newly selected fleet after reset.
-            resourceStats?.retain(machineIDs: Set(page.vms.map(\.id)))
             let previous = resourceStats?.snapshot ?? [:]
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays

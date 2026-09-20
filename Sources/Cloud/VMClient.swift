@@ -790,6 +790,9 @@ actor VMClient {
     }
 
     func listPage() async throws -> VMListPage {
+        let retentionToken = await resourceStats.beginRetention()
+        let listIdentity = await auth.authenticatedSessionIdentity
+        let listTeamID = await auth.resolvedTeamID
         return try await withOperation(.list, foreground: false) {
             let (data, http) = try await request("GET", path: "/api/vm")
             try ensureOK(http, data: data)
@@ -848,6 +851,17 @@ actor VMClient {
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
+            // Background discovery also reads resource stats. Register its
+            // complete fleet before returning, but only when the auth account
+            // and team are still the ones that produced this response. The
+            // store token fences reset and out-of-order list responses.
+            let currentIdentity = await auth.authenticatedSessionIdentity
+            let currentTeamID = await auth.resolvedTeamID
+            if let listIdentity,
+               currentIdentity == listIdentity,
+               currentTeamID == listTeamID {
+                await resourceStats.retain(machineIDs: Set(vms.map(\.id)), token: retentionToken)
+            }
             return VMListPage(vms: vms, limits: limits)
         }
     }

@@ -5,20 +5,31 @@ private func validCPU(_ percent: Double) -> Double? {
     return percent
 }
 
+private enum CapacityResource {
+    case memory
+    case disk
+
+    func detail(used: Int, total: Int) -> String {
+        switch self {
+        case .memory:
+            return String(localized: "cloudTree.stats.memory", defaultValue: "Mem \(gb(used))/\(gb(total)) GB")
+        case .disk:
+            return String(localized: "cloudTree.stats.disk", defaultValue: "Disk \(gb(used))/\(gb(total)) GB")
+        }
+    }
+}
+
 private func capacity(
     label: String,
+    resource: CapacityResource,
     used: Int?,
     total: Int?,
-    format: String,
     unavailable: String,
     placeholder: String
 ) -> CloudMachineResourcePresentation.Reading {
     guard let used, let total, used >= 0, total > 0 else {
         let detail = total.flatMap { total in
-            total > 0 ? String(
-                format: String(localized: "cloudTree.resources.provisionedCapacity", defaultValue: "%@ GB total · %@"),
-                gb(total), unavailable
-            ) : nil
+            total > 0 ? String(localized: "cloudTree.resources.provisionedCapacity", defaultValue: "\(gb(total)) GB total · \(unavailable)") : nil
         } ?? unavailable
         return .init(label: label, percent: nil, detail: "\(label): \(detail)", inlineDetail: detail, placeholder: placeholder)
     }
@@ -26,14 +37,11 @@ private func capacity(
     // while preserving the actual reported amounts in the detail.
     let percent = min(100, Double(used) / Double(total) * 100)
     let value = (percent / 100).formatted(.percent.precision(.fractionLength(0)))
-    let capacity = String(
-        format: String(localized: "machines.stats.provisioned", defaultValue: "%@ GB"),
-        "\(gb(used))/\(gb(total))"
-    )
+    let capacity = String(localized: "machines.stats.provisioned", defaultValue: "\(gb(used))/\(gb(total)) GB")
     return .init(
         label: label,
         percent: percent,
-        detail: "\(String(format: format, gb(used), gb(total))) (\(value))",
+        detail: "\(resource.detail(used: used, total: total)) (\(value))",
         inlineDetail: "\(capacity) (\(value))",
         placeholder: placeholder
     )
@@ -149,16 +157,15 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
         let cpuLabel = String(localized: "machines.stats.cpu", defaultValue: "CPU")
         let cpuPercent = available ? cpuPercent.flatMap(validCPU) : nil
         let cpuUnavailable = cpus.flatMap { count in
-            count > 0 ? String(
-                format: String(localized: "cloudTree.resources.provisionedCPU", defaultValue: "%@ vCPU · %@"),
-                count.formatted(), unavailable
-            ) : nil
+            count > 0
+                ? String(localized: "cloudTree.resources.provisionedCPU", defaultValue: "\(count.formatted()) vCPU · \(unavailable)")
+                : nil
         } ?? unavailable
         cpu = Reading(
             label: cpuLabel,
             percent: cpuPercent,
             detail: cpuPercent.map {
-                String(format: String(localized: "cloudTree.stats.cpu", defaultValue: "CPU %d%%"), Int($0.rounded()))
+                String(localized: "cloudTree.stats.cpu", defaultValue: "CPU \(Int($0.rounded()))%")
             } ?? "\(cpuLabel): \(cpuUnavailable)",
             inlineDetail: cpuPercent.map {
                 ($0 / 100).formatted(.percent.precision(.fractionLength(0)))
@@ -167,17 +174,17 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
         )
         memory = capacity(
             label: String(localized: "cloudTree.resources.ram", defaultValue: "RAM"),
+            resource: .memory,
             used: available ? memoryUsedMb : nil,
             total: memoryTotalMb,
-            format: String(localized: "cloudTree.stats.memory", defaultValue: "Mem %@/%@ GB"),
             unavailable: unavailable,
             placeholder: placeholder
         )
         disk = capacity(
             label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
+            resource: .disk,
             used: available ? diskUsedMb : nil,
             total: diskTotalMb,
-            format: String(localized: "cloudTree.stats.disk", defaultValue: "Disk %@/%@ GB"),
             unavailable: unavailable,
             placeholder: placeholder
         )

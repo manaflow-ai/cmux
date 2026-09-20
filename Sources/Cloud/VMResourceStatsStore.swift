@@ -4,11 +4,19 @@ import Foundation
 /// snapshot presentation ordered without per-panel optimistic copies or timers.
 @MainActor
 final class VMResourceStatsStore {
+    struct RetentionToken: Sendable {
+        fileprivate let generation: UInt64
+        fileprivate let sequence: UInt64
+    }
+
     private var entries: [String: Entry] = [:]
     private var fleetMachineIDs: Set<String> = []
     private var unlistedInsertionOrder: [String] = []
     private var observers: [UUID: VMResourceStatsSubscription] = [:]
     private let now: () -> Date
+    private var retentionGeneration: UInt64 = 0
+    private var nextRetentionSequence: UInt64 = 0
+    private var acceptedRetentionSequence: UInt64 = 0
 
     init(now: @escaping () -> Date = { .now }) { self.now = now }
 
@@ -65,9 +73,33 @@ final class VMResourceStatsStore {
         notify([request.machineID])
     }
 
+    /// Start a list response's retention claim. A later claim supersedes an
+    /// older in-flight response; auth reset also invalidates every old token.
+    func beginRetention() -> RetentionToken {
+        nextRetentionSequence &+= 1
+        return RetentionToken(generation: retentionGeneration, sequence: nextRetentionSequence)
+    }
+
     /// Retain the entire authoritative fleet, including teams larger than the
     /// CLI cache bound. Removed machines cannot reappear from outstanding reads.
     func retain(machineIDs: Set<String>) {
+        nextRetentionSequence &+= 1
+        acceptRetention(machineIDs: machineIDs, token: RetentionToken(
+            generation: retentionGeneration,
+            sequence: nextRetentionSequence
+        ))
+    }
+
+    /// Accept a list response only if it belongs to the current auth/reset
+    /// generation and is not older than an already accepted response.
+    func retain(machineIDs: Set<String>, token: RetentionToken) {
+        acceptRetention(machineIDs: machineIDs, token: token)
+    }
+
+    private func acceptRetention(machineIDs: Set<String>, token: RetentionToken) {
+        guard token.generation == retentionGeneration,
+              token.sequence >= acceptedRetentionSequence else { return }
+        acceptedRetentionSequence = token.sequence
         fleetMachineIDs = machineIDs
         unlistedInsertionOrder.removeAll()
         let removed = Set(entries.keys).subtracting(machineIDs)
@@ -81,6 +113,8 @@ final class VMResourceStatsStore {
         entries.removeAll()
         fleetMachineIDs.removeAll()
         unlistedInsertionOrder.removeAll()
+        retentionGeneration &+= 1
+        acceptedRetentionSequence = 0
         notify(removed)
     }
 
