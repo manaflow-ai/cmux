@@ -29,15 +29,8 @@ struct CloudOperationRecorderTests {
         let identity = try #require(fixture.auth.authenticatedSessionIdentity)
         let recorder = CloudOperationRecorder(uploader: uploader, identity: { identity })
         let operation = recorder.begin(.open)
+        await PlacementReceiptURLProtocol.resetCapture(status: status)
         await recorder.finish(operation, error: CmuxTuiSurfaceProvider.ProviderError.remotePlacementUnavailable("fixture-machine"))
-        let persisted = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: queueURL)) as? [[String: Any]])
-        // The transport may already have acknowledged the record before this
-        // actor resumes; its fixture validates the serialized span either way.
-        if let span = persisted.first?["span"] as? [String: Any] {
-            #expect(span["failure"] as? String == "placement")
-            #expect(span["traceId"] as? String == operation.traceID)
-            #expect(span["operationId"] as? String == operation.operationID.uuidString.lowercased())
-        }
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         var acknowledged = false
         while ContinuousClock.now < deadline {
@@ -47,6 +40,10 @@ struct CloudOperationRecorderTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(acknowledged)
+        let captured = try #require(await PlacementReceiptURLProtocol.captured(status: status))
+        #expect(captured.failure == "placement")
+        #expect(captured.traceID == operation.traceID)
+        #expect(captured.operationID == operation.operationID.uuidString.lowercased())
         #expect(await uploader.droppedCount == (status == 400 ? 1 : 0))
         await uploader.clearForSignOut()
     }
@@ -294,6 +291,32 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
 
 /// The request is handled synchronously without shared mutable fixture state.
 private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendable {
+    fileprivate struct UploadedSpan: Sendable {
+        let failure: String
+        let traceID: String
+        let operationID: String
+    }
+
+    private actor Capture {
+        private var values: [Int: UploadedSpan] = [:]
+
+        func reset(status: Int) {
+            values.removeValue(forKey: status)
+        }
+
+        func record(status: Int, span: UploadedSpan) {
+            values[status] = span
+        }
+
+        func value(status: Int) -> UploadedSpan? {
+            return values[status]
+        }
+    }
+
+    private static let capture = Capture()
+    fileprivate static func resetCapture(status: Int) async { await capture.reset(status: status) }
+    fileprivate static func captured(status: Int) async -> UploadedSpan? { await capture.value(status: status) }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func stopLoading() {}
@@ -315,11 +338,17 @@ private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendabl
                   let spans = batch["spans"] as? [[String: Any]], spans.count == 1,
                   let span = spans.first, let eventID = span["eventId"] as? String,
                   span["failure"] as? String == "placement",
+                  let operationID = span["operationId"] as? String, !operationID.isEmpty,
                   (span["traceId"] as? String)?.count == 32,
                   (span["spanId"] as? String)?.count == 16 else {
                 throw URLError(.cannotDecodeContentData)
             }
             let status = request.url?.host == "receipt-202.test" ? 202 : 400
+            Task { await capture.record(status: status, span: UploadedSpan(
+                failure: span["failure"] as? String ?? "",
+                traceID: span["traceId"] as? String ?? "",
+                operationID: operationID
+            )) }
             guard let url = request.url,
                   let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
                 throw URLError(.badURL)

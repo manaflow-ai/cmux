@@ -1980,7 +1980,12 @@ actor VMClient {
         allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
-            let isSharedRead = method == "GET" && (path == "/api/vm" || path.hasSuffix("/stats"))
+            let isSharedRead = method == "GET"
+                && jsonBody == nil
+                && extraHeaders.isEmpty
+                && !retryTransientServiceUnavailable
+                && !allowedUnderManagedPolicy
+                && (path == "/api/vm" || path.hasSuffix("/stats"))
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
                     timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,

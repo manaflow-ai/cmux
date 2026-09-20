@@ -63,9 +63,10 @@ struct VMClientReadCoalescingTests {
         model.startPolling()
         await CloudRefreshURLProtocol.waitUntilStarted()
         model.beginOperation("fixture operation")
+        let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         model.stopPolling()
         model.endOperation()
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)
         NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": true])
@@ -83,9 +84,10 @@ struct VMClientReadCoalescingTests {
         weakModel = model
         model?.refresh()
         await CloudRefreshURLProtocol.waitUntilStarted()
+        let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         model = nil
         #expect(weakModel == nil)
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
     }
 
     @Test("A failed stats sample clears the last live reading")
@@ -135,10 +137,11 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.holdResponses()
         let request = Task { try await fixture.client.stats(id: "fixture-0") }
         await CloudRefreshURLProtocol.waitUntilStarted()
+        let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         clock.advance(by: .milliseconds(101))
         do { _ = try await request.value; Issue.record("request exceeded its total budget") }
         catch { #expect((error as? URLError)?.code == .timedOut) }
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         await CloudRefreshURLProtocol.releaseResponses()
     }
 
@@ -244,8 +247,9 @@ struct VMClientReadCoalescingTests {
         clock.advance(by: .seconds(45))
         try await eventually { clock.pendingSleeperCount == 2 }
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+        let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         model.stopPolling()
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         await CloudRefreshURLProtocol.releaseResponses()
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)
@@ -339,10 +343,11 @@ struct VMClientReadCoalescingTests {
         let usage = MachineUsageClient(session: fixture.session, auth: fixture.auth, readRequests: reads)
         let request = Task { try await usage.teamUsage() }
         await CloudRefreshURLProtocol.waitUntilStarted()
+        let stopBaseline = await CloudRefreshURLProtocol.currentStopCount()
         await reads.networkChanged(isOnline: false)
         do { _ = try await request.value; Issue.record("usage survived offline") }
         catch { #expect((error as? URLError)?.code == .notConnectedToInternet) }
-        await CloudRefreshURLProtocol.waitUntilStopped()
+        await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         do { _ = try await usage.teamUsage(); Issue.record("usage started offline") }
         catch { #expect((error as? URLError)?.code == .notConnectedToInternet) }
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)

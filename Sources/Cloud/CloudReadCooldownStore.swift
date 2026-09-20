@@ -5,13 +5,12 @@ struct CloudReadCooldownStore: Sendable {
     private let capacity: Int
     private var session: Session?
     private var cooldowns: [CloudReadRequestCoordinator.Key: Cooldown] = [:]
-    private var overflow: Cooldown?
 
     init(capacity: Int = 256) {
         self.capacity = max(1, capacity)
     }
 
-    var retainedCount: Int { cooldowns.count + (overflow == nil ? 0 : 1) }
+    var retainedCount: Int { cooldowns.count }
 
     mutating func activateSession(for key: CloudReadRequestCoordinator.Key) {
         let incoming = Session(accountID: key.accountID, generation: key.generation)
@@ -24,13 +23,12 @@ struct CloudReadCooldownStore: Sendable {
         }
         session = incoming
         cooldowns.removeAll(keepingCapacity: true)
-        overflow = nil
     }
 
     mutating func response(for key: CloudReadRequestCoordinator.Key, now: TimeInterval) -> CloudReadRequestCoordinator.Response? {
         guard matchesSession(key) else { return nil }
         prune(now: now)
-        return (cooldowns[key] ?? overflow)?.response
+        return cooldowns[key]?.response
     }
 
     mutating func record(
@@ -51,11 +49,13 @@ struct CloudReadCooldownStore: Sendable {
             if until > existing.until { cooldowns[key] = cooldown }
         } else if cooldowns.count < capacity {
             cooldowns[key] = cooldown
-        } else if until > (overflow?.until ?? now) {
-            // Once full, retain one conservative session barrier instead of
-            // arbitrary keys/bodies. Unknown paths may wait longer at capacity;
-            // no forgotten path can retry before its server minimum.
-            overflow = cooldown
+        } else if let evicted = cooldowns.min(by: { $0.value.until < $1.value.until }) {
+            // Evict only an exact-key minimum when the bounded store is full.
+            // A session-wide barrier would fabricate 429s for unrelated paths;
+            // an evicted key may ask the server again, where its real minimum
+            // is enforced without blocking another machine's read.
+            cooldowns.removeValue(forKey: evicted.key)
+            cooldowns[key] = cooldown
         }
     }
 
@@ -65,6 +65,5 @@ struct CloudReadCooldownStore: Sendable {
 
     private mutating func prune(now: TimeInterval) {
         cooldowns = cooldowns.filter { $0.value.until > now }
-        if let overflow, overflow.until <= now { self.overflow = nil }
     }
 }

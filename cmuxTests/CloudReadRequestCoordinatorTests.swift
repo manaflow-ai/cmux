@@ -379,34 +379,34 @@ struct CloudReadRequestCoordinatorTests {
         for index in 0..<1000 {
             store.record(key("vm-\(index)"), until: 60, now: 0, response: largeResponse)
         }
-        #expect(store.retainedCount == 9)
-        for index in 0..<1000 {
-            let cachedResponse = store.response(for: key("vm-\(index)"), now: 59)
-            let cached = try #require(cachedResponse)
+        #expect(store.retainedCount == 8)
+        let cachedResponses = (0..<1000).compactMap { store.response(for: key("vm-\($0)"), now: 59) }
+        #expect(cachedResponses.count == 8)
+        for cached in cachedResponses {
             #expect(cached.http.statusCode == 429)
             #expect(cached.data == Data(#"{"error":"rate_limited"}"#.utf8))
             #expect(cached.http.allHeaderFields.isEmpty)
         }
-        // Overflow deliberately delays unknown paths in this session rather
-        // than forgetting an evicted path's minimum and retrying too early.
-        let overflowResponse = store.response(for: key("unseen"), now: 59)
-        #expect(overflowResponse?.http.statusCode == 429)
+        // An evicted key and an unrelated path must not inherit another
+        // machine's Retry-After minimum.
+        #expect(store.response(for: key("unseen"), now: 59) == nil)
         let expiredResponse = store.response(for: key("vm-999"), now: 60)
         #expect(expiredResponse == nil)
         #expect(store.retainedCount == 0)
     }
 
-    @Test("Long cooldowns preserve a later minimum while earlier records expire")
-    func cooldownOverflowKeepsLongestMinimum() {
+    @Test("A key keeps its longest cooldown without leaking to other paths")
+    func cooldownKeepsLongestMinimumPerKey() {
         var store = CloudReadCooldownStore(capacity: 1)
         store.activateSession(for: key())
         store.record(key("first"), until: 10, now: 0, response: response(429))
-        store.record(key("second"), until: 100, now: 0, response: response(429))
-        store.record(key("third"), until: 20, now: 0, response: response(429))
-        let throttledResponse = store.response(for: key("second"), now: 99)
+        store.record(key("first"), until: 100, now: 0, response: response(429))
+        store.record(key("first"), until: 20, now: 0, response: response(429))
+        let throttledResponse = store.response(for: key("first"), now: 99)
         #expect(throttledResponse?.http.statusCode == 429)
         #expect(store.retainedCount == 1)
-        let expiredResponse = store.response(for: key("second"), now: 100)
+        #expect(store.response(for: key("other"), now: 99) == nil)
+        let expiredResponse = store.response(for: key("first"), now: 100)
         #expect(expiredResponse == nil)
     }
 
