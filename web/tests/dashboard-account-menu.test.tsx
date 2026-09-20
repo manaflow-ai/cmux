@@ -17,6 +17,12 @@ mock.module("@stackframe/stack", () => ({
   ),
 }));
 
+mock.module("@tanstack/react-router", () => ({
+  Link: ({ to, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) => (
+    <a href={`/en/dashboard${to}`} {...props}>{children}</a>
+  ),
+}));
+
 let radioGroupValue = "";
 mock.module("@base-ui-components/react/menu", () => ({
   Menu: {
@@ -158,7 +164,7 @@ describe("dashboard account menu", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  test("uses the unlocalized auth handler and names the compact sign-in link", () => {
+test("uses the unlocalized auth handler and names the compact sign-in link", () => {
     currentUser = null;
     const html = renderToStaticMarkup(<DashboardAccountMenu user={currentUser} />);
 
@@ -167,4 +173,14 @@ describe("dashboard account menu", () => {
     expect(html).toContain("dashboard");
     expect(html).not.toContain("/en/handler/sign-in");
   });
+});
+
+test("uses TanStack links for account navigation inside the router mount", () => {
+  teamScope = { status: "unavailable" };
+  const html = renderToStaticMarkup(
+    <DashboardAccountMenu user={sessionUser()} routerEnabled />,
+  );
+
+  expect(html).toContain('href="/en/dashboard/team"');
+  expect(html).toContain('href="/en/dashboard/billing"');
 });
