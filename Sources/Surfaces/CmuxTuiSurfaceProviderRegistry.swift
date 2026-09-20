@@ -19,7 +19,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
-    let wireGuardHub: CloudWireGuardHub?
+    nonisolated let wireGuardHub: CloudWireGuardHub?
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
     /// local port until the machine leaves the fleet or the account signs out.
@@ -113,21 +113,21 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask?.cancel()
     }
 
-    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
-    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
-    nonisolated func terminateWireGuardHubForAppQuit() {
-        wireGuardHub?.terminateForAppQuit()
-    }
-
     /// Live headless links, for the Cloud tunnel's idle policy.
     func connectedCloudLinkCount() async -> Int {
         await links.connectedMachineCount
     }
 
-    /// Registers this Mac's cloud machines with the catalog and starts polling.
+    /// Restarts discovery for the current account and registers its Cloud machines.
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return }
+        pollTask?.cancel()
+        pollTask = nil
+        refreshInFlight?.cancel()
+        refreshInFlight = nil
+        discoveryInFlight?.cancel()
+        discoveryInFlight = nil
         isRetired = false
         accessEpoch &+= 1
         refreshGeneration &+= 1
