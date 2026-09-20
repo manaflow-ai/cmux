@@ -493,7 +493,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         let teardown = Task { [closeTransports] in
             await previous?.value
             await suspension?.value
-            for provider in retiringProviders.values { await provider.stop() }
+            await Self.stopRetiringProviders(Array(retiringProviders.values))
             for task in teardowns { await task.value }
             // Signing out drops the tunnel too: the next account enrolls its own.
             await closeTransports()
