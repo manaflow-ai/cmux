@@ -4,6 +4,11 @@ iOS app-target work in this directory follows `Packages/iOS/AGENTS.md`,
 including its Apple Human Interface Guidelines rule. Read it before changing
 UI.
 
+For connectivity, auth, lifecycle, workspace or terminal changes, follow
+`docs/ios-connectivity-soak.md`. Keep the deterministic workload's actions and
+postconditions aligned with the product, and record an affected-workload run
+or explain the remaining verification gap in the PR.
+
 The sections below moved here from the repository root `CLAUDE.md`, unchanged. Team dev builds and fleet allocation stay in the root file ("Dev builds on the Mac mini fleet"); nothing here overrides it. Script paths are relative to the repository root.
 
 ## iOS UI follows the Apple HIG

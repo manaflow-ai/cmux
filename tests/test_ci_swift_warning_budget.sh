@@ -19,8 +19,7 @@ ci_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 required_tokens = {
     "workflow guard step": "Validate Swift warning budget guard",
     "guard test script": "./tests/test_ci_swift_warning_budget.sh",
-    "build log tee": "tee",
-    "build log path": "cmux-build-output.txt",
+        "build log path": "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log",
     "budget script": "scripts/swift_warning_budget.py",
     "budget log argument": "--log",
 }

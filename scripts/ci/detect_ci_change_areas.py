@@ -18,16 +18,18 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
+    release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True)
+        return cls(macos=True, web=True, agent_session_web=True, release_build=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
+            f"release_build={bool_output(self.release_build)}",
         ]
 
 
@@ -255,10 +257,20 @@ def is_macos_change(path: str) -> bool:
     return not is_macos_neutral(path)
 
 
+_PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
+
+
+def is_test_only_source(path: str) -> bool:
+    # The Release app builds only the cmux target, so test sources cannot reach
+    # it. A new test file also edits project.pbxproj, which is not matched here.
+    return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
+
+
 def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
+    release_build = False
     test_references = load_macos_job_test_references()
 
     for raw_path in paths:
@@ -271,6 +283,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             macos = True
             web = True
             agent_session_web = True
+            release_build = True
             continue
         if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
             continue
@@ -280,11 +293,14 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
         if is_macos_change(path):
             macos = True
+            if not is_test_only_source(path):
+                release_build = True
 
     return ChangeAreas(
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
+        release_build=release_build,
     )
 
 
