@@ -8,6 +8,16 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      cache_backend:
+        description: Cache store for this run. `default` follows the CI_CACHE_BACKEND repository variable.
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - github
+          - warp
 
 permissions:
   contents: read
@@ -264,8 +274,14 @@ jobs:
       - name: Validate required checks report for the merge queue
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate package test selection
+        run: python3 tests/test_ci_select_package_tests.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate pull request caches are read-only
+        run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
@@ -836,7 +852,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
@@ -851,8 +867,9 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -1949,6 +1966,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
+          # Depth 2 reaches the parent this commit was built on, which is what
+          # "Select package tests" diffs against.
+          fetch-depth: 2
 
       # Only release-build consumes this artifact. Package/app-host tests use
       # the prebuilt GhosttyKit framework and do not need the universal CLI.
@@ -1966,7 +1986,7 @@ jobs:
 
       - name: Cache Zig packages
         if: ${{ needs.changes.outputs.release_build == 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
@@ -2020,7 +2040,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-package-tests
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
@@ -2046,7 +2066,34 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      # A package's tests can change outcome only when it, a package it depends
+      # on by path, or this job changes, so only those run. HEAD is the pull
+      # request's merge commit or the merge group's commit; its first parent is
+      # the base or the queue entry ahead of it, which its own run already
+      # validated. Without that parent, or on a dispatch, everything runs.
+      # --no-renames lists both sides of a move, so a file leaving a package
+      # still selects that package.
+      - name: Select package tests
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed-files.txt"
+          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
+            && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
+            echo "changed_files=$changed" >> "$GITHUB_OUTPUT"
+            # vendor/bonsplit is a submodule, so a revision bump is the bare path.
+            if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
+              echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Diff unavailable; running every package."
+            echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run Bonsplit package tests
+        if: ${{ steps.select.outputs.bonsplit == 'true' }}
         run: |
           set -euo pipefail
           # Blacksmith macOS runners intermittently abort a package's test
@@ -2070,13 +2117,10 @@ jobs:
           fi
 
       - name: Run Swift package unit tests
+        env:
+          CHANGED_FILES: ${{ steps.select.outputs.changed_files }}
         run: |
           set -euo pipefail
-          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
-          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
-          # to keep the FFI parity suite a real gate).
-          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
-          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
           # not execute the SPM package test targets. Run them here so package
           # tests (settings stores, secret-file migration, socket-control
@@ -2101,7 +2145,6 @@ jobs:
             CmuxAgentChat
             CmuxAgentSessionStore
             CmuxAuthRuntime
-            CmuxBrowser
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
@@ -2132,7 +2175,20 @@ jobs:
           # is present, no test failures are reported, and the only error
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
+          selected="$RUNNER_TEMP/selected-packages.txt"
+          python3 scripts/ci/select_package_tests.py ${CHANGED_FILES:+--changed-files "$CHANGED_FILES"} "${PACKAGES[@]}" > "$selected"
+          echo "Testing $(wc -l < "$selected" | tr -d ' ') of ${#PACKAGES[@]} packages."
+          if grep -qxF CmuxCommandPalette "$selected"; then
+            # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
+            # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
+            # to keep the FFI parity suite a real gate).
+            cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+            export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
+          fi
           for pkg in "${PACKAGES[@]}"; do
+            if ! grep -qxF "$pkg" "$selected"; then
+              continue
+            fi
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
             pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
@@ -2343,7 +2399,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-admission
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
@@ -2356,8 +2412,9 @@ jobs:
         run: ./scripts/install-rust-ci.sh
 
       - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2382,8 +2439,9 @@ jobs:
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -2445,11 +2503,8 @@ jobs:
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
     runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone can run 20+ min. Project/package
-    # changes from the sidebar extension kit pushed this full build plus the
-    # CA, lag, and UI regressions beyond 35 min before the cache could repopulate.
+    # Every run is a full cmux build whose Swift codegen alone can run 20+ min,
+    # followed by the CA, lag, and UI regressions.
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -2517,7 +2572,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-lag
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
@@ -2536,24 +2591,19 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-deriveddata-tests-build-and-lag
-          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
-
       - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
-          key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-build-
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -2842,7 +2892,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-release
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
@@ -2856,30 +2906,22 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Cache DerivedData
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            build-universal
-            !build-universal/CompilationCache.noindex
-          key: deriveddata-release-v2-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
-
       - name: Cache Xcode compilation results
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .spm-cache
-          key: spm-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: |
-            spm-release-
-            spm-
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
@@ -2902,31 +2944,6 @@ jobs:
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
-
-      - name: Bound Xcode compilation cache size
-        run: |
-          set -euo pipefail
-          cache_path="build-universal/CompilationCache.noindex"
-          max_cache_kib=$((5 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
-            # A warm build leaves a dead CAS generation behind (the CAS rotates
-            # its primary above half of COMPILATION_CACHE_LIMIT_SIZE), which
-            # doubles the directory and used to trip this bound on every warm
-            # run. See the same step in nightly.yml.
-            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
-              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
-            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
-          else
-            cache_kib=0
-          fi
-          echo "Xcode compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
-          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            # Nothing is saved, so the next build restores the same older entry
-            # and lands here again: the cache freezes at its last saved entry
-            # until the bound (and COMPILATION_CACHE_LIMIT_SIZE) is raised.
-            echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"
-            rm -rf "$cache_path"
-          fi
 
       - name: Download universal Ghostty CLI helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

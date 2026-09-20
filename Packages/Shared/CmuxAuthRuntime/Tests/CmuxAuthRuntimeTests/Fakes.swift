@@ -17,8 +17,10 @@ final class FakeKeyValueStore: CMUXAuthKeyValueStore, @unchecked Sendable {
 
 /// Scriptable ``AuthClient`` recording calls and returning canned results.
 actor FakeAuthClient: AuthClient {
+    var rejectsRefreshOnAccess = false
     var access: String?
     var refresh: String?
+    private let signInRefreshToken: String?
     /// Result of ``forceRefreshAccessToken()``. When `nil` (the default), the
     /// fake returns the current ``access`` to preserve the original behavior;
     /// set it explicitly to script a force-refresh outcome independent of the
@@ -46,12 +48,14 @@ actor FakeAuthClient: AuthClient {
     var mintedAccessToken: String?
     private(set) var lastMintedRefreshToken: String?
 
-    init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil) {
+    init(access: String? = nil, refresh: String? = nil, user: CMUXAuthUser? = nil, signInRefreshToken: String? = nil) {
         self.access = access
         self.refresh = refresh
         self.user = user
+        self.signInRefreshToken = signInRefreshToken
     }
 
+    func setRejectsRefreshOnAccess(_ value: Bool) { rejectsRefreshOnAccess = value }
     func setUser(_ user: CMUXAuthUser?) { self.user = user }
     func setTokens(access: String?, refresh: String?) {
         self.access = access
@@ -70,6 +74,7 @@ actor FakeAuthClient: AuthClient {
     /// recorded in ``lastMintedRefreshToken``, and PERSISTED into the store so
     /// a repeat read reuses it instead of re-minting.
     func accessToken() async -> String? {
+        if rejectsRefreshOnAccess { access = nil; refresh = nil; return nil }
         if storedAccessIsStale, let refresh {
             mintedAccessTokenCount += 1
             lastMintedRefreshToken = refresh
@@ -126,6 +131,7 @@ actor FakeAuthClient: AuthClient {
     func signInWithCredential(email: String, password: String) async throws {
         signedInWithCredential = (email, password)
         access = "access"
+        if let signInRefreshToken { refresh = signInRefreshToken }
     }
 
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
