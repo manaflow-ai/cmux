@@ -1,7 +1,5 @@
 /// Invalid saved connection data, with no credential content in errors.
 public enum MobileRemoteProfileError: Error, Equatable, Sendable {
-    /// Profile ID is missing.
-    case emptyID
     /// Destination is missing.
     case emptyHost
     /// Port is outside the usable TCP/UDP range.

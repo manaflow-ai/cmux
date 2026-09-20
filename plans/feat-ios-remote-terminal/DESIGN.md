@@ -16,8 +16,9 @@ iOS. The remote daemon stays on the remote host.
 There are two SSH consumers:
 
 - An ordinary shell requests a remote PTY. SSH output becomes terminal bytes;
-  input and window changes return on that channel. No cmux account or remote
-  helper is technically necessary.
+  input and window changes return on that channel. The app requires an
+  authenticated cmux account before it creates or resumes any remote session,
+  even when the connection is direct and no sync is enabled.
 - A native cmux client opens a non-PTY exec channel for the remote protocol
   entrypoint. Swift consumes workspace/terminal state and drives native mobile
   views. Merely running `cmux-tui attach` and showing a nested TUI does not
@@ -38,9 +39,10 @@ protocol. They share input/output/lifecycle UI contracts, not a fake byte-stream
 abstraction that hides these differences.
 
 A normal Linux host without cmux-tui gets SSH and any independently available
-Mosh/ET/tmux/Zellij/Herdr features. Installing a remote helper is an explicit
-action. For cmux-native mode, an absent or incompatible daemon produces an
-actionable setup result; no silent downgrade to a different session.
+Mosh/ET/tmux/Zellij/Herdr features after cmux account authentication.
+Installing a remote helper is an explicit action. For cmux-native mode, an
+absent or incompatible daemon produces an actionable setup result; no silent
+downgrade to a different session.
 
 OS networking owns VPN routing and DNS. A reachable public, LAN, IPv4, IPv6,
 or VPN host is supported without a Tailscale-address filter. Jump hosts require
@@ -49,10 +51,11 @@ independent authentication and host-key verification for each hop.
 ## Current implementation and reuse
 
 `Packages/Shared/CmuxRemoteConnections` currently provides validated immutable
-profiles, separate credential references, redacted credential material, and a
-bounded AES-256-GCM record cipher. It is not yet linked into the app and does
-not implement Keychain access, SSH, vault enrollment, recovery, sync, or UI.
-Its tests do not prove any of those missing behaviors.
+profiles, separate credential references, redacted credential material, an
+encrypted local profile store, a device-local Keychain adapter, and a bounded
+AES-256-GCM record cipher. It is not yet linked into the app and does not
+implement SSH, vault enrollment, recovery, sync, or UI. Its package tests do
+not prove app authentication or iPhone behavior.
 
 Existing reuse candidates:
 
@@ -107,9 +110,11 @@ tombstones and local cleanup.
 
 ## Vault security contract
 
-The design target is a personal vault with explicit additional shared vaults.
-Stack login authorizes fetching ciphertext; it does not decrypt credentials or
-authorize adding an arbitrary device.
+The design target is an authenticated cmux account for every remote connection,
+with personal and team vaults delivered together. A signed-in account is an
+app-level prerequisite for direct SSH, Mosh, ET, cmux protocol, and synced
+features. Stack login authorizes the account session and fetching ciphertext; it
+does not decrypt credentials or authorize adding an arbitrary device.
 
 - Generate random vault keys on a client. Device enrollment transfers a key
   envelope over an authenticated approval flow with QR/fingerprint binding.
@@ -133,10 +138,13 @@ authorize adding an arbitrary device.
 - Personal vault membership never follows team membership automatically.
   Read-only sharing also requires authenticated writer authorization, because
   possession of a symmetric decryption key permits manufacturing ciphertext.
-- Default recovery proposal: existing approved device or user-held recovery
-  key. Account password reset cannot decrypt old data. Explicit reset can create
-  a new empty vault. Organization recovery, if requested, must be separately
-  scoped and disclosed.
+- Recovery supports an existing approved device or a user-held recovery key.
+  Account password reset cannot decrypt old data. Explicit reset can create a
+  new empty vault. Organizations may additionally enable an explicit,
+  separately scoped organization-managed recovery path with documented
+  administrator authority, member notice, audit events, and a distinct recovery
+  key or escrow domain. Organization recovery must never be silently enabled by
+  team membership or used for a personal vault.
 
 For local accessibility, use the most restrictive usable Keychain policy.
 Biometric access is enforced by Keychain access controls, not just a UI prompt.
@@ -146,16 +154,17 @@ state; it does not remotely freeze server processes.
 
 ## Acceptance and implementation sequence
 
-Keep the full PARITY.md ledger. Vertical slices are delivery order, not scope
-reductions:
+Keep the full PARITY.md ledger. The first delivery track runs personal and team
+features alongside each other; transport and UI prerequisites still gate both:
 
 1. Native SSH with verified host identity, authentication matrix, plain shell,
    terminal input/resize/backpressure, and saved credential/profile management.
 2. Native cmux Swift protocol client and remote workspace/terminal lifecycle.
 3. Mosh/ET sessions, multiplexer discovery and recovery, SFTP, tunnels, input
    tooling, and all reference terminal features.
-4. Encrypted device enrollment, personal and team vaults, cross-platform sync,
-   recovery/revocation/conflict fixtures, sharing and collaboration.
+4. Encrypted device enrollment, personal and team vaults in parallel,
+   cross-platform sync, recovery/revocation/conflict fixtures, sharing and
+   collaboration.
 5. Remaining agent, file/diff/browser, dictation, notification/Watch, and
    productivity gaps from the full ledger.
 
@@ -181,13 +190,15 @@ with system Bash. Homebrew Bash deadlocked in heredoc_write; a process sample
 identified the blocked setup and only this task's stalled processes were stopped.
 The phone is offline or locked; its delivery queue is configured.
 
-## Open product questions
+## Product decisions
 
-Asked in the thread; defaults remain proposals pending a reply:
-
-- Permit local SSH/Mosh/ET without a cmux account; require it for sync/team.
-- User-controlled recovery only, or explicitly organization-managed recovery.
-- Personal features first versus parallel team delivery, retaining all features.
+- A cmux account is required before any remote connection, including direct
+  SSH, Mosh, ET, and cmux protocol sessions that do not use sync.
+- Recovery offers an approved-device path and a user-held recovery key. An
+  explicit organization-managed recovery path is also supported for teams, with
+  separate scope, authority, audit, and disclosure.
+- Personal and team features are delivered alongside each other while the full
+  Moshi and Termius parity ledger remains in scope.
 
 ## References checked 2026-09-18
 

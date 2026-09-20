@@ -3,9 +3,10 @@ import Testing
 @testable import CmuxRemoteConnections
 
 @Suite struct MobileRemoteProfileTests {
+    let profileID = UUID()
     @Test(arguments: ["server.example", "100.64.0.5", "fd7a:115c:a1e0::1", "host.tailnet.ts.net"])
     func acceptsReachableAddressShapesWithoutAVPNVendorGate(host: String) throws {
-        let profile = try MobileRemoteProfile(id: "host-1", host: host, username: "alice")
+        let profile = try MobileRemoteProfile(id: profileID, host: host, username: "alice")
         #expect(profile.port == 22)
         #expect(profile.hostKeyPolicy == .ask)
         #expect(profile.credentialID == nil)
@@ -18,12 +19,12 @@ import Testing
     @Test(arguments: ["ssh://example.com", "alice@example.com", "example.com\ncommand", "a/b", "a b"])
     func rejectsDestinationControlSyntax(host: String) {
         #expect(throws: MobileRemoteProfileError.invalidHost) {
-            try MobileRemoteProfile(id: "host-1", host: host, username: "alice")
+            try MobileRemoteProfile(id: profileID, host: host, username: "alice")
         }
     }
 
     @Test func decoderCannotBypassPortOrJumpValidation() throws {
-        let valid = try MobileRemoteProfile(id: "host-1", host: "example.com", username: "alice")
+        let valid = try MobileRemoteProfile(id: profileID, host: "example.com", username: "alice")
         let encoded = try JSONEncoder().encode(valid)
         var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         object["port"] = 0
@@ -32,7 +33,7 @@ import Testing
             try JSONDecoder().decode(MobileRemoteProfile.self, from: invalidPort)
         }
         object["port"] = 22
-        object["jumpHostProfileID"] = "host-1"
+        object["jumpHostProfileID"] = profileID.uuidString
         let invalidJump = try JSONSerialization.data(withJSONObject: object)
         #expect(throws: MobileRemoteProfileError.selfReferentialJumpHost) {
             try JSONDecoder().decode(MobileRemoteProfile.self, from: invalidJump)
@@ -43,7 +44,7 @@ import Testing
     func rejectsInvalidEnvironmentNames(key: String) {
         #expect(throws: MobileRemoteProfileError.invalidEnvironmentKey) {
             try MobileRemoteProfile(
-                id: "host-1", host: "example.com", username: "alice",
+                id: profileID, host: "example.com", username: "alice",
                 environment: [key: "value"]
             )
         }
@@ -52,13 +53,13 @@ import Testing
     @Test func environmentValuesRemainDataAndCannotContainNUL() throws {
         let data = "line one\nline two; $(never executed)"
         let profile = try MobileRemoteProfile(
-            id: "host-1", host: "example.com", username: "alice",
+            id: profileID, host: "example.com", username: "alice",
             environment: ["VALUE": data]
         )
         #expect(profile.environment["VALUE"] == data)
         #expect(throws: MobileRemoteProfileError.invalidEnvironmentValue) {
             try MobileRemoteProfile(
-                id: "host-1", host: "example.com", username: "alice",
+                id: profileID, host: "example.com", username: "alice",
                 environment: ["VALUE": "hello\0world"]
             )
         }
@@ -66,7 +67,7 @@ import Testing
 
     @Test func roundTripsMoshETAndNativeCmuxSettings() throws {
         let profile = try MobileRemoteProfile(
-            id: "host-1", host: "example.com", username: "alice",
+            id: profileID, host: "example.com", username: "alice",
             sessionBackend: .cmuxTUI, sessionName: "work",
             moshServerPath: "/opt/bin/mosh-server", moshUDPPortRange: 60_000...60_010,
             eternalTerminalPort: 2022

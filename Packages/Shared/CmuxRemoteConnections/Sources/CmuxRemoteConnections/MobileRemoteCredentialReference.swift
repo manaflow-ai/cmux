@@ -1,7 +1,9 @@
+public import Foundation
+
 /// A non-secret reference from a profile to a Keychain or vault item.
 public struct MobileRemoteCredentialReference: Codable, Equatable, Identifiable, Sendable {
     /// Stable credential identifier.
-    public let id: String
+    public let id: UUID
     /// Secret type stored behind this reference.
     public let kind: MobileRemoteCredentialKind
     /// Optional label, treated as private vault data.
@@ -23,7 +25,7 @@ public struct MobileRemoteCredentialReference: Codable, Equatable, Identifiable,
     ///   - syncMode: Local-only unless explicitly selected for vault sync.
     ///   - requiresBiometrics: Defaults to protected use on this device.
     public init(
-        id: String,
+        id: UUID,
         kind: MobileRemoteCredentialKind,
         displayName: String? = nil,
         publicKeyFingerprint: String? = nil,

@@ -5,7 +5,7 @@ public import Foundation
 /// Addresses and usernames are private vault data when synchronized.
 public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     /// Stable profile identifier, independent of its address.
-    public let id: String
+    public let id: UUID
     /// Optional display name.
     public let name: String?
     /// DNS name or bare IP address, without URL syntax.
@@ -25,11 +25,11 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     /// Optional starting directory on the remote host.
     public let workingDirectory: String?
     /// Separate SSH profile for a jump host; graph cycles are checked by the resolver.
-    public let jumpHostProfileID: String?
+    public let jumpHostProfileID: UUID?
     /// User confirmation or pre-established trust required before authentication.
     public let hostKeyPolicy: MobileRemoteHostKeyPolicy
     /// Reference to a credential store item, never the credential itself.
-    public let credentialID: String?
+    public let credentialID: UUID?
     /// Whether to expose explicitly allowed signing identities to this SSH session.
     public let agentForwarding: Bool
     /// Optional remote path used to bootstrap Mosh.
@@ -73,7 +73,7 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     ///   - updatedAt: Last explicit profile edit time, not a trust or authorization version.
     /// - Throws: A profile validation error.
     public init(
-        id: String,
+        id: UUID,
         name: String? = nil,
         host: String,
         port: Int = 22,
@@ -83,9 +83,9 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
         sessionBackend: MobileRemoteSessionBackend = .shell,
         sessionName: String? = nil,
         workingDirectory: String? = nil,
-        jumpHostProfileID: String? = nil,
+        jumpHostProfileID: UUID? = nil,
         hostKeyPolicy: MobileRemoteHostKeyPolicy = .ask,
-        credentialID: String? = nil,
+        credentialID: UUID? = nil,
         agentForwarding: Bool = false,
         moshServerPath: String? = nil,
         moshUDPPortRange: ClosedRange<Int>? = nil,
@@ -134,7 +134,7 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
-            id: values.decode(String.self, forKey: .id),
+            id: values.decode(UUID.self, forKey: .id),
             name: values.decodeIfPresent(String.self, forKey: .name),
             host: values.decode(String.self, forKey: .host),
             port: values.decode(Int.self, forKey: .port),
@@ -144,9 +144,9 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
             sessionBackend: values.decode(MobileRemoteSessionBackend.self, forKey: .sessionBackend),
             sessionName: values.decodeIfPresent(String.self, forKey: .sessionName),
             workingDirectory: values.decodeIfPresent(String.self, forKey: .workingDirectory),
-            jumpHostProfileID: values.decodeIfPresent(String.self, forKey: .jumpHostProfileID),
+            jumpHostProfileID: values.decodeIfPresent(UUID.self, forKey: .jumpHostProfileID),
             hostKeyPolicy: values.decode(MobileRemoteHostKeyPolicy.self, forKey: .hostKeyPolicy),
-            credentialID: values.decodeIfPresent(String.self, forKey: .credentialID),
+            credentialID: values.decodeIfPresent(UUID.self, forKey: .credentialID),
             agentForwarding: values.decode(Bool.self, forKey: .agentForwarding),
             moshServerPath: values.decodeIfPresent(String.self, forKey: .moshServerPath),
             moshUDPPortRange: values.decodeIfPresent(ClosedRange<Int>.self, forKey: .moshUDPPortRange),
@@ -162,9 +162,6 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     ///
     /// - Throws: A profile validation error.
     public func validate() throws {
-        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw MobileRemoteProfileError.emptyID
-        }
         guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MobileRemoteProfileError.emptyHost
         }

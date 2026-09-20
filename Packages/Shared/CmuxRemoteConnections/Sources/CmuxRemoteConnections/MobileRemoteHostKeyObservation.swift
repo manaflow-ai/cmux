@@ -5,9 +5,9 @@ public import Foundation
 /// This value cannot grant trust; accepted keys require a separate trust store.
 public struct MobileRemoteHostKeyObservation: Codable, Equatable, Identifiable, Sendable {
     /// Observation identifier.
-    public let id: String
+    public let id: UUID
     /// Profile whose host produced this key.
-    public let profileID: String
+    public let profileID: UUID
     /// Server-reported SSH host-key algorithm.
     public let algorithm: String
     /// Fingerprint of the observed public key; not an acceptance decision.
@@ -27,8 +27,8 @@ public struct MobileRemoteHostKeyObservation: Codable, Equatable, Identifiable, 
     ///   - firstSeenAt: First observation time.
     ///   - lastSeenAt: Last observation time.
     public init(
-        id: String,
-        profileID: String,
+        id: UUID,
+        profileID: UUID,
         algorithm: String,
         fingerprint: String,
         firstSeenAt: Date,
