@@ -107,14 +107,14 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// too small next to the Files tree).
     static let compact = CloudTreeStyle(
         id: "compact", name: "Compact",
-        rowHeight: 22, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 10,
+        indentPerLevel: 8,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
-        iconSize: 11, iconSlot: 16, iconGap: 4,
+        iconSize: 11, iconSlot: 2, iconGap: 13,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
-        machineVerticalPadding: 2
+        machineVerticalPadding: 0
     )
 
     /// System Settings voice: filled color squircles with white glyphs, so
@@ -203,5 +203,136 @@ enum CloudTreeStyleStore {
             UserDefaults.standard.set(newValue.id, forKey: defaultsKey)
             NotificationCenter.default.post(name: didChangeNotification, object: nil)
         }
+    }
+}
+
+/// Runtime geometry knobs used by the DEBUG Cloud sidebar lab. Keeping these
+/// values in one store lets the lab tune the same row and outline metrics used
+/// by the live sidebar, without forking a second renderer for the preview.
+struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
+    var referenceInset: Double = 8
+    var disclosureSlot: Double = 13
+    var disclosureGap: Double = 2
+    /// Retained for saved tuning data; machine glyphs now use the shared iconSlot.
+    var dotSlot: Double = 11
+    var dotGap: Double = 4
+    var detailGap: Double = 4
+    var trailingGap: Double = 0
+    var machineLineSpacing: Double = 1
+    var rowHeight: Double = 24
+    var indentPerLevel: Double = 8
+    var iconSlot: Double = 2
+    var iconGap: Double = 13
+    var machineVerticalPadding: Double = 0
+
+    static let `default` = Self()
+}
+
+enum CloudSidebarDebugSettings {
+    static let defaultsKey = "cloudTree.debugMetrics"
+    static let didChangeNotification = Notification.Name("cmux.cloudTree.debugMetricsDidChange")
+
+    private static let defaults = UserDefaults.standard
+
+    static var metrics: CloudSidebarDebugMetrics {
+#if DEBUG
+        guard let data = defaults.data(forKey: defaultsKey),
+              let value = try? JSONDecoder().decode(CloudSidebarDebugMetrics.self, from: data) else {
+            return .default
+        }
+        return value
+#else
+        return .default
+#endif
+    }
+
+    static func update(_ metrics: CloudSidebarDebugMetrics) {
+#if DEBUG
+        if let data = try? JSONEncoder().encode(metrics) {
+            defaults.set(data, forKey: defaultsKey)
+        }
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+#else
+        _ = metrics
+#endif
+    }
+
+    static func reset() {
+#if DEBUG
+        defaults.removeObject(forKey: defaultsKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+#endif
+    }
+
+    static func apply(_ metrics: CloudSidebarDebugMetrics) {
+        update(metrics)
+    }
+
+    static func copyPayload(_ metrics: CloudSidebarDebugMetrics? = nil) -> String {
+        let metrics = metrics ?? Self.metrics
+        return """
+        cloudTreeStyle=\(CloudTreeStyleStore.current.id)
+        referenceInset=\(metrics.referenceInset)
+        disclosureSlot=\(metrics.disclosureSlot)
+        disclosureGap=\(metrics.disclosureGap)
+        dotGap=\(metrics.dotGap)
+        detailGap=\(metrics.detailGap)
+        trailingGap=\(metrics.trailingGap)
+        machineLineSpacing=\(metrics.machineLineSpacing)
+        rowHeight=\(metrics.rowHeight)
+        indentPerLevel=\(metrics.indentPerLevel)
+        iconSlot=\(metrics.iconSlot)
+        iconGap=\(metrics.iconGap)
+        machineVerticalPadding=\(metrics.machineVerticalPadding)
+        """
+    }
+
+    static func resolvedStyle(
+        _ base: CloudTreeStyle,
+        metrics: CloudSidebarDebugMetrics? = nil
+    ) -> CloudTreeStyle {
+#if !DEBUG
+        return base
+#else
+        let metrics = metrics ?? Self.metrics
+        return CloudTreeStyle(
+            id: base.id + ".debug." + [
+                metrics.referenceInset,
+                metrics.disclosureSlot,
+                metrics.disclosureGap,
+                metrics.dotGap,
+                metrics.detailGap,
+                metrics.trailingGap,
+                metrics.machineLineSpacing,
+                metrics.rowHeight,
+                metrics.indentPerLevel,
+                metrics.iconSlot,
+                metrics.iconGap,
+                metrics.machineVerticalPadding
+            ].map { String($0) }.joined(separator: "-"),
+            name: base.name,
+            rowHeight: CGFloat(metrics.rowHeight),
+            machineRowLayout: base.machineRowLayout,
+            leafLayout: base.leafLayout,
+            iconTreatment: base.iconTreatment,
+            groupLabelStyle: base.groupLabelStyle,
+            metaPlacement: base.metaPlacement,
+            machineBand: base.machineBand,
+            monospacedText: base.monospacedText,
+            rowSeparators: base.rowSeparators,
+            indentPerLevel: CGFloat(metrics.indentPerLevel),
+            machineNameSize: base.machineNameSize,
+            titleSize: base.titleSize,
+            detailSize: base.detailSize,
+            groupLabelSize: base.groupLabelSize,
+            iconSize: base.iconSize,
+            iconSlot: CGFloat(metrics.iconSlot),
+            iconGap: CGFloat(metrics.iconGap),
+            showsGroupCounts: base.showsGroupCounts,
+            showsViewBadges: base.showsViewBadges,
+            showsMachineStats: base.showsMachineStats,
+            machineVerticalPadding: CGFloat(metrics.machineVerticalPadding)
+        )
+#endif
     }
 }

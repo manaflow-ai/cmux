@@ -26,6 +26,7 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
+    @State private var cloudSidebarDebugRevision = 0
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
@@ -90,6 +91,9 @@ struct MachinesPanelView: View {
         }
         .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
             if let id { viewModel.setDefaultMachine(id: id) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CloudSidebarDebugSettings.didChangeNotification)) { _ in
+            cloudSidebarDebugRevision &+= 1
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -469,6 +473,7 @@ struct MachinesPanelView: View {
     }
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
+        _ = cloudSidebarDebugRevision
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
@@ -507,7 +512,9 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
+            style: CloudSidebarDebugSettings.resolvedStyle(
+                CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
+            ),
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
