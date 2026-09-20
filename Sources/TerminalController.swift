@@ -3114,8 +3114,8 @@ class TerminalController {
         // the main actor.
 
             default:
-                return v2Error(id: id, code: "method_not_found", message: "Un: methods.sorted()
-        ]
+                return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+            }
     }
 
     func v2Identify(params: [String: Any]) -> [String: Any] {
