@@ -16,6 +16,7 @@ final class CloudTreeCellView: NSTableCellView {
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var portsStatus: CloudPortsStatusContent?
+    private var portsStatusTrailingConstraint: NSLayoutConstraint?
     private var buttonsHost: NSHostingView<AnyView>?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
@@ -91,6 +92,7 @@ final class CloudTreeCellView: NSTableCellView {
                 case .openShell: machineActions.openShell(node.machine.rawValue)
                 }
             }
+            portsStatusTrailingConstraint?.constant = -style.rowGrid.trailingPadding
         } else {
             portsStatus?.isHidden = true
         }
@@ -169,12 +171,14 @@ final class CloudTreeCellView: NSTableCellView {
         let view = CloudPortsStatusContent(frame: .zero)
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
+        let trailing = view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding),
+            trailing,
             view.topAnchor.constraint(equalTo: topAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        portsStatusTrailingConstraint = trailing
         portsStatus = view
         return view
     }
