@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -33,7 +34,31 @@ struct CloudTreeLayoutMetricsTests {
     @Test("the content inset matches the tuned Cloud row default")
     func referenceInsetIsEightPoints() {
         #expect(metrics.referenceInset == 8)
-        #expect(CloudSidebarDebugMetrics.default.referenceInset == Double(metrics.referenceInset))
+        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
     }
 
+#if DEBUG
+    @MainActor
+    @Test("Tuning snapshots stay independent and survive reopening")
+    func tuningSnapshots() throws {
+        let suite = "CloudSidebarSpacingTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CloudSidebarDebugSettings(defaults: defaults)
+        settings.metrics.rowHeight = 32
+        settings.metrics.disclosureGap = 9
+        let first = settings.metrics.resolvedStyle(.compact)
+        settings.metrics.disclosureGap = 3
+        let second = settings.metrics.resolvedStyle(.compact)
+        #expect(first.rowGrid.disclosureGap == 9)
+        #expect(second.rowGrid.disclosureGap == 3)
+        #expect(first.rowHeight == second.rowHeight)
+        #expect(first != second)
+        let reopened = CloudSidebarDebugSettings(defaults: defaults)
+        #expect(reopened.metrics == settings.metrics)
+        settings.metrics.disclosureGap = CloudSidebarDebugMetrics.default.disclosureGap
+        #expect(settings.metrics.rowHeight == 32)
+        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 2)
+    }
+#endif
 }
