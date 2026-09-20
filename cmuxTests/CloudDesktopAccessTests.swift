@@ -14,6 +14,41 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudDesktopAccessTests {
+    @Test("A connected noVNC document is ready even before WebKit's finish callback", arguments: [6901, 6902])
+    func desktopConnectionCompletesReadiness(port: Int) async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: port), coordinator: nil,
+            wake: {}, startForward: { _ in UInt16(40_000 + port) }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let remote = try #require(URL(string: "http://10.0.0.7:\(port)/vnc.html"))
+        state.configure(model: model, url: remote)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(state.showsPage, "A live RFB connection is stronger evidence than document finish")
+        state.desktopConnectionDidChange(url: url, isConnected: false)
+        #expect(state.showsFailureAlert)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(!state.showsFailureAlert && state.showsPage)
+        await model.retire()
+    }
+
+    @Test("A stale finish cannot complete the requested Cloud document")
+    func ignoresForeignFinish() async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.didFinish(url: URL(string: "http://10.0.0.8:6901/vnc.html"))
+        #expect(!state.showsPage)
+        await model.retire()
+    }
+
     @Test("Desktop failure can be dismissed and Retry re-establishes the shared route")
     func desktopFailureRecovery() async throws {
         var starts = 0

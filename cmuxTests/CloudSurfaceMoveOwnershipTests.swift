@@ -13,6 +13,34 @@ import Testing
 @MainActor
 @Suite("Cloud surface mutation boundaries", .serialized)
 struct CloudSurfaceMoveOwnershipTests {
+    @Test("Duplicating a display preserves its VM and independent view identity", arguments: [false, true])
+    func displayDuplicationRetainsOwner(offline: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let workspace = fixture.workspace
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let browser = try #require(workspace.newBrowserSurface(inPane: pane, focus: false))
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
+            let catalog = SurfaceCatalog.shared
+            var display = resource(machine: "a", kind: .display)
+            display.id.key = "display:1"
+            if !offline { catalog.upsert(display) }
+            catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: display.id)], workspaceID: workspace.id)
+            defer { catalog.remove(display.id) }
+            let duplicate = try #require(workspace.duplicateBrowserToRight(panelId: browser.id, focus: false))
+            #expect(duplicate.id != browser.id)
+            #expect(catalog.projectionRecord(forPanel: duplicate.id)?.resource == display.id)
+            #expect(workspace.machineOwningSurface(duplicate.id) == .cloud("a"))
+            #expect(workspace.panels[browser.id] === browser)
+            let foreign = fixture.manager.addWorkspace(title: "same name", select: false)
+            foreign.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "b", isBase: false)
+            #expect(!fixture.appDelegate.moveSurface(panelId: duplicate.id, toWorkspace: foreign.id,
+                focus: false, focusWindow: false))
+            #expect(workspace.panels[duplicate.id] != nil)
+        }
+    }
+
     @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases)
     func foreignCloudMove(kind: SurfaceResourceKind) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

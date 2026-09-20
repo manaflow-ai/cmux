@@ -12,6 +12,40 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudClosedPanelRestoreTests {
+    @Test("Foreign and unowned displays cannot restore into a Cloud workspace", arguments: ["a", "b"])
+    func rejectsDisplayRestoreBeforeLayoutMutation(owner: String) throws {
+        try withManager { manager in
+            let workspace = manager.addWorkspace(initialSurface: .browser, autoWelcomeIfNeeded: false)
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner, isBase: false)
+            let panelID = try #require(workspace.focusedPanelId)
+            let paneID = try #require(workspace.paneId(forPanelId: panelID))
+            let before = Set(workspace.panels.keys)
+            let layout = workspace.bonsplitController.treeSnapshot()
+            var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            snapshot.panels[0].browser?.urlString = "http://10.0.0.7:6901/vnc.html"
+            let foreign = SurfaceResourceID(machine: .cloud(owner == "a" ? "b" : "a"), kind: .display, key: "display:1")
+            for source in [foreign, SurfaceResourceID(machine: .local, kind: .display, key: "display:1")] {
+                let record = SurfaceProjectionRecord(panelID: panelID, resource: source)
+                snapshot.surfaceProjections = [record]
+                #expect(workspace.restoreSessionSnapshot(snapshot).isEmpty)
+                #expect(Set(workspace.panels.keys) == before)
+                #expect(workspace.bonsplitController.treeSnapshot() == layout)
+                #expect(workspace.cloudVMID == owner)
+                #expect(workspace.createPanel(from: snapshot.panels[0], inPane: paneID,
+                    snapshotWorkspaceId: nil, shouldRestoreSingleDefaultCloudTerminal: false,
+                    cloudProjectionRecord: record) == nil)
+                let closed = ClosedPanelHistoryEntry(workspaceId: workspace.id, paneId: UUID(), tabIndex: 0,
+                    snapshot: snapshot.panels[0], projection: record)
+                #expect(workspace.restoreClosedPanel(closed) == nil)
+                #expect(Set(workspace.panels.keys) == before)
+            }
+            snapshot.surfaceProjections = nil
+            #expect(workspace.restoreSessionSnapshot(snapshot).isEmpty,
+                    "A noVNC URL without provenance must not become a local browser")
+            #expect(Set(workspace.panels.keys) == before)
+        }
+    }
+
     @Test("Restoring a Cloud terminal reserves a manual mirror instead of a local shell")
     func cloudTerminalRestoreDoesNotBrieflyBecomeLocal() throws {
         try withManager { manager in
