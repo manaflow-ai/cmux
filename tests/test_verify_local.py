@@ -156,5 +156,69 @@ AAAA000000000000000000S1 /* Sources */ = {
             self.assertIn("test-wiring:", result.stdout)
 
 
+class SwiftSyntaxTests(unittest.TestCase):
+    def test_no_files_is_an_error_not_a_passing_parse(self):
+        with repo_fixture() as repo:
+            result = cli(repo, "--only", "swift-syntax")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires --swift", result.stderr)
+
+    def test_rejects_missing_non_swift_and_outside_paths(self):
+        with repo_fixture() as repo:
+            for path in ("missing.swift", "tracked", "../outside.swift"):
+                with self.subTest(path=path):
+                    result = cli(repo, "--only", "swift-syntax", "--swift", path)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("existing .swift file inside", result.stderr)
+
+    def test_missing_compiler_is_unsupported(self):
+        with repo_fixture() as repo:
+            (repo / "Example.swift").write_text("let value = 1\n")
+            with patch.object(verify.shutil, "which", return_value=None):
+                result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
+                                    swift_files=["Example.swift"])
+            self.assertEqual(result["outcome"]["status"], "unsupported")
+            self.assertEqual(verify.receipt.check(result, "parsing")["status"], "unsupported")
+            self.assertFalse(result["evidence"]["executions"][0]["executed"])
+
+    def test_changed_untracked_input_interrupts_even_with_same_git_status(self):
+        with repo_fixture() as repo:
+            source = repo / "Example.swift"
+            source.write_text("let value = 1\n")
+            def changed(repo, item, timeout):
+                source.write_text("let value = 2\n")
+                return {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
+                        "cancelled": False, "status": "passed", "executed": True,
+                        "elapsed_seconds": 0}, ""
+            with patch.object(verify, "execute", side_effect=changed):
+                result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
+                                    swift_files=["Example.swift"])
+            self.assertEqual(result["outcome"]["status"], "interrupted")
+            self.assertIn("selected_swift_source_drift_observed", result["assessment"]["qualifications"])
+            self.assertFalse(result["assessment"]["exact_verification"])
+
+    @unittest.skipUnless(shutil.which("swiftc"), "Swift parser unavailable")
+    def test_real_parser_catches_ci_raw_string_error_then_accepts_repair(self):
+        with repo_fixture() as repo, tempfile.TemporaryDirectory() as output:
+            source = repo / "Example with spaces.swift"
+            source.write_text('let state = "ok"\nlet stdout = #"{"state":"#(state)"}"#\n')
+            evidence = Path(output) / "parse.json"
+            args = ("--only", "swift-syntax", "--swift", source.name, "--receipt", str(evidence))
+            failed = cli(repo, *args)
+            self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+            self.assertIn("Example with spaces.swift", failed.stdout)
+            self.assertIn("--swift", failed.stdout)
+            source.write_text('import UnavailableModule\nlet state = "ok"\nlet stdout = #"{"state":"\\#(state)"}"#\n')
+            passed = cli(repo, *args)
+            self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+            result = json.loads(evidence.read_text())
+            self.assertEqual(verify.receipt.check(result, "parsing")["status"], "passed")
+            self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
+            self.assertEqual(verify.receipt.check(result, "tests")["status"], "skipped")
+            self.assertEqual(len(result["evidence"]["swift_inputs"]["before"]), 1)
+            self.assertIn("Swift", result["environment"]["toolchain"])
+            self.assertFalse(result["assessment"]["exact_verification"])
+
+
 if __name__ == "__main__":
     unittest.main()
