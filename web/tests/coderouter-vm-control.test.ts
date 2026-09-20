@@ -34,6 +34,23 @@ describe("VM-bound CodeRouter control routes", () => {
     });
   });
 
+  test("rejects malformed visibility before applying the VM team policy", async () => {
+    let called = false;
+    const handler = makeCoderouterAccountsPostHandler({
+      resolveContext: async () => vmContext,
+      add: async () => {
+        called = true;
+        return { accountId: "account-1", alreadyExists: false };
+      },
+    });
+    const response = await handler(new Request("https://coderouter.test/api/coderouter/accounts", {
+      method: "POST",
+      body: JSON.stringify({ provider: "openai-apikey", apiKey: "sk-test-key-1234567890", visibility: "public" }),
+    }));
+    expect(response.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
   test("allows Claude mutations through the VM pool and preserves access scoping", async () => {
     let receivedAccess: unknown;
     const handlers = makeClaudeUpstreamHandlers({

@@ -65,6 +65,7 @@ export function makeClaudeUpstreamHandlers(
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
     const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
+    if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     const visibility = access.kind === "vm" ? "team" : requestedVisibility;
     if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });

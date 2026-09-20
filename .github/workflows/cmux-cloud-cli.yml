@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - "cmux-tui/crates/cmux-cloud-cli/**"
+      - "cmux-tui/Cargo.*"
       - ".github/workflows/cmux-cloud-cli.yml"
   workflow_dispatch:
 permissions:

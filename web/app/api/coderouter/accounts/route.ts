@@ -108,6 +108,7 @@ export function makeCoderouterAccountsPostHandler(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   const requestedVisibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
   // A VM mutation is scoped to its provisioned pool. Private visibility would
   // create an account that the same machine could not subsequently read on an
   // organization team, so machine writes are always team-visible.
