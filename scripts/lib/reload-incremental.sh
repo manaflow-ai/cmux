@@ -103,10 +103,17 @@ reload_incremental_app_digest() {
 # client itself rather than the path or URL it comes from. A client preserved from
 # the built app is already covered by that app's digest. Fails when the source
 # cannot be resolved; the caller must then redo the install instead of reusing.
+# A manifest the identity was computed from is kept at manifest_snapshot, which exists
+# afterwards only in that case. Installing from it keeps the identity and the bundled
+# client on one manifest even when the URL is republished in between.
 reload_incremental_tui_client_identity() {
   local installer="$1"
   local built_app="$2"
   local manifest_url="${3:-}"
+  local manifest_snapshot="${4:-}"
+  if [[ -n "$manifest_snapshot" ]]; then
+    rm -f "$manifest_snapshot"
+  fi
   if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$built_app/Contents/Resources/bin/cmux-tui" ]]; then
     printf 'preserved\n'
     return 0
@@ -114,6 +121,9 @@ reload_incremental_tui_client_identity() {
   local installer_args=(--print-source-identity)
   if [[ -n "$manifest_url" ]]; then
     installer_args+=(--manifest-url "$manifest_url")
+  fi
+  if [[ -n "$manifest_snapshot" ]]; then
+    installer_args+=(--save-manifest "$manifest_snapshot")
   fi
   "$installer" "${installer_args[@]}"
 }

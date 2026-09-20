@@ -1733,16 +1733,19 @@ XCODEBUILD_OUTPUT_VALID=1
 # uncommitted, committed, or came from switching branches.
 # The bundled cmux-tui client comes from outside the checkout, and a rolling manifest
 # URL or a local path can serve a new client under the same name. Key on the client
-# itself; when it cannot be resolved, redo the post-build work.
+# itself; when it cannot be resolved, redo the post-build work. The manifest behind
+# the identity is kept so the install below bundles exactly the client it describes.
+RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
+RELOAD_TUI_CLIENT_MANIFEST="$RELOAD_RECEIPT_DIR/cmux-tui-manifest.json"
 RELOAD_TUI_CLIENT_RESOLVED=1
 RELOAD_TUI_CLIENT_IDENTITY="$(reload_incremental_tui_client_identity \
-  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH" "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE")" \
+  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH" "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
+  "$RELOAD_TUI_CLIENT_MANIFEST")" \
   || { RELOAD_TUI_CLIENT_RESOLVED=0; RELOAD_TUI_CLIENT_IDENTITY="unresolved"; }
 RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "${RELOAD_INPUT_MANIFEST}
 tui_client=${RELOAD_TUI_CLIENT_IDENTITY}
 built_app=$(reload_incremental_app_digest "$APP_PATH")")"
 reload_phase_finished built_app_fingerprint
-RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
 RELOAD_POSTBUILD_NOOP=0
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
@@ -1895,6 +1898,9 @@ else
     cmux_tui_install_args+=(
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
     )
+  fi
+  if [[ "$RELOAD_TUI_CLIENT_RESOLVED" -eq 1 && -f "$RELOAD_TUI_CLIENT_MANIFEST" ]]; then
+    cmux_tui_install_args+=(--manifest-file "$RELOAD_TUI_CLIENT_MANIFEST")
   fi
   # The installer verifies the published manifest's build-provenance attestation
   # through gh. A dev Mac without an authenticated gh is the one explicit
