@@ -1375,6 +1375,16 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn foreground_process_name_recognizes_node_agent_launcher() {
+        // The real CLI uses a script path, so exercise the same /proc parser
+        // with an exact captured argv rather than requiring Codex in CI.
+        let result = process_command_name(b"node\0/usr/local/bin/codex\0--yolo\0");
+        assert_eq!(result.as_deref(), Some("/usr/local/bin/codex"));
+    }
+
+
     #[cfg(windows)]
     use std::ffi::OsString;
     #[cfg(windows)]
