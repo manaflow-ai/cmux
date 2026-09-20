@@ -1037,11 +1037,21 @@ final class MobileHostService {
             routeKind: routeKind
         )
         let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
+        let deviceID: String
+        if selectedRoutes.contains(where: { $0.kind == .iroh }) {
+            guard let publishedID = MobileHostPublicStatusCache.currentV2DeviceID() else {
+                throw MobileAttachTicketStoreError.routeUnavailable
+            }
+            deviceID = publishedID
+        } else {
+            deviceID = MobileHostIdentity.deviceID()
+        }
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: selectedRoutes,
             ttl: ttl,
+            macDeviceID: deviceID,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
             macUserID: await currentAuthenticatedLocalUserID(),
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
