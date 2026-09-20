@@ -16,6 +16,11 @@ Current behavior:
 - The SQLite profile store encrypts private metadata, isolates account/vault
   scopes, authenticates deleted records, and verifies the existing key before
   permitting writes. Corruption, wrong keys, and unsupported schemas are errors.
+- The account gate fails closed until the app publishes a verified cmux session;
+  it is required by every future SSH, Mosh, ET, and cmux-protocol owner.
+- Signed vault revisions bind an authorized device identity and exact sealed
+  ciphertext to independently supplied ownership and revision context. Personal
+  and team recovery policy keeps organization recovery out of personal vaults.
 
 This is not a complete encrypted vault. Signing, device enrollment, recovery,
 key rotation, membership, whole-database rollback protection, SSH, account

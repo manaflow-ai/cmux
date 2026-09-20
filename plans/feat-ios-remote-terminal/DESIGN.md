@@ -53,9 +53,12 @@ independent authentication and host-key verification for each hop.
 `Packages/Shared/CmuxRemoteConnections` currently provides validated immutable
 profiles, separate credential references, redacted credential material, an
 encrypted local profile store, a device-local Keychain adapter, and a bounded
-AES-256-GCM record cipher. It is not yet linked into the app and does not
-implement SSH, vault enrollment, recovery, sync, or UI. Its package tests do
-not prove app authentication or iPhone behavior.
+AES-256-GCM record cipher. It also provides an account gate, signed revision
+metadata, and explicit personal/team recovery policy. The package is linked
+into the iOS composition package only as a dependency; it is not yet used by
+the remote UI and does not implement SSH, vault enrollment, recovery execution,
+sync, or UI. Its package tests do not prove app authentication or iPhone
+behavior.
 
 Existing reuse candidates:
 

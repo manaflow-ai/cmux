@@ -14,4 +14,8 @@ public enum MobileRemoteVaultError: Error, Equatable, Sendable {
     case payloadTooLarge
     /// Deletion records must not contain a hidden live payload.
     case invalidDeletionPayload
+    /// A signed sync revision is missing required bounded fields.
+    case invalidRevision
+    /// A signed sync revision could not be verified by the trusted device key.
+    case invalidSignature
 }

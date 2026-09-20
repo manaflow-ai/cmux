@@ -4,6 +4,7 @@ import CmuxAuthRuntime
 import CmuxPhonePush
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxRemoteConnections
 import Foundation
 import StackAuth
 
@@ -38,6 +39,8 @@ public struct MobileAuthComposition {
     public let appNamespace: MobileIOSAppNamespace?
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
+    /// Account gate required by every remote carrier before credential access.
+    public let remoteAccountGate: MobileRemoteAccountGate
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -50,6 +53,7 @@ public struct MobileAuthComposition {
 
     /// Owns bootstrap and protected-data revalidation tasks for this graph.
     private let taskOwner: MobileAuthTaskOwner
+    private let remoteAccountObserver: MobileRemoteAccountGateObserver
 
     /// Build the auth graph.
     ///
@@ -77,6 +81,8 @@ public struct MobileAuthComposition {
         let keychainAccessGroup = Self.keychainAccessGroup(in: bundle)
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
+        self.remoteAccountGate = MobileRemoteAccountGate()
+        self.remoteAccountObserver = MobileRemoteAccountGateObserver()
 
         let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
@@ -221,6 +227,7 @@ public struct MobileAuthComposition {
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
         taskOwner.recordRestoreStarted()
+        remoteAccountObserver.start(auth: coordinator, gate: remoteAccountGate)
         let pushRegistration = self.pushRegistration
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator) {
