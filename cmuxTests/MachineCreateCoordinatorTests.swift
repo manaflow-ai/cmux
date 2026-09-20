@@ -215,7 +215,7 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.start(Self.newMachineRequest(), launch: immediate))
         #expect(coordinator.operations.isEmpty, "the synchronous completion resolved the row")
         #expect(changes.finished.count == 1)
-        #expect(notices.notices.first?.title == "calm-petrel is ready")
+        #expect(notices.notices.isEmpty)
     }
 
     @Test func emittedMachineMarkerCorrelatesPendingRowBeforeCLIExits() {
@@ -269,24 +269,21 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.isEmpty, "the new workspace is already selected")
     }
 
-    @Test func successWithUnavailableSelectionFallsBackToTheMachinesList() {
+    @Test func successfulCreateDoesNotPostACompletionNotificationWhenSelectionIsUnavailable() {
         let (coordinator, launches, notices, _, _) = makeCoordinator(selectWorkspace: { _, _ in false })
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
 
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n", workspaceID: workspaceID)
 
-        #expect(notices.notices.count == 1)
-        #expect(notices.notices[0].workspaceID == workspaceID)
-        #expect(notices.notices[0].body == "Find it in the Machines list.")
+        #expect(notices.notices.isEmpty, "the bound workspace and Cloud tree are the success destination")
     }
 
-    @Test func successKeepsTheTypedLabelInTheFinishedOperation() {
+    @Test func successKeepsTheTypedLabelInTheFinishedOperationWithoutPostingAToast() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
-        #expect(notices.notices.first?.title == "build box is ready")
-        #expect(notices.notices.first?.body == "Find it in the Machines list.")
+        #expect(notices.notices.isEmpty)
     }
 
     @Test func baseSuccessDoesNotPostANotification() {
@@ -326,7 +323,7 @@ struct MachineCreateCoordinatorTests {
 
         launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
         #expect(coordinator.operations.isEmpty)
-        #expect(notices.notices.count == 2, "retry success remains visible when no workspace was selected")
+        #expect(notices.notices.count == 1, "only the actionable failure remains visible")
     }
 
     @Test func emptyFailureOutputGetsAGenericMessage() {

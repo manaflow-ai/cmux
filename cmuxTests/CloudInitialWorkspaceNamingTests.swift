@@ -128,6 +128,20 @@ struct CloudInitialWorkspaceNamingTests {
         #expect(created.effectiveCustomTitleSource == .user)
     }
 
+    @Test("Provider ids do not flash as local Cloud workspace names")
+    func providerIDIsNotAWorkspaceLabel() {
+        let machine = SurfaceMachineID.cloud("vm-123")
+        let info = SurfaceMachineInfo(
+            id: machine, name: machine.rawValue, status: "running", image: nil,
+            hasDesktop: true, memoryMb: nil, diskMb: nil,
+            linkState: .connecting, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info], resources: [], projections: [])
+
+        #expect(CloudTreeNodeActions.resolvedMachineName(machine, snapshot: snapshot) == "Cloud VM")
+    }
+
     @Test("Creation completion selects only the initiating window workspace")
     func completionSelectionStaysInInitiatingWindow() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

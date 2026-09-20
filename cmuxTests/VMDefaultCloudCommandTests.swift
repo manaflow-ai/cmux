@@ -145,6 +145,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
                 XCTAssertEqual(params["base"] as? Bool, false); XCTAssertEqual(params["generated_title"] as? String, "Cloud VM")
+                if params["remote_workspace_id"] != nil {
+                    XCTAssertEqual(params["remote_workspace_name"] as? String, "workspace-1")
+                }
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "surface.catalog":
                 let params = payload["params"] as? [String: Any] ?? [:]
