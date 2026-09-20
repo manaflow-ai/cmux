@@ -11,18 +11,16 @@ import Testing
             entered: entered.continuation,
             advance: advance.stream
         )
-        let expired = AsyncStream<Void>.makeStream()
+        let expired = DeadlineExpirationCounter()
         let task = MarkdownImageLoadDeadline(clock: clock, timeout: .seconds(15))
-            .schedule { expired.continuation.yield(()) }
+            .schedule { expired.increment() }
         var entries = entered.stream.makeAsyncIterator()
         let deadline = try #require(await entries.next())
         #expect(deadline == clock.now.advanced(by: .seconds(15)))
+        #expect(expired.value == 0)
         advance.continuation.yield(())
         await task.value
-        expired.continuation.finish()
-        var expirations = expired.stream.makeAsyncIterator()
-        #expect(await expirations.next() != nil)
-        #expect(await expirations.next() == nil)
+        #expect(expired.value == 1)
     }
 
     @Test func completionCancelsThePendingExpiration() async throws {
@@ -33,17 +31,15 @@ import Testing
             entered: entered.continuation,
             advance: advance.stream
         )
-        let expired = AsyncStream<Void>.makeStream()
+        let expired = DeadlineExpirationCounter()
         let task = MarkdownImageLoadDeadline(clock: clock, timeout: .seconds(15))
-            .schedule { expired.continuation.yield(()) }
+            .schedule { expired.increment() }
         var entries = entered.stream.makeAsyncIterator()
         _ = try #require(await entries.next())
         task.cancel()
         advance.continuation.yield(())
         await task.value
-        expired.continuation.finish()
-        var expirations = expired.stream.makeAsyncIterator()
-        #expect(await expirations.next() == nil)
+        #expect(expired.value == 0)
     }
 }
 
@@ -59,4 +55,11 @@ private struct ControlledDeadlineClock: Clock {
         entered.yield(deadline)
         for await _ in advance { return }
     }
+}
+
+private final class DeadlineExpirationCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
 }

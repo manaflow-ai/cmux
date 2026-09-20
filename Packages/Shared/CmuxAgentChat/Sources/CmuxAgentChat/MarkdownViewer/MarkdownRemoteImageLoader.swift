@@ -422,12 +422,10 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
         }
         self.connection = connection
         self.completion = completion
-        timeoutTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .seconds(15))
-            } catch {
-                return
-            }
+        timeoutTask = MarkdownImageLoadDeadline(
+            clock: ContinuousClock(),
+            timeout: .seconds(15)
+        ).schedule { [weak self] in
             self?.finish(nil)
         }
         lock.unlock()
