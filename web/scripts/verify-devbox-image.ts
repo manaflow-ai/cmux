@@ -242,6 +242,7 @@ const AGENT_LAUNCH_CHECKS: readonly string[] = [
 // clean login shell (no PATH help from this verifier) and a daemon pane
 // (non-login, the unit's PATH).
 const FREESTYLE_BASE_CHECKS: readonly string[] = [
+  `${loginAs(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "cmux-tui --version")} && echo work-user-cmux-tui-client-ok`,
   // One work user, and no trace of the account it was renamed from: a leftover
   // `ubuntu` would take uid 1000 back from the provider's exec default.
   `[ "$(getent passwd ${DEVBOX_WORK_UID} | cut -d: -f1)" = ${DEVBOX_WORK_USER} ] && ! id -u ubuntu >/dev/null 2>&1 && test ! -e /home/ubuntu && echo one-work-user`,

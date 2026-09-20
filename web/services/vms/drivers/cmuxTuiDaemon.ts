@@ -240,6 +240,22 @@ export function resetCmuxTuiSourceCache(): void {
   cmuxTuiSourceCache = null;
 }
 
+/** Publish the installed client without exposing the daemon's private home. */
+export function cmuxTuiPublicClientCommand(): string {
+  return `${cmuxTuiLayoutSelector()} && ${publishPublicClient('"$CMUX_TUI_BIN"')}`;
+}
+
+/** `binary` is an already-quoted path or the installer's selected-home variable. */
+function publishPublicClient(binary: string): string {
+  const target = shellQuote("/usr/local/bin/cmux-tui");
+  return `[ -x ${binary} ] && (` +
+    `if [ ! -L ${target} ] && [ -x ${target} ] && cmp -s ${binary} ${target}; then :; else ` +
+    `CMUX_TUI_PUBLIC_TMP="$(mktemp ${shellQuote("/usr/local/bin/cmux-tui.tmp.XXXXXX")})" && ` +
+    `trap 'unlink "$CMUX_TUI_PUBLIC_TMP" 2>/dev/null || true' EXIT && ` +
+    `cp ${binary} "$CMUX_TUI_PUBLIC_TMP" && chmod 755 "$CMUX_TUI_PUBLIC_TMP" && ` +
+    `mv -f "$CMUX_TUI_PUBLIC_TMP" ${target}; fi)`;
+}
+
 /**
  * Installs the pinned cmux-tui binary onto the machine, skipping the download when
  * the installed copy already matches the pin. The VM fetches the ~50 MB static musl
@@ -261,7 +277,7 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
     `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
-    `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    publishPublicClient(bin),
     ...hookHelperInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
     `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,

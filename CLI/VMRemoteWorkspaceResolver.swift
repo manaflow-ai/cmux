@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Pure catalog identity resolution shared by the CLI and its behavior tests.
@@ -329,33 +330,14 @@ struct VMRemoteWorkspaceResolver: Sendable {
         return .resolved(terminalID: terminalID, tabID: tabID)
     }
 
-    /// Returns the terminal key accepted by `surface.project` from either a
-    /// catalog's explicit `key` or its canonical resource id. Keeping this in
-    /// one helper prevents callers from sending a full id where a key is
-    /// required and producing `machine/terminal/machine/terminal/key`.
+    /// Shared canonical identity policy, including exact ID precedence over stale keys.
     func vmTerminalID(in resource: [String: Any], machine: String) -> String? {
-        if let key = (resource["key"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
-            // `key` is the final path component. A complete resource id would be
-            // prefixed again by callers and route to a different terminal.
-            guard !key.contains("/") else { return vmTerminalIDFromCanonicalID(in: resource, machine: machine) }
-            return key
-        }
-        return vmTerminalIDFromCanonicalID(in: resource, machine: machine)
+        CmuxCloudTerminalIdentity(catalogResource: resource, machine: machine)?.key
     }
 
     private func vmTerminalIDFromCanonicalID(in resource: [String: Any], machine: String) -> String? {
-        guard let id = (resource["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
-            return nil
-        }
-        let prefix = "\(machine)/terminal/"
-        if id.hasPrefix(prefix) {
-            let key = String(id.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return key.isEmpty ? nil : key
-        }
-        // A few older catalog producers emitted the terminal key as `id`.
-        // Accept it only when it has no path separators, so a different
-        // machine's canonical id cannot be routed to this machine.
-        return id.contains("/") ? nil : id
+        guard let id = resource["id"] as? String else { return nil }
+        return CmuxCloudTerminalIdentity(catalogResource: ["id": id], machine: machine)?.key
     }
 
 }

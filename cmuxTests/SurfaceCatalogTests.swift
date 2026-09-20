@@ -1205,6 +1205,51 @@ struct SurfaceCatalogTests {
         #expect(provider.closedTerminals.isEmpty)
         #expect(provider.closedRemoteWorkspaces == ["ws_empty"])
     }
+
+    // Cloud workspace rename ownership moved from SurfaceCatalog mutation helpers
+    // to CloudWorkspaceRenameService in the current main refactor. Keep the
+    // regression coverage on the current public APIs: accepted daemon state is
+    // canonical, stale machine metadata cannot regress it, and rename intents
+    // retain newest-wins ordering through CloudRenameCoordinator (covered above).
+    @Test("Cloud state reconciliation keeps canonical workspace metadata")
+    func cloudStateReconciliationKeepsCanonicalWorkspaceMetadata() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "rename-generation", "revision": "10"],
+            "workspaces": [["id": "ws_main", "name": "Renamed"]],
+            "screens": [],
+            "panes": [],
+            "tabs": [],
+            "terminals": [["id": "term_main", "tab_ids": [], "title": "shell", "lifecycle": "running"]],
+            "browsers": [],
+            "agents": [],
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        let resource = try #require(CmuxTuiSnapshotParser.resources(from: state).first)
+        var canonicalInfo = provider.info
+        canonicalInfo.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "Renamed", index: 0, focused: true),
+        ]
+        catalog.replaceCloudState(state, resources: [resource], info: canonicalInfo)
+
+        var staleInfo = canonicalInfo
+        staleInfo.remoteWorkspaces = [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "old-name", index: 0, focused: false),
+            SurfaceRemoteWorkspace(id: "removed", name: "removed", index: 1, focused: false),
+        ]
+        catalog.updateMachine(staleInfo, from: provider)
+
+        #expect(catalog.cloudStates[machine] == state)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces == [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "Renamed", index: 0, focused: true),
+        ])
+        #expect(catalog.snapshot.resources(on: machine).contains { $0.id.key == "term_main" })
+    }
+
 }
 
 // MARK: - Optimistic layout open (https://github.com/manaflow-ai/cmux/issues/12537)

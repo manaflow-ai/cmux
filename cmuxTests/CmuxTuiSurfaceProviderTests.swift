@@ -301,6 +301,8 @@ import Testing
         var inconsistent = resource
         inconsistent["key"] = "stale-key"
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: inconsistent, machine: "vivid-newt") == "term_build")
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: ["id": "other/terminal/term_build", "key": "term_build"], machine: "vivid-newt") == nil)
 
         // A catalog key must be a key, never a complete resource id. A malformed
         // explicit key must fall back to the canonical id, or fail closed when no
@@ -319,10 +321,16 @@ import Testing
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]], tabID: "tab_a") == .resolved(terminalID: "term_build", tabID: "tab_a"))
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]], tabID: "tab_missing") == .notFound)
 
+        let nullViews: [String: Any] = [
+            "machine": "vivid-newt", "kind": "terminal", "key": "term_build",
+            "remote_views": NSNull(), "remote_workspace": ["id": "ws_main"],
+        ]
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [nullViews]]) == .unavailable)
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
 
         let legacy = [
             "id": "vivid-newt/terminal/term_legacy",
+            "kind": "terminal",
             "key": "term_legacy",
             "remote_workspace": ["id": "ws_main", "name": "main"],
         ] as [String: Any]
@@ -616,9 +624,9 @@ import Testing
         )
         #expect(
             CmuxTuiSurfaceProvider.privateBrowserURL(
-                "http://0.0.0.0:3000/path",
-                privateAddress: "10.16.4.9"
-            ) == "http://10.16.4.9:3000/path"
+                "http://[::1]:5173/docs?q=one#result",
+                privateAddress: "[fd98:deb9:4c94::8]"
+            ) == "http://[fd98:deb9:4c94::8]:5173/docs?q=one#result"
         )
         #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
         #expect(
@@ -1168,6 +1176,94 @@ import Testing
         let eof = CloudLinkFirstValue<String>()
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
+    }
+
+    @Test func linkCommandCarriesSecretInputThroughAPipe() async throws {
+        let link = CloudMachineLink(machineID: "test-machine", clientURL: URL(fileURLWithPath: "/bin/cat"), paths: CloudTuiClientPaths())
+        let payload = Data("private receiver wire\n".utf8)
+        #expect(try await link.run(arguments: [], input: payload) == payload)
+    }
+
+    @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-command-\(UUID().uuidString.lowercased()).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: URL(fileURLWithPath: "/bin/sh"),
+            paths: CloudTuiClientPaths()
+        )
+        let task = Task {
+            try await link.run(
+                arguments: ["-c", "echo $$ > '\(pidFile.path)'; exec /bin/sleep 30"],
+                timeout: .seconds(60)
+            )
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try #require(Int32(rawPID))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link command must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link command returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("link.pid")
+        try #require(Darwin.mkfifo(pidFile.path, 0o600) == 0)
+        let readyFD = Darwin.open(pidFile.path, O_RDWR | O_NONBLOCK)
+        try #require(readyFD >= 0)
+        let readyHandle = FileHandle(fileDescriptor: readyFD, closeOnDealloc: true)
+        defer {
+            readyHandle.readabilityHandler = nil
+            try? readyHandle.close()
+        }
+        var readyLines = CloudLinkPipe.lines(from: readyHandle).makeAsyncIterator()
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        echo $$ > '\(pidFile.path)'
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        let task = Task {
+            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
+        }
+        defer { task.cancel() }
+        let readyPID = try #require(await readyLines.next())
+        let pid = try #require(Int32(readyPID))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link connect must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
     }
 
     @Test func linkClientExitingBeforeItsSocketLineReportsTheExitNotATimeout() async throws {

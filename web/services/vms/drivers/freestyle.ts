@@ -66,6 +66,7 @@ import {
   cmuxTuiAgentHooksInstallCommand,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
+  cmuxTuiPublicClientCommand,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
   cmuxTuiPinCheckCommand,
@@ -1000,6 +1001,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
+            await this.execOrThrow(vm, vmId, cmuxTuiPublicClientCommand(), 60_000);
             await this.installGuestCli(vm, vmId, options.promptIdentity);
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
@@ -1379,6 +1381,14 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
           });
+          try {
+            await this.execOrThrow(vm, vmId, cmuxTuiPublicClientCommand(), 60_000);
+          } catch (err) {
+            await vm.delete().catch((cleanupErr) => {
+              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
+            });
+            throw err;
+          }
           // The snapshot carries the installed binary and a persisted
 
           // model-plane file with placeholders only. The guest adapter is a
@@ -1444,7 +1454,7 @@ export class FreestyleProvider implements VMProvider {
           const promptSetup = options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "";
           let bundleResult = await this.execResult(
             vm,
-            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
+            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: `( ${freestyleDaemonSettledCommand()} ) && ${cmuxTuiPublicClientCommand()}`, deviceFingerprint: fingerprint }),
             DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
           );
           let healed = false;
@@ -1650,6 +1660,7 @@ export class FreestyleProvider implements VMProvider {
     if (installGuestCli) await this.installGuestCli(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) {
+      await this.execOrThrow(vm, vmId, cmuxTuiPublicClientCommand(), 60_000);
       await this.ensureAgentHooks(vm, vmId);
       return;
     }
@@ -1660,6 +1671,8 @@ export class FreestyleProvider implements VMProvider {
         .catch((err: unknown) => {
           throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
         });
+    } else {
+      await this.execOrThrow(vm, vmId, cmuxTuiPublicClientCommand(), 60_000);
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);

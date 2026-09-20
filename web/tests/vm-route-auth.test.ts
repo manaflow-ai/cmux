@@ -1757,7 +1757,7 @@ describe("VM REST auth", () => {
   });
 
   test("attach-endpoint routes transport=cmux-remote to the cmux-tui workflow with the caller's device", async () => {
-    getUser.mockResolvedValue(authedStackUser());
+    getUser.mockResolvedValue(stackUserForPlan("team", 4));
     const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
     runVmWorkflow.mockResolvedValue({
       transport: "cmux-remote",
@@ -1783,8 +1783,8 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
-      callerPlanId: "pro",
-      maxActiveVms: 50,
+      callerPlanId: "team",
+      maxActiveVms: 200,
     });
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
@@ -1911,7 +1911,7 @@ describe("VM REST auth", () => {
   });
 
   test("passes the selected Stack team to VM child route workflows", async () => {
-    getUser.mockResolvedValue(authedStackUser());
+    getUser.mockResolvedValue(stackUserForPlan("team", 4));
     const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
 
     runVmWorkflow.mockResolvedValue({
@@ -1997,9 +1997,9 @@ describe("VM REST auth", () => {
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
-      callerPlanId: "pro",
+      callerPlanId: "team",
+      maxActiveVms: 200,
       command: "true",
-      maxActiveVms: 50,
       timeoutMs: 30_000,
     });
   });
@@ -2766,8 +2766,8 @@ function freePlanStackUser() {
   return stackUserForPlan("free");
 }
 
-function stackUserForPlan(plan: string | undefined) {
-  const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan } : {};
+function stackUserForPlan(plan: string | undefined, seats?: number) {
+  const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan, ...(seats === undefined ? {} : { cmuxSeats: seats }) } : {};
   return {
     id: "user-1",
     ...(plan === "max" ? { clientReadOnlyMetadata: { cmuxVmPlan: "max" } } : {}),

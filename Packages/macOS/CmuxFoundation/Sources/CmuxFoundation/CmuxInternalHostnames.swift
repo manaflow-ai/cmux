@@ -100,8 +100,19 @@ public enum CmuxInternalHostnames {
     /// sometimes works is worse than one that always does. An IPv6 literal is
     /// bracketed the way every URL scheme requires.
     public static func directPortURL(privateAddress: String, port: Int) -> String {
-        let bracketed = privateAddress.contains(":") ? "[\(privateAddress)]" : privateAddress
-        return "http://\(bracketed):\(port)"
+        "http://\(urlHost(privateAddress: privateAddress)):\(port)"
+    }
+
+    /// Formats an IP literal for a URL or `URLComponents.host`.
+    ///
+    /// - Parameter privateAddress: An IPv4 or IPv6 literal, optionally bracketed.
+    /// - Returns: IPv4 unchanged, or IPv6 enclosed in exactly one pair of brackets.
+    public static func urlHost(privateAddress: String) -> String {
+        guard privateAddress.contains(":") else { return privateAddress }
+        if privateAddress.hasPrefix("["), privateAddress.hasSuffix("]") {
+            return privateAddress
+        }
+        return "[\(privateAddress)]"
     }
 
     /// Render entries as the managed block's body (no markers): one `ip host`

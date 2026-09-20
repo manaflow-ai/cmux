@@ -650,3 +650,7 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 ### Pricing is flat
 
 Go includes one active VM with the starter resource shape. Pro and Max include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with independent CPU, memory, and disk for each VM. Go is capped by active VM count until usage metering is added. There is no overage billing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. Legacy resource metadata does not block new machines or consume another machine's capacity.
+
+### Public cmux-tui command
+
+The public `/usr/local/bin/cmux-tui` command is an atomic executable copy of the selected daemon binary. The shared layout selector supports both current work-user images and legacy images whose binary remains under private `/root`. Create, restore, attach, and recovery repair older symlinks without changing the image or daemon identity. Image verification checks the command as the current work user.

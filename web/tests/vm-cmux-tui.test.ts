@@ -99,7 +99,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`wget -q -O "$CMUX_TUI_TMP" '${URL}'`);
     expect(command).toContain(`'${SHA}' "$CMUX_TUI_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
-    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" /usr/local/bin/cmux-tui');
+    expect(command).not.toContain("ln -sfn");
+    expect(command).toContain('cp "$CMUX_TUI_BIN"');
     // Only the nodes the install created; never a walk of the state tree.
     expect(command).toContain('chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" "$CMUX_TUI_BIN"');
     expect(command).not.toContain("chown -R");
