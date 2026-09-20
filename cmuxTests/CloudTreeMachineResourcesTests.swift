@@ -42,6 +42,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.memory.percent == 50)
         #expect(resources.disk.percent == 75)
         #expect(resources.cpu.value == (0.094).formatted(.percent.precision(.fractionLength(0))))
+        #expect(resources.cpu.detail == "CPU 9%")
         #expect(resources.memory.detail.contains("2/4"))
         #expect(resources.disk.detail.contains("3/4"))
     }
@@ -52,7 +53,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(rows[1].detail == "2/4 GB (50%)")
         #expect(rows[2].detail == "3/4 GB (75%)")
         let asleep = CloudTreeMachineResourceSection(machine: machine(state: .asleep), now: Self.sampleTime).rows
-        #expect(asleep[0].detail == "Asleep")
+        #expect(asleep[0].detail == "4 vCPU · Asleep")
     }
 
     @Test("Resource readings cannot be selected and keyboard navigation skips them")
@@ -167,6 +168,36 @@ struct CloudTreeMachineResourcesTests {
             now: Self.sampleTime
         )
         #expect(future.availability == .unavailable)
+    }
+
+    @Test func dimensionsOnlyResponseRetainsProvisionedCapacity() {
+        var snapshot = machine()
+        snapshot.stats = VMStats(json: [
+            "state": "awake", "sampledAt": Self.sampleTime.timeIntervalSince1970 * 1000,
+            "cpus": 4, "memoryTotalMb": 8192, "diskTotalMb": 32768
+        ], now: Self.sampleTime)
+        let resources = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
+        #expect(resources.availability == .unavailable)
+        #expect(resources.cpu.inlineDetail == "4 vCPU · Unavailable")
+        #expect(resources.memory.inlineDetail == "8 GB total · Unavailable")
+        #expect(resources.disk.inlineDetail == "32 GB total · Unavailable")
+        #expect(resources.cpu.percent == nil)
+        #expect(resources.memory.percent == nil)
+        #expect(resources.disk.percent == nil)
+    }
+
+    @Test func failedPollClearsGaugesAndKeepsConfirmedCapacity() {
+        var snapshot = machine()
+        snapshot.stats = .unavailable(preservingCapacityFrom: snapshot.stats, at: Self.sampleTime)
+        let resources = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
+        #expect(resources.availability == .unavailable)
+        #expect(resources.cpu.inlineDetail == "4 vCPU · Unavailable")
+        #expect(resources.memory.inlineDetail.contains("4 GB total"))
+        #expect(resources.disk.inlineDetail.contains("4 GB total"))
+        #expect(resources.cpu.percent == nil)
+        #expect(resources.memory.percent == nil)
+        #expect(resources.disk.percent == nil)
+        #expect(snapshot.stats?.resourceSampledAt == nil)
     }
 
     /// Existing stats and resize replies can carry real gauges with only sampledAt.
