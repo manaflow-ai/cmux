@@ -148,6 +148,7 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         old_websockify = Process()
         new_websockify = Process()
         service.processes[number] = [x_server]
+        service.named_processes[number] = {"xvnc": x_server, "dbus": Process()}
         service.websockify_processes[number] = old_websockify
         environment = {"DISPLAY": ":2"}
         runtime = self.root / "runtime" / "2"
