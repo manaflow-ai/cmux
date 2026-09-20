@@ -5,6 +5,7 @@
   },
   "guestCLI": {
     "welcomeUsage": "使い方: cmux welcome\n\ncmux Cloud ガイドをもう一度表示します。`--auto` は最初の対話端末だけが使います。",
+    "welcomeOption": "cmux welcome: 不明なオプション %s\n\n使い方: cmux welcome",
     "welcomeIntro": "  cmux Cloud へようこそ\n  1 台のマシンに複数のワークスペースと端末を置けます。\n  このガイドはオフラインで表示され、最後にシェルを開きます。",
     "welcomeCodeRouter": "\n  CodeRouter とエージェント\n  モデルアクセスはルーティングされます。アカウント設定は Mac で行います。\n  ここで確認: cmux auth status --json\n  アカウント: cmux coderouter accounts\n  試す: cmux coderouter status | cmux coderouter models |\n       cmux coderouter usage\n  ここで実行: cmux agent codex -- \"このチェックアウトを確認\"\n  Mac では cmux auth login と cmux coderouter claude ... を使い、\n  VM にトークンをコピーしないでください。",
     "welcomeWorkspaces": "\n  ワークスペースと端末\n  1 台のマシンに複数のワークスペースと長時間動く端末を置けます。\n  Mac のペインを閉じても表示だけが閉じ、リモート作業は続きます。\n  pause は計算を停止し、resume は保存済みのファイルと配置を残します。\n  マシンの削除は破壊的です。保持はプランに従います。",

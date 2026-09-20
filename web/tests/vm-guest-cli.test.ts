@@ -241,6 +241,10 @@ esac
       expect(replay.stdout).toContain("Welcome to cmux Cloud");
       expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(true);
 
+      const invalid = runShimInDirectory(directory, ["welcome", "--bad-option"]);
+      expect(invalid.status).toBe(2);
+      expect(invalid.stderr).toContain("unknown option --bad-option");
+
       const fork = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1", CMUX_VM_ID: "forked-vm" });
       expect(fork.status).toBe(0);
       expect(fork.stdout).toContain("Welcome to cmux Cloud");

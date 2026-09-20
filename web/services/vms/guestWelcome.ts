@@ -6,6 +6,8 @@
  * can accept input.  The state machine is kept here so the guest command and
  * its automatic first-use wrapper share one implementation.
  */
+export const GUEST_CMUX_WELCOME_IDENTITY_PATH = "/etc/cmux/.cloud-welcome-machine-id";
+
 export const GUEST_CMUX_WELCOME_SHELL = `guest_welcome_display_available() {
   [ -n "\${DISPLAY:-}" ] && return 0
   [ -r /run/cmux-desktop/env ] && return 0
@@ -65,6 +67,12 @@ guest_welcome_auto() {
       cmux_welcome_identity="\$(sed -n "s/^export CMUX_VM_ID='\\([^']*\\)'$/\\1/p" "\$cmux_welcome_env" | head -n 1)"
       [ -n "\$cmux_welcome_identity" ] && break
     done
+  fi
+  if [ -z "\$cmux_welcome_identity" ] && [ -r ${GUEST_CMUX_WELCOME_IDENTITY_PATH} ]; then
+    cmux_welcome_identity="\$(cat ${GUEST_CMUX_WELCOME_IDENTITY_PATH} 2>/dev/null | head -n 1)"
+  fi
+  if [ -z "\$cmux_welcome_identity" ] && [ -r /etc/cmux/.prompt-identity ]; then
+    cmux_welcome_identity="\$(sed -n 's/.*"machineId"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' /etc/cmux/.prompt-identity | head -n 1)"
   fi
   [ -n "\$cmux_welcome_identity" ] || cmux_welcome_identity=unknown
   mkdir -p "\$cmux_welcome_state" 2>/dev/null || return 0

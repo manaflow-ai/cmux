@@ -55,6 +55,7 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
+import { GUEST_CMUX_WELCOME_IDENTITY_PATH } from "../guestWelcome";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -1720,7 +1721,7 @@ export class FreestyleProvider implements VMProvider {
 
   private async ensureGuestCli(vm: Vm, vmId: string): Promise<void> {
     const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand}`);
+    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && test "$(cat '${GUEST_CMUX_WELCOME_IDENTITY_PATH}' 2>/dev/null)" = ${shellQuote(vmId)}`);
     if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
   }
 
@@ -1733,10 +1734,12 @@ export class FreestyleProvider implements VMProvider {
    */
   private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
+    const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp' && mv -f '${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
         command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+          + ` && ${identityInstall}`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
