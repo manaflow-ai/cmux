@@ -67,3 +67,4 @@ struct CmuxTopProcessInfo: Sendable {
         return processGroupID == terminalProcessGroupID
     }
 }
+

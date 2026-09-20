@@ -1,6 +1,5 @@
 import CmuxFoundation
 import CMUXAgentLaunch
-import CmuxFoundation
 import Foundation
 
 extension Workspace {
