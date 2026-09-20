@@ -104,6 +104,20 @@ class AdapterTests(unittest.TestCase):
     def ci_data(self):
         return json.loads((ROOT / "examples/ci-input.json").read_text())
 
+    def test_assess_cli_rejects_zero_executed_tests(self):
+        completed = subprocess.run(
+            ["python3", str(REPO / "scripts/verification_receipt.py"), "assess",
+             str(ROOT / "fixtures/zero-tests.json")], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 1)
+        self.assertEqual(a.check(json.loads(completed.stdout), "tests")["status"], "failed")
+
+    def test_assessment_is_idempotent(self):
+        for path in sorted((ROOT / "fixtures").glob("*.json")):
+            with self.subTest(path=path.name):
+                original = json.loads(path.read_text())["receipt"]
+                once = copy.deepcopy(a.assess(original))
+                self.assertEqual(a.assess(copy.deepcopy(once)), once)
+
     def test_ci_zero_tests_does_not_inherit_provider_green(self):
         data = self.ci_data()
         data["log"] = data["log"].replace("Ran 3 tests", "Ran 0 tests")
