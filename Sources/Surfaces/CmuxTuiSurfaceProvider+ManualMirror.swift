@@ -52,6 +52,7 @@ extension CmuxTuiSurfaceProvider {
             resourceID: resource.id, remoteTabID: remoteTabID,
             materializedPlacement: resolved.placement, catalog: catalog
         ) ?? resolved.placement
+        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,

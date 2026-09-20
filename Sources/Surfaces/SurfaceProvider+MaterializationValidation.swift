@@ -38,6 +38,12 @@ extension SurfaceProvider {
                 // failure card and explicit retry. No local replacement is born.
                 projectionDidEnd(projection)
                 reservation.inputRelay.discard()
+            } else if let loadingReservation, projection.panelID == loadingReservation.panelID {
+                projectionDidEnd(projection)
+                guard let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
+                      workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) else {
+                    discardMaterialization(projection)
+                }
             } else {
                 discardMaterialization(projection)
             }
