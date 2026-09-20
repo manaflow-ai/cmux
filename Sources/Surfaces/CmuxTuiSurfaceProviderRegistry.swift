@@ -16,7 +16,7 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
-    private let links: CloudMachineLinkManager
+    let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -29,10 +29,11 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private var networkObserver: CloudReadRecoveryObserver?
     private var featureFlagObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
-    private let isCloudEnabled: @MainActor () -> Bool
+    let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void
@@ -51,10 +52,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// carries the epoch it was registered with and a stale one is dropped:
     /// without this, a `DisableCloud` teardown that lands just after the
     /// policy lifts would clear the freshly restarted registry.
-    private var accessEpoch: UInt64 = 0
+    var accessEpoch: UInt64 = 0
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
-    private var isRetired = true
+    var isRetired = true
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
@@ -161,6 +162,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
+        }
+        networkObserver = CloudReadRecoveryObserver(notificationCenter: notificationCenter) { [weak self] in
+            guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
+            _ = await self.refresh(force: false)
         }
         syncPollingToActivationPolicy()
     }
@@ -354,42 +359,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
     }
 
-    /// The headless link's local mux socket for a machine, connecting if needed.
-    func linkSocketPath(machineID: String) async throws -> (socketPath: String, session: String) {
-        guard isCloudEnabled() else {
-            throw CloudMachineLinkManager.ManagerError.retryLater(String(
-                localized: "cloud.feature.disabled",
-                defaultValue: "Cloud Machines are temporarily unavailable."
-            ))
-        }
-        let connected = try await links.connected(machineID: machineID)
-        return (connected.socketPath, connected.session)
-    }
-
-    func privateRoute(machineID: String) async -> String? {
-        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
-            return nil
-        }
-        let epoch = accessEpoch
-        // The persisted device marker outlives this in-memory registry. An
-        // explicit open must discover its machine before using the saved-device
-        // shortcut, even when the first background fleet read has not run.
-        guard await providerRefreshingIfMissing(machineID: machineID) != nil else { return nil }
-        let route = await links.privateRoute(for: machineID)
-        guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
-        return route
-    }
-
-    func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
-        guard isCloudEnabled() else {
-            throw CloudMachineLinkManager.ManagerError.retryLater(String(
-                localized: "cloud.feature.disabled",
-                defaultValue: "Cloud Machines are temporarily unavailable."
-            ))
-        }
-        return try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
-    }
-
     /// Cancels Cloud-only transport work when the remote gate closes while
     /// retaining providers, catalog resources, and persisted pane identities.
     /// Re-enabling the gate reuses those providers on the next discovery pass.
@@ -471,6 +440,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func accessDidEnd() async {
+        networkObserver = nil
         isRetired = true
         accessEpoch &+= 1
         refreshGeneration &+= 1
