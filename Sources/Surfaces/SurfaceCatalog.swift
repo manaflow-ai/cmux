@@ -910,7 +910,8 @@ final class SurfaceCatalog {
         if inFlight.pendingAcknowledgements.isEmpty {
             inFlightProjects[key] = nil
             inFlight.completionCleanupTask?.cancel()
-            if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
+            let transferred = inFlight.completionOwnsProjection && transferCompletionOwnership(for: inFlight.completedProjection!)
+            if inFlight.completionOwnsProjection && !transferred { cleanupRecordedMaterialization(inFlight) }
         } else {
             inFlightProjects[key] = inFlight
         }
@@ -922,7 +923,8 @@ final class SurfaceCatalog {
               inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
-        if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
+        let transferred = inFlight.completionOwnsProjection && transferCompletionOwnership(for: inFlight.completedProjection!)
+        if inFlight.completionOwnsProjection && !transferred { cleanupRecordedMaterialization(inFlight) }
     }
 
     private func completedMaterializationCleanupTask(key: MaterializationKey, token: UUID) -> Task<Void, Never> {
@@ -946,16 +948,13 @@ final class SurfaceCatalog {
               !inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
-        if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
+        let transferred = inFlight.completionOwnsProjection && transferCompletionOwnership(for: inFlight.completedProjection!)
+        if inFlight.completionOwnsProjection && !transferred { cleanupRecordedMaterialization(inFlight) }
     }
 
-    private func completionKeys(for projection: SurfaceProjection) -> [MaterializationKey] {
-        inFlightProjects.compactMap { key, inFlight in
-            guard let completed = inFlight.completedProjection,
-                  completed.resource == projection.resource, completed.panelID == projection.panelID else { return nil }
-            return key
-        }
-    }
+    private func completionKeys(for projection: SurfaceProjection) -> [MaterializationKey] { inFlightProjects.compactMap { key, inFlight in guard let completed = inFlight.completedProjection, completed.resource == projection.resource, completed.panelID == projection.panelID else { return nil }; return key } }
+
+    private func transferCompletionOwnership(for projection: SurfaceProjection) -> Bool { guard let sibling = completionKeys(for: projection).first else { return false }; inFlightProjects[sibling]?.completionOwnsProjection = true; return true }
 
     private func cleanupRecordedMaterialization(_ materialization: SurfaceProjectionMaterialization) {
         guard let projection = materialization.completedProjection else { return }

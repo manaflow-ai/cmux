@@ -281,6 +281,10 @@ extension TerminalController {
         }
         let previousBinding = workspace.cloudVMBinding
         let sameMachine = previousBinding?.vmID == vmID
+        if !sameMachine, previousBinding != nil,
+           workspace.panels.values.contains(where: { $0 is CloudVMLoadingPanel }) {
+            return .err(code: "workspace_busy", message: "A Cloud machine is already being attached to this workspace.", data: ["workspace_id": workspaceId.uuidString])
+        }
         let isBase = v2Bool(params, "base") ?? (sameMachine ? (previousBinding?.isBase ?? false) : false)
         // Optional: which cmux-tui workspace on the machine this local workspace stands
         // for. A rebind that omits it keeps the recorded one (Base re-opens rebind).
