@@ -621,7 +621,7 @@ Config subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax for config files. When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated to validate multiple explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
+| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax and semantic cmux.json constraints (recognized paths, value types, enums, bounds, nested values, and project/global scope). When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated; `--scope global\|project` overrides scope inference for explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
 | `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
 | `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
@@ -636,7 +636,10 @@ Config subcommands:
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
-`message` and `bytes`.
+`message` and `bytes`. A finding that fails semantic validation also includes
+`issues`, an array of objects with a `path` string (a JSON path into the file
+such as `$.app.appearance`) and a localized `message` string. `issues` is absent
+when there are none.
 
 Events command:
 

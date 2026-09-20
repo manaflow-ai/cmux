@@ -11,7 +11,7 @@ Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.s
 
 ## Helper script
 
-Use the bundled helper for every read/write. It strips JSONC comments, writes atomically, and validates keys against the schema.
+Use the bundled helper for every read/write. It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically only after semantic validation passes.
 
 ```bash
 skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux checkout
@@ -29,10 +29,10 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 | `cmux-settings set <a.b.c> <value>` | Set value. `<value>` is parsed as JSON (`true`, `42`, `"text"`, `[…]`, `{…}`); unquoted plain words are stored as strings. |
 | `cmux-settings unset <a.b.c>` | Delete key, reverting to the in-app default. |
 | `cmux-settings list-supported` | List every settings JSON path the app recognizes. |
-| `cmux-settings validate` | Parse the file and flag unknown settings keys. |
+| `cmux-settings validate` | Run the same semantic validation as `cmux config validate` (unknown paths, types, enums, bounds, nested constraints, and config scope). |
 | `cmux-settings open` | Open `cmux.json` in `$EDITOR`, VS Code, Cursor, or TextEdit. |
 
-`--file <path>` overrides the target file, useful for `--file ~/.config/cmux/settings.json`.
+`--file <path>` overrides the target file. Scope is inferred from the real global paths and the project config discovered from the current directory; use `--scope global|project` to override that inference for an arbitrary file.
 
 ## Workflow
 
@@ -66,7 +66,7 @@ Full list of settings, defaults, and descriptions: `cmux-settings list-supported
 
 - Only edit `cmux.json`. Never `settings.json` unless the user explicitly asks; it is legacy and read only when a key is absent from `cmux.json`.
 - Never tell the user to restart cmux. The file watcher reloads on save.
-- Always `cmux-settings validate` after a bulk edit. Unknown keys mean the user pasted a key the app does not consume.
+- Always `cmux-settings validate` after a bulk edit. Validation errors include the exact config path and violated constraint.
 - Do not blindly overwrite `actions`, `ui`, `commands`, `vault`, or `rightSidebar`; they share the file and hold hand-tuned non-settings config.
 - Shortcut action ids must match the schema enum. Look them up before binding.
 - Colors are `#RRGGBB`; opacities are `0..1`.

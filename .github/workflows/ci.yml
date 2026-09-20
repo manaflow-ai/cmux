@@ -269,6 +269,11 @@ jobs:
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
+      # The Swift validator reads the schema embedded in CmuxFoundation, so it
+      # must be regenerated whenever web/data/cmux.schema.json changes.
+      - name: Validate embedded cmux.json schema generation
+        run: python3 scripts/generate-cmux-config-schema.py --check
+
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
