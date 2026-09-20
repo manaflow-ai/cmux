@@ -19,6 +19,10 @@ struct CloudWorkspaceCreationSidebarTests {
             defer { fixture.close() }
             let originalIDs = Set(fixture.manager.tabs.map(\.id))
             var pendingID: UUID?
+            fixture.provider.beforeCreate = {
+                let created = fixture.manager.tabs.filter { !originalIDs.contains($0.id) }
+                #expect(created.count == 1, "The local Cloud pane must be admitted before remote creation returns")
+            }
             fixture.provider.beforeRefresh = {
                 let created = fixture.manager.tabs.filter { !originalIDs.contains($0.id) }
                 #expect(created.count == 1, "The left navigator must contain the new workspace before refresh returns")
@@ -120,8 +124,8 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
-    @Test("A provider error before local admission reaches the caller")
-    func preReservationProviderErrorPropagates() async throws {
+    @Test("A provider error after local admission reaches the caller and remains retryable")
+    func providerErrorAfterLocalAdmissionPropagates() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
@@ -134,8 +138,10 @@ struct CloudWorkspaceCreationSidebarTests {
                     name: nil, focus: false
                 )
             }
-            #expect(fixture.manager.tabs.count == 1)
-            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+            #expect(fixture.manager.tabs.count == 2)
+            let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+            #expect(operation.failure is CloudDiagnosticFailure)
+            #expect(operation.reservation != nil)
         }
     }
 

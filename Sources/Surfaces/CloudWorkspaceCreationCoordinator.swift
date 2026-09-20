@@ -100,6 +100,21 @@ final class CloudWorkspaceCreationCoordinator {
         catalog: SurfaceCatalog
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         try check(operation, catalog: catalog)
+        if let host = operation.host, operation.reservation == nil {
+            // Admit the local manual pane before the first remote await. It is
+            // the request's early-input owner while the daemon allocates the
+            // workspace and starter terminal behind it.
+            let reservation = try host.reserve(
+                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                machine: operation.machine,
+                focus: focus
+            )
+            operation.reservation = reservation
+            let operationID = operation.id
+            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+            catalog.notifyChange()
+            try check(operation, catalog: catalog)
+        }
         let receipt: SurfaceWorkspaceCreationReceipt
         if let retained = operation.receipt {
             receipt = retained
@@ -115,24 +130,26 @@ final class CloudWorkspaceCreationCoordinator {
             operation.ownsRemoteWorkspace = true
             operation.ownsRemoteTerminal = receipt.terminal != nil
         }
+        if let reservation = operation.reservation,
+           let host = operation.host {
+            let generatedTitle = CloudTreeNodeActions.localWorkspaceTitle(
+                hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
+                group: SurfaceResourceGroup(title: receipt.workspace.name, resources: [])
+            )
+            host.updateReservation(reservation, receipt: receipt, generatedTitle: generatedTitle, catalog: catalog)
+            catalog.bindCloudWorkspace(
+                localWorkspaceID: reservation.workspaceID,
+                machine: operation.machine,
+                remoteWorkspaceID: receipt.workspace.id,
+                generatedTitle: generatedTitle
+            )
+        }
         // Retain the provider's identity receipt before the next cancellation
         // fence. A provider may return a committed remote resource after the
         // task was cancelled; cleanup must still know exactly which IDs this
         // operation owns.
         operation.receipt = receipt
         try check(operation, catalog: catalog)
-        if let host = operation.host, operation.reservation == nil {
-            let title = CloudTreeNodeActions.localWorkspaceTitle(
-                hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
-                group: SurfaceResourceGroup(title: receipt.workspace.name, resources: [])
-            )
-            let reservation = try host.reserve(title: title, machine: operation.machine, receipt: receipt, focus: focus)
-            operation.reservation = reservation
-            let operationID = operation.id
-            reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
-            catalog.bindCloudWorkspace(localWorkspaceID: reservation.workspaceID, machine: operation.machine,
-                                       remoteWorkspaceID: receipt.workspace.id, generatedTitle: title)
-        }
         catalog.notifyChange()
         // Older daemons may supply a starter only through their first snapshot.
         // The native reservation is already visible while that discovery runs.
