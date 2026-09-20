@@ -83,6 +83,18 @@ grep -q '^cache-matched-key=family-tool-one$' <<<"$out" || fail "a prefix match 
 diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "prefix-restored contents differ"
 echo "PASS: a prefix restores the newest key without claiming an exact hit"
 
+# Extra tar padding must be consumed so a successful extraction cannot send
+# SIGPIPE to the decompressor under pipefail (notably with macOS bsdtar).
+if command -v zstd >/dev/null 2>&1; then
+  tar -cf "$WORK/padded.tar" -C "$WORK/src" .
+  dd if=/dev/zero bs=1024 count=256 >> "$WORK/padded.tar" 2>/dev/null
+  zstd -q "$WORK/padded.tar" -o "$NS/objects/padded-one.tar.zst"
+  out="$(output_of restore "$WORK/dst" padded-one)"
+  grep -q '^cache-hit=true$' <<<"$out" || fail "a padded archive must restore successfully"
+  diff -r "$WORK/src" "$WORK/dst" >/dev/null || fail "padded archive contents differ"
+  echo "PASS: padded archives restore without decompressor SIGPIPE"
+fi
+
 before="$(ls -l "$NS/objects/")"
 output_of save "$WORK/src" family-tool-one >/dev/null
 grep -q "already exists" "$WORK/log" || fail "saving an existing key must be skipped"
