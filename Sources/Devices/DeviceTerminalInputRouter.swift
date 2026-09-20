@@ -30,6 +30,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
     private var draining = false
     private var drainTask: Task<Void, Never>?
     private var invalidated = false
+    private var enabled = true
     private let pendingByteLimit = 256 * 1024
     private let send: @Sendable (Data) async throws -> Void
     private let onFailure: @Sendable (any Error) -> Void
@@ -47,7 +48,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
     func enqueue(_ input: TerminalManualInput) {
         guard case .bytes(let data) = input, !data.isEmpty else { return }
         queue.async { [self] in
-            guard !invalidated else { return }
+            guard !invalidated, enabled else { return }
             guard pending.count + data.count <= pendingByteLimit else {
                 onFailure(InputError.queueFull)
                 return
@@ -56,6 +57,17 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
             guard !draining else { return }
             draining = true
             drainTask = Task { await self.drain() }
+        }
+    }
+
+    /// Drops unsent keystrokes at disconnect; they must never replay after reconnecting.
+    func setEnabled(_ enabled: Bool) {
+        queue.async { [self] in
+            self.enabled = enabled
+            if !enabled {
+                pending.removeAll()
+                drainTask?.cancel()
+            }
         }
     }
 
@@ -70,7 +82,7 @@ final class DeviceTerminalInputRouter: @unchecked Sendable {
 
     private func takePending() -> Data? {
         queue.sync {
-            guard !invalidated, !pending.isEmpty else {
+            guard !invalidated, enabled, !pending.isEmpty else {
                 draining = false
                 drainTask = nil
                 return nil

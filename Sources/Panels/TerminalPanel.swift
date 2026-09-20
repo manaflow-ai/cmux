@@ -97,6 +97,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
+    var deviceAttachment: DeviceTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?

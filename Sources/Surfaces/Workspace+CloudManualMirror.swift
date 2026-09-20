@@ -26,6 +26,15 @@ extension Workspace {
         guard let panelID = try? insertCloudManualMirrorTab(panel, in: pane, focus: false, isLoading: false) else {
             return nil
         }
+        let status = DeviceTerminalAttachmentStatus()
+        panel.deviceAttachment = status
+        status.onChange = { [weak self] in self?.postRemoteConnectionPresentationDidChange() }
+        status.onRetry = { [weak self] in
+            guard let self, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
+                  let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) else { return }
+            Task { await provider.refresh(force: true) }
+        }
+        status.update(connected: false, connecting: false)
         applySessionPanelMetadata(snapshot, toPanelId: panelID)
         return panelID
     }

@@ -29,7 +29,7 @@ extension SurfaceCatalog {
             return
         }
         for workspace in cloudWorkspaceRenameService.environment.workspaces()
-            where workspace.cloudVMID == machine.cloudMachineID || projectedWorkspaceIDs.contains(workspace.id)
+            where (machine.cloudMachineID != nil && workspace.cloudVMID == machine.cloudMachineID) || projectedWorkspaceIDs.contains(workspace.id)
                 || workspace.cloudBindingState.projectedResources.values.contains(where: { $0.machine == machine }) {
             updateCloudDirectoryMetadata(in: workspace)
         }
@@ -44,10 +44,10 @@ extension SurfaceCatalog {
         // Saved projections establish ownership even before their provider rediscovers the resource.
         let projected = projectionRecords(forWorkspace: workspace.id).filter { !$0.resource.machine.isLocal }
         let resourcesByPanel = Dictionary(projected.map { ($0.panelID, $0.resource) }, uniquingKeysWith: { first, _ in first })
-        var machineIDs = Set(projected.compactMap { $0.resource.machine.cloudMachineID })
+        var machineIDs = Set(projected.map { $0.resource.machine.rawValue })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
-            (id, machines[.cloud(id)]?.name ?? id)
+            (id, machines[SurfaceMachineID(rawValue: id)]?.name ?? id)
         })
         let previous = workspace.cloudBindingState.projectedResources
         workspace.cloudBindingState.updateCatalogMetadata(resources: resourcesByPanel, machineNames: names)
@@ -59,8 +59,13 @@ extension SurfaceCatalog {
             let machine = projection.resource.machine
             let resource = resources[projection.resource]
             let current = cloudStateObservations[machine]?.freshness == .current
-            let directory = current && resource?.kind == .terminal
-                ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd : nil
+            let directory: String?
+            if machine.deviceInstance != nil {
+                directory = resource?.kind == .terminal ? resource?.detail : nil
+            } else {
+                directory = current && resource?.kind == .terminal
+                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd : nil
+            }
             if let directory, workspace.reportedPanelDirectory(panelId: projection.panelID) == directory { continue }
             workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: directory)
         }

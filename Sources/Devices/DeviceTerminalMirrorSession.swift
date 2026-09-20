@@ -23,13 +23,19 @@ final class DeviceTerminalMirrorSession {
         case stopped
     }
 
-    private let isConnected: @MainActor () -> Bool
+    private let isConnected: @MainActor @Sendable () -> Bool
     private let events: DeviceLinkTerminalEvents
     private let requestData: @MainActor @Sendable (String, [String: Any]) async throws -> Data
     let remoteWorkspaceID: String
     let remoteSurfaceID: UUID
     let inputRouter: DeviceTerminalInputRouter
-    private(set) var phase: Phase = .idle
+    let attachment: DeviceTerminalAttachmentStatus
+    private(set) var phase: Phase = .idle {
+        didSet {
+            inputRouter.setEnabled(phase == .attached)
+            attachment.update(connected: phase == .attached, connecting: phase == .attaching)
+        }
+    }
     private(set) var assignedGrid: (columns: Int, rows: Int)?
 
     private weak var surface: TerminalSurface?
@@ -53,7 +59,7 @@ final class DeviceTerminalMirrorSession {
         remoteWorkspaceID: String,
         remoteSurfaceID: UUID,
         events: DeviceLinkTerminalEvents,
-        isConnected: @escaping @MainActor () -> Bool,
+        isConnected: @escaping @MainActor @Sendable () -> Bool,
         requestData: @escaping @MainActor @Sendable (String, [String: Any]) async throws -> Data
     ) {
         self.remoteWorkspaceID = remoteWorkspaceID
@@ -61,8 +67,11 @@ final class DeviceTerminalMirrorSession {
         self.events = events
         self.isConnected = isConnected
         self.requestData = requestData
+        let attachment = DeviceTerminalAttachmentStatus()
+        self.attachment = attachment
         inputRouter = DeviceTerminalInputRouter(
             send: { @MainActor data in
+                guard attachment.isConnected, isConnected() else { throw DeviceLinkError.notConnected }
                 guard let text = String(data: data, encoding: .utf8) else { throw DeviceTerminalInputRouter.InputError.invalidEncoding }
                 let input: [String: Any] = [
                     "workspace_id": remoteWorkspaceID,
@@ -116,6 +125,11 @@ final class DeviceTerminalMirrorSession {
         inputRouter.invalidate()
         surface?.clearAssignedGrid()
         surface = nil
+    }
+
+    func retry() {
+        guard phase != .stopped else { return }
+        scheduleAttach()
     }
 
     // MARK: - Attach and bytes

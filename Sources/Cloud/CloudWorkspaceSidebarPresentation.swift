@@ -6,6 +6,16 @@ struct CloudWorkspaceSidebarPresentation {
     let machineLabel: String
     let directoryCandidates: [String]
 
+    @MainActor
+    static func deviceLabel(workspace: Workspace) -> String? {
+        let state = workspace.cloudBindingState
+        let machines = Set(state.projectedResources.values.map(\.machine).filter { $0.deviceInstance != nil })
+        guard !machines.isEmpty else { return nil }
+        let names = machines.sorted { $0.rawValue < $1.rawValue }.map { state.machineNames[$0.rawValue] ?? $0.rawValue }
+        return String.localizedStringWithFormat(
+            String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
+        )
+
     static var unavailableDirectory: String {
         String(localized: "sidebar.cloudWorkspace.directoryUnavailable", defaultValue: "Directory unavailable")
     }

@@ -222,6 +222,21 @@ final class DeviceSurfaceProvider: SurfaceProvider {
             session.stop()
             throw error
         }
+        if let workspace = Workspace.liveWorkspace(id: created.workspaceID),
+           let panel = workspace.terminalPanel(for: created.panelID) {
+            panel.deviceAttachment = session.attachment
+            session.attachment.onChange = { [weak workspace] in workspace?.postRemoteConnectionPresentationDidChange() }
+            session.attachment.onRetry = { [weak catalog, weak session, weak attachment = session.attachment, machine] in
+                Task { @MainActor in
+                    guard let provider = catalog?.provider(for: machine) else {
+                        attachment?.update(connected: false, connecting: false)
+                        return
+                    }
+                    await provider.refresh(force: true)
+                    session?.retry()
+                }
+            }
+        }
         session.bind(surface: created.surface)
         sessions[created.panelID] = session
         session.start()

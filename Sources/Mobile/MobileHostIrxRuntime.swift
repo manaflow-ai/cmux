@@ -59,6 +59,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     weak var outgoingDeviceClient: DeviceIrxClient?
     private var activePairingEnabled: Bool?
     private var activeDeviceCapabilities: [String] = []
+    private var deviceMetadataTask: Task<Void, Never>?
     private var authObservationTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
     private var shutdownTask: Task<Void, Never>?
@@ -228,10 +229,52 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func reconcile() async {
         let scope = wantsHost && isNetworkingAllowed ? auth?.authenticatedTeamScope : nil
         let permitted = scope == signingOutScope ? nil : scope
+        // Discoverability is signed metadata on the existing endpoint. A host
+        // toggle must not retire this Mac's independent outgoing device sessions.
+        if !requiresTransition, permitted != nil, permitted == activeScope,
+           (activePairingEnabled == pairingEnabled() || activeDeviceCapabilities != deviceCapabilities),
+           controlService != nil {
+            if activeDeviceCapabilities != deviceCapabilities {
+                await enforcePeerPermissions(token: generationToken)
+                updateDeviceHostingMetadata()
+            }
+            return
+        }
         guard requiresTransition || permitted != activeScope
                 || activePairingEnabled != pairingEnabled() || activeDeviceCapabilities != deviceCapabilities || (permitted != nil && controlService == nil && activationTask == nil)
                 || (permitted == nil && settingsPhase != .idle) else { return }
         await transition(to: permitted)
+    }
+
+    private func updateDeviceHostingMetadata() {
+        guard deviceMetadataTask == nil, let service = controlService else { return }
+        let token = generationToken
+        deviceMetadataTask = Task { @MainActor [weak self] in
+            defer {
+                if self?.generationToken == token { self?.deviceMetadataTask = nil }
+            }
+            while let self, self.isCurrent(token), !Task.isCancelled,
+                  (self.activeDeviceCapabilities != self.deviceCapabilities || self.activePairingEnabled != self.pairingEnabled()) {
+                let capabilities = self.deviceCapabilities
+                let pairing = self.pairingEnabled()
+                guard let metadata = await service.snapshot().cache.device?.descriptor.metadata else { return }
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                let next = V2DeviceMetadata(appVersion: metadata.appVersion,
+                    capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + capabilities,
+                    displayName: metadata.displayName, pairingEnabled: pairing,
+                    platform: metadata.platform, relayURLs: metadata.relayURLs)
+                do {
+                    try await service.updateMetadata(next)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.activeDeviceCapabilities = capabilities
+                    self.activePairingEnabled = pairing
+                    await self.enforcePeerPermissions(token: token)
+                } catch {
+                    Self.journal.record("v2-host", "hosting-metadata-failed", ["error": String(describing: type(of: error))])
+                    return
+                }
+            }
+        }
     }
 
     private func transition(to scope: AuthenticatedTeamScope?) async {
@@ -247,6 +290,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let oldRegistry = registry
         let oldLegacy = legacyService
         let oldRelayWatch = relayAddressWatch
+        deviceMetadataTask?.cancel(); deviceMetadataTask = nil
         activationTask?.cancel(); activationTask = nil
         controlTask?.cancel(); controlTask = nil
         endpointTask?.cancel(); endpointTask = nil
@@ -487,6 +531,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             guard isCurrent(token) else { return }
         }
         requestEndpointReady(token: token)
+        if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
         publishIrxSettingsUpdate()
     }
 
@@ -620,7 +665,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
               metadata.relayURLs != [relay], let service = controlService else { return }
         let next = V2DeviceMetadata(
             appVersion: metadata.appVersion,
-            capabilities: metadata.capabilities,
+            capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + deviceCapabilities,
             displayName: metadata.displayName,
             pairingEnabled: metadata.pairingEnabled,
             platform: metadata.platform,
@@ -639,7 +684,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func enforcePeerPermissions(token: UUID) async {
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
+        let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
+            $0.device.descriptor.metadata.platform == .mac
+        }.map { $0.device.descriptor.endpointID } ?? [])
+        let allowsMacAccess = MobileRemoteControlPolicy.allowsIncomingAccess()
         await registry.closeAll(code: .revoked, matching: { endpoint in
+            if !allowsMacAccess, macEndpoints.contains(endpoint) { return true }
             if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
                 return !list.isFresh(now: .now) || entry.revoked
                     || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true

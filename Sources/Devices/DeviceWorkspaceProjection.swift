@@ -56,7 +56,7 @@ struct DeviceWorkspaceProjection: Sendable {
                         workspace: workspace,
                         screenID: locations[terminal.id] == nil ? nil : record.id,
                         paneID: locations[terminal.id]?.paneID,
-                        name: nil,
+                        name: terminal.title,
                         index: locations[terminal.id]?.tabIndex ?? index,
                         focused: locations[terminal.id]?.isSelected ?? terminal.isFocused,
                         screenIndex: locations[terminal.id] == nil ? nil : 0,

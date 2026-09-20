@@ -413,7 +413,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         // Title line
         cloudImageView.configureSidebarWorkspaceAccessory(
-            symbol: "cloud", label: snapshot.cloudWorkspaceLabel,
+            symbol: snapshot.remoteWorkspaceBadgeSymbol, label: snapshot.remoteWorkspaceBadgeLabel,
             pointSize: model.scaled(10), tint: palette.secondary(0.7), weight: .regular
         )
         pinImageView.configureSidebarWorkspaceAccessory(

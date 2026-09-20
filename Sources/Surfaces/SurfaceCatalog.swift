@@ -120,7 +120,8 @@ final class SurfaceCatalog {
         // A pending rename is visible in the snapshot the moment it is admitted
         // and gone the moment it fails; local pane and workspace titles keep
         // their own provenance rules and follow the accepted graph.
-        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] _ in
+        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] machine in
+            self?.reconcileDeviceNames(on: machine)
             self?.notifyChange()
         }
     }
@@ -301,6 +302,7 @@ final class SurfaceCatalog {
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
         updateCloudDirectoryMetadata(on: machine)
+        reconcileDeviceNames(on: machine)
         notifyChange()
         return true
     }
