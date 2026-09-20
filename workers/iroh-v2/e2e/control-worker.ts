@@ -1,5 +1,6 @@
 import production, { TeamControl as ProductionTeamControl, UserUsage as ProductionUserUsage } from "../src/index";
 import type { Environment } from "../src/environment";
+import { TEAM_ID_STORAGE_KEY } from "../src/team-control";
 import { TeamStore } from "../src/storage/team-store";
 
 const TEAM_ID = "team-control";
@@ -57,6 +58,53 @@ export class TestTeamControl extends ProductionTeamControl {
         });
       }
     });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path === "/__test/retention/seed") {
+      const now = Math.floor(Date.now() / 1000);
+      const store = new TeamStore(this.ctx.storage, {
+        environment: this.env.ENVIRONMENT,
+        projectId: this.env.STACK_PROJECT_ID,
+        teamId: TEAM_ID,
+      }, { initialize: false });
+      await this.ctx.storage.put(TEAM_ID_STORAGE_KEY, TEAM_ID);
+      const identity = {
+        environment: this.env.ENVIRONMENT,
+        projectId: this.env.STACK_PROJECT_ID,
+        teamId: TEAM_ID,
+        userId: "retention-user",
+        deviceId: "retention-device",
+        appNamespace: "cmux",
+        buildTag: "test",
+      };
+      store.issueChallenge(identity, {
+        challengeId: "retention-expired",
+        nonceHash: "retention-expired-nonce",
+        payloadHash: "retention-expired-payload",
+        issuedAt: now - 120,
+        expiresAt: now - 60,
+      });
+      store.issueChallenge({ ...identity, deviceId: "retention-live-device" }, {
+        challengeId: "retention-live",
+        nonceHash: "retention-live-nonce",
+        payloadHash: "retention-live-payload",
+        issuedAt: now,
+        expiresAt: now + 60,
+      });
+      return Response.json({ now });
+    }
+    if (path === "/__test/retention/alarm") {
+      await this.alarm();
+      const store = new TeamStore(this.ctx.storage, {
+        environment: this.env.ENVIRONMENT,
+        projectId: this.env.STACK_PROJECT_ID,
+        teamId: TEAM_ID,
+      }, { initialize: false });
+      return Response.json({ nextExpiresAt: store.nextRetentionAt(), alarm: await this.ctx.storage.getAlarm() });
+    }
+    return super.fetch(request);
   }
 }
 

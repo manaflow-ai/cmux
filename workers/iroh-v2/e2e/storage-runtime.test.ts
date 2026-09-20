@@ -1,10 +1,13 @@
-import { expect, test, afterAll, beforeAll } from "bun:test";
+import { expect, test, afterAll, beforeAll, setDefaultTimeout } from "bun:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { join } from "node:path";
+
+setDefaultTimeout(30_000);
 
 let mf: Miniflare;
 let stub: DurableObjectStub;
 let migrationNamespace: DurableObjectNamespace;
+let retentionStub: DurableObjectStub;
 let workerRoot = "";
 let persistencePath = "";
 
@@ -12,6 +15,10 @@ const identity = { environment: "test", projectId: "iroh-v2-test", teamId: "team
 const descriptor = { identity, endpointId: "a".repeat(64), identityGeneration: 0, metadata: { platform: "mac", displayName: "Mac", appVersion: "1", pairingEnabled: true, capabilities: [], relayURLs: [] } };
 const post = async (path: string, body: unknown) => {
   const response = await stub.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
+  return { status: response.status, body: await response.json() as any };
+};
+const retentionPost = async (path: string, body: unknown) => {
+  const response = await retentionStub.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
   return { status: response.status, body: await response.json() as any };
 };
 const deviceKey = (character: string) => character.repeat(64);
@@ -28,6 +35,7 @@ beforeAll(async () => {
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
+  retentionStub = namespace.getByName("team-retention");
   migrationNamespace = await mf.getDurableObjectNamespace("MIGRATION");
 });
 
@@ -65,6 +73,50 @@ test("challenge expiry rejects at the exact deadline", async () => {
   const descriptor3 = { ...descriptor, identity: identity3, endpointId: "d".repeat(64) };
   expect((await post("/issue", { identity: identity3, issue: { challengeId: "c-exp", nonceHash: "n-exp", payloadHash: "p-exp", expiresAt: 6000, issuedAt: 5990 } })).status).toBe(200);
   expect((await post("/register", { input: { descriptor: descriptor3, challengeId: "c-exp", nonceHash: "n-exp", payloadHash: "p-exp", requestId: "r-exp", requestHash: "h-exp", now: 6000 } })).status).toBe(500);
+});
+
+test("retention removes expired challenge, proof replay, and authority rows", async () => {
+  const expiredIdentity = { ...identity, userId: "retention-expired-user", deviceId: "retention-expired-device" };
+  const expiredDescriptor = { ...descriptor, identity: expiredIdentity, endpointId: "e".repeat(64) };
+  expect((await retentionPost("/issue", {
+    identity: expiredIdentity,
+    issue: { challengeId: "retention-expired", nonceHash: "retention-expired-nonce", payloadHash: "retention-expired-payload", issuedAt: 90, expiresAt: 100 },
+  })).status).toBe(200);
+
+  const futureIdentity = { ...identity, userId: "retention-future-user", deviceId: "retention-future-device" };
+  const futureDescriptor = { ...descriptor, identity: futureIdentity, endpointId: "f".repeat(64) };
+  expect((await retentionPost("/issue", {
+    identity: futureIdentity,
+    issue: { challengeId: "retention-future", nonceHash: "retention-future-nonce", payloadHash: "retention-future-payload", issuedAt: 90, expiresAt: 6000 },
+  })).status).toBe(200);
+
+  const proofIdentity = { ...identity, userId: "retention-proof-user", deviceId: "retention-proof-device" };
+  const proofDescriptor = { ...descriptor, identity: proofIdentity, endpointId: "b".repeat(64) };
+  expect((await retentionPost("/issue", {
+    identity: proofIdentity,
+    issue: { challengeId: "retention-proof", nonceHash: "retention-proof-nonce", payloadHash: "retention-proof-payload", issuedAt: 90, expiresAt: 200 },
+  })).status).toBe(200);
+  expect((await retentionPost("/register", {
+    input: { descriptor: proofDescriptor, challengeId: "retention-proof", nonceHash: "retention-proof-nonce", payloadHash: "retention-proof-payload", requestId: "retention-proof-registration", requestHash: "retention-proof-request", now: 100 },
+  })).status).toBe(200);
+  expect((await retentionPost("/proof", {
+    input: { identity: proofIdentity, endpointId: proofDescriptor.endpointId, identityGeneration: 0, requestId: "retention-proof-request", issuedAt: 1000, now: 1000 },
+  })).status).toBe(200);
+  expect((await retentionPost("/authority/observe", { userId: "retention-authority-user", verifiedAt: 1000, expiresAt: 4600, now: 1000 })).status).toBe(200);
+
+  const before = await retentionPost("/retention/next", {});
+  expect(before.body.nextExpiresAt).toBe(100);
+  const pruned = await retentionPost("/retention", { now: 5000 });
+  expect(pruned.status).toBe(200);
+  expect(pruned.body.deleted).toBe(3);
+  expect(pruned.body.nextExpiresAt).toBe(6000);
+
+  expect((await retentionPost("/validate", {
+    input: { descriptor: expiredDescriptor, challengeId: "retention-expired", nonceHash: "retention-expired-nonce", payloadHash: "retention-expired-payload", requestId: "retention-expired-request", requestHash: "retention-expired-request-hash", now: 5000 },
+  })).body.code).toBe("challenge_missing");
+  expect((await retentionPost("/validate", {
+    input: { descriptor: futureDescriptor, challengeId: "retention-future", nonceHash: "retention-future-nonce", payloadHash: "retention-future-payload", requestId: "retention-future-request", requestHash: "retention-future-request-hash", now: 5000 },
+  })).status).toBe(200);
 });
 
 test("pending challenge replacement remains available at the storage cap", async () => {

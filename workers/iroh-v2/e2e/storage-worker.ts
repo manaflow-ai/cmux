@@ -50,6 +50,8 @@ export class StorageTestDO {
       if (path === "/receipt") return Response.json(this.team.findRegistrationReceipt(body.identity, body.requestId, body.requestHash));
       if (path === "/proof") { this.team.consumeDeviceProof(body.input); return Response.json({ ok: true }); }
       if (path === "/revoke") { return Response.json({ revision: this.team.revokeDevice(body.deviceRecordId, body.now, body.actorUserId) }); }
+      if (path === "/retention") return Response.json(this.team.pruneExpiredState(body.now, body.limit));
+      if (path === "/retention/next") return Response.json({ nextExpiresAt: this.team.nextRetentionAt() });
       if (path === "/usage") return Response.json(this.usage.consume(body.userId, body.operation, body.nowMs));
       if (path === "/socket/reserve") { this.sockets.reserveSocket(body.input); return Response.json({ ok: true }); }
       if (path === "/socket/output") { this.sockets.setOutput(body.userId, body.sessionId, body.revision, body.bytes, body.messages); return Response.json({ ok: true }); }
