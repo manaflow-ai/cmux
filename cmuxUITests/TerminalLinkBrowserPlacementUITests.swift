@@ -42,8 +42,6 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let app = XCUIApplication.cmuxTestApplication()
         application = app
         let stateURL = fixture.appendingPathComponent("state.json")
-        let commandURL = fixture.appendingPathComponent("command.json")
-        try Data("{}".utf8).write(to: commandURL)
         app.launchArguments += [
             "-socketControlMode", "allowAll",
             "-browserDisabledOverride", "NO",
@@ -62,7 +60,6 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = fixture.appendingPathComponent("socket.json").path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_PATH"] = stateURL.path
-        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"] = commandURL.path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FIXTURE_DIR"] = fixture.path
         app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = "url"
         // Do not install the URL-capture sink: the click must create a real browser.
@@ -95,12 +92,10 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let sourcePane = try XCTUnwrap(initial.first { $0["id"] as? String == source }?["pane_id"] as? String)
         attach(app, name: "\(placement)-before-terminal-link")
 
-        // The existing harness drives the production Cmd modifier and Ghostty
-        // mouse dispatch at a real URL cell, without intercepting the open action.
-        let clickID = UUID().uuidString
-        let command: [String: Any] = ["id": clickID, "action": "stationary_cmd_click_token"]
-        try JSONSerialization.data(withJSONObject: command).write(to: commandURL)
-        XCTAssertTrue(poll { self.readState(stateURL)["lastCommandId"] as? String == clickID })
+        // Without a command channel, the existing fixture stops after seeding
+        // the terminal. Drive the real pointer with Command held; no fixture
+        // poller can raise the terminal over Settings or steal subsequent focus.
+        try clickTerminalLink(app: app, state: readState(stateURL))
         XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 })
         XCTAssertEqual(try panes(workspace).count, expectedPanes)
         let clickedBrowser = try XCTUnwrap(try browsers(workspace).first)
@@ -169,6 +164,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     private func selectPlacementInSettings(_ placement: String, app: XCUIApplication) throws {
+        app.activate()
         _ = try rpc("settings.open", ["target": "browser", "activate": true])
         let settings = app.windows["cmux.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
@@ -193,6 +189,18 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         attach(app, name: "\(placement)-settings-picker")
         settings.typeKey("w", modifierFlags: .command)
         XCTAssertTrue(poll { !settings.exists })
+    }
+
+    private func clickTerminalLink(app: XCUIApplication, state: [String: Any]) throws {
+        let terminal = try XCTUnwrap(state["terminalFrameInWindow"] as? [String: Double])
+        let token = try XCTUnwrap(state["tokenHitPointInTerminal"] as? [String: Double])
+        let main = app.windows.matching(NSPredicate(format: "identifier BEGINSWITH %@", "cmux.main.")).firstMatch
+        XCTAssertTrue(main.waitForExistence(timeout: 5))
+        let x = try XCTUnwrap(terminal["x"]) + XCTUnwrap(token["x"])
+        let y = main.frame.height - (try XCTUnwrap(terminal["y"]) + XCTUnwrap(terminal["height"]))
+            + (try XCTUnwrap(token["y"]))
+        let target = main.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: y))
+        XCUIElement.perform(withKeyModifiers: .command) { target.click() }
     }
 
     private func rpc(_ method: String, _ params: [String: Any] = [:]) throws -> [String: Any] {

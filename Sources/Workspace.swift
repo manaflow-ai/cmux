@@ -9818,9 +9818,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
 
-        installBrowserPanelSubscription(browserPanel); reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "browserTabCreate")
+        installBrowserPanelSubscription(browserPanel)
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "browserTabCreate")
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
-
         return browserPanel
     }
 
@@ -12437,13 +12437,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = false
-
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
             if browserPanel.canvasInlineHostingActive { continue }
-            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id); browserPanel.noteWebViewVisibility(shouldBeVisible, reason: reason)
+            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            browserPanel.noteWebViewVisibility(shouldBeVisible, reason: reason)
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
             if shouldBeVisible {
