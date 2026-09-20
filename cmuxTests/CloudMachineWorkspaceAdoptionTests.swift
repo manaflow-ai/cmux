@@ -247,6 +247,36 @@ struct CloudMachineWorkspaceAdoptionTests {
         }
     }
 
+    @Test("Cancelling a mixed-content workspace fences its delayed attachment")
+    func mixedContentCancellationRejectsLateAttachment() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let catalog = makeCatalog(app.manager)
+            let provider = CloudMachineWorkspaceTestProvider()
+            catalog.register(provider)
+            defer { catalog.unregister(machine: provider.machine) }
+            try provider.install(in: catalog)
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            let other = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
+            let pane = try #require(pending.bonsplitController.allPaneIds.first)
+            let command = try #require(pending.newTerminalPanel(inPane: pane, focus: false, initialCommand: "echo first-command"))
+            catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
+            let entered = CloudLinkFirstValue<Bool>(), release = CloudLinkFirstValue<Bool>()
+            provider.beforeMaterialization = { entered.resolve(true); _ = await release.result }
+            let attachment = Task { try await open(pending, provider: provider, catalog: catalog) }
+            _ = await entered.result
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            release.resolve(true)
+            await #expect(throws: (any Error).self) { try await attachment.value }
+            #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
+            #expect(pending.cloudVMBinding == nil)
+            #expect(command.surface.initialCommand?.contains("first-command") == true)
+            #expect(other.panels.count == 1 && other.panels.values.first is CloudVMLoadingPanel)
+            #expect(catalog.projections.isEmpty)
+        }
+    }
+
     private func open(_ workspace: Workspace, provider: CloudMachineWorkspaceTestProvider, catalog: SurfaceCatalog) async throws -> SurfaceProjection {
         let resource = try #require(catalog.snapshot.resources(on: provider.machine).first)
         return try await catalog.project(resource.id, into: .workspace(id: workspace.id, placement: .split),
