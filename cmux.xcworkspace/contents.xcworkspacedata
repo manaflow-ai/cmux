@@ -154,6 +154,9 @@
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef
+         location = "group:CmuxComputerUse">
+      </FileRef>
+      <FileRef
          location = "group:CmuxControlSocket">
       </FileRef>
       <FileRef
