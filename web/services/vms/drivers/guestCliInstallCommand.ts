@@ -1,17 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { GUEST_BROWSER_FILES, guestBrowserInstallCommand } from "../guestBrowser";
-import type { GuestPromptIdentity } from "../guestPrompt";
+import { guestPromptInstallFiles, type GuestPromptIdentity } from "../guestPrompt";
 import { shellQuote } from "./cmuxTuiDaemon";
 
 const digest = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-const promptAsset = (name: string) => readFileSync(
-  fileURLToPath(new URL(`../images/devbox/${name}`, import.meta.url).toString()), "utf8",
-);
-const promptBash = promptAsset("cmux-prompt.bash");
-const promptBashrc = promptAsset("cmux-bashrc");
 const installPaths = [
   GUEST_CMUX_SHIM_PATH,
   ...GUEST_BROWSER_FILES.map(({ path }) => path),
@@ -269,10 +262,7 @@ export function guestCliInstallCommand(temporaryPath: string, identity?: GuestPr
   }
   const prompt = identity ? JSON.stringify({
     identity,
-    files: {
-      "prompt.bash": promptBash,
-      bashrc: promptBashrc,
-    },
+    files: guestPromptInstallFiles,
   }) : "";
   return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(guestBrowserInstallCommand())} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))}`;
 }

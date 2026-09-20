@@ -2665,8 +2665,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const leaseExpiresAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}'`;
       const nextAttemptAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}'`;
       const attempt = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}'`;
-      const [row] = await db
-        .update(cloudVms)
+      return await db.transaction(async (tx) => {
+        // Serialize claims for one row before the CAS update. The update
+        // predicates still fence stale leases, while this lock keeps two
+        // concurrent cron workers from both observing an eligible marker.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.id}, 0))`);
+        const [row] = await tx
+          .update(cloudVms)
         .set({
           providerMetadata: sql`(
             coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
@@ -2701,13 +2706,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             or (${leaseExpiresAtMs})::bigint <= ${input.now.getTime()}
           )`,
         ))
-        .returning({ providerMetadata: cloudVms.providerMetadata });
-      if (!row) return null;
-      const rawAttempt = row.providerMetadata[CREATE_CLEANUP_ATTEMPT_KEY];
-      const parsedAttempt = typeof rawAttempt === "number" && Number.isSafeInteger(rawAttempt)
-        ? rawAttempt
-        : Number.parseInt(String(rawAttempt ?? "1"), 10);
-      return { attempt: Number.isSafeInteger(parsedAttempt) && parsedAttempt > 0 ? parsedAttempt : 1 };
+          .returning({ providerMetadata: cloudVms.providerMetadata });
+        if (!row) return null;
+        const rawAttempt = row.providerMetadata[CREATE_CLEANUP_ATTEMPT_KEY];
+        const parsedAttempt = typeof rawAttempt === "number" && Number.isSafeInteger(rawAttempt)
+          ? rawAttempt
+          : Number.parseInt(String(rawAttempt ?? "1"), 10);
+        return { attempt: Number.isSafeInteger(parsedAttempt) && parsedAttempt > 0 ? parsedAttempt : 1 };
+      });
     }),
 
   deferCreateCleanup: (input) =>
