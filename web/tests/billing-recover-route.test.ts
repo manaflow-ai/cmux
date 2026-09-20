@@ -20,6 +20,7 @@ function dependencies(
   overrides: Partial<BillingRecoveryRouteDependencies> = {},
 ): BillingRecoveryRouteDependencies {
   return {
+    afterResponse: mock(() => undefined),
     recoverPaid: mock(async () => false),
     sendMagicLink: mock(async () => undefined),
     sendVerification: mock(async () => ({ delivery: "accepted" as const })),
