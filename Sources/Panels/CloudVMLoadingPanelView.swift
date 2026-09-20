@@ -7,7 +7,7 @@ struct CloudVMLoadingPanelView: View {
 
     var body: some View {
         if !panel.hasFailed,
-           let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+           let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.presentationWorkspaceID == panel.workspaceId }) {
             MachineCreateLoadingContent(operation: operation, actions: .bound(coordinator: .shared))
         } else {
             baseContent

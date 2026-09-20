@@ -9,7 +9,15 @@ extension Workspace {
         guard destination.workspaceID == id, let machineID,
               cloudVMBinding?.vmID == machineID else { return nil }
         let candidates = panels.values.compactMap { $0 as? CloudVMLoadingPanel }
-        return candidates.count == 1 ? candidates[0] : nil
+        guard candidates.count == 1, let loading = candidates.first else { return nil }
+        switch destination {
+        case .workspace:
+            return loading
+        case .tab(_, let paneID, _):
+            return paneId(forPanelId: loading.id)?.id.uuidString == paneID ? loading : nil
+        case .split:
+            return nil
+        }
     }
 
     /// Replaces a creating card with its attached terminal in the same native tab.
