@@ -255,8 +255,10 @@ final class MachineCreateCoordinator {
         // where they remain actionable.
         if let finished {
             switch finished.outcome {
-            case .created:
-                if !didSelectCreatedWorkspace {
+            case .created(_, let workspaceID):
+                let alreadyPresented = finished.operation.request.reservedWorkspaceID != nil
+                    && workspaceID != nil
+                if !didSelectCreatedWorkspace, !alreadyPresented {
                     notifier(MachineCreateNotice(finished: finished))
                 }
             case .createdButOpenFailed, .failed:
