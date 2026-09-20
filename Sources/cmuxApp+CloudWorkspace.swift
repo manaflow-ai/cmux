@@ -13,10 +13,6 @@ extension cmuxApp {
 
     /// Composes live authentication, authoritative fleet loading, and workspace projection.
     static func makeCloudWorkspaceCoordinator(auth: MacAuthComposition) -> CloudWorkspaceCoordinator {
-        // Keep the authoritative remote receipt across a failed local projection.
-        // A retry must reopen the same workspace/terminal rather than minting a
-        // second remote workspace while the daemon graph catches up.
-        var pendingReceipts: [String: (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource?)] = [:]
         return CloudWorkspaceCoordinator(
             defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
             allowsOperation: { CloudMachinesFeature.isEnabled && auth.accountFlow.isAuthenticated },
@@ -28,28 +24,22 @@ extension cmuxApp {
                 return page.vms.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.resolvedKind == .desktop) }
             },
             createWorkspace: { id, focus in
+                let host = AppDelegate.shared?.preferredMainWindowContextForWorkspaceCreation(
+                    debugSource: "cloud.workspace.create"
+                ).map { CloudWorkspaceCreationHost(manager: $0.tabManager) }
+                let accountID = auth.accountFlow.currentIdentity?.id
+                let teamID = auth.accountFlow.confirmedTeamID
                 guard let provider = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: id) else {
                     throw VMClientError.backendUnreachable(url: AuthEnvironment.apiBaseURL.absoluteString, detail: "Cloud machine provider unavailable")
                 }
                 try Task.checkCancellation()
-                guard CloudMachinesFeature.isEnabled, auth.accountFlow.isAuthenticated else { return nil }
-                let receipt = pendingReceipts[id]
+                guard CloudMachinesFeature.isEnabled, auth.accountFlow.isAuthenticated,
+                      accountID == auth.accountFlow.currentIdentity?.id,
+                      teamID == auth.accountFlow.confirmedTeamID else { return nil }
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(id), provider: provider, catalog: SurfaceCatalog.shared,
-                    name: nil, focus: focus,
-                    existingWorkspace: receipt?.workspace,
-                    existingTerminal: receipt?.terminal,
-                    onReceipt: { workspace, terminal in
-                        let previousTerminal = pendingReceipts[id]?.terminal
-                        pendingReceipts[id] = (workspace, terminal ?? previousTerminal)
-                    },
-                    onRollback: { remoteCleanupConfirmed in
-                        if remoteCleanupConfirmed {
-                            pendingReceipts[id] = nil
-                        }
-                    }
+                    name: nil, focus: focus, host: host, reuseFailedCreation: true
                 )
-                pendingReceipts[id] = nil
                 return result.opened?.workspaceID
             }
         )
