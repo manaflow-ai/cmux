@@ -18,6 +18,8 @@ from pathlib import Path
 
 import yaml
 
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
@@ -83,7 +85,19 @@ def merge_group_check_names() -> dict[str, list[str]]:
             condition = str(job.get("if", ""))
             if "merge_group" in condition and "!=" in condition:
                 continue
-            names.setdefault(str(job.get("name", job_id)), []).append(path.name)
+            name = str(job.get("name", job_id))
+            if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+                # This routing contract requires the metadata predicate to start
+                # with event_name == pull_request_target. On merge_group it is
+                # false, so the job runs with the required name. Validate the
+                # entire contract before interpreting this one dynamic name;
+                # changed/unknown expressions must not satisfy the queue guard.
+                try:
+                    validate_metadata_routing(document)
+                except (AssertionError, KeyError, TypeError):
+                    continue
+                name = REQUIRED_CHECK
+            names.setdefault(name, []).append(path.name)
     return names
 
 
