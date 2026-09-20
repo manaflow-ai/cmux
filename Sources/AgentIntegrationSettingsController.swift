@@ -90,8 +90,7 @@ struct AgentIntegrationSettingsController: Sendable {
                 ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
             if let diagnostics, !diagnostics.isEmpty {
                 agentIntegrationSettingsLogger.error(
-                    "Agent hook installer failed for \(integration.rawValue, privacy: .public): " +
-                    "\(diagnostics, privacy: .private)"
+                    "Agent hook installer failed for \(integration.rawValue, privacy: .public): \(diagnostics, privacy: .private)"
                 )
             }
             return AgentIntegrationActionResult(
