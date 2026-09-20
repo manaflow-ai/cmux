@@ -15,7 +15,7 @@ final class CloudPortsStatusContent: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let localPoint = convert(point, from: superview)
         guard !actionButton.isHidden, actionButton.frame.contains(localPoint) else { return nil }
-        return actionButton.hitTest(localPoint)
+        return actionButton
     }
 
     override init(frame frameRect: NSRect) {
