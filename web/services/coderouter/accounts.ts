@@ -1,3 +1,4 @@
+import type { CoderouterAccountAccess } from "./accountAccess";
 import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
@@ -122,9 +123,9 @@ export function createAccountRemover(dependencies: {
   readonly deleteLegacy: typeof deleteVaultCredential;
   readonly withLease: typeof withVaultLease;
   readonly report: typeof reportCoderouterFailure;
-}): (teamId: string, accountId: string, stackUserId?: string) => Promise<RemoveAccountResult> {
-  return async (teamId, accountId, stackUserId) => {
-    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId });
+}): (teamId: string, accountId: string, stackUserId?: string, access?: CoderouterAccountAccess) => Promise<RemoveAccountResult> {
+  return async (teamId, accountId, stackUserId, access) => {
+    const result = await dependencies.deleteRuntime({ teamId, accountId, stackUserId, ...(access ? { access } : {}) });
     if (!result.removed) return { ...result, legacyCleanupPending: false };
     try {
       // Temporary rollback copy only. This call disappears after the migration

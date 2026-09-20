@@ -233,7 +233,6 @@ ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
 ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
 ARG CMUX_IMAGE_PI_VERSION=0.85.1
 ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
-ARG CMUX_IMAGE_CODEROUTER_VERSION=0.3.11
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -242,18 +241,6 @@ RUN npm install -g --foreground-scripts \
     "agent-browser@${CMUX_IMAGE_AGENT_BROWSER_VERSION}" \
   && mise reshim \
   && claude --version && codex --version && opencode --version && pi --version && agent-browser --version
-
-# The Cloud CLI delegates CodeRouter's complete command grammar to the
-# official npm release. Keep the native binary outside PATH: `/usr/local/bin/
-# coderouter` and `/usr/local/bin/cr` are symlinks to cmux-tui, the unified Rust
-# front door. This install is exact and architecture-specific, so the VM never
-# silently resolves a different command implementation.
-RUN rm -rf /opt/coderouter \
-  && npm install --prefix /opt/coderouter --ignore-scripts --omit=dev "coderouter@${CMUX_IMAGE_CODEROUTER_VERSION}" \
-  && install -d -m 0755 /usr/local/libexec \
-  && install -m 0755 /opt/coderouter/node_modules/coderouter/vendor/linux-x64/coderouter /usr/local/libexec/cmux-coderouter \
-  && /usr/local/libexec/cmux-coderouter --version \
-  && mkdir -p /etc/cmux
 
 # Keep Claude Code session transcripts effectively forever (chatmux parity)
 # and pre-accept the --dangerously-skip-permissions confirmation: the VM is
@@ -443,7 +430,7 @@ COPY cmux-motd /etc/update-motd.d/00-cmux
 RUN chmod 0755 /etc/update-motd.d/00-cmux \
   && sh -n /etc/update-motd.d/00-cmux \
   && mkdir -p /etc/cmux \
-  && echo "claude ${CMUX_IMAGE_CLAUDE_CODE_VERSION} · codex ${CMUX_IMAGE_CODEX_VERSION} · opencode ${CMUX_IMAGE_OPENCODE_VERSION} · pi ${CMUX_IMAGE_PI_VERSION} · coderouter ${CMUX_IMAGE_CODEROUTER_VERSION}" > /etc/cmux/tool-versions \
+  && echo "claude ${CMUX_IMAGE_CLAUDE_CODE_VERSION} · codex ${CMUX_IMAGE_CODEX_VERSION} · opencode ${CMUX_IMAGE_OPENCODE_VERSION} · pi ${CMUX_IMAGE_PI_VERSION}" > /etc/cmux/tool-versions \
   && echo "node $(node --version) · python $(python3 --version | awk '{print $2}') · bun $(bun --version) · uv $(uv --version | awk '{print $2}') · gh $(gh --version | head -1 | awk '{print $3}')" >> /etc/cmux/tool-versions \
   && cat /etc/cmux/tool-versions
 

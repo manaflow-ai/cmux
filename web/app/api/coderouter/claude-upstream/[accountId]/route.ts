@@ -35,7 +35,7 @@ export function makeClaudeAccountHandlers(
   async function PATCH(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access ?? { kind: "user" as const, userId: resolved.value.user.id };
+    const access = resolved.value.access;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {
@@ -65,7 +65,7 @@ export function makeClaudeAccountHandlers(
   async function DELETE(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access ?? { kind: "user" as const, userId: resolved.value.user.id };
+    const access = resolved.value.access;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {

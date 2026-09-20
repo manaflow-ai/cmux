@@ -61,7 +61,7 @@ export function makeClaudeUpstreamHandlers(
   async function POST(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access ?? { kind: "user" as const, userId: resolved.value.user.id };
+    const access = resolved.value.access;
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
     const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
@@ -101,7 +101,7 @@ export function makeClaudeUpstreamHandlers(
   async function DELETE(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access ?? { kind: "user" as const, userId: resolved.value.user.id };
+    const access = resolved.value.access;
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const teamId = resolved.value.team.teamId;
     let result: Awaited<ReturnType<ClaudeUpstreamRouteDependencies["removeAll"]>>;
