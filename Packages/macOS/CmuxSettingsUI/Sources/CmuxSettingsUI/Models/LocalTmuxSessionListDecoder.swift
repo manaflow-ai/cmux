@@ -5,7 +5,7 @@ import Foundation
 /// The decoder rejects malformed lifecycle state instead of projecting a
 /// partially valid row into Settings. It performs no I/O and can be exercised
 /// without launching the cmux app.
-nonisolated public struct LocalTmuxSessionListDecoder: Sendable {
+public struct LocalTmuxSessionListDecoder: Sendable {
     /// A malformed or internally inconsistent session-list payload.
     public enum Failure: Error, Sendable, Equatable {
         /// The response or one of its session rows violates the CLI contract.
@@ -35,7 +35,7 @@ nonisolated public struct LocalTmuxSessionListDecoder: Sendable {
     }
 
     /// Creates a stateless session-list decoder.
-    public init() {}
+    nonisolated public init() {}
 
     /// Decodes and validates one CLI response.
     ///
@@ -47,7 +47,7 @@ nonisolated public struct LocalTmuxSessionListDecoder: Sendable {
     /// - Returns: Validated session summaries in Settings display order.
     /// - Throws: Failure.invalidResponse for malformed JSON or rows that
     ///   violate the lifecycle contract.
-    public func decode(_ data: Data) throws -> [LocalTmuxSessionSummary] {
+    nonisolated public func decode(_ data: Data) throws -> [LocalTmuxSessionSummary] {
         let response: Response
         do {
             response = try JSONDecoder().decode(Response.self, from: data)
