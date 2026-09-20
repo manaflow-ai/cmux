@@ -81,6 +81,8 @@ check_release_build_runner_disk_capacity() {
 }
 
 check_build_lag_deriveddata_cache_path() {
+  # A fresh checkout resets every file time, so a restored DerivedData never
+  # spares a rebuild. The job builds into a stable path and caches none of it.
   if ! awk '
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
@@ -90,22 +92,17 @@ check_build_lag_deriveddata_cache_path() {
     in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
     in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
 
-    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
-    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
-    in_cache && /path:[[:space:]]*\$\{\{ runner\.temp \}\}\/cmux-deriveddata-tests-build-and-lag/ { saw_cache_path=1 }
-    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
-
-    in_job && after_cache && /rm -rf "\$CMUX_DERIVED_DATA_PATH"/ { saw_post_cache_delete=1 }
+    in_job && /key:[[:space:]]*deriveddata-/ { saw_deriveddata_cache=1 }
 
     END {
-      exit !(saw_prepare_path && saw_cache_path && !saw_dynamic_prepare_path && !saw_home_cache_path && !saw_post_cache_delete)
+      exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag DerivedData cache must restore into the stable RUNNER_TEMP path xcodebuild uses, and must not delete that path after restore"
+    echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
     exit 1
   fi
 
-  echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
+  echo "PASS: tests-build-and-lag builds into a stable DerivedData path and caches none of it"
 }
 
 check_e2e_runner_fallbacks() {

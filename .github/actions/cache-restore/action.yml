@@ -1,0 +1,45 @@
+name: Restore a cache
+description: Restore a cache from the store the repository selects. Never saves.
+
+inputs:
+  path:
+    description: Files and directories to restore.
+    required: true
+  key:
+    description: Exact key to restore.
+    required: true
+  restore-keys:
+    description: Ordered key prefixes to fall back to.
+    required: false
+    default: ""
+  backend:
+    description: "`warp` reads the runner provider store on Warp runners. Anything else reads the GitHub store."
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "`true` when the exact key was restored."
+    value: ${{ steps.github.outputs.cache-hit || steps.warp.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    # The provider store only answers its own runners, so a job that lands
+    # anywhere else keeps reading the GitHub store.
+    - name: Restore from the GitHub store
+      id: github
+      if: ${{ !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
+    - name: Restore from the Warp store
+      id: warp
+      if: ${{ inputs.backend == 'warp' && startsWith(runner.name, 'warp-') }}
+      uses: WarpBuilds/cache/restore@dad44e2487e9dc889ad6e6bd198e77bb2d828eee # v2.0.0
+      with:
+        path: ${{ inputs.path }}
+        key: ${{ inputs.key }}
+        restore-keys: ${{ inputs.restore-keys }}
