@@ -1538,7 +1538,7 @@ fn unified_cli_dispatch() -> Option<i32> {
 
     let mut args = std::env::args_os();
     let program = args.next()?;
-    let program_name = std::path::Path::new(&program)
+    let program_name = Path::new(&program)
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or_default();
@@ -1556,12 +1556,15 @@ fn unified_cli_dispatch() -> Option<i32> {
     if invoked_as_front_door {
         forwarded.remove(0);
     }
-    let machine_command = forwarded.first().and_then(|value| value.to_str());
+    let machine_command = forwarded
+        .first()
+        .and_then(|value| value.to_str())
+        .map(str::to_owned);
     let external_args = forwarded;
 
     let machine_mode = std::env::var_os("CMUX_CODEROUTER_URL").is_some();
     if machine_mode {
-        if let Some(command) = machine_command
+        if let Some(command) = machine_command.as_deref()
             && matches!(command, "login" | "logout" | "org" | "organization" | "team")
         {
             eprintln!("coderouter: {command} is unavailable inside a Cloud VM; the VM-bound TLS route selects its team");
@@ -1574,10 +1577,10 @@ fn unified_cli_dispatch() -> Option<i32> {
     }
 
     let executable = std::env::var_os("CMUX_CODEROUTER_BIN")
-        .map(std::path::PathBuf::from)
+        .map(PathBuf::from)
         .filter(|path| path.is_file())
         .or_else(|| {
-            let path = std::path::PathBuf::from("/usr/local/libexec/cmux-coderouter");
+            let path = PathBuf::from("/usr/local/libexec/cmux-coderouter");
             path.is_file().then_some(path)
         })
         .or_else(|| find_external_coderouter(program_name));
@@ -1607,7 +1610,7 @@ fn unified_cli_dispatch() -> Option<i32> {
     }
 }
 
-fn find_external_coderouter(current_name: &str) -> Option<std::path::PathBuf> {
+fn find_external_coderouter(current_name: &str) -> Option<PathBuf> {
     let current = std::env::current_exe().ok()?.canonicalize().ok();
     let path = std::env::var_os("PATH")?;
     for directory in std::env::split_paths(&path) {
@@ -1633,13 +1636,13 @@ fn find_external_coderouter(current_name: &str) -> Option<std::path::PathBuf> {
 }
 
 #[cfg(unix)]
-fn is_executable(path: &std::path::Path) -> bool {
+fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata().is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &std::path::Path) -> bool {
+fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
