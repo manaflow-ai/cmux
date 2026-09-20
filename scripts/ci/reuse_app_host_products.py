@@ -8,6 +8,7 @@ cache misses. The original CMUXCommit embedded in the app is retained.
 from __future__ import annotations
 
 import hashlib
+import gzip
 import json
 import os
 import platform
@@ -24,6 +25,13 @@ import app_host_test_products as products
 
 RECEIPT = "cmux-product-reuse.json"
 PREFIX = "app-host-products-v1-"
+# Current product archives are ~0.8 GiB compressed. Bound every expansion layer
+# independently, including hardlink copies, with room for the UI product set.
+MAX_ARCHIVE_BYTES = 2 * 1024**3
+MAX_MEMBER_BYTES = 4 * 1024**3
+MAX_EXPANDED_BYTES = 16 * 1024**3
+MAX_TAR_BYTES = 20 * 1024**3
+MAX_MEMBERS = 200_000
 
 
 def read(*args):
@@ -69,12 +77,20 @@ class GitHub:
                            stdout=out, check=True, timeout=120)
 
 
-def select(api, fingerprint, current_run):
-    """Bound lookup to six same-key artifacts; validate their issuing job/run."""
-    name = PREFIX + fingerprint
-    candidates = api.get(f"actions/artifacts?name={name}&per_page=6")["artifacts"]
+def select(api, value, current_run):
+    """Inspect at most 300 recent artifacts and six matching producers."""
+    prefix = PREFIX + key(value) + "-"
+    candidates = []
+    for page in range(1, 4):
+        batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
+        candidates.extend(a for a in batch if a.get("name", "").startswith(prefix))
+        if len(candidates) >= 6 or len(batch) < 100:
+            break
     for artifact in candidates[:6]:
-        if artifact.get("expired") or artifact.get("name") != name:
+        suffix = artifact["name"][len(prefix):]
+        if artifact.get("expired") or not suffix.isdecimal():
+            continue
+        if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
             continue
         run_id = artifact.get("workflow_run", {}).get("id")
         if not run_id or str(run_id) == str(current_run):
@@ -82,10 +98,19 @@ def select(api, fingerprint, current_run):
         run = api.get(f"actions/runs/{run_id}")
         if (run.get("path") != ".github/workflows/ci.yml"
                 or run.get("event") not in {"pull_request", "merge_group"}
-                or run.get("head_repository", {}).get("full_name") != api.repository):
+                or run.get("head_repository", {}).get("full_name") != api.repository
+                or suffix != str(run["run_attempt"])):
             continue
-        # No arbitrary workflow artifact or failed/incomplete compile can vouch
-        # for a build. Later test failures do not invalidate successful compilation.
+        # GitHub's run head, not a candidate-authored receipt, establishes the
+        # source identity before downloading. The whole tree includes the CI
+        # workflow and every build/packaging script; different producer code
+        # cannot vouch for this checkout. This inherits CI's existing trust in
+        # the candidate workflow, not an independent base-controlled attestation.
+        head = run.get("head_sha", "")
+        if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+            continue
+        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
+            continue
         attempt = run["run_attempt"]
         jobs = []
         for page in range(1, 4):
@@ -93,62 +118,121 @@ def select(api, fingerprint, current_run):
             jobs.extend(batch)
             if len(batch) < 100:
                 break
-        if not any(j.get("name") == "macOS compile admission" and j.get("conclusion") == "success" for j in jobs):
+        # The compile job must finish; unrelated tests in the producer run may
+        # still be running. No test result is being reused here.
+        if not any(j.get("name") == "macOS compile admission" and j.get("status") == "completed"
+                   and j.get("conclusion") == "success" for j in jobs):
             continue
         if not artifact.get("digest", "").startswith("sha256:"):
             continue
         yield artifact, run
 
 
+def bounded_copy(source, output, limit):
+    copied = 0
+    while True:
+        chunk = source.read(min(1024 * 1024, limit - copied + 1))
+        if not chunk:
+            return copied
+        copied += len(chunk)
+        if copied > limit:
+            raise ValueError("archive expansion limit exceeded")
+        output.write(chunk)
+
+
+class BoundedReader:
+    def __init__(self, source, limit):
+        self.source, self.remaining = source, limit
+
+    def read(self, size=-1):
+        size = self.remaining + 1 if size < 0 else min(size, self.remaining + 1)
+        chunk = self.source.read(size)
+        self.remaining -= len(chunk)
+        if self.remaining < 0:
+            raise ValueError("tar stream expansion limit exceeded")
+        return chunk
+
+
+class BoundedTarInfo(tarfile.TarInfo):
+    @classmethod
+    def frombuf(cls, buf, encoding, errors):
+        info = super().frombuf(buf, encoding, errors)
+        # PAX/GNU extension bodies are read into memory by tarfile before it
+        # yields a member, so their limits must be checked at header parsing.
+        if info.size > MAX_MEMBER_BYTES or (info.type in {tarfile.XHDTYPE, tarfile.XGLTYPE,
+                tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK} and info.size > 1024 * 1024):
+            raise ValueError("tar header size limit exceeded")
+        return info
+
+
 def unpack(archive, staging, digest):
+    if archive.stat().st_size > MAX_ARCHIVE_BYTES:
+        raise ValueError("archive size limit exceeded")
+    h = hashlib.sha256()
     with archive.open("rb") as stream:
-        actual = hashlib.file_digest(stream, "sha256").hexdigest() if hasattr(hashlib, "file_digest") else None
-    if actual is None:
-        h = hashlib.sha256()
-        with archive.open("rb") as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-                h.update(chunk)
-        actual = h.hexdigest()
-    if "sha256:" + actual != digest:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(chunk)
+    if "sha256:" + h.hexdigest() != digest:
         raise ValueError("artifact digest mismatch")
+    compressed = staging / "app-host-products.tar.gz"
     with zipfile.ZipFile(archive) as z:
         if z.namelist() != ["app-host-products.tar.gz"]:
             raise ValueError("unexpected artifact contents")
-        z.extract("app-host-products.tar.gz", staging)
-    with tarfile.open(staging / "app-host-products.tar.gz") as tar:
-        # Producer uses tar -h, so only regular files, directories and internal
-        # hardlinks are expected. Extract explicitly for older runner Pythons.
-        members = tar.getmembers()
-        for member in members:
-            parts = Path(member.name).parts
-            if parts[:2] != ("Build", "Products") or ".." in parts:
-                raise tarfile.ExtractError("unscoped product path")
-            if not (member.isdir() or member.isfile() or member.islnk()):
-                raise tarfile.ExtractError("unsupported product entry")
-            if member.islnk():
-                target_parts = Path(member.linkname).parts
-                if target_parts[:2] != ("Build", "Products") or ".." in target_parts:
-                    raise tarfile.ExtractError("unscoped product hardlink")
-        for member in members:
-            target = staging / member.name
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-            elif member.isfile():
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with tar.extractfile(member) as source, target.open("wb") as output:
-                    shutil.copyfileobj(source, output)
-                target.chmod(member.mode & 0o777)
-        for member in members:
-            if member.islnk():
-                target = staging / member.name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(staging / member.linkname, target)
+        info = z.infolist()[0]
+        if info.file_size > MAX_ARCHIVE_BYTES:
+            raise ValueError("zip expansion limit exceeded")
+        with z.open(info) as source, compressed.open("wb") as output:
+            bounded_copy(source, output, MAX_ARCHIVE_BYTES)
+    expanded = 0
+    hardlinks = []
+    # Limit the decompressed stream too: tar metadata/PAX headers must not
+    # bypass the per-file limits or force getmembers() to allocate unboundedly.
+    with gzip.open(compressed, "rb") as gz:
+        try:
+            with tarfile.open(fileobj=BoundedReader(gz, MAX_TAR_BYTES), mode="r|", tarinfo=BoundedTarInfo) as tar:
+                for count, member in enumerate(tar, 1):
+                    if count > MAX_MEMBERS:
+                        raise ValueError("archive member count limit exceeded")
+                    parts = Path(member.name).parts
+                    if parts[:2] != ("Build", "Products") or ".." in parts:
+                        raise tarfile.ExtractError("unscoped product path")
+                    if not (member.isdir() or member.isfile() or member.islnk()):
+                        raise tarfile.ExtractError("unsupported product entry")
+                    if member.size > MAX_MEMBER_BYTES or expanded + member.size > MAX_EXPANDED_BYTES:
+                        raise ValueError("archive member size limit exceeded")
+                    target = staging / member.name
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    elif member.isfile():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with tar.extractfile(member) as source, target.open("wb") as output:
+                            copied = bounded_copy(source, output, min(MAX_MEMBER_BYTES, MAX_EXPANDED_BYTES - expanded))
+                        if copied != member.size:
+                            raise ValueError("truncated archive member")
+                        expanded += copied
+                        target.chmod(member.mode & 0o777)
+                    else:
+                        target_parts = Path(member.linkname).parts
+                        if target_parts[:2] != ("Build", "Products") or ".." in target_parts:
+                            raise tarfile.ExtractError("unscoped product hardlink")
+                        hardlinks.append(member)
+        except (gzip.BadGzipFile, EOFError) as error:
+            raise tarfile.ReadError("invalid compressed product archive") from error
+    for member in hardlinks:
+        source_path = staging / member.linkname
+        target = staging / member.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            raise tarfile.ExtractError("duplicate product hardlink")
+        with source_path.open("rb") as source, target.open("wb") as output:
+            expanded += bounded_copy(source, output, min(MAX_MEMBER_BYTES, MAX_EXPANDED_BYTES - expanded))
+        target.chmod(source_path.stat().st_mode & 0o777)
 
 
 
 def restore(api, value, derived, current_run, current_identity):
     """Restore in staging; a miss never leaves partial products in DerivedData."""
-    for artifact, run in select(api, key(value), current_run):
+    for artifact, run in select(api, value, current_run):
         with tempfile.TemporaryDirectory(prefix="cmux-reuse-") as tmp:
             staging = Path(tmp)
             archive = staging / "artifact.zip"

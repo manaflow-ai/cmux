@@ -29,7 +29,7 @@ class ReuseProducts(TestProductHandoff):
         reuse.products.stamp(self.producer, self.identity)
         root = self.producer / "Build/Products"
         (root / reuse.RECEIPT).write_text(json.dumps({"contract": self.contract,
-            "revision": self.identity["revision"], "run_id": "12", "run_attempt": "1"}))
+            "revision": self.identity["revision"], "run_id": "12", "run_attempt": str(self.api.run["run_attempt"])}))
         archive = self.producer.parent / "app-host-products.tar.gz"
         with tarfile.open(archive, "w:gz", dereference=True) as tar:
             tar.add(root, arcname="Build/Products")
@@ -81,13 +81,11 @@ class ReuseProducts(TestProductHandoff):
 
     def test_actual_source_and_attempt_must_match(self):
         self.api.tree = 'different-tree'
-        with self.assertRaisesRegex(ValueError, 'source tree'):
-            self.restore_reuse()
+        self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
         self.api.tree = 'same-tree'
         self.api.run['run_attempt'] = 2
-        with self.assertRaisesRegex(ValueError, 'producer contract'):
-            self.restore_reuse()
+        self.assertFalse(self.restore_reuse())
 
     def test_corrupt_archive_never_populates_consumer(self):
         self.api.archive.write_bytes(b'corrupt')
@@ -96,8 +94,21 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
     def test_attempt_suffixed_artifact_remains_discoverable(self):
-        self.api.artifact['name'] += '-1'
+        self.assertTrue(self.api.artifact['name'].endswith('-1'))
         self.assertTrue(self.restore_reuse())
+
+    def test_later_attempt_gets_its_own_artifact_and_receipt(self):
+        self.api.run['run_attempt'] = 2
+        self.assertFalse(self.restore_reuse())
+        self.api.artifact['name'] = reuse.PREFIX + reuse.key(self.contract) + '-2'
+        self.seal()
+        self.assertTrue(self.restore_reuse())
+
+    def test_oversize_compressed_artifact_is_rejected_without_download(self):
+        with mock.patch.object(reuse, 'MAX_ARCHIVE_BYTES', 1), \
+                mock.patch.object(self.api, 'download') as download:
+            self.assertFalse(self.restore_reuse())
+            download.assert_not_called()
 
     def test_valid_digest_with_corrupt_tar_is_rejected(self):
         with zipfile.ZipFile(self.api.archive, 'w') as z:
@@ -108,7 +119,7 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
     def test_archive_expansion_is_bounded(self):
-        for limit in ('MAX_ARCHIVE_BYTES', 'MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS'):
+        for limit in ('MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS', 'MAX_TAR_BYTES'):
             with self.subTest(limit=limit), mock.patch.object(reuse, limit, 1, create=True):
                 with self.assertRaises((ValueError, tarfile.TarError)):
                     self.restore_reuse()
@@ -159,12 +170,12 @@ class FakeGitHub:
     repository = 'manaflow-ai/cmux'
     def __init__(self, contract):
         self.tree = contract['tree']
-        self.artifact = {'id': 42, 'name': reuse.PREFIX + reuse.key(contract),
+        self.artifact = {'id': 42, 'name': reuse.PREFIX + reuse.key(contract) + '-1', 'size_in_bytes': 100,
                          'expired': False, 'workflow_run': {'id': 12}}
         self.run = {'id': 12, 'path': '.github/workflows/ci.yml', 'event': 'pull_request',
                     'head_repository': {'full_name': self.repository}, 'run_attempt': 1,
                     'head_sha': 'abc123', 'html_url': 'https://github.com/manaflow-ai/cmux/actions/runs/12'}
-        self.job = {'name': 'macOS compile admission', 'conclusion': 'success'}
+        self.job = {'name': 'macOS compile admission', 'conclusion': 'success', 'status': 'completed'}
     def get(self, path):
         if path.startswith('actions/artifacts?'):
             return {'artifacts': [self.artifact]}
