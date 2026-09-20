@@ -127,7 +127,6 @@ private struct SidebarAccountPopover: View {
     @Binding var isShowingTeamPicker: Bool
     let popoverGroup: CmuxPopoverGroup
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
-    private let menuRowHeight: CGFloat = 28
 
     private var settingsShortcutHint: String {
         let _ = shortcutObserver.revision
@@ -135,7 +134,7 @@ private struct SidebarAccountPopover: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             if let identity = accountFlow?.currentIdentity {
                 HStack(spacing: 10) {
                     SidebarAccountAvatar(
@@ -158,6 +157,7 @@ private struct SidebarAccountPopover: View {
                     }
                 }
                 Divider()
+                    .padding(.vertical, 8)
                 if let accountFlow {
                     SidebarAccountTeamPickerRow(
                         accountFlow: accountFlow,
@@ -184,6 +184,7 @@ private struct SidebarAccountPopover: View {
             if accountFlow?.isProUpgradeAvailable == true {
                 if accountFlow?.currentIdentity == nil {
                     Divider()
+                        .padding(.vertical, 6)
                 }
                 accountMenuRow(
                     title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
@@ -193,7 +194,6 @@ private struct SidebarAccountPopover: View {
                     accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
                 }
                 .accessibilityIdentifier("SidebarAccountUpgradeButton")
-                .onHover { if $0 { isShowingTeamPicker = false } }
             }
             if accountFlow?.currentIdentity != nil {
                 accountMenuRow(
@@ -204,18 +204,18 @@ private struct SidebarAccountPopover: View {
                     Task { await accountFlow?.signOut() }
                 }
                 .accessibilityIdentifier("SidebarAccountSignOutButton")
-                .onHover { if $0 { isShowingTeamPicker = false } }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarAccountMenuButtonStyle())
         .disabled(accountFlow?.isWorkingOnAuth == true)
         .padding(12)
         .frame(width: 220, alignment: .leading)
     }
 
     private var settingsRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
             Divider()
+                .padding(.vertical, 6)
             Button {
                 dismiss()
                 AppDelegate.shared?.openPreferencesWindow(
@@ -234,7 +234,6 @@ private struct SidebarAccountPopover: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: menuRowHeight, alignment: .leading)
             }
             .accessibilityLabel(String(
                 format: String(localized: "sidebar.account.settingsLabel", defaultValue: "%1$@, %2$@"),
@@ -242,7 +241,6 @@ private struct SidebarAccountPopover: View {
                 settingsShortcutHint
             ))
             .accessibilityIdentifier("SidebarAccountSettingsButton")
-            .onHover { if $0 { isShowingTeamPicker = false } }
         }
     }
 
@@ -255,7 +253,6 @@ private struct SidebarAccountPopover: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(minHeight: menuRowHeight, alignment: .leading)
         }
     }
 }

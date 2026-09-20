@@ -7,7 +7,6 @@ struct SidebarAccountTeamPickerRow: View {
     let accountFlow: HostAccountFlow
     @Binding var isPresented: Bool
     let popoverGroup: CmuxPopoverGroup
-    private let menuRowHeight: CGFloat = 28
 
     private var currentTeam: AccountTeamSummary? {
         accountFlow.availableTeams.first { $0.id == accountFlow.selectedTeamID }
@@ -28,9 +27,9 @@ struct SidebarAccountTeamPickerRow: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, minHeight: menuRowHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarAccountMenuButtonStyle())
         .contentShape(Rectangle())
         .onHover { hovering in
             if hovering { isPresented = true }

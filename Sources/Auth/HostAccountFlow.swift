@@ -66,10 +66,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var selectedTeamID: String? {
         get {
-            _ = teamObservationRevision
             if let pendingTeamSelection { return pendingTeamSelection.teamID }
-            return coordinator.resolvedTeamID
+            return confirmedTeamID
         }
+    }
+
+    /// Cloud scope and persisted machine preferences follow confirmed authority.
+    var confirmedTeamID: String? {
+        _ = teamObservationRevision
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {

@@ -120,6 +120,11 @@ extension Workspace {
         guard let provider = catalog.provider(for: resource.machine) else { return false }
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
+        if let remoteWorkspaceID,
+           catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+            if let pendingPane { closeUntouchedPane(pendingPane) }
+            return true
+        }
         let requestID = cloudPaneCreationFailureStore.beginRequest()
         let request = CloudTerminalCreationRequest(id: requestID)
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
@@ -167,6 +172,13 @@ extension Workspace {
                 else { direction = splitDirection }
                 if let sourceTabID = source?.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
+                    if let remoteWorkspaceID {
+                        if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                            self.discardReservedCloudTerminalPane(reservation)
+                            throw CancellationError()
+                        }
+                        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                    }
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,
                         splitDirection: direction,
@@ -174,6 +186,13 @@ extension Workspace {
                     )
                 }
                 let workingDirectory = await provider.currentWorkingDirectory(of: resource)
+                if let remoteWorkspaceID {
+                    if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                        self.discardReservedCloudTerminalPane(reservation)
+                        throw CancellationError()
+                    }
+                    try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                }
                 return try await provider.createTerminal(
                     command: nil,
                     cwd: workingDirectory,
@@ -206,6 +225,13 @@ extension Workspace {
     func openCloudTerminalOptimistically(on machine: SurfaceMachineID, remoteWorkspaceID: String?) -> Bool {
         let catalog = SurfaceCatalog.shared
         guard !machine.isLocal, let provider = catalog.provider(for: machine) else { return false }
+        if let remoteWorkspaceID,
+           catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+            // This was a handled Cloud action, but its target disappeared while
+            // the row was still visible. Do not fall through to the awaited
+            // fallback, which could create a terminal for the deleted workspace.
+            return true
+        }
         let destination = SurfaceDestination.workspace(id: id, placement: .tab)
         guard let reservation = reserveCloudTerminalPane(machine: machine, at: destination, focus: true) else { return false }
         let requestID = cloudPaneCreationFailureStore.beginRequest()
@@ -221,6 +247,13 @@ extension Workspace {
         }
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
+                if let remoteWorkspaceID {
+                    if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                        self.discardReservedCloudTerminalPane(reservation)
+                        throw CancellationError()
+                    }
+                    try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                }
                 return try await provider.createTerminal(
                     command: nil, cwd: nil, name: nil,
                     remoteWorkspaceID: remoteWorkspaceID,

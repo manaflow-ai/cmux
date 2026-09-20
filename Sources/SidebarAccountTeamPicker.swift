@@ -9,11 +9,10 @@ struct SidebarAccountTeamPicker: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @FocusState private var isCreateFieldFocused: Bool
-    private let menuRowHeight: CGFloat = 28
 
     var body: some View {
         teamPickerContent
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarAccountMenuButtonStyle())
         .disabled(isSubmitting || accountFlow.isWorkingOnAuth)
         .padding(12)
         .frame(width: 220, alignment: .leading)
@@ -21,12 +20,12 @@ struct SidebarAccountTeamPicker: View {
 
     @ViewBuilder
     private var teamPickerContent: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: 0) {
             if accountFlow.availableTeams.isEmpty {
                 Text(String(localized: "sidebar.account.loadingTeams", defaultValue: "Loading teams…"))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
-                    .frame(minHeight: menuRowHeight, alignment: .leading)
+                    .frame(minHeight: SidebarAccountMenuButtonStyle.rowHeight, alignment: .leading)
             } else {
                 ForEach(accountFlow.availableTeams) { team in
                     teamRow(team)
@@ -85,7 +84,7 @@ struct SidebarAccountTeamPicker: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: menuRowHeight, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityLabel(String(
             format: String(localized: "sidebar.account.teamRowLabel", defaultValue: "%1$@%2$@"),
@@ -107,7 +106,7 @@ struct SidebarAccountTeamPicker: View {
             .textFieldStyle(.plain)
             .focused($isCreateFieldFocused)
             .padding(.horizontal, 7)
-            .frame(height: 24)
+            .frame(height: 22)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(0.06))
@@ -138,7 +137,7 @@ struct SidebarAccountTeamPicker: View {
         }
         .padding(.leading, 1)
         .padding(.vertical, 2)
-        .frame(minHeight: menuRowHeight, alignment: .leading)
+        .frame(minHeight: SidebarAccountMenuButtonStyle.rowHeight, alignment: .leading)
         .onAppear { isCreateFieldFocused = true }
         .accessibilityIdentifier("SidebarAccountCreateTeamEditor")
     }
@@ -171,7 +170,7 @@ struct SidebarAccountTeamPicker: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, minHeight: menuRowHeight, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

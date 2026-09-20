@@ -14,15 +14,44 @@ from detect_ci_change_areas import classify_files
 
 def requires_web(paths: list[str]) -> bool:
     return classify_files(paths).web or any(
-        path in {".vercelignore", "vercel.json", "bunfig.toml", ".npmrc", "tests/test_web_validation.py"}
+        path
+        in {
+            ".vercelignore",
+            "vercel.json",
+            "bunfig.toml",
+            ".npmrc",
+            "tests/test_web_validation.py",
+            # The CI router treats other workflow files as neutral, so this
+            # gate names its own.
+            ".github/workflows/web-validation.yml",
+        }
         or path.startswith(("config/", "workers/"))
         for path in paths
     )
 
 
+def merge_parent(head: str) -> str:
+    """Return the base a pull request's synthetic merge commit was built on.
+
+    The event's base SHA is where the pull request last synced. Once main
+    moves on it is outside the depth-2 checkout, and a diff from it would also
+    count what main gained since.
+    """
+    def resolve(revision: str) -> str:
+        result = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", revision], text=True, capture_output=True
+        )
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    # Only a merge commit has a second parent.
+    return resolve(f"{head}^1") if resolve(f"{head}^2") else ""
+
+
 def required_for_event(event: str, base: str, head: str) -> bool:
     if event not in {"pull_request", "push"} or not base or not head:
         return True
+    if event == "pull_request":
+        base = merge_parent(head) or base
     try:
         paths = subprocess.check_output(
             ["git", "diff", "--no-renames", "--name-only", "-z", base, head, "--"], text=True,

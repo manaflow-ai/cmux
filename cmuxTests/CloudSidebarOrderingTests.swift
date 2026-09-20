@@ -211,7 +211,21 @@ final class CloudSidebarOrderingFixture {
         container.layoutSubtreeIfNeeded()
         let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: bitmap)
-        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        // NSView caching preserves transparency. Composite onto the window's
+        // background so black sidebar ink stays readable in artifact viewers.
+        let context = try #require(CGContext(
+            data: nil, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+            bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(bitmap.pixelsWide), height: CGFloat(bitmap.pixelsHigh))
+        window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            context.setFillColor(window.backgroundColor.cgColor)
+        }
+        context.fill(bounds)
+        context.draw(try #require(bitmap.cgImage), in: bounds)
+        let opaque = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        let png = try #require(opaque.representation(using: .png, properties: [:]))
         #if compiler(>=6.2)
         Attachment.record(png, named: name + ".png")
         #endif
