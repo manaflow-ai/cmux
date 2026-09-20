@@ -44,7 +44,10 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
         let shortcutDisplay: String?
 
         var detailTokens: [String] {
-            var tokens = ["type=\(actionType)"]
+            var tokens = [String.localizedStringWithFormat(
+                String(localized: "actions.discovery.typeDetail", defaultValue: "Action type: %@"),
+                actionType
+            )]
             if appearsInCommandPalette {
                 tokens.append("palette")
             }
@@ -58,7 +61,10 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
                 tokens.append("ui.surfaceTabBar.buttons")
             }
             if let shortcutDisplay {
-                tokens.append("shortcut=\(shortcutDisplay)")
+                tokens.append(String.localizedStringWithFormat(
+                    String(localized: "actions.discovery.shortcutDetail", defaultValue: "Shortcut: %@"),
+                    shortcutDisplay
+                ))
             }
             return tokens
         }
