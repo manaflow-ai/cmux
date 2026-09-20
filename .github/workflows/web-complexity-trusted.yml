@@ -67,6 +67,11 @@ jobs:
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
+      - name: Create empty trusted Bun config
+        run: |
+          set -euo pipefail
+          : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
+
       - name: Checkout pull-request or merge-group source
         if: github.event_name == 'pull_request_target' || github.event_name == 'merge_group'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -79,12 +84,12 @@ jobs:
 
       - name: Check pull-request or merge-group source with trusted policy
         if: github.event_name == 'pull_request_target' || github.event_name == 'merge_group'
-        working-directory: candidate/web
+        working-directory: trusted/web
         env:
           HEAD_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          bun "$GITHUB_WORKSPACE/trusted/web/scripts/check-complexity.mjs" \
+          bun --no-env-file --config "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs \
             --repo-root "$GITHUB_WORKSPACE/candidate" \
             --tool-root "$GITHUB_WORKSPACE/trusted" \
             --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt" \
@@ -99,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            bun scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
+            bun --no-env-file --config "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
           else
-            bun scripts/check-complexity.mjs
+            bun --no-env-file --config "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs
           fi

@@ -66,9 +66,26 @@ merge_group_policy_bridge_violation() {
     echo "must not use a matrix, container, service, dependency or environment"
     return
   fi
+  if ! grep -Fqx 'permissions: {}' "$file" || \
+     grep -Eiq '(^|[[:space:]])(permissions:.*(write|read)|secrets\.|github\.token|GITHUB_TOKEN|token:|id-token:)' "$file"; then
+    echo "must keep the bridge permissionless and free of token or secret references"
+    return
+  fi
   if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:|checkout|curl|ruby|scripts/' "$file" || \
-     grep -Eq '(^|[^[:alnum:]_])bun([^[:alnum:]_]|$)' "$file"; then
+     grep -Eiq '(^|[^[:alnum:]_])(bun|npm|node|python|wget|gh|git|sudo|rm|mv|cp)([^[:alnum:]_]|$)' "$file"; then
     echo "must not execute actions or candidate-controlled scripts"
+    return
+  fi
+  if awk '
+    /^        run: \|$/ { in_run=1; next }
+    in_run && /^      - name:/ { in_run=0 }
+    in_run && /^          / {
+      line=$0; sub(/^          /, "", line)
+      if (line !~ /^(set -euo pipefail|\[\[|echo )/) bad=1
+    }
+    END { exit bad ? 0 : 1 }
+  ' "$file"; then
+    echo "must limit bridge run steps to fixed assertions and output"
     return
   fi
 }
@@ -111,6 +128,9 @@ mutations = {
     "matrix": source.replace("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    strategy:\n      matrix:\n        x: [1, 2]\n", 1),
     "extra-trigger": source.replace("  merge_group:\n", "  merge_group:\n  pull_request_target:\n", 1),
     "checkout-in-script": source.replace("          set -euo pipefail\n", "          set -euo pipefail\n          git checkout main\n", 1),
+    "write-permissions": source.replace("permissions: {}", "permissions:\n  contents: write", 1),
+    "token-reference": source.replace("          [[ \"$GROUP_SHA\" =~ ^[0-9a-f]{40}$ ]]", "          [[ \"$GROUP_SHA\" =~ ^[0-9a-f]{40}$ ]]\n          echo \"${{ secrets.GITHUB_TOKEN }}\"", 1),
+    "arbitrary-command": source.replace("          [[ \"$GROUP_SHA\" =~ ^[0-9a-f]{40}$ ]]", "          [[ \"$GROUP_SHA\" =~ ^[0-9a-f]{40}$ ]]\n          touch /tmp/bridge-side-effect", 1),
 }
 for name, text in mutations.items():
     assert text != source, name
