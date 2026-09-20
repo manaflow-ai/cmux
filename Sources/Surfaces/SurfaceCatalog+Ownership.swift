@@ -1,11 +1,16 @@
 import Foundation
 
 extension SurfaceCatalog {
+    /// The staged restore identity owns a placeholder until its provider materializes it.
+    /// Retains workspace coordinates so routing can validate ownership in the same read.
+    func projectionIncludingPendingRestore(forPanel panelID: UUID) -> SurfaceProjection? {
+        pendingRestoredProjections.projection(forPanel: panelID) ?? projection(forPanel: panelID)
+    }
+
     /// Captures the authoritative identity, including Cloud resources still awaiting a provider.
     /// Pending remote identity takes precedence over a live local placeholder.
     func projectionRecord(forPanel panelID: UUID) -> SurfaceProjectionRecord? {
-        guard let projection = pendingRestoredProjections.projection(forPanel: panelID)
-            ?? projection(forPanel: panelID) else { return nil }
+        guard let projection = projectionIncludingPendingRestore(forPanel: panelID) else { return nil }
         return SurfaceProjectionRecord(
             panelID: panelID,
             resource: projection.resource,
@@ -29,8 +34,7 @@ extension SurfaceCatalog {
 
     /// Restored projections retain their owner even before the provider reconnects.
     func machineOwningPanel(_ panelID: UUID) -> SurfaceMachineID? {
-        pendingRestoredProjections.machineOwningPanel(panelID)
-            ?? projection(forPanel: panelID)?.resource.machine
+        projectionIncludingPendingRestore(forPanel: panelID)?.resource.machine
     }
 
     func validateOwnership(of resources: [SurfaceResourceID], at destination: SurfaceDestination) throws {
