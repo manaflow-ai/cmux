@@ -22,13 +22,13 @@ struct CloudVMLoadingPanelView: View {
                 case .loading:
                     ProgressView()
                         .controlSize(.small)
-                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
+                    Text(Self.loadingHeadline(for: panel.flow))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
-                    CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
+                    CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds, flow: panel.flow)
                 case .failed(let message, let failedElapsedSeconds):
                     CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
-                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
+                    Text(Self.failedHeadline(for: panel.flow))
                         .cmuxFont(size: 14, weight: .semibold)
                         .foregroundStyle(.primary)
                     Text(message)
@@ -37,17 +37,23 @@ struct CloudVMLoadingPanelView: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 460)
                     HStack(spacing: 8) {
-                        Button {
-                            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                        } label: {
-                            Label(
-                                String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
-                                systemImage: "arrow.clockwise"
-                            )
-                            .cmuxFont(size: 12, weight: .semibold)
+                        if panel.canRetry {
+                            Button {
+                                if let retry = panel.retryHandler {
+                                    retry()
+                                } else {
+                                    _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+                                }
+                            } label: {
+                                Label(
+                                    String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+                                    systemImage: "arrow.clockwise"
+                                )
+                                .cmuxFont(size: 12, weight: .semibold)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
 
                         Button {
                             FeedbackComposerBridge().openComposer()
@@ -76,8 +82,39 @@ struct CloudVMLoadingPanelView: View {
     }
 }
 
+extension CloudVMLoadingPanelView {
+    static func loadingHeadline(for flow: CloudVMLoadingPanel.Flow) -> String {
+        switch flow {
+        case .base:
+            return String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base")
+        case .newMachine:
+            return String(localized: "panel.cloudVM.loading.headline.newMachine", defaultValue: "Creating your machine")
+        case .fork(let sourceName):
+            return String(
+                format: String(localized: "panel.cloudVM.loading.headline.fork", defaultValue: "Forking %@"),
+                sourceName
+            )
+        }
+    }
+
+    static func failedHeadline(for flow: CloudVMLoadingPanel.Flow) -> String {
+        switch flow {
+        case .base:
+            return String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable")
+        case .newMachine:
+            return String(localized: "panel.cloudVM.loading.failed.headline.newMachine", defaultValue: "Machine could not be created")
+        case .fork(let sourceName):
+            return String(
+                format: String(localized: "panel.cloudVM.loading.failed.headline.fork", defaultValue: "Could not fork %@"),
+                sourceName
+            )
+        }
+    }
+}
+
 private struct CloudVMLoadingStatusView: View {
     let elapsedSeconds: Int
+    var flow: CloudVMLoadingPanel.Flow = .base
 
     var body: some View {
         VStack(spacing: 10) {
@@ -91,7 +128,9 @@ private struct CloudVMLoadingStatusView: View {
             VStack(alignment: .leading, spacing: 6) {
                 CloudVMLoadingStatusRow(
                     icon: "checkmark.circle.fill",
-                    text: String(localized: "panel.cloudVM.loading.step.workspace", defaultValue: "Pinned workspace created"),
+                    text: flow.isBase
+                        ? String(localized: "panel.cloudVM.loading.step.workspace", defaultValue: "Pinned workspace created")
+                        : String(localized: "panel.cloudVM.loading.step.workspace.new", defaultValue: "Workspace created"),
                     isActive: false
                 )
                 CloudVMLoadingStatusRow(
@@ -112,9 +151,18 @@ private struct CloudVMLoadingStatusView: View {
     private var statusText: String {
         switch elapsedSeconds {
         case 0..<3:
-            return String(localized: "panel.cloudVM.loading.step.request", defaultValue: "Requesting your persistent VM")
+            switch flow {
+            case .base:
+                return String(localized: "panel.cloudVM.loading.step.request", defaultValue: "Requesting your persistent VM")
+            case .newMachine:
+                return String(localized: "panel.cloudVM.loading.step.request.new", defaultValue: "Requesting a new machine")
+            case .fork:
+                return String(localized: "panel.cloudVM.loading.step.request.fork", defaultValue: "Snapshotting the source machine")
+            }
         case 3..<8:
-            return String(localized: "panel.cloudVM.loading.step.resume", defaultValue: "Starting or resuming the VM")
+            return flow.isBase
+                ? String(localized: "panel.cloudVM.loading.step.resume", defaultValue: "Starting or resuming the VM")
+                : String(localized: "panel.cloudVM.loading.step.boot", defaultValue: "Starting the machine")
         case 8..<18:
             return String(localized: "panel.cloudVM.loading.step.endpoint", defaultValue: "Waiting for a secure terminal endpoint")
         default:

@@ -14,7 +14,7 @@ describe("vm capability derivation", () => {
     expect(caps).toEqual({
       snapshot: true,
       restore: true,
-      fork: false,
+      fork: true,
       exec: true,
       stats: true,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
@@ -36,7 +36,7 @@ describe("vm capability derivation", () => {
 
   test("a minimal provider derives the minimal capability set", () => {
     const caps = vmCapabilitiesOf(new MockVMProvider({ features: { cmuxRemote: false } }));
-    expect(caps.fork).toBe(false);
+    expect(caps.fork).toBe(true);
     expect(caps.stats).toBe(false);
     expect(caps.ports).toBe(false);
     expect(caps.desktop).toBe(false);

@@ -1624,7 +1624,7 @@ function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayS
 }
 
 function nativeForkOperation(providers: VmProviderGatewayShape, provider: ProviderId, modelPlane?: VmModelPlaneProvisioner) {
-  if (modelPlane || !(providers.capabilities?.(provider).fork ?? vmCapabilitiesFor(provider).fork)) return undefined;
+  if (modelPlane || providers.supportsNativeFork?.(provider) === false || !(providers.capabilities?.(provider).fork ?? vmCapabilitiesFor(provider).fork)) return undefined;
   return providers.fork;
 }
 

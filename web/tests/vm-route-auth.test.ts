@@ -492,7 +492,7 @@ describe("VM REST auth", () => {
       capabilities: {
         snapshot: true,
         restore: true,
-        fork: false,
+        fork: true,
         exec: true,
         stats: true,
         ports: true,
@@ -1259,10 +1259,11 @@ describe("VM REST auth", () => {
     });
   });
 
-  test("every listed machine carries its provider's capabilities (no driver forks)", async () => {
+  test("every listed machine carries its provider's capabilities (fork via snapshot)", async () => {
     // The app hides Checkpoint/Fork when these are false instead of offering verbs
-    // that can only answer 502 "not implemented". Freestyle snapshots and
-    // restores; no driver implements fork.
+    // that can only answer 502 "not implemented". Freestyle has no native
+    // clone, but it snapshots and restores, so fork is served by
+    // snapshot-then-create and advertised as supported.
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue([
       { providerVmId: "desk", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
@@ -1270,7 +1271,7 @@ describe("VM REST auth", () => {
     const response = await GET(new Request("https://cmux.test/api/vm"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      vms: [{ id: "desk", capabilities: { snapshot: true, restore: true, fork: false } }],
+      vms: [{ id: "desk", capabilities: { snapshot: true, restore: true, fork: true } }],
     });
   });
 

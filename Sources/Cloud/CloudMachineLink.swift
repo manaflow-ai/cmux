@@ -102,7 +102,7 @@ actor CloudMachineLink {
         case clientMissing
         case spawnFailed(String)
         case exited(status: Int32, output: String)
-        case timedOut
+        case timedOut(after: Duration, output: String)
         case inputTooLarge
 
         var errorDescription: String? {
@@ -116,8 +116,10 @@ actor CloudMachineLink {
             case .exited(let status, let output):
                 let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
                 return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
-            case .timedOut:
-                return "cmux-tui link did not report a socket within the connect timeout."
+            case .timedOut(let after, let output):
+                let seconds = Int(after.components.seconds)
+                let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
+                return "cmux-tui link did not connect within \(seconds)s" + (tail.isEmpty ? "" : ": \(tail)")
             }
         }
     }
@@ -290,7 +292,7 @@ actor CloudMachineLink {
                         output: stderrTail.joined(separator: "\n")
                     )
                 case .timedOut?, nil:
-                    throw LinkError.timedOut
+                    throw LinkError.timedOut(after: timeout, output: stderrTail.joined(separator: "\n"))
                 }
             }
             guard process.isRunning else {
@@ -453,6 +455,7 @@ actor CloudMachineLink {
         guard let id = eventStreamID else { return }
         eventStreamID = nil
         await resourceConnection?.cancelStream(id)
+
     }
 
     // MARK: - internals

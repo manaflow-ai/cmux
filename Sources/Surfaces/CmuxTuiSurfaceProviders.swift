@@ -52,6 +52,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var stateRecoveryRefreshTask: Task<Void, Never>?
     private var stateRecoveryRefreshQueued = false
     private var stateRecoveryCount = 0
+    private var linkRetryTask: Task<Void, Never>?
+    private var linkRetryAttempt = 0
     private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
@@ -202,6 +204,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
         stateRecoveryCount = 0
+        clearLinkRetry()
         eventsFeedWarning = nil
         for session in manualMirrorSessions.values { session.stop() }
         manualMirrorSessions.removeAll()
@@ -370,6 +373,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = .error
             linkError = eventsFeedWarning
         }
+        if linkError == nil { clearLinkRetry() } else if isAwake { scheduleLinkRetry(lifecycle: lifecycle) }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
         info = Self.info(
             from: summary,
@@ -1525,6 +1529,34 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
         }
     }
+    /// Re-links a running machine after a failed refresh on the
+    /// ``CloudLinkRetryPolicy`` schedule. One task at a time; a successful
+    /// refresh resets the attempt count, and the budget's end leaves the
+    /// error text in the tree rather than a permanent "Connecting…".
+    private func scheduleLinkRetry(lifecycle: UInt64) {
+        guard linkRetryTask == nil else { return }
+        linkRetryAttempt += 1
+        guard let delay = CloudLinkRetryPolicy.delay(forAttempt: linkRetryAttempt) else { return }
+        #if DEBUG
+        cmuxDebugLog("cloud.provider.linkRetry.scheduled machine=\(machineID) attempt=\(linkRetryAttempt) delay=\(delay)")
+        #endif
+        linkRetryTask = Task { @MainActor [weak self] in
+            // A bounded, cancellable wait: the retry cadence, not a guess at the
+            // transport; lifecycle end and success cancel it.
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.linkRetryTask = nil
+            guard self.isCurrentLifecycleGeneration(lifecycle), self.isRegisteredInCatalog(), self.isAwake else { return }
+            await self.refreshCurrentGraph(force: true)
+        }
+    }
+
+    private func clearLinkRetry() {
+        linkRetryTask?.cancel()
+        linkRetryTask = nil
+        linkRetryAttempt = 0
+    }
+
     private func clearStateRecovery() {
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil

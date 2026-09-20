@@ -6000,12 +6000,17 @@ struct CMUXCLI {
 
             case "fork":
                 let (nameOpt, rem0) = parseOption(rest, name: "--name")
-                let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+                let (windowOpt, rem0a) = parseOption(rem0, name: "--window")
+                // Same placeholder contract as `vm new`: the app pre-creates a
+                // workspace with a loading pane and the fork lands in it.
+                let (forkTargetWorkspaceOpt, rem0b) = parseOption(rem0a, name: "--workspace")
+                let (forkFocusOpt, rem1) = parseOption(rem0b, name: "--focus")
+                let forkFocus = try parseCloudVMFocusOption(forkFocusOpt, command: "vm fork")
                 let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
                 let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
-                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
+                        Usage: cmux vm fork <id> [--name <name>] [--workspace <id|ref>] [--focus true|false] [--window <id|ref|index>] [--detach|-d]
 
                         Find an id:
                           cmux vm ls
@@ -6035,12 +6040,17 @@ struct CMUXCLI {
                 }
                 print("Forked Cloud VM \(id)")
                 print("  snapshot: \(snapshotId ?? "native fork")")
+                // Same machine-readable marker as `vm new`, so the app's create
+                // coordinator can correlate the fork with its pending row.
+                print("OK machine=\(id)")
                 try vmOpenShell(
                     id: id,
                     workspaceName: nil,
                     windowRaw: targetWindow,
+                    targetWorkspaceId: forkTargetWorkspaceOpt,
                     forceSSH: false,
                     shouldPinWorkspaceToTop: false,
+                    focus: forkFocus,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat

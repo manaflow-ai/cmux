@@ -26,8 +26,14 @@ struct NewWorkspaceMenuModel: Equatable {
 
     let sections: [Section]
 
+    /// `standardCreateActions` are the built-in rows every plus menu carries
+    /// (New Workspace, New Cloud Workspace, New Terminal, New Browser) that the
+    /// configured `contextMenu` did not list itself. They lead the create
+    /// section, followed by a separator and the configured rows in the
+    /// order the config gave them.
     static func build(
         newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem],
+        standardCreateActions: [CmuxResolvedConfigAction] = [],
         agentChatAction: CmuxResolvedConfigAction?,
         templateNames: [String],
         loadedActions: [CmuxResolvedConfigAction],
@@ -42,6 +48,23 @@ struct NewWorkspaceMenuModel: Equatable {
         // growing `createRows` array on every separator (avoids O(n^2) over
         // user-configurable menu items).
         var createSectionHasAction = false
+
+        for action in standardCreateActions {
+            createRows.append(.action(
+                CmuxResolvedConfigMenuAction(
+                    id: "ui.newWorkspace.contextMenu.standard.\(action.id)",
+                    title: action.title,
+                    icon: action.icon,
+                    iconSourcePath: action.iconSourcePath,
+                    tooltip: action.tooltip,
+                    action: action
+                ),
+                deletable: false,
+                isDefault: action.id == newWorkspaceActionID
+            ))
+            createSectionHasAction = true
+            pendingCreateSeparator = true
+        }
 
         for item in newWorkspaceContextMenuItems {
             switch item {

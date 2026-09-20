@@ -305,6 +305,66 @@ describe("VM Effect workflows", () => {
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
   });
 
+  test("a provider without a native fork snapshots the source and never calls fork", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000161",
+      userId: "user-workflow-snapshot-fork",
+      billingTeamId: "team-workflow-snapshot-fork",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-snapshot-fork-source",
+      status: "running",
+      providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } },
+    });
+    let forkCalls = 0;
+    let snapshotCalls = 0;
+    let beginInput: { image?: string; forkPending?: boolean } | undefined;
+    const repo = {
+      ...testWorkflowRepo({ vm: source }),
+      beginCreate: (input: { image?: string; forkPending?: boolean }) => {
+        beginInput = input;
+        // Stop here: the create itself is covered by the create tests. What
+        // matters is which path forkVm chose before it got this far.
+        return Effect.fail(new Error("stop after path selection"));
+      },
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
+      snapshot: () => {
+        snapshotCalls += 1;
+        return Effect.succeed({ id: "sh-fork-source", createdAt: Date.now() });
+      },
+      // The live gateway always defines fork; the driver answers whether it is native.
+      supportsNativeFork: () => false,
+      fork: () => {
+        forkCalls += 1;
+        return Effect.succeed(testVmHandle({ providerVmId: "never" }));
+      },
+    };
+
+    await expect(Effect.runPromise(
+      forkVm({
+        userId: source.userId,
+        billingCustomerType: "team",
+        billingTeamId: source.billingTeamId!,
+        teamIds: [source.billingTeamId!],
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        providerVmId: source.providerVmId!,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    )).rejects.toThrow();
+
+    expect(forkCalls).toBe(0);
+    expect(snapshotCalls).toBe(1);
+    // The create may stop before beginCreate in this stub (create tests cover
+    // the rest); when it gets there it must carry the snapshot, never forkPending.
+    if (beginInput) {
+      expect(beginInput.image).toBe("sh-fork-source");
+      expect(beginInput.forkPending).toBeUndefined();
+    }
+  });
+
   test("uses the legacy machine fallback for implausible legacy fork stats", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000155",
