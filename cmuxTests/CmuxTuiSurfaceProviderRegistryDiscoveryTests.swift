@@ -49,6 +49,36 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(catalog.snapshot.machines.isEmpty, "Account teardown also removes receipts that have no provider yet")
     }
 
+    @Test("A stale fleet page cannot prune a machine create receipt before discovery observes it")
+    func stalePageRetainsCreatedMachineReceipt() async {
+        let catalog = SurfaceCatalog()
+        let created = machine("vm-created")
+        var page = VMListPage(vms: [], limits: nil)
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return page
+            }
+        )
+        registry.start(catalog: catalog)
+        registry.recordCreatedMachine(created, scope: registry.creationScope)
+
+        #expect(await registry.refresh(force: true))
+        #expect(lists == 1)
+        #expect(catalog.machines[.cloud(created.id)] != nil,
+                "A stale list must leave the friendly create receipt visible")
+
+        page = VMListPage(vms: [created], limits: nil)
+        #expect(await registry.refresh(force: true))
+        #expect(lists == 2)
+        #expect(registry.provider(machineID: created.id) != nil,
+                "The receipt should converge once discovery positively observes the machine")
+        await registry.accessDidEnd()
+    }
+
     @Test("A saved machine can resolve its private route before the first background list")
     func privateRouteDiscoversBeforeFirstPoll() async {
         let catalog = SurfaceCatalog()

@@ -54,6 +54,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessEpoch: UInt64 = 0
     /// Create receipts also end at team changes, which preserve the registry's observer epoch.
     private var creationEpoch = UUID()
+    /// Machine IDs admitted from a successful create response remain owned by
+    /// this registry until a fleet page positively observes them. A stale page
+    /// must not prune a receipt that is still converging into discovery.
+    private var pendingMachineCreationIDs: Set<String> = []
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
@@ -110,6 +114,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard let scope, scope == creationScope, let catalog else { return }
         // A replay cannot overwrite names or status already accepted by discovery.
         guard catalog.machines[.cloud(summary.id)] == nil else { return }
+        pendingMachineCreationIDs.insert(summary.id)
         refreshGeneration &+= 1
         catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
             from: summary, linkState: .connecting, linkError: nil, stats: nil
@@ -148,6 +153,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = false
         accessEpoch &+= 1
         creationEpoch = UUID()
+        pendingMachineCreationIDs.removeAll()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -340,6 +346,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         // A fleet page fetched before the delete must not re-register the
         // machine on top of this teardown.
         refreshGeneration &+= 1
+        pendingMachineCreationIDs = pendingMachineCreationIDs.filter {
+            $0.caseInsensitiveCompare(rawID) != .orderedSame
+        }
         unregisterMachine(rawID)
     }
 
@@ -434,12 +443,16 @@ final class CmuxTuiSurfaceProviderRegistry {
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
+        // This page is the authoritative positive observation for any receipt
+        // it contains. Once observed, normal stale pruning may own that ID.
+        pendingMachineCreationIDs.subtract(seen)
         // Reconcile both stores. A restored catalog can contain a machine for
         // which this process has not created a provider yet.
         let catalogMachineIDs = Set(catalog.machines.keys.compactMap(\.cloudMachineID))
         let staleIDs = Set(providers.keys)
             .union(catalogMachineIDs)
             .union(catalog.pendingRestoredMachineIDs)
+            .subtracting(pendingMachineCreationIDs)
             .subtracting(seen)
         for id in staleIDs {
             unregisterMachine(id)
@@ -492,6 +505,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = true
         accessEpoch &+= 1
         creationEpoch = UUID()
+        pendingMachineCreationIDs.removeAll()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil
