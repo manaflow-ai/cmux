@@ -90,6 +90,20 @@ struct CmuxPopoverGroupTests {
         #expect(closed == [child, parent])
     }
 
+    @Test func mouseMovementSubscriptionRestoresTheWindowSetting() {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 300, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let anchor = NSView(frame: CGRect(x: 10, y: 10, width: 100, height: 26))
+        window.contentView?.addSubview(anchor)
+        window.acceptsMouseMovedEvents = false
+        let group = CmuxPopoverGroup()
+        let popover = NSPopover()
+        let member = group.register(popover: popover, anchor: anchor)
+        #expect(window.acceptsMouseMovedEvents)
+        group.unregister(member)
+        #expect(!window.acceptsMouseMovedEvents)
+    }
+
     @Test func reopenedMenuDoesNotKeepStaleMemberWindows() {
         let group = CmuxPopoverGroup()
         let first = UUID()
