@@ -22,13 +22,19 @@ struct AgentChatTranscriptServiceLifetimeTests {
             }
 
             await probe.capture(service)
-            #expect(!Thread.isMainThread)
-            service = nil
+            return Self.releaseOnCurrentThread(&service)
         }
 
-        await releaseTask.value
+        let releasedOffMainThread = await releaseTask.value
         let didRelease = await MainActor.run { probe.didRelease }
+        #expect(releasedOffMainThread)
         #expect(didRelease)
+    }
+
+    private static func releaseOnCurrentThread(_ service: inout AgentChatTranscriptService?) -> Bool {
+        let isBackgroundThread = !Thread.isMainThread
+        service = nil
+        return isBackgroundThread
     }
 }
 
