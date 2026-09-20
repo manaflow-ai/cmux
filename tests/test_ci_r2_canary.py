@@ -148,7 +148,7 @@ class ReadinessTests(unittest.TestCase):
             (work / verify.TOKEN_FILE).write_text('a' * 64)
             output = work / 'receipt.json'
             sequence = iter(responses)
-            def sleep(seconds):
+            def advance_fake_clock(seconds):
                 self.assertGreaterEqual(seconds, 10)
                 clock[0] += seconds
             def curl(args, **kwargs):
@@ -168,7 +168,7 @@ class ReadinessTests(unittest.TestCase):
             with patch.object(verify, 'metadata', lambda: {'id': verify.ARTIFACT}), \
                  patch.object(verify, 'SIZE', len(body)), patch.object(verify, 'DIGEST', hashlib.sha256(body).hexdigest()), \
                  patch.object(verify.subprocess, 'run', curl), patch.object(verify.time, 'monotonic', lambda: clock[0]), \
-                 patch.object(verify.time, 'sleep', sleep), patch.dict(os.environ, {'RUNNER_TEMP': directory}), \
+                 patch.object(verify.time, 'sleep', advance_fake_clock), patch.dict(os.environ, {'RUNNER_TEMP': directory}), \
                  patch('sys.argv', ['verify', '--origin', 'https://cmux-ci-artifacts-canary-123-1.test.workers.dev', '--receipt', str(output)]):
                 with self.assertRaises(SystemExit) as exited:
                     verify.main()
@@ -178,7 +178,7 @@ class ReadinessTests(unittest.TestCase):
             return exited.exception.code, receipt, calls, clock[0]
 
     def test_routing_retry_precedes_exactly_one_cold_and_warm_request(self):
-        code, receipt, calls, elapsed = self.scenario([(404, '', 22), (204, 'ready-v1', 0), (200, 'artifact-v1', 0), (200, 'artifact-v1', 0)])
+        code, receipt, calls, virtual_seconds = self.scenario([(404, '', 22), (204, 'ready-v1', 0), (200, 'artifact-v1', 0), (200, 'artifact-v1', 0)])
         self.assertEqual(code, 0)
         self.assertEqual([r['phase'] for r in receipt['requests']], ['readiness', 'readiness', 'cold', 'warm'])
         self.assertTrue(all('__cmux_artifact_canary_ready' in url for url, _ in calls[:2]))
@@ -186,29 +186,29 @@ class ReadinessTests(unittest.TestCase):
         self.assertGreaterEqual(calls[1][1] - calls[0][1], 10)
 
     def test_marked_gate_rejection_stops_without_import_or_sleep(self):
-        code, receipt, calls, elapsed = self.scenario([(404, 'gate-rejected', 22)])
+        code, receipt, calls, virtual_seconds = self.scenario([(404, 'gate-rejected', 22)])
         self.assertEqual(code, 1)
         self.assertEqual(len(calls), 1)
         self.assertEqual(receipt['requests'][0]['http_status'], 404)
         self.assertEqual(receipt['requests'][0]['canary_stage'], 'gate-rejected')
         self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
-        self.assertEqual(elapsed, 1)
+        self.assertEqual(virtual_seconds, 1)
 
     def test_unready_routes_are_bounded_and_never_import(self):
-        code, receipt, calls, elapsed = self.scenario([])
+        code, receipt, calls, virtual_seconds = self.scenario([])
         self.assertEqual(code, 1)
         self.assertLessEqual(len(calls), 6)
-        self.assertLessEqual(elapsed, 60)
+        self.assertEqual(virtual_seconds, 56)  # Six simulated 1s probes and five 10s advances.
         self.assertTrue(all(b[1] - a[1] >= 10 for a, b in zip(calls, calls[1:])))
         self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
 
     def test_204_without_protocol_marker_never_passes_readiness(self):
-        code, receipt, calls, elapsed = self.scenario([(204, '', 0)] * 6)
+        code, receipt, calls, virtual_seconds = self.scenario([(204, '', 0)] * 6)
         self.assertEqual(code, 1)
         self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
 
     def test_process_timeout_cannot_inherit_readiness_headers_or_leak_exception_output(self):
-        code, receipt, calls, elapsed = self.scenario([(204, 'ready-v1', 0), (0, '', -1)])
+        code, receipt, calls, virtual_seconds = self.scenario([(204, 'ready-v1', 0), (0, '', -1)])
         self.assertEqual(code, 1)
         self.assertEqual(len(calls), 2)
         row = receipt['requests'][-1]
@@ -220,7 +220,7 @@ class ReadinessTests(unittest.TestCase):
     def test_artifact_http_errors_and_timeouts_are_recorded_without_retry(self):
         for status, exit_code in [(404, 22), (502, 22), (0, 28)]:
             with self.subTest(status=status):
-                code, receipt, calls, elapsed = self.scenario([(204, 'ready-v1', 0), (status, 'artifact-v1', exit_code)])
+                code, receipt, calls, virtual_seconds = self.scenario([(204, 'ready-v1', 0), (status, 'artifact-v1', exit_code)])
                 self.assertEqual(code, 1)
                 self.assertEqual([r['phase'] for r in receipt['requests']], ['readiness', 'cold'])
                 self.assertEqual(sum(url.endswith('.zip') for url, _ in calls), 1)
