@@ -212,17 +212,18 @@ final class SharedLiveAgentIndex {
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let processSnapshotLoader: @Sendable () async -> CmuxTopProcessSnapshot
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
-
     init(
         indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
             await SharedLiveAgentIndexLoader.loadFreshResult()
         },
+        processSnapshotLoader: @escaping @Sendable () async -> CmuxTopProcessSnapshot = { await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeCMUXScope: true, includeResources: false) },
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -239,6 +240,7 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.processSnapshotLoader = processSnapshotLoader
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -246,7 +248,6 @@ final class SharedLiveAgentIndex {
         self.dateProvider = dateProvider
         self.forkExecutableWatchSourceBudgetProvider = forkExecutableWatchSourceBudgetProvider
     }
-
     func forkValidationExecutableFingerprint(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false

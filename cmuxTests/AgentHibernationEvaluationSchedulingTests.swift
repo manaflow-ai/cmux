@@ -149,6 +149,43 @@ struct AgentHibernationEvaluationSchedulingTests {
         #expect(coalescedLoadCount.withLock { $0 } == 1)
     }
 
+    @MainActor
+    @Test
+    func scheduledHibernationRevalidatesTheCachedIndexWithoutReloadingHookStores() async {
+        let hookStoreDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-scheduled-(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookStoreDirectory) }
+        let fullReloadCount = OSAllocatedUnfairLock(initialState: 0)
+        let processCensusCount = OSAllocatedUnfairLock(initialState: 0)
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [], sampledAt: .now, includesProcessDetails: true,
+            includesCMUXScope: true, includesResources: false
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                fullReloadCount.withLock { $0 += 1 }
+                return (
+                    index: RestorableAgentSessionIndex.empty,
+                    liveAgentProcessFingerprint: [],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            processSnapshotLoader: {
+                processCensusCount.withLock { $0 += 1 }
+                return processSnapshot
+            },
+            hookStoreDirectoryProvider: { hookStoreDirectory.path }
+        )
+
+        _ = await sharedIndex.indexRefreshingNow()
+        _ = await sharedIndex.indexForScheduledHibernation()
+        _ = await sharedIndex.indexForScheduledHibernation()
+
+        #expect(fullReloadCount.withLock { $0 } == 1)
+        #expect(processCensusCount.withLock { $0 } == 2)
+    }
+
     private static func waitForSignal(_ stream: AsyncStream<Void>) async {
         for await _ in stream {
             return
