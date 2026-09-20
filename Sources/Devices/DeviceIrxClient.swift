@@ -27,6 +27,29 @@ actor DeviceIrxClient {
     private var sessions: [String: Session] = [:]
     private var stopped = false
     private var directoryObservers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private var publishedDiscovery: DiscoveryState?
+
+    /// Only facts used by outgoing discovery invalidate its list. This Mac's
+    /// hosting metadata, inbound grants and ticket refreshes do not change it.
+    private struct DiscoveryState: Equatable {
+        let identity: V2Identity
+        let devices: [V2DeviceRecord]
+        let permissionExpiresAt: Int
+        let relayURLs: [String]
+        let revoked: Bool
+
+        init?(cache: V2CachedState?) {
+            guard let cache, let directory = cache.directory else { return nil }
+            identity = cache.identity
+            devices = directory.devices.filter {
+                $0.descriptor.identity.deviceID.lowercased() != cache.identity.deviceID.lowercased()
+                    || $0.descriptor.identity.buildTag != cache.identity.buildTag
+            }.sorted { $0.deviceRecordID < $1.deviceRecordID }
+            permissionExpiresAt = directory.permissionExpiresAt
+            relayURLs = directory.relayURLs
+            revoked = cache.authorityRevoked
+        }
+    }
 
     init(context: @escaping ContextProvider, journal: IrxJournal) {
         self.context = context
@@ -174,6 +197,9 @@ actor DeviceIrxClient {
             }
         }
         for (endpoint, entry) in revoked { await release(endpoint: endpoint, owner: entry.owner) }
+        let discovery = DiscoveryState(cache: cache)
+        guard publishedDiscovery != discovery else { return }
+        publishedDiscovery = discovery
         for observer in directoryObservers.values { observer.yield(()) }
     }
 
