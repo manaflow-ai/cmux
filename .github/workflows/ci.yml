@@ -53,6 +53,13 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
             # Checkout depth 2 contains the synthetic merge commit and its
             # base parent, even when base/head histories are shallow boundaries.
+            # The event's base SHA is where the pull request last synced. Once
+            # main moves on it is outside this checkout, and a diff from it
+            # would also count everything main gained since. The merge commit's
+            # first parent is the base it was actually built on.
+            if git rev-parse -q --verify "$MERGE_SHA^2" > /dev/null; then
+              BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"
+            fi
             if ! git diff --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
@@ -75,6 +82,7 @@ jobs:
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
             ci_router_changed=false
+            ci_workflow_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
@@ -84,7 +92,7 @@ jobs:
                   ci_router_changed=true
                   ;;
                 .github/workflows/ci.yml)
-                  ci_router_changed=true
+                  ci_workflow_changed=true
                   ;;
                 scripts/ci/*)
                   ci_router_changed=true
@@ -114,9 +122,23 @@ jobs:
               exit 0
             fi
 
+            # The detector is unchanged here, so it may judge a ci.yml edit: only
+            # an edit confined to Linux jobs skips macOS, and anything it cannot
+            # read runs every area.
+            workflow_base_args=()
+            if [ "$ci_workflow_changed" = true ]; then
+              if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml; then
+                echo "Could not read the base ci.yml; running all CI areas." >&2
+                emit_all_areas
+                exit 0
+              fi
+              workflow_base_args=(--ci-workflow-base /tmp/cmux-ci-base-workflow.yml)
+            fi
+
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
-              --files-from /tmp/cmux-ci-changed-files.txt
+              --files-from /tmp/cmux-ci-changed-files.txt \
+              ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
 
@@ -208,6 +230,9 @@ jobs:
 
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
+
+      - name: Validate required checks report for the merge queue
+        run: python3 tests/test_ci_merge_queue_required_checks.py
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
@@ -488,7 +513,26 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
-        run: bun run test:instant
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-test-instant.log"
+          set +e
+          bun run test:instant 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # The native TypeScript preview compiler can abort while Playwright
+          # starts its web server. Retry that transient compiler crash once,
+          # while preserving immediate failures for real type or test errors.
+          if [ "$status" -ne 0 ] \
+            && grep -Fq '[WebServer] $ tsgo --noEmit' "$log" \
+            && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during instant navigation tests; retrying once"
+            bun run test:instant
+            exit $?
+          fi
+
+          exit "$status"
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
@@ -626,10 +670,11 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
-    # full app-host suite with 0 unexpected failures, so route through the
-    # shared MACOS_RUNNER_15 var like the other macOS jobs.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # sessions, so route through the shared MACOS_RUNNER_15 var like the other
+    # macOS jobs. The fallback is what fork pull requests get, because
+    # repository variables are not exposed to them, so it names the same
+    # Blacksmith pool main uses and never the paid overflow provider.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -1252,6 +1297,22 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
+            test-without-building
+
+      - name: Run Cloud workspace rename surface parity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept Swift Testing assertion
+          # failures when XCTest reports "0 unexpected". Keep #12986's
+          # three-surface name parity non-tolerant so a local title cache can
+          # never again outlive the accepted daemon name on one surface.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CloudWorkspaceRenameSurfaceParityTests \
             test-without-building
 
       - name: Run terminal portal visibility regressions
@@ -2092,7 +2153,7 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
@@ -2240,7 +2301,7 @@ jobs:
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -2253,7 +2314,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
