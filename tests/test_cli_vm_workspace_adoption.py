@@ -18,12 +18,13 @@ class MachineSocket:
     window = "33333333-3333-4333-8333-333333333333"
     other_window = "44444444-4444-4444-8444-444444444444"
 
-    def __init__(self, fail_at=None, bound_workspace=None):
+    def __init__(self, fail_at=None, bound_workspace=None, selected_workspace=None):
         self.fail_at = fail_at
         self.requests = []
         self.errors = []
         self.stopping = threading.Event()
         self.bound_workspace = bound_workspace
+        self.selected_workspace = selected_workspace
 
     def __enter__(self):
         self.root = tempfile.TemporaryDirectory(prefix="cmux-adopt-", dir="/tmp")
@@ -77,10 +78,12 @@ class MachineSocket:
                     "window_id": self.window, "remote_workspace_id": self.bound_workspace}
         if method == "window.list":
             return {"windows": [{"id": self.window}, {"id": self.other_window}]}
+        if method == "workspace.current":
+            return {"workspace_id": self.selected_workspace or "selected-workspace"}
         if method == "workspace.list":
             return {"workspaces": [] if params.get("window_id") == self.other_window else
                     [{"id": self.workspace, "ref": "workspace:73", "window_id": self.window}]}
-        if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.current", "workspace.select"}:
+        if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.select"}:
             return {"workspace_id": self.workspace}
         raise AssertionError("Unexpected mutation: " + method)
 
@@ -128,6 +131,14 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
             project = next(r["params"] for r in server.requests if r["method"] == "surface.project")
             self.assertEqual(project["remote_workspace_id"], "ws-first")
             self.assertEqual(project["resource"], server.machine + "/terminal/term-first")
+
+    def test_selected_background_target_keeps_focus_without_selecting_another_workspace(self):
+        with MachineSocket(selected_workspace=MachineSocket.workspace) as server:
+            result = self.run_open(server, "open")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            project = next(r["params"] for r in server.requests if r["method"] == "surface.project")
+            self.assertIs(project["focus"], True)
+            self.assertNotIn("workspace.select", [r["method"] for r in server.requests])
 
     def test_app_receipt_resolves_cross_window_refs_and_uuid_targets(self):
         for target in [MachineSocket.workspace, "workspace:73"]:
