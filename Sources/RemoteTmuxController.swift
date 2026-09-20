@@ -794,6 +794,12 @@ final class RemoteTmuxController {
         // Safe for every reason: a session that already ended leaves the stream past `.connected`,
         // so this degrades to the plain teardown and only a live client is asked to detach.
         removeCachedConnection(forKey: key)?.detachThenStop()
+        // This workspace is never coming back as a mirror on this host (both
+        // `.sessionEnded` and `.explicitDetach` are authoritative here) — drop
+        // its retention on the host's browser-preview proxy, or a host with no
+        // other mirrors keeps its forward/listener alive until something else
+        // eventually tears the whole host down.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
             releaseLoginOfferIfHostHasNoMirrors(host: host)
@@ -856,6 +862,7 @@ final class RemoteTmuxController {
             mirror.connection.endSession(kill: false)
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
+            browserProxyRegistry.release(workspaceID: workspaceId)
             // Multiplexed mirrors have a channel, not a cached connection — release
             // it so the shared stream's observer slot doesn't leak.
             if let channel = channelsByHostSession.removeValue(forKey: key) {
