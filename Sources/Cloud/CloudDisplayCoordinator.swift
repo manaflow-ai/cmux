@@ -11,6 +11,7 @@ final class CloudDisplayCoordinator {
     private(set) var isAvailable = false
     private var generation: UInt64 = 0
     private var requestID: UUID?
+    private var refreshTask: Task<Void, Never>?
     private var creation: Task<CloudGuestDisplaySnapshot, Error>?
 
     init(execute: @escaping @MainActor (String, Int) async throws -> VMExecResult) {
@@ -21,18 +22,24 @@ final class CloudDisplayCoordinator {
 
     func refresh() async {
         guard creation == nil else { return }
+        refreshTask?.cancel()
         generation &+= 1
         let token = generation
-        do {
-            let response = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
-            let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
-            guard token == generation, !Task.isCancelled else { return }
-            self.snapshot = snapshot
-            isAvailable = response.exitCode == 0
-        } catch {
-            guard token == generation else { return }
-            isAvailable = false
+        let task = Task { [weak self, execute] in
+            do {
+                let response = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
+                let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
+                guard let self, token == self.generation, !Task.isCancelled else { return }
+                self.snapshot = snapshot
+                self.isAvailable = response.exitCode == 0
+            } catch {
+                guard let self, token == self.generation else { return }
+                self.isAvailable = false
+            }
         }
+        refreshTask = task
+        await task.value
+        if refreshTask != nil, token == generation { refreshTask = nil }
     }
 
     func create() async throws -> CloudGuestDisplaySnapshot {
@@ -71,6 +78,8 @@ final class CloudDisplayCoordinator {
     /// Drops guest state when the provider identity or account scope changes.
     func invalidate() {
         generation &+= 1
+        refreshTask?.cancel()
+        refreshTask = nil
         creation?.cancel()
         creation = nil
         snapshot = nil
