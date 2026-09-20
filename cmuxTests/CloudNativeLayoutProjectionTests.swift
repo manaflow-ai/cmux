@@ -10,6 +10,102 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test(.timeLimit(.minutes(1)))
+    func deviceLayoutsRoundTripWithoutEchoAndPreserveTheNewestGesture() async throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let viewer = try #require(manager.selectedWorkspace)
+        let pane = try #require(viewer.bonsplitController.allPaneIds.first)
+        let first = try #require(viewer.focusedPanelId)
+        let second = try #require(viewer.newTerminalSurface(inPane: pane, focus: false)?.id)
+        defer { viewer.teardownAllPanels(); manager.tabs = [] }
+        let machine = SurfaceMachineID.device(.init(deviceID: "layout-owner", tag: "test"))
+        let remoteID = UUID()
+        let remoteA = UUID().uuidString
+        let remoteB = UUID().uuidString
+        let catalog = SurfaceCatalog()
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: remoteID.uuidString, name: "Remote", index: 0, focused: false)
+        for (panel, remote) in [(first, remoteA), (second, remoteB)] {
+            let resource = SurfaceResource(id: .init(machine: machine, kind: .terminal, key: remote),
+                title: remote, detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: remoteWorkspace,
+                remoteViews: [SurfaceRemoteView(tabID: remote, workspace: remoteWorkspace)], port: nil, url: nil)
+            catalog.upsert(resource)
+            catalog.record(.init(resource: resource.id, workspaceID: viewer.id, panelID: panel,
+                remoteWorkspaceID: remoteID.uuidString, remoteTabID: remote))
+        }
+        let localLayout: (Double) -> DeviceWorkspaceLayoutNode = { ratio in
+            .split(direction: .horizontal, ratio: ratio,
+                first: .pane(id: "left", surfaceIDs: [first.uuidString], selectedSurfaceID: first.uuidString),
+                second: .pane(id: "right", surfaceIDs: [second.uuidString], selectedSurfaceID: second.uuidString))
+        }
+        let mapping = [first.uuidString: remoteA, second.uuidString: remoteB]
+        var source = try localLayout(0.4).remappingSurfaceIDs(mapping)
+        weak var receiver: DeviceWorkspaceLayoutCoordinator?
+        let host = DeviceWorkspaceLayoutHost(capture: { $0 == remoteID ? source : nil },
+            apply: { _, next in source = next }, createTerminal: { _, _, _ in nil },
+            publish: { receiver?.accept($0) }, notificationCenter: NotificationCenter())
+        var writes = 0
+        var rejectNext = false
+        var holdNext = false
+        var release: CheckedContinuation<Void, Never>?
+        let entered = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let coordinator = DeviceWorkspaceLayoutCoordinator(machine: machine, catalog: catalog,
+            workspace: { $0 == viewer.id ? viewer : nil },
+            request: { method, params in
+                if method == "device.workspace.layout.apply" {
+                    writes += 1
+                    if rejectNext { rejectNext = false; throw DeviceLinkError.notConnected }
+                    if holdNext {
+                        holdNext = false
+                        entered.continuation.yield(())
+                        await withCheckedContinuation { release = $0 }
+                    }
+                }
+                switch host.handle(.init(id: nil, method: method, params: params, auth: nil)) {
+                case .ok(let payload): return try JSONSerialization.data(withJSONObject: payload)
+                case .failure(let error): throw error
+                case nil: throw DeviceLinkError.malformedResponse(method)
+                }
+            }, refresh: {}, isConnected: { true }, didAccept: {}, notificationCenter: NotificationCenter())
+        receiver = coordinator
+        defer { coordinator.stop(); entered.continuation.finish() }
+        let initial = try #require(host.snapshot(for: remoteID))
+        coordinator.accept(initial)
+        await coordinator.waitForIdle()
+        #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source) == true)
+
+        // A remote application must not be echoed as a user edit.
+        coordinator.nativeLayoutChanged(workspaceID: viewer.id, capturedLayout: localLayout(0.4), isExternal: true)
+        await coordinator.waitForIdle()
+        #expect(writes == 0)
+
+        holdNext = true
+        coordinator.nativeLayoutChanged(workspaceID: viewer.id, capturedLayout: localLayout(0.55))
+        var iterator = entered.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        coordinator.nativeLayoutChanged(workspaceID: viewer.id, capturedLayout: localLayout(0.7))
+        release?.resume()
+        await coordinator.waitForIdle()
+        #expect(writes == 2)
+        #expect(source.hasSameArrangement(as: try localLayout(0.7).remappingSurfaceIDs(mapping)))
+
+        // Older events cannot replace an accepted reply; source edits do project live.
+        coordinator.accept(initial)
+        source = try localLayout(0.3).remappingSurfaceIDs(mapping)
+        _ = host.snapshot(for: remoteID)
+        await coordinator.waitForIdle()
+        #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source) == true)
+        #expect(writes == 2)
+
+        rejectNext = true
+        try viewer.applyDeviceWorkspaceLayout(localLayout(0.8))
+        coordinator.nativeLayoutChanged(workspaceID: viewer.id, capturedLayout: localLayout(0.8))
+        await coordinator.waitForIdle()
+        #expect(try viewer.deviceWorkspaceLayoutSnapshot()?.remappingSurfaceIDs(mapping).hasSameArrangement(as: source) == true,
+            "A failed write rolls the viewer back to the authoritative source layout")
+        #expect(Set(viewer.panels.keys) == [first, second], "Layout reconciliation preserves terminal instances")
+    }
+
     @Test func newWorkspaceActionKeepsTheSelectedDeviceContext() async throws {
         let manager = TabManager(createInitialWorkspace: false)
         let workspace = Workspace(title: "Other Mac", initialSurface: .cloudVMLoading)
