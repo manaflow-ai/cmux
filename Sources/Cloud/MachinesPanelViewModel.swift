@@ -218,6 +218,9 @@ final class MachinesPanelViewModel: ObservableObject {
                     self.clearUnavailableMetrics()
                     self.lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
                     self.listProblem = .unreachable
+                    // Mark an interrupted first request as observed so the
+                    // offline empty state renders its retry action.
+                    self.hasLoadedOnce = true
                     // Retire the active transport and advance the generation
                     // so a late response cannot clear the offline state or
                     // schedule another refresh. `wantsPolling` remains true,

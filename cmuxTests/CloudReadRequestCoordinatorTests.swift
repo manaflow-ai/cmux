@@ -443,6 +443,20 @@ struct CloudReadRequestCoordinatorTests {
     }
 }
 
+@Suite("Cloud machines offline empty state")
+struct CloudMachinesOfflineStateTests {
+    @Test("Offline before the first list load exposes retry state")
+    @MainActor
+    func offlineBeforeFirstLoadIsVisible() {
+        let model = MachinesPanelViewModel(client: nil, isCloudEnabled: { true })
+        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
+        #expect(model.hasLoadedOnce)
+        #expect(model.listProblem == .unreachable)
+        #expect(model.lastErrorDescription != nil)
+        model.stopPolling()
+    }
+}
+
 actor CloudReadResponseGate {
     private(set) var requests = 0
     private var released = false

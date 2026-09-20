@@ -372,8 +372,7 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         let reader = SystemGitReferenceReader(
             runner: SystemWorkspaceChangesGitRunner(
                 executableURL: fixture.gitExecutableURL,
-                environment: environment,
-                isolateRepositoryConfig: true
+                environment: environment
             )
         )
 
