@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import Foundation
+import struct CmuxFoundation.AgentPIDProcessIdentity
 
 extension Workspace {
     /// Whether `restoredAgent` is verifiably still running in `panelId`; see
