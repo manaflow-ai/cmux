@@ -39,7 +39,15 @@ trap cleanup EXIT
 xcrun simctl boot "$simulator_id"
 xcrun simctl bootstatus "$simulator_id" -b
 cd "$root"
-xcodebuild test   -workspace ios/RemoteConnectionsTests.xcworkspace   -scheme CmuxRemoteConnections   -destination "platform=iOS Simulator,id=$simulator_id"   -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"   -resultBundlePath "$evidence/RemoteConnections.xcresult"   -parallel-testing-enabled NO   | tee "$evidence/ios-tests.log"
+xcodebuild test \
+  -workspace ios/RemoteConnectionsTests.xcworkspace \
+  -scheme CmuxRemoteConnections \
+  -destination "platform=iOS Simulator,id=$simulator_id" \
+  -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+  -resultBundlePath "$evidence/RemoteConnections.xcresult" \
+  -parallel-testing-enabled NO \
+  CODE_SIGN_ENTITLEMENTS="$root/ios/RemoteConnectionsTests/RemoteConnectionsTests.entitlements" \
+  | tee "$evidence/ios-tests.log"
 
 xcrun xcresulttool get test-results summary   --path "$evidence/RemoteConnections.xcresult" > "$evidence/test-summary.json"
 xcrun xcresulttool get test-results tests \
