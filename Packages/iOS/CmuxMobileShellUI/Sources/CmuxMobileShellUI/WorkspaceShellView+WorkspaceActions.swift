@@ -473,6 +473,36 @@ extension WorkspaceShellView {
         createWorkspaceIfConnected(inGroup: nil)
     }
 
+    /// Opens a new workspace on a chosen Mac from the "+" hold menu: make it
+    /// the foreground connection, keep a machine filter pointed at it, then
+    /// run the same create path the one-tap gesture uses for this layout.
+    func createWorkspace(
+        on host: MobileNewTerminalMenuValue.Host,
+        navigationStyle: WorkspaceNavigationStyle
+    ) {
+        Task { @MainActor in
+            let switched = await switchMacFromWorkspacePicker(
+                macDeviceID: host.macDeviceID,
+                instanceTag: host.instanceTag
+            )
+            guard switched else {
+                handleWorkspaceActionResult(
+                    .failure(.notConnected(hostDisplayName: host.name)),
+                    action: .createWorkspace
+                )
+                return
+            }
+            if case .machine = macSelection {
+                macSelection = .machine(host.id)
+            }
+            if navigationStyle == .push {
+                createWorkspaceInCompactStack()
+            } else {
+                createWorkspaceIfConnected()
+            }
+        }
+    }
+
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
         if store.usesLocalWorkspaceCreationFallback {

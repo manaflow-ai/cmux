@@ -87,6 +87,9 @@ struct CMUXMobileRootView: View {
     /// foreground returns. `nil` when unwired (previews), which shows no
     /// Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
+    #if os(iOS)
+    @Environment(\.mobileLocalComputerProvider) private var localComputerProvider
+    #endif
 
     #if os(iOS)
     init(
@@ -278,6 +281,12 @@ struct CMUXMobileRootView: View {
         ) {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
+        }
+        .fullScreenCover(
+            isPresented: localLinuxCoverBinding,
+            onDismiss: rootPresentationDidDismiss
+        ) {
+            localLinuxCover
         }
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
@@ -563,6 +572,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    openLocalLinux: openLocalLinuxAction,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
                     )
@@ -585,6 +595,7 @@ struct CMUXMobileRootView: View {
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
                     showComputers: showComputers,
+                    openLocalLinux: openLocalLinuxAction,
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
@@ -740,6 +751,44 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
+    }
+
+    /// Drives the full-screen local Linux cover from the same modal state.
+    private var localLinuxCoverBinding: Binding<Bool> {
+        Binding(
+            get: { rootPresentation.isLocalLinuxPresented },
+            set: { isPresented in
+                guard !isPresented else { return }
+                handleRootPresentation(.sheetDidRequestDismissal)
+            }
+        )
+    }
+
+    /// The local terminal gets the whole display. The shell hands it the same
+    /// controller the Computers row uses, so both entry points share one shell
+    /// session and its scrollback.
+    @ViewBuilder
+    private var localLinuxCover: some View {
+        if let localComputerProvider {
+            NavigationStack {
+                localComputerProvider.makeDestination()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                                handleRootPresentation(.dismissLocalLinux)
+                            }
+                            .accessibilityIdentifier("MobileLocalLinuxDone")
+                        }
+                    }
+            }
+        }
+    }
+
+    /// The "+" entry point for Linux on this iPhone, or `nil` when the runtime
+    /// is not bundled so the menu row renders disabled.
+    private var openLocalLinuxAction: (() -> Void)? {
+        guard localComputerProvider?.isAvailable == true else { return nil }
+        return { handleRootPresentation(.presentLocalLinux) }
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
@@ -1405,10 +1454,9 @@ struct CMUXMobileRootView: View {
     private func signOut() {
         diagnosticLog?.recordAppEvent(.authSignOutStarted)
         Task {
-            // Local shell teardown first so the whole UI lands signed out
-            // immediately; authManager.signOut clears the local session up
-            // front and only then runs its bounded best-effort server teardown
-            // (push-token DELETE, Stack session revocation).
+            // Fence local resources before any auth or shell state is cleared.
+            // The hook's begin phase is synchronous, so no old terminal
+            // callback can reach a newly signed-in account after this point.
             didAuthenticateWithAttachTicket = false
             didExceedStartupRestoringGate = false
             startupConnectionCoordinator.reset()
@@ -1416,9 +1464,9 @@ struct CMUXMobileRootView: View {
             // session. The connection presenter also suppresses its capsule
             // once isSignedIn flips, but that races the snapshot change
             // store.signOut() makes; this clears everything up front.
+            let serverTeardown = signOutHook.begin()
             toasts.dismissAll()
             store.signOut()
-            let serverTeardown = signOutHook.begin()
             await authManager.signOut(onSignedOut: serverTeardown)
             diagnosticLog?.recordAppEvent(
                 authManager.isAuthenticated ? .authSignOutFailed : .authSignOutSucceeded,

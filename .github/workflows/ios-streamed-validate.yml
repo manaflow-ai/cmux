@@ -59,6 +59,9 @@ jobs:
         # use); fall back to a local build only if the prebuilt is unavailable.
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      - name: Provision iSH kernel
+        uses: ./.github/actions/provision-ish-ios
+
       - name: Install tools (bun, idb, postgres)
         run: |
           set -euo pipefail

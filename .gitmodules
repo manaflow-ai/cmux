@@ -8,3 +8,6 @@
 [submodule "vendor/bonsplit"]
 	path = vendor/bonsplit
 	url = https://github.com/manaflow-ai/bonsplit.git
+[submodule "vendor/ish"]
+	path = vendor/ish
+	url = https://github.com/manaflow-ai/ish.git
