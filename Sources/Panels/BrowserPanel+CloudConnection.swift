@@ -9,7 +9,7 @@ extension BrowserPanel {
 
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
-    func restoreCloudResource(_ resource: SurfaceResourceID) {
+    func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil) {
         let catalog = SurfaceCatalog.shared
         do { try catalog.validateOwnership(of: [resource], at: .workspace(id: workspaceId, placement: .tab)) }
         catch { cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message); return }
@@ -23,9 +23,20 @@ extension BrowserPanel {
         }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
-            if let url = URL(string: raw) { provider.configureBrowser(self, url: url, resourceID: resource) }
+            if let url = URL(string: raw) {
+                provider.configureBrowser(self, url: Self.cloudRestoredURL(preferredURL, on: url), resourceID: resource)
+            }
         case .unsupported(let message): cloudAccess.showUnavailable(message)
         }
+    }
+
+    private static func cloudRestoredURL(_ preferred: URL?, on target: URL) -> URL {
+        guard let preferred, var components = URLComponents(url: target, resolvingAgainstBaseURL: false),
+              let saved = URLComponents(url: preferred, resolvingAgainstBaseURL: false) else { return target }
+        components.path = saved.path.isEmpty ? components.path : saved.path
+        components.query = saved.query
+        components.fragment = saved.fragment
+        return components.url ?? target
     }
 
     /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.

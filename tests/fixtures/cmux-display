@@ -198,7 +198,7 @@ class DisplayService:
             if "=" not in line:
                 continue
             key, value = line.split("=", 1)
-            environment[key] = value.strip().strip("'")
+            environment[key] = value.strip().rstrip(";").strip().strip("'")
         try:
             dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
         except ValueError:

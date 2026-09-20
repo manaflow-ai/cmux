@@ -4518,7 +4518,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         currentURL = restoredURL
-        if let resource = snapshot.cloudResource { restoreCloudResource(resource); return }
+        if let resource = snapshot.cloudResource { restoreCloudResource(resource, preferredURL: restoredURL); return }
         guard shouldRenderRestoredWebView, let restoredURL else {
             shouldRenderWebView = false
             refreshNavigationAvailability()

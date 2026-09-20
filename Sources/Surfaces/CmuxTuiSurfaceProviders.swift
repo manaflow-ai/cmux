@@ -148,10 +148,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
+        let displayIdentityChanged = self.summary.id != summary.id
+            || self.summary.provider != summary.provider
+            || self.summary.image != summary.image
         let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
-        displayCoordinator.invalidate()
+        if displayIdentityChanged { displayCoordinator.invalidate() }
         self.summary = summary
         if !supportsPortPreviews {
             portsCache = nil

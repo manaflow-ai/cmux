@@ -45,7 +45,7 @@ extension DockSplitStore {
             duplicatedPanel.retainTransferredSurfaceMachine(resource.machine)
             catalog.restore([SurfaceProjectionRecord(panelID: duplicatedPanel.id, resource: resource,
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
-            duplicatedPanel.restoreCloudResource(resource)
+            duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
         }
         if focus {
             noteKeyboardFocusIntent(window: focusWindow)

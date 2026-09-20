@@ -104,7 +104,7 @@ class CloudDisplayCatalogTests(unittest.TestCase):
             return Process()
 
         def launch(_command, **_options):
-            return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'\nDBUS_SESSION_BUS_PID=1\n")
+            return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'; export DBUS_SESSION_BUS_ADDRESS;\nDBUS_SESSION_BUS_PID=999999; export DBUS_SESSION_BUS_PID;\n")
 
         readiness_calls = {}
         def readiness(number):

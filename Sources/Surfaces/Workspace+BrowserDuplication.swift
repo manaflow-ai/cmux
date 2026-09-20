@@ -34,7 +34,7 @@ extension Workspace {
                 newPanel.showCloudAddress(url)
                 model.connect()
             } else {
-                newPanel.restoreCloudResource(resource)
+                newPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
             }
         }
         newPanel.setMuted(browser.isMuted)
