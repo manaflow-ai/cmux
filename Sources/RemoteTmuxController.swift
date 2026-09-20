@@ -969,6 +969,12 @@ final class RemoteTmuxController {
             return
         }
         sessionMirrors.removeValue(forKey: entry.key)
+        // Centralized here rather than at each caller — every path that
+        // detaches a mirror while keeping its workspace open locally must
+        // drop this workspace's retention, or a still-live sibling mirror
+        // on the same host keeps the browser proxy's listener/forward
+        // retained by a workspace id nothing will ever release again.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         entry.value.detachObserver()
         removeCachedConnection(forKey: entry.key)?.detachThenStop()
         let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
@@ -1005,6 +1011,11 @@ final class RemoteTmuxController {
             sessionName: sessionName
         )
         sessionMirrors.removeValue(forKey: entry.key)
+        // See `detachMirrorWorkspaceKeptOpenLocally` — same reasoning applies
+        // to a user-initiated close: without this, a sibling mirror still on
+        // this host keeps its browser proxy retained by this now-gone
+        // workspace's id forever.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)
         let isLastSession = !sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
