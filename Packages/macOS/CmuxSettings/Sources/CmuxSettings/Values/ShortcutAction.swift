@@ -21,6 +21,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Workspace
     case toggleSidebar
     case newTab
+    case newLocalWorkspace
     case newBrowserWorkspace
     case newCloudWorkspace
     case newCloudMachine
