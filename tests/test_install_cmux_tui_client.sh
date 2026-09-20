@@ -235,3 +235,41 @@ fi
 grep -q 'unsupported cmux-tui architecture' "$TEST_DIR/unknown-arch.log"
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported architecture fails before network access"
+
+# Native means the hardware architecture, including an Intel process translated
+# by Rosetta on Apple Silicon. Exercise through the actual installer entry point.
+cat > "$FAKEBIN/uname" <<'SH'
+#!/bin/bash
+[[ "$1" == -m ]] || exit 64
+printf '%s\n' "${FAKE_HOST_ARCH:-arm64}"
+SH
+cat > "$FAKEBIN/sysctl" <<'SH'
+#!/bin/bash
+[[ "$*" == '-in hw.optional.arm64' ]] || exit 64
+[[ "${FAKE_SYSCTL_EXIT:-0}" == 0 ]] || exit "$FAKE_SYSCTL_EXIT"
+printf '%s\n' "${FAKE_ARM_CAPABLE:-0}"
+SH
+chmod +x "$FAKEBIN/uname" "$FAKEBIN/sysctl"
+for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
+  host=arm64; capable=1; sysctl_exit=0; wanted=aarch64; rejected=x86_64
+  case "$scenario" in
+    intel) host=x86_64; capable=0; wanted=x86_64; rejected=aarch64 ;;
+    rosetta) host=x86_64 ;;
+    sysctl-unavailable) host=x86_64; capable=0; sysctl_exit=1; wanted=x86_64; rejected=aarch64 ;;
+    aarch64) host=aarch64 ;;
+  esac
+  FAKE_HOST_ARCH="$host" FAKE_ARM_CAPABLE="$capable" FAKE_SYSCTL_EXIT="$sysctl_exit" \
+    install_remote "$TEST_DIR/NativeHost-$scenario.app" --arch native \
+    --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
+  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
+  grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
+  if grep -q "curl .*cmux-tui-$rejected-apple-darwin\$" "$EVENTS"; then
+    echo "FAIL: native $scenario selected the wrong client slice" >&2; exit 1
+  fi
+  echo "PASS: native $scenario selects $wanted"
+done
+if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arch native > "$TEST_DIR/unknown-native.log" 2>&1; then
+  echo "FAIL: accepted an unsupported native host architecture" >&2; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo "PASS: unsupported native host fails before network access"
