@@ -101,7 +101,9 @@ describe("localized browser auth error page", () => {
 
     expect(html).toContain('data-auth-error="signupPending"');
     expect(html).toContain("Verify your email to continue");
-    expect(html).toContain("If we found an account, check your email for next steps");
+    expect(html).toContain(
+      "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    );
     expect(html).not.toContain("USER_EMAIL_ALREADY_EXISTS");
   });
 

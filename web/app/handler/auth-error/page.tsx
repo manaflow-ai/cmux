@@ -11,7 +11,6 @@ type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
 type AuthErrorMessages = {
   emailUnverifiedTitle: string;
   emailUnverifiedBody: string;
-  signupPendingBody: string;
   genericTitle: string;
   genericBody: string;
   backToSignIn: string;
@@ -69,7 +68,7 @@ export default async function AuthErrorPage({
           {key === "emailUnverified"
             ? messages.emailUnverifiedBody
             : key === "signupPending"
-              ? messages.signupPendingBody
+              ? messages.emailUnverifiedBody
               : messages.genericBody}
         </p>
         <Link
@@ -102,10 +101,7 @@ async function authErrorMessages(headersList: Headers): Promise<{
   const catalog = await loadMessages(locale);
   return {
     locale,
-    messages: {
-      ...(catalog.authError as AuthErrorMessages),
-      signupPendingBody: (catalog.billingRecovery as { message: string }).message,
-    },
+    messages: catalog.authError as AuthErrorMessages,
   };
 }
 
