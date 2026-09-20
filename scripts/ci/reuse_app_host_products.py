@@ -12,7 +12,6 @@ import io
 import json
 import os
 import platform
-import posixpath
 import re
 import shutil
 import signal
@@ -175,17 +174,15 @@ def validate_entries(entries):
 
     A link target that is relative and has no `..` component resolves below the
     link's own directory, so it stays inside Build/Products whatever else the
-    archive contains. The packer also preserves dangling unportable links found
-    in framework layouts; those are accepted only when their target is absent
-    from the archive, the link is inside a framework, and no archive entry is
-    nested below the link.
+    archive contains. The packer drops dangling unportable links, so every
+    archived link must obey the same scoped policy.
     """
     if not isinstance(entries, list):
         raise ValueError("unexpected archive listing")
     if len(entries) > MAX_MEMBERS:
         raise ValueError("archive member count limit exceeded")
     expanded = 0
-    paths, links = set(), {}
+    paths, links = set(), set()
     for entry in entries:
         kind, path = entry["TYP"], entry["PAT"]
         if kind not in {"D", "F", "L"}:
@@ -200,9 +197,9 @@ def validate_entries(entries):
             raise ValueError("unsupported product mode")
         if kind == "L":
             target = entry["LNK"]
-            if not isinstance(target, str) or any(part == "" for part in target.split("/")):
+            if not isinstance(target, str) or any(part in {"", ".."} for part in target.split("/")):
                 raise ValueError("unscoped product link")
-            links[path] = target
+            links.add(path)
         elif "LNK" in entry:
             raise ValueError("unexpected link target")
         size = entry.get("DAT", 0)
@@ -214,12 +211,6 @@ def validate_entries(entries):
         if size > MAX_MEMBER_BYTES or expanded + size + metadata > MAX_EXPANDED_BYTES:
             raise ValueError("archive member size limit exceeded")
         expanded += size + metadata
-    for path, target in links.items():
-        if target.startswith("/") or any(part == ".." for part in target.split("/")):
-            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
-            is_framework_link = any(part.endswith(".framework") for part in path.split("/"))
-            if resolved in paths or not is_framework_link:
-                raise ValueError("unscoped product link")
     for path in paths:
         parts = path.split("/")
         if any("/".join(parts[:depth]) in links for depth in range(1, len(parts))):

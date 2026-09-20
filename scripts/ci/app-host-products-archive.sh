@@ -8,9 +8,8 @@
 # directory and therefore inside Build/Products. `pack` replaces every other
 # resolvable link (absolute, or climbing with `..`) with a copy of its target,
 # in place, so the archive never depends on files outside the archived tree.
-# Dangling unportable links are retained only inside framework bundles; other
-# dangling unportable links are dropped because they cannot be useful to the
-# restored product and would make merge-queue validation ambiguous.
+# Dangling unportable links are dropped because they cannot be useful to the
+# restored product and could resolve against paths on the consuming runner.
 set -euo pipefail
 
 ARCHIVE_SUBDIR="Build/Products"
@@ -56,18 +55,8 @@ materialize_unportable_links() {
       continue
     fi
     if [ ! -e "$link" ]; then
-      case "$link" in
-        *.framework/*)
-          # Xcode framework bundles commonly contain dangling convenience links
-          # such as Headers. They are harmless without archived content below
-          # them, and preserving them keeps the framework layout intact.
-          echo "app-host-products-archive: keeping dangling framework link $link -> $target" >&2
-          ;;
-        *)
-          echo "app-host-products-archive: dropping dangling unportable link $link -> $target" >&2
-          rm "$link"
-          ;;
-      esac
+      echo "app-host-products-archive: dropping dangling unportable link $link -> $target" >&2
+      rm "$link"
       continue
     fi
     echo "app-host-products-archive: copying link target into the products: $link -> $target" >&2
