@@ -90,8 +90,8 @@ if [[ "$swift_package_section" == *"/Applications/Xcode_16.4.app"* ]]; then
   exit 1
 fi
 
-if [[ "$swift_package_section" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
-  echo "FAIL: CI swift-package-tests must build the universal Ghostty CLI helper on the macOS 15 lane" >&2
+if [[ "$swift_package_section" != *'./scripts/build-ghostty-cli-helper.sh "${helper_args[@]}" --output ghostty-cli-helper/ghostty'* ]]; then
+  echo "FAIL: CI swift-package-tests must build the architecture-selected Ghostty CLI helper on the macOS 15 lane" >&2
   exit 1
 fi
 
@@ -106,7 +106,7 @@ if [[ "$swift_package_before_xcode" != *"CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15"* ]
   exit 1
 fi
 
-if [[ "$swift_package_before_xcode" != *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
+if [[ "$swift_package_before_xcode" != *'./scripts/build-ghostty-cli-helper.sh "${helper_args[@]}" --output ghostty-cli-helper/ghostty'* ]]; then
   echo "FAIL: CI swift-package-tests must build the Ghostty helper before selecting the Xcode 26 SDK" >&2
   exit 1
 fi
@@ -132,7 +132,7 @@ if [[ "$release_build_section" != *"- swift-package-tests"* ]]; then
   exit 1
 fi
 
-if [[ "$release_build_section" == *"./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty"* ]]; then
+if [[ "$release_build_section" == *"./scripts/build-ghostty-cli-helper.sh"* ]]; then
   echo "FAIL: CI release-build must not build the Ghostty helper on macOS 26" >&2
   exit 1
 fi
