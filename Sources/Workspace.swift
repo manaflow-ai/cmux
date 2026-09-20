@@ -2768,8 +2768,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     bypassRemoteProxy: false,
                     isRemoteWorkspace: self.isRemoteWorkspace,
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot(),
-                    routesThroughRemoteProxy: self.isRemoteWorkspace || self.isRemoteTmuxMirror
+                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
                 )
             },
             tabDragTransferRegistry: tabDragTransferRegistry,
@@ -8232,7 +8231,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         for panel in panels.values {
             (panel as? BrowserPanel)?.setRemoteProxyEndpoint(endpoint)
         }
-        _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        // The Dock stays agnostic to ssh-tmux mirrors entirely (its own
+        // `DockRemoteBrowserSettings`/`makeBrowserPanel` never learn about
+        // `isRemoteTmuxMirror`, deliberately) — a Dock browser panel here
+        // always uses the shared local website-data store, so it must never
+        // receive a mirror's proxy endpoint at all, or `setRemoteProxyEndpoint`
+        // would write this mirror's SOCKS config onto that shared store.
+        if !isRemoteTmuxMirror {
+            _dockSplit?.applyRemoteProxyEndpointUpdate(endpoint)
+        }
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
