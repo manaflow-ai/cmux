@@ -157,7 +157,7 @@ private struct SidebarAccountPopover: View {
                     }
                 }
                 Divider()
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 4)
                 if let accountFlow {
                     SidebarAccountTeamPickerRow(
                         accountFlow: accountFlow,
@@ -184,7 +184,7 @@ private struct SidebarAccountPopover: View {
             if accountFlow?.isProUpgradeAvailable == true {
                 if accountFlow?.currentIdentity == nil {
                     Divider()
-                        .padding(.vertical, 6)
+                        .padding(.vertical, 4)
                 }
                 accountMenuRow(
                     title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
@@ -215,7 +215,7 @@ private struct SidebarAccountPopover: View {
     private var settingsRow: some View {
         VStack(alignment: .leading, spacing: 0) {
             Divider()
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             Button {
                 dismiss()
                 AppDelegate.shared?.openPreferencesWindow(

@@ -11,6 +11,7 @@ public final class CmuxPopoverGroup {
         let id: UUID
         let parent: UUID?
         let contains: (Int?, CGPoint) -> Bool
+        let containsPointer: (Int?, CGPoint) -> Bool
         let close: () -> Void
     }
 
@@ -26,7 +27,7 @@ public final class CmuxPopoverGroup {
     func register(popover: NSPopover, anchor: NSView) -> UUID {
         let id = UUID()
         let parent = members.last { windows[$0.id]?() === anchor.window }?.id
-        register(id: id, parent: parent, contains: { [weak popover, weak anchor] windowNumber, point in
+        let contains: (Int?, CGPoint) -> Bool = { [weak popover, weak anchor] windowNumber, point in
             if let window = popover?.contentViewController?.view.window,
                popover?.isShown == true,
                windowNumber == nil || windowNumber == window.windowNumber,
@@ -37,7 +38,27 @@ public final class CmuxPopoverGroup {
             guard parent == nil, let anchor, let window = anchor.window,
                   windowNumber == nil || windowNumber == window.windowNumber else { return false }
             return window.convertToScreen(anchor.convert(anchor.bounds, to: nil)).contains(point)
-        }, close: { [weak popover] in popover?.close() })
+        }
+        let containsPointer: (Int?, CGPoint) -> Bool = { [weak popover, weak anchor] windowNumber, point in
+            if let window = popover?.contentViewController?.view.window,
+               popover?.isShown == true,
+               windowNumber == nil || windowNumber == window.windowNumber,
+               window.frame.insetBy(dx: -14, dy: -14).contains(point) {
+                return true
+            }
+            guard parent == nil, let anchor, let window = anchor.window,
+                  windowNumber == nil || windowNumber == window.windowNumber else { return false }
+            return window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+                .insetBy(dx: -14, dy: -14)
+                .contains(point)
+        }
+        register(
+            id: id,
+            parent: parent,
+            contains: contains,
+            containsPointer: containsPointer,
+            close: { [weak popover] in popover?.close() }
+        )
         windows[id] = { [weak popover] in popover?.contentViewController?.view.window }
         startMonitoring()
         return id
@@ -49,13 +70,26 @@ public final class CmuxPopoverGroup {
         id: UUID,
         parent: UUID?,
         contains: @escaping (Int?, CGPoint) -> Bool,
+        containsPointer: ((Int?, CGPoint) -> Bool)? = nil,
         close: @escaping () -> Void
     ) {
-        members.append(Member(id: id, parent: parent, contains: contains, close: close))
+        members.append(Member(
+            id: id,
+            parent: parent,
+            contains: contains,
+            containsPointer: containsPointer ?? contains,
+            close: close
+        ))
     }
 
     func handleClick(windowNumber: Int?, point: CGPoint) {
         guard !members.contains(where: { $0.contains(windowNumber, point) }) else { return }
+        dismissAll()
+    }
+
+    func handleMove(windowNumber: Int?, point: CGPoint) {
+        guard !members.isEmpty,
+              !members.contains(where: { $0.containsPointer(windowNumber, point) }) else { return }
         dismissAll()
     }
 
@@ -85,7 +119,7 @@ public final class CmuxPopoverGroup {
     private func startMonitoring() {
         guard localMonitor == nil else { return }
         let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: clicks.union(.keyDown)) { [weak self] event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: clicks.union([.keyDown, .mouseMoved])) { [weak self] event in
             // AppKit delivers local event monitors on the main thread.
             let consumed = MainActor.assumeIsolated {
                 if event.type == .keyDown {
@@ -94,12 +128,17 @@ public final class CmuxPopoverGroup {
                     return true
                 }
                 let point = event.window?.convertPoint(toScreen: event.locationInWindow) ?? NSEvent.mouseLocation
-                self?.handleClick(windowNumber: event.window?.windowNumber, point: point)
+                if event.type == .mouseMoved {
+                    self?.handleMove(windowNumber: event.window?.windowNumber, point: point)
+                } else {
+                    self?.handleClick(windowNumber: event.window?.windowNumber, point: point)
+                }
                 return false
             }
             return consumed ? nil : event
         }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: clicks) { [weak self] _ in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: clicks.union(.mouseMoved)) { [weak self] event in
+            guard event.type != .mouseMoved else { return }
             MainActor.assumeIsolated { self?.dismissAll() }
         }
         activationObserver = NotificationCenter.default.addObserver(

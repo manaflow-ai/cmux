@@ -63,6 +63,31 @@ struct CmuxPopoverGroupTests {
         #expect(closed == [parent])
     }
 
+    @Test func pointerLeavingBothMenusClosesTheGroup() {
+        let group = CmuxPopoverGroup()
+        let parent = UUID()
+        let child = UUID()
+        var closed: [UUID] = []
+        group.register(
+            id: parent,
+            parent: nil,
+            contains: { _, point in CGRect(x: 0, y: 0, width: 220, height: 240).contains(point) },
+            containsPointer: { _, point in CGRect(x: -14, y: -14, width: 248, height: 268).contains(point) },
+            close: { closed.append(parent) }
+        )
+        group.register(
+            id: child,
+            parent: parent,
+            contains: { _, point in CGRect(x: 224, y: 50, width: 220, height: 180).contains(point) },
+            containsPointer: { _, point in CGRect(x: 210, y: 36, width: 248, height: 208).contains(point) },
+            close: { closed.append(child) }
+        )
+        group.handleMove(windowNumber: nil, point: CGPoint(x: 220, y: 50))
+        #expect(closed.isEmpty)
+        group.handleMove(windowNumber: nil, point: CGPoint(x: 700, y: 500))
+        #expect(closed == [child, parent])
+    }
+
     @Test func reopenedMenuDoesNotKeepStaleMemberWindows() {
         let group = CmuxPopoverGroup()
         let first = UUID()

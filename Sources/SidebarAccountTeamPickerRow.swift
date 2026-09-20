@@ -41,7 +41,7 @@ struct SidebarAccountTeamPickerRow: View {
             group: popoverGroup
         ) {
             SidebarAccountTeamPicker(accountFlow: accountFlow)
-        })
+        }.frame(width: 1, height: 1))
         .accessibilityLabel(teamPickerAccessibilityLabel)
         .accessibilityHint(String(
             localized: "settings.account.activeTeam",
