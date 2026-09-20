@@ -44,6 +44,8 @@ class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
         with repo_fixture() as repo:
             shutil.copyfile(ROOT / "scripts/lint-pbxproj-test-wiring.sh", repo / "scripts/lint-pbxproj-test-wiring.sh")
+            (repo / "scripts/lint-pbxproj-test-wiring.sh").chmod(0o755)
+            shutil.copyfile(ROOT / "tests/test_ci_pbxproj_test_wiring.sh", repo / "tests/test_ci_pbxproj_test_wiring.sh")
             (repo / "cmuxTests").mkdir()
             (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
             (repo / "cmux.xcodeproj").mkdir()
@@ -67,7 +69,7 @@ AAAA000000000000000000S1 /* Sources */ = {
                 result = json.loads(evidence.read_text())
                 self.assertEqual(result["outcome"]["status"], "failed")
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
-                                 ["bash", "scripts/lint-pbxproj-test-wiring.sh"])
+                                 ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
                 project.write_text(project.read_text().replace(" files = (", " files = (\n /* UnwiredTests.swift in Sources */"))
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))

@@ -71,6 +71,17 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 
 ## Fast checks before building or pushing
 
+Run all fast checks with `python3 scripts/verify-local.py`. For automatic checks on
+`git push`, run `./scripts/install-git-hooks.sh` once (also included in setup).
+Existing custom hooks are preserved; the installer explains how to integrate them.
+
+The hook checks each distinct commit tip being pushed, including other branches
+and annotated tags, in temporary snapshots inside the project. Dirty files stay
+untouched. A failing check blocks the push; deletion-only pushes skip checks.
+Branches without the shared recipe and non-commit tags are explicitly unsupported.
+This runs static checks only, with no native build, network setup or submodules.
+See the [push-check contract](docs/contributor-verification.md#automatic-push-checks).
+
 For edited Swift, use `python3 scripts/verify-local.py --swift-changed` to discover
 staged, unstaged and untracked files automatically. Add a base ref, such as
 `--swift-changed origin/main`, to include committed branch changes. Use
@@ -78,8 +89,7 @@ staged, unstaged and untracked files automatically. Add a base ref, such as
 [command guide](docs/verification-receipts.md) also covers explicit files, piped
 NUL-delimited paths and JSON stdout. Parsing does not replace typechecking or tests.
 
-Run `python3 scripts/verify-local.py` to run the same static checks as CI locally,
-without Xcode, package installs, submodules or an app build. It checks localization,
+The shared recipe needs no Xcode or package installs. It checks localization,
 project configuration, generated policy, test-target wiring, package grouping and
 feature flags, and runs the project normalizer's tests. Failures show the diagnostic
 and a command to rerun just that check, for example:

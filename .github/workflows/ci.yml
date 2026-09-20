@@ -260,9 +260,6 @@ jobs:
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 
-      - name: Validate pbxproj test-wiring lint
-        run: ./tests/test_ci_pbxproj_test_wiring.sh
-
   workflow-guard-tests:
     needs: static-preflight
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -292,6 +289,7 @@ jobs:
         run: |
           python3 tests/test_verification_receipt.py
           python3 tests/test_verify_local.py
+          python3 tests/test_verify_push.py
 
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh

@@ -6,7 +6,7 @@ cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod
 
 ## Setup
 
-`./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.
+`./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs pre-commit project normalization plus pre-push static checks. For an existing clone, `./scripts/install-git-hooks.sh` installs the hooks without a build. The pre-push hook checks the committed tips being pushed in disposable snapshots; it never substitutes dirty working-tree files.
 
 Before setup or a native build, [choose verification for the changed area](skills/cmux-testing/references/local-vs-ci-validation.md). `python3 scripts/verify-local.py` runs fast static checks; docs and portable-tooling changes do not automatically require an app build.
 

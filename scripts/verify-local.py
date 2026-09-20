@@ -25,7 +25,7 @@ CHECKS = (
     ("project-tests", "tests", "Project normalizer tests", ["python3", "tests/test_normalize_pbxproj.py"]),
     ("project", "static_analysis", "Xcode project normalization and version", ["bash", "scripts/check-pbxproj.sh"]),
     ("launch-policy", "static_analysis", "Generated Claude launch policy", ["python3", "scripts/generate-claude-launch-environment-policy.py", "--check"]),
-    ("test-wiring", "static_analysis", "Swift tests included in the Xcode target", ["bash", "scripts/lint-pbxproj-test-wiring.sh"]),
+    ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
 )

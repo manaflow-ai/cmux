@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Installed with the existing pre-commit normalizer by install-git-hooks.sh.
+set -euo pipefail
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$HOOK_DIR/../verify-push.py" "$@"
