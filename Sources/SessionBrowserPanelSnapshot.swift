@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
