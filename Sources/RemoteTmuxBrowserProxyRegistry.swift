@@ -136,6 +136,44 @@ final class RemoteTmuxBrowserProxyRegistry {
         }
     }
 
+    /// Invalidates a host's existing `-D` forward and SOCKS listener without
+    /// tearing down the whole entry — used both when a reconnected SSH
+    /// session makes them stale, and when a live listener fails or is
+    /// cancelled unexpectedly after startup. Unlike `releaseHost`, this must
+    /// never drop the host's `retainingWorkspaceIDs`: every mirror workspace
+    /// still using this host keeps its retention on the SAME entry and gets
+    /// rebuilt exactly once here, rather than each caller racing to tear the
+    /// whole entry down and re-derive retention from whichever workspace
+    /// happens to reacquire first — which would silently drop every OTHER
+    /// retaining workspace's claim, and could leave an already-open browser
+    /// panel elsewhere on the same host permanently without a proxy. Safe to
+    /// call for a host with no entry (nothing to invalidate) or no retainers
+    /// (the entry is simply dropped, matching `releaseHost`).
+    func invalidateAndRebuild(connectionHash hash: String) {
+        guard var entry = entriesByConnectionHash[hash] else { return }
+        entry.task?.cancel()
+        entry.listener?.stop()
+        if let forwardPort = entry.forwardPort, let transport = existingTransport(entry.host) {
+            Task { await transport.cancelDynamicForward(localPort: forwardPort) }
+        }
+        entry.listener = nil
+        entry.forwardPort = nil
+        entry.task = nil
+        entry.startupID = nil
+        guard let anyRetainer = entry.retainingWorkspaceIDs.first else {
+            entriesByConnectionHash.removeValue(forKey: hash)
+            onEndpointChange?(hash, nil)
+            return
+        }
+        entriesByConnectionHash[hash] = entry
+        onEndpointChange?(hash, nil)
+        // Kicks off one fresh acquisition against the preserved entry;
+        // `acquire` reuses it (rather than creating a new one) because its
+        // `task` is nil here, and every existing retainer — not just this
+        // one id — gets the endpoint this attempt eventually publishes.
+        acquire(host: entry.host, workspaceID: anyRetainer)
+    }
+
     private func start(host: RemoteTmuxHost, connectionHash hash: String, startupID: UUID) async throws -> BrowserProxyEndpoint {
         // Checked before `transportProvider(host)` runs, not after: a
         // `releaseHost` landing between `acquire()` returning and this task
@@ -169,7 +207,11 @@ final class RemoteTmuxBrowserProxyRegistry {
                     // a later reacquire may have already replaced or removed
                     // this host's entry.
                     guard self.entriesByConnectionHash[hash]?.startupID == startupID else { return }
-                    self.releaseHost(connectionHash: hash)
+                    // Not `releaseHost`: a listener dying after startup must
+                    // not silently drop every OTHER mirror workspace's
+                    // retention on this host, or strand their already-open
+                    // browser panels with no path back to a working proxy.
+                    self.invalidateAndRebuild(connectionHash: hash)
                 }
             }
             do {
