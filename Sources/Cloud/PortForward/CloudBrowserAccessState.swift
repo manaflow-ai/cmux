@@ -185,6 +185,10 @@ final class CloudBrowserAccessState {
         navigationURL = url
         hasCommittedNavigation = false
         error = nil
+        desktopFailure = nil
+        dismissedFailure = nil
+        connectionDeadline.cancel()
+        startDeadline()
         loaded = false
         trace("route_ready")
         return url
