@@ -33,6 +33,10 @@ extension AppDelegate {
         ClosedItemHistoryStore.shared.removeManagedCloudVMRecords()
         cloudWorkspaceOperationController?.cancelAll()
         cloudTunnelAccessDidEnd()
-        NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: self)
+        NotificationCenter.default.post(
+            name: .cmuxCloudVMAccessDidEnd,
+            object: self,
+            userInfo: ["cmux.teamSwitch": true]
+        )
     }
 }

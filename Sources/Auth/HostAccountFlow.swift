@@ -25,6 +25,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var isProActive = false
     private(set) var canManageBilling = false
     var teamObservationRevision: UInt64 = 0
+    /// Pending selection is shared by Settings, the menu and socket actions.
+    /// Cloud requests keep using the confirmed coordinator scope until success.
+    var pendingTeamSelection: (requestID: UUID, teamID: String?)?
+    var isSelectingTeam: Bool { pendingTeamSelection != nil }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -63,7 +67,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     var selectedTeamID: String? {
         get {
             _ = teamObservationRevision
-            return coordinator.selectedTeamID
+            if let pendingTeamSelection { return pendingTeamSelection.teamID }
+            return coordinator.resolvedTeamID
         }
     }
 

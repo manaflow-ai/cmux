@@ -16,6 +16,8 @@ struct SidebarAccountMenuButton: View {
     private let signInTitle = String(localized: "settings.account.signIn", defaultValue: "Sign In…")
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     @State private var isPopoverPresented = false
+    @State private var isShowingTeamPicker = false
+    @State private var popoverGroup = CmuxPopoverGroup()
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
@@ -92,11 +94,14 @@ struct SidebarAccountMenuButton: View {
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
-            detachedGap: 4
+            detachedGap: 4,
+            group: popoverGroup
         ) {
             SidebarAccountPopover(
                 accountFlow: accountFlow,
-                dismiss: { isPopoverPresented = false }
+                dismiss: { popoverGroup.dismissAll() },
+                isShowingTeamPicker: $isShowingTeamPicker,
+                popoverGroup: popoverGroup
             )
         })
         .safeHelp(buttonTitle)
@@ -108,17 +113,21 @@ struct SidebarAccountMenuButton: View {
                 isPopoverPresented = true
             }
         }
+        .onChange(of: isPopoverPresented) { _, presented in
+            if !presented {
+                isShowingTeamPicker = false
+            }
+        }
     }
 }
 
 private struct SidebarAccountPopover: View {
     let accountFlow: HostAccountFlow?
     let dismiss: () -> Void
-    @State private var isCreatingTeam = false
-    @State private var newTeamName = ""
-    @State private var isSubmitting = false
-    @State private var errorMessage: String?
+    @Binding var isShowingTeamPicker: Bool
+    let popoverGroup: CmuxPopoverGroup
     @State private var shortcutObserver = KeyboardShortcutSettingsObserver.shared
+    private let menuRowHeight: CGFloat = 28
 
     private var settingsShortcutHint: String {
         let _ = shortcutObserver.revision
@@ -149,7 +158,13 @@ private struct SidebarAccountPopover: View {
                     }
                 }
                 Divider()
-                teamSection
+                if let accountFlow {
+                    SidebarAccountTeamPickerRow(
+                        accountFlow: accountFlow,
+                        isPresented: $isShowingTeamPicker,
+                        popoverGroup: popoverGroup
+                    )
+                }
                 settingsRow
             } else {
                 Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
@@ -178,6 +193,7 @@ private struct SidebarAccountPopover: View {
                     accountFlow?.openProUpgrade(source: .sidebarAccountMenu)
                 }
                 .accessibilityIdentifier("SidebarAccountUpgradeButton")
+                .onHover { if $0 { isShowingTeamPicker = false } }
             }
             if accountFlow?.currentIdentity != nil {
                 accountMenuRow(
@@ -188,45 +204,13 @@ private struct SidebarAccountPopover: View {
                     Task { await accountFlow?.signOut() }
                 }
                 .accessibilityIdentifier("SidebarAccountSignOutButton")
+                .onHover { if $0 { isShowingTeamPicker = false } }
             }
         }
         .buttonStyle(.plain)
-        .disabled(accountFlow?.isWorkingOnAuth == true || isSubmitting)
+        .disabled(accountFlow?.isWorkingOnAuth == true)
         .padding(12)
         .frame(width: 220, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private var teamSection: some View {
-        if let accountFlow, accountFlow.availableTeams.isEmpty {
-            Text(String(localized: "sidebar.account.loadingTeams", defaultValue: "Loading teams…"))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-        } else if let accountFlow {
-            ForEach(accountFlow.availableTeams) { team in
-                teamRow(team, isSelected: team.id == accountFlow.coordinator.resolvedTeamID)
-            }
-        }
-        if isCreatingTeam {
-            createTeamEditor
-        } else {
-            accountMenuRow(
-                title: String(localized: "sidebar.account.createTeam", defaultValue: "Create team…"),
-                systemImage: "plus"
-            ) {
-                errorMessage = nil
-                newTeamName = ""
-                isCreatingTeam = true
-            }
-            .accessibilityIdentifier("SidebarAccountCreateTeamButton")
-        }
-        if let errorMessage {
-            Text(errorMessage)
-                .cmuxFont(size: 11)
-                .foregroundStyle(.red)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel(errorMessage)
-        }
     }
 
     private var settingsRow: some View {
@@ -250,6 +234,7 @@ private struct SidebarAccountPopover: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: menuRowHeight, alignment: .leading)
             }
             .accessibilityLabel(String(
                 format: String(localized: "sidebar.account.settingsLabel", defaultValue: "%1$@, %2$@"),
@@ -257,90 +242,10 @@ private struct SidebarAccountPopover: View {
                 settingsShortcutHint
             ))
             .accessibilityIdentifier("SidebarAccountSettingsButton")
+            .onHover { if $0 { isShowingTeamPicker = false } }
         }
     }
 
-    private func teamRow(_ team: AccountTeamSummary, isSelected: Bool) -> some View {
-        Button {
-            guard !isSelected else { return }
-            Task { @MainActor in
-                do {
-                    try await accountFlow?.selectTeam(id: team.id)
-                    dismiss()
-                } catch {
-                    errorMessage = String(
-                        localized: "sidebar.account.switchTeamFailed",
-                        defaultValue: "Could not switch teams. Try again."
-                    )
-                }
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Label(team.displayName, systemImage: "person.2")
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .accessibilityLabel(String(
-            format: String(localized: "sidebar.account.teamRowLabel", defaultValue: "%1$@%2$@"),
-            team.displayName,
-            isSelected ? String(localized: "sidebar.account.activeSuffix", defaultValue: ", active") : ""
-        ))
-        .accessibilityIdentifier("SidebarAccountTeam_\(team.id)")
-    }
-
-    private var createTeamEditor: some View {
-        HStack(spacing: 5) {
-            TextField(
-                String(localized: "sidebar.account.createTeamPlaceholder", defaultValue: "Team name"),
-                text: $newTeamName
-            )
-            .textFieldStyle(.roundedBorder)
-            .onSubmit { submitCreateTeam() }
-            Button {
-                submitCreateTeam()
-            } label: {
-                Image(systemName: "checkmark")
-            }
-            .buttonStyle(.borderless)
-            .disabled(newTeamName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityLabel(String(localized: "sidebar.account.createTeamSubmit", defaultValue: "Create team"))
-            Button {
-                isCreatingTeam = false
-            } label: {
-                Image(systemName: "xmark")
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(String(localized: "sidebar.account.createTeamCancel", defaultValue: "Cancel"))
-        }
-        .accessibilityIdentifier("SidebarAccountCreateTeamEditor")
-    }
-
-    private func submitCreateTeam() {
-        let name = newTeamName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, !isSubmitting else { return }
-        isSubmitting = true
-        errorMessage = nil
-        Task { @MainActor in
-            defer { isSubmitting = false }
-            do {
-                _ = try await accountFlow?.createTeam(displayName: name)
-                isCreatingTeam = false
-                newTeamName = ""
-                dismiss()
-            } catch {
-                errorMessage = String(
-                    localized: "sidebar.account.createTeamFailed",
-                    defaultValue: "Could not create that team. Try again."
-                )
-            }
-        }
-    }
 
     private func accountMenuRow(
         title: String,
@@ -350,6 +255,7 @@ private struct SidebarAccountPopover: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: menuRowHeight, alignment: .leading)
         }
     }
 }

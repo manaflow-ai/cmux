@@ -289,7 +289,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
-    private var authSignOutObserver: NSObjectProtocol?
+    private var authScopeObservers: [NSObjectProtocol] = []
     private var featureFlagObserver: CloudFeatureAvailabilityObserver?
     private var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
@@ -314,12 +314,14 @@ final class MachinesPanelViewModel: ObservableObject {
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
-        authSignOutObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxCloudVMAccessDidEnd,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.resetForAuthTransition() }
+        authScopeObservers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
+                    else if self.wantsPolling { self.startPolling() }
+                }
+            }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
             isEnabled: { CloudMachinesFeature.isEnabled },
@@ -376,8 +378,8 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
     deinit {
-        if let authSignOutObserver {
-            NotificationCenter.default.removeObserver(authSignOutObserver)
+        for observer in authScopeObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
         if let treeChangeObserver {
             NotificationCenter.default.removeObserver(treeChangeObserver)
@@ -478,8 +480,9 @@ final class MachinesPanelViewModel: ObservableObject {
         guard CloudMachinesFeature.isEnabled, usageTask == nil else { return }
         if let retryNotBefore = usageRetryNotBefore, retryNotBefore > Date() { return }
         guard let client = MachineUsageClient.shared else { return }
+        let generation = refreshGeneration
         usageTask = Task { [weak self] in
-            defer { self?.usageTask = nil }
+            defer { if generation == self?.refreshGeneration { self?.usageTask = nil } }
             do {
                 let usage = (try await client.teamUsage()).byMachineID
                 guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self else { return }
@@ -602,23 +605,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
-        pollTask?.cancel()
-        pollTask = nil
-        refreshTask?.cancel()
-        refreshTask = nil
-        refreshRequestedWhileLoading = false
-        refreshGeneration &+= 1
-        statsTask?.cancel()
-        statsTask = nil
-        usageTask?.cancel()
-        usageTask = nil
-        usageFailureCount = 0
-        usageRetryNotBefore = nil
-        freeAccessTransitionTask?.cancel()
-        freeAccessTransitionTask = nil
-        treeTask?.cancel()
-        treeTask = nil
-        machineRefreshes.cancelAll()
+        pausePolling()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
@@ -678,7 +665,8 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = nil
             listProblem = nil
 
-        } catch let error as VMClientError {
+        } catch is CancellationError { return } catch let error as VMClientError {
+            guard !Task.isCancelled else { return }
             if case .notSignedIn = error {
                 machines = []
                 plan = nil
@@ -692,6 +680,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            guard !Task.isCancelled else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }

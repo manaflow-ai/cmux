@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
 import CmuxSettingsUI
+import Foundation
 import Observation
 
 extension HostAccountFlow {
@@ -28,8 +29,14 @@ extension HostAccountFlow {
         }
     }
 
-    /// Persists a team selection through the shared coordinator action.
+    /// Projects pending selection immediately; a rejected request restores the
+    /// confirmed selection by clearing only this request's pending projection.
     func selectTeam(id: String?) async throws {
+        let requestID = UUID()
+        pendingTeamSelection = (requestID, id)
+        defer {
+            if pendingTeamSelection?.requestID == requestID { pendingTeamSelection = nil }
+        }
         try await coordinator.selectTeam(id: id)
     }
 
