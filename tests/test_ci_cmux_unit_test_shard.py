@@ -341,11 +341,13 @@ def check_reserved_workers_get_less_of_the_batch() -> int:
             assigned[shard] = (tmp_root / f"reserved-{shard}.args").read_text(encoding="utf-8").split()
 
         for bad in (["3=40"], ["1=x"], ["1=40", "1=50"], ["1"]):
-            if run_reserved_shard(tmp_root, 1, 4, 2, bad, manifest).returncode == 0:
-                print(f"FAIL: --reserve {bad} should be rejected")
+            result = run_reserved_shard(tmp_root, 1, 4, 2, bad, manifest)
+            if result.returncode == 0 or "Traceback" in result.stderr:
+                print(f"FAIL: --reserve {bad} should be rejected without a traceback")
                 return 1
-        if run_reserved_shard(tmp_root, 1, 3, 2, [], manifest).returncode == 0:
-            print("FAIL: a logical total that is not a multiple of the worker total should be rejected")
+        result = run_reserved_shard(tmp_root, 1, 3, 2, [], manifest)
+        if result.returncode == 0 or "Traceback" in result.stderr:
+            print("FAIL: a non-divisible logical total should be rejected without a traceback")
             return 1
         for total, physical in ((0, 0), (4, 0), (4, -2), (-4, 2)):
             result = run_reserved_shard(tmp_root, 1, total, physical, [], manifest)
