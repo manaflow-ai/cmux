@@ -107,6 +107,7 @@ actor CloudWireGuardHub {
     private var leases: Set<Lease> = []
     /// Keeps the shared terminal carrier ready while signed-in Cloud access is enabled.
     private var prewarmLease: Lease?
+    /// Retained after completion: one automatic sequence per Cloud activation, not per fleet poll.
     private var preparationTask: Task<Void, Never>?
     private var pinnedByExternalClient = false
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
@@ -160,40 +161,23 @@ actor CloudWireGuardHub {
     /// Repeated refreshes and a first terminal join the same startup and keep one shared claim.
     func prepareForCloudUse() {
         guard !Task.isCancelled, preparationTask == nil else { return }
-        let preparationGeneration = generation
         preparationTask = Task { [weak self] in
-            guard let self else { return }
-            _ = try? await self.prewarm()
-            await self.preparationDidFinish(generation: preparationGeneration)
+            _ = try? await self?.prewarm()
         }
     }
 
-    private func preparationDidFinish(generation completedGeneration: UInt64) {
-        guard generation == completedGeneration else { return }
-        preparationTask = nil
-    }
-
-    /// Starts the shared hub before individual machine links race to acquire it.
-    /// The claim remains held until Cloud is disabled or account access ends, so an
-    /// unexpected child exit is eligible for the actor's bounded restart policy.
+    /// Keeps one account claim even if startup fails. Explicit link demand can
+    /// recover later without losing the Cloud activation's keep-ready policy.
     func prewarm() async throws -> Ready {
         try Task.checkCancellation()
-        if prewarmLease != nil {
-            restartTask?.cancel()
-            restartTask = nil
-            return try await ensureRunning()
+        if prewarmLease == nil {
+            let lease = Lease(id: UUID())
+            leases.insert(lease)
+            prewarmLease = lease
+            idleStopTask?.cancel()
+            idleStopTask = nil
         }
-
-        let claim = try await acquire()
-        guard !Task.isCancelled else {
-            release(claim.lease)
-            throw CancellationError()
-        }
-        // Two prewarm callers can join the same startup. Keep just one account
-        // lease after both resume.
-        if prewarmLease == nil { prewarmLease = claim.lease }
-        else { release(claim.lease) }
-        return claim.ready
+        return try await ensureRunning()
     }
 
     /// Releases the account-level preparation claim when its owner no longer needs it.
