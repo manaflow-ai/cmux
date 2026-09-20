@@ -10,11 +10,21 @@ name: Merge-group fail fast
 # always comes from the default branch, and a queued pull request cannot change
 # it. It checks out nothing and runs on a GitHub-hosted runner.
 on:
+  # `requested` catches the run before its first job starts. `in_progress`
+  # is the reliable fallback for merge-group runs when GitHub does not emit
+  # the early notification until the workflow has been scheduled.
   workflow_run:
     workflows: [CI]
-    types: [requested]
+    types: [requested, in_progress]
 
 permissions: {}
+
+concurrency:
+  # A requested and an in-progress notification can describe the same run.
+  # Keep one watcher for that run without cancelling watchers for other queue
+  # entries.
+  group: merge-group-fail-fast-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
 
 jobs:
   watch:
@@ -28,10 +38,13 @@ jobs:
       - name: Cancel the CI run when a job fails
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
           RUN: repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           errors=0
+          echo "Watching merge-group CI run ${RUN_ID}: ${RUN_URL}"
           while :; do
             if status="$(gh api "$RUN" --jq .status)" \
               && failed="$(gh api "$RUN/jobs?filter=latest" --paginate \
