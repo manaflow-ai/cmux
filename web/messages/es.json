@@ -23,6 +23,11 @@
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
     },
+    "displayName": {
+      "title": "Nombre de máquina no válido",
+      "message": "El nombre de la máquina debe ser texto imprimible de como máximo {maxLength} caracteres.",
+      "action": "Usa un nombre más corto sin caracteres de control, o déjalo vacío para borrarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Las máquinas de {memory} GiB requieren cmux {plan}. Tu plan admite hasta {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica tu correo electrónico para continuar",
     "emailUnverifiedBody": "Inicia sesión con el método que usaste originalmente y verifica tu correo antes de usar este método de inicio de sesión.",
+    "signupPendingBody": "Si ya tienes una cuenta, inicia sesión con el método que usaste antes. Si acabas de crear una cuenta, verifica tu correo antes de iniciar sesión.",
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
     "backToSignIn": "Volver a iniciar sesión"
@@ -1357,7 +1363,7 @@
       "plusButtonScreenshotAlt": "Menú de clic derecho del botón más de cmux con Worktree Agents, New Terminal y New Browser",
       "plusButtonScreenshotCaption": "El menú de clic derecho sigue el orden de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Acciones personalizadas del botón de suma",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
       "newWorkspaceWorktreeNote": "Este ejemplo hace que el clic normal en el botón más ejecute la acción <action>worktree-agents</action>. El comando de espacio de trabajo de <commands>commands</commands> usa una terminal de preparación visible para crear primero el <worktree>worktree</worktree> de Git. Codex y Claude se inician al mismo tiempo, esperan el archivo de estado específico del espacio de trabajo y luego entran en el directorio creado antes de exec.",
       "simpleCommands": "Comandos simples",
       "simpleCommandsDesc": "Un comando simple ejecuta un comando de shell en el terminal actualmente enfocado:",

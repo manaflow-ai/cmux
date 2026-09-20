@@ -83,6 +83,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -90,6 +91,7 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -204,6 +206,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
+        TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
@@ -683,6 +686,21 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Private, connection-scoped guest-to-frontend OS browser opening.
+    UrlOpenSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    UrlOpen {
+        terminal_id: String,
+        url: String,
+    },
+    UrlOpenClaim {
+        request_id: String,
+    },
+    UrlOpenResult {
+        request_id: String,
+        opened: bool,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -1194,6 +1212,11 @@ enum Command {
         pane: PaneId,
         index: usize,
     },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1412,6 +1435,7 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -2335,6 +2359,12 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
+    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -3844,6 +3874,7 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -3854,6 +3885,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4764,6 +4796,7 @@ impl ClientRegistry {
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
+        self.url_opens.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -9163,6 +9196,9 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if let Command::UrlOpen { terminal_id, url } = cmd {
+        return url_open::start(mux, client, id, terminal_id, url, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -11261,6 +11297,19 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::UrlOpenSubscribe { terminal_ids } => {
+            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
+            Ok(json!({"url_open_ready": true}))
+        }
+        Command::UrlOpenClaim { request_id } => {
+            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
+        }
+        Command::UrlOpenResult { request_id, opened } => {
+            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        }
+        Command::UrlOpen { .. } => {
+            anyhow::bail!("URL opening requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -12305,6 +12354,10 @@ fn handle_command_with_cancellation(
                 "registry_id":registry_id,
                 "generation":generation,
             }))
+        }
+        Command::MoveTabToWorkspace { surface, workspace } => {
+            mux.move_tab_to_workspace(surface, workspace)?;
+            Ok(json!({}))
         }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
@@ -14406,7 +14459,7 @@ mod tests {
         );
     }
 
-    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+    pub(super) fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
         let outbound = Arc::new(BoundedOutbound::default());
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }

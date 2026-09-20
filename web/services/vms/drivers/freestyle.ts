@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
+import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
@@ -37,6 +38,7 @@ import {
   type VMProvider,
   type VMResizeOptions,
   type VMStats,
+  type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
@@ -49,6 +51,7 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -199,7 +202,9 @@ export function preconnectFreestyle(): void {
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
+    fetch(input as Request, { ...(init ?? {}), signal: init?.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs) })) as typeof fetch;
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -900,6 +905,7 @@ export class FreestyleProvider implements VMProvider {
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
+  private readonly resourceStats: FreestyleResourceStatsReader;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -908,6 +914,7 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+    this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1199,9 +1206,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-          const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
-          if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
+          await this.ensureGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1239,6 +1244,11 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /** Read guest gauges without the general exec path's CLI installation/heal. */
+  getResourceStats(vmId: string): Promise<VMResourceStatsResult | null> {
+    return this.resourceStats.read(vmId);
   }
 
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {
@@ -1444,6 +1454,9 @@ export class FreestyleProvider implements VMProvider {
             bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
+            // Healthy existing machines skip daemon healing, but still need
+            // current OS openers before an interactive terminal is attached.
+            await this.ensureGuestCli(vm, vmId);
             // The healthy fast path skips the heal, so this is where a machine
             // that predates hook installation gets its Claude Code and Codex
             // hooks (best effort inside).
@@ -1698,6 +1711,12 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
+  private async ensureGuestCli(vm: Vm, vmId: string): Promise<void> {
+    const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
+    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand}`);
+    if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
+  }
+
   /**
    * Installs the in-VM `cmux` shim with an upload-then-rename. The temporary
    * path avoids following a pre-existing `/usr/local/bin/cmux` symlink and the
@@ -1710,7 +1729,7 @@ export class FreestyleProvider implements VMProvider {
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+        command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,

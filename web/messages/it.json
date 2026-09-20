@@ -23,6 +23,11 @@
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
     },
+    "displayName": {
+      "title": "Nome macchina non valido",
+      "message": "Il nome della macchina deve essere testo stampabile di al massimo {maxLength} caratteri.",
+      "action": "Usa un nome più corto senza caratteri di controllo, oppure lascialo vuoto per cancellarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica la tua e-mail per continuare",
     "emailUnverifiedBody": "Accedi con il metodo usato inizialmente, poi verifica la tua e-mail prima di usare questo metodo di accesso.",
+    "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"
@@ -1357,7 +1363,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",

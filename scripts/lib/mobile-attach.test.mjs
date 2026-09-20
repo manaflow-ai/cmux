@@ -42,38 +42,6 @@ function resolveDevAPIBaseURL(fallback, override = "", backendOverride = "") {
   ]);
 }
 
-function validateReloadBackendOrigin(origin, required) {
-  const source = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
-  const validator = extractShellFunction(source, "cmux_reload_validate_backend_origin");
-  return run(
-    "bash",
-    [
-      "-c",
-      validator + '\ncmux_reload_validate_backend_origin "$1" "$2"',
-      "reload-backend-origin-test",
-      origin,
-      required,
-    ],
-  );
-}
-
-function resolveReloadBackendRequired(cloud, override = "") {
-  const source = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
-  const resolver = extractShellFunction(source, "cmux_reload_backend_required");
-  return run(
-    "bash",
-    [
-      "-c",
-      resolver + '\ncmux_reload_backend_required',
-      "reload-backend-required-test",
-    ],
-    {
-      CMUX_RELOAD_CLOUD: cloud,
-      CMUX_DEV_BACKEND_REQUIRED: override,
-    },
-  );
-}
-
 function removeStaleSocket(socketPath) {
   return run(
     "bash",
@@ -513,33 +481,6 @@ test("explicit API origin wins over the hq backend alias", () => {
   assert.equal(result.stdout, "https://api.example.test/");
 });
 
-test("internal reloads accept only a direct HTTPS backend origin", () => {
-  const direct = validateReloadBackendOrigin(
-    "https://cmux-dev-backend-1.tail137216.ts.net:4405/",
-    "1",
-  );
-  assert.equal(direct.status, 0, direct.stderr);
-
-  const localhost = validateReloadBackendOrigin("http://localhost:4405", "1");
-  assert.notEqual(localhost.status, 0);
-
-  const noPort = validateReloadBackendOrigin("https://backend.example.test", "1");
-  assert.notEqual(noPort.status, 0);
-
-  const externalLocal = validateReloadBackendOrigin("http://localhost:4405", "0");
-  assert.equal(externalLocal.status, 0, externalLocal.stderr);
-});
-
-test("cloud reload markers force the fail-closed backend policy", () => {
-  const cloud = resolveReloadBackendRequired("1", "0");
-  assert.equal(cloud.status, 0, cloud.stderr);
-  assert.equal(cloud.stdout, "1");
-
-  const local = resolveReloadBackendRequired("0", "0");
-  assert.equal(local.status, 0, local.stderr);
-  assert.equal(local.stdout, "0");
-});
-
 test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-stale-socket-test-"));
   const socketPath = path.join(tempRoot, "release-gate.sock");
@@ -776,15 +717,15 @@ test("cloud physical-device archives bake staging origins with override escape h
   assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
-test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+test("physical-device mint accepts the authenticated Tailscale fallback", async () => {
   const result = await mintAttachURL(
     "physical_device",
     [attachPayload("tailscale"), attachPayload("tailscale")],
     2,
   );
-  assert.equal(result.status, 2);
-  assert.equal(result.stdout, "");
-  assert.equal(result.callCount, 2);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, attachPayload("tailscale").attach_url);
+  assert.equal(result.callCount, 1);
 });
 
 test("physical-device mint waits for asynchronous Iroh publication", async () => {

@@ -282,6 +282,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
@@ -1462,6 +1463,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageId: input.image,
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
+                displayName: input.displayName ?? null,
                 idempotencyKey,
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,

@@ -57,6 +57,7 @@ permissions:
 
 env:
   CREATE_DMG_VERSION: 8.0.0
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
 
 jobs:
   decide:
@@ -352,6 +353,132 @@ jobs:
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
+  refresh-test-compilation-cache:
+    needs: decide
+    # The only writer of the Debug compilation cache that ci.yml
+    # `macos-compile-admission` restores. Scheduled, not per push: the seed
+    # mostly saves the package layer, which changes slowly, and a build per
+    # merge would take macOS slots from the pull request queue.
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
+    # Match the admission job's runner and Xcode. The cache key carries the
+    # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 75
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      - name: Checkout cache ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          submodules: recursive
+
+      - name: Prepare admission build paths
+        run: |
+          set -euo pipefail
+          # The same paths as ci.yml `macos-compile-admission`: they are part of
+          # every cache entry this job writes.
+          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
+          echo "CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas" >> "$GITHUB_ENV"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Compute test compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      - name: Restore test compilation cache
+        id: compilation-cache-restore
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Install compilation dependencies
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      - name: Resolve Swift packages
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh resolve \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+
+      - name: Refresh test compilation cache
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh build \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            "$PWD/.ci-source-packages" \
+            "$CMUX_COMPILE_ADMISSION_CAS"
+
+      - name: Bound test compilation cache size
+        id: compilation-cache-bound
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          cache_path="$CMUX_COMPILE_ADMISSION_CAS"
+          max_cache_kib=$((5 * 1024 * 1024))
+          if [ -d "$cache_path" ]; then
+            # See `refresh-compilation-cache`: a warm build leaves a dead CAS
+            # generation behind, and pruning it keeps the seed to one build.
+            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
+              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+          else
+            cache_kib=0
+          fi
+          echo "Test compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+          save=false
+          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+            echo "::warning::Test compilation cache exceeds 5 GiB; skipping cache save"
+          elif [ "$cache_kib" -gt 0 ]; then
+            save=true
+          else
+            echo "Test compilation cache is empty; skipping cache save"
+          fi
+          echo "save=${save}" >> "$GITHUB_OUTPUT"
+
+      - name: Save test compilation cache
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
+
   build-nightly-ghostty-cli-helper:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
@@ -602,6 +729,10 @@ jobs:
       # Bundle once here, not per sign variant, so every variant carries the same
       # cmux-tui build and the download happens a single time.
       - name: Bundle the cmux-tui client
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
@@ -1204,6 +1335,11 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
+    # rc/** branches share one release. Serialize its mutable aliases and feeds
+    # by channel, even when workflow-level groups have different branch names.
+    concurrency:
+      group: release-publish-${{ needs.decide.outputs.release_tag }}
+      cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1290,31 +1426,46 @@ jobs:
 
       - name: Publish nightly release assets
         if: needs.decide.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
+            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
+            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
+            --optional-immutable "nightly-out/${CHANNEL_DMG_PREFIX}-*-${NIGHTLY_BUILD}-*.delta" \
+            --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
+            --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
+            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
+            --replace-feeds \
+            --feed nightly-out/appcast-arm64.xml \
+            --feed nightly-out/appcast-x86_64.xml \
+            --feed nightly-out/appcast-universal.xml \
+            --feed nightly-out/appcast.xml
+
+      - name: Publish verified nightly release metadata
+        if: needs.decide.outputs.should_publish == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ needs.decide.outputs.release_tag }}
           name: ${{ needs.decide.outputs.release_name }}
           prerelease: true
           make_latest: false
+          draft: false
           body: |
             Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
             **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
             - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
             - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
             - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
-          files: |
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.dmg
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.delta
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-universal.dmg
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}.dmg
-            nightly-out/appcast.xml
-            nightly-out/appcast-arm64.xml
-            nightly-out/appcast-x86_64.xml
-            nightly-out/appcast-universal.xml
-            nightly-out/cmuxd-remote-*
-          overwrite_files: true
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'

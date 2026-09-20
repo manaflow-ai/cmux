@@ -4,6 +4,8 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileRPC
+import CmuxPhonePush
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -355,6 +357,7 @@ public struct CMUXMobileRootScene: View {
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
+            .analyticsClientID(analytics.anonymousID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -431,6 +434,42 @@ public struct CMUXMobileRootScene: View {
     }
 
     @MainActor
+    private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
+        let accessGroup = auth.keychainAccessGroup
+        return MobilePhonePushKeyExchangeHooks(
+            makeDescriptor: {
+                let key = try PhonePushKeyStore.current(
+                    bundleID: bundleID,
+                    accessGroup: accessGroup
+                )
+                return MobilePhonePushPublicKeyDescriptor(
+                    installationID: key.installationID,
+                    keyID: key.keyID,
+                    publicKey: key.publicKeyData
+                )
+            },
+            iosBuildID: { bundleID },
+            pinPeerDescriptor: { descriptor, context in
+                let tuple = PhonePushDeviceTuple(
+                    accountID: context.accountID,
+                    teamID: context.teamID,
+                    iosBuildID: context.iosBuildID,
+                    iosInstallationID: context.iosInstallationID,
+                    macDeviceID: context.macDeviceID,
+                    macInstanceTag: context.macInstanceTag,
+                    macBuildID: context.macBuildID
+                )
+                PhonePushPeerKeyStore.pin(
+                    descriptor.publicKey,
+                    keyID: descriptor.keyID,
+                    for: tuple
+                )
+            }
+        )
+    }
+
+    @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil
@@ -484,6 +523,7 @@ public struct CMUXMobileRootScene: View {
             personalIrohForget: resolvedPersonalIrohForget,
             presence: nil,
             identityProvider: identityProvider,
+            phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             hiddenMacStore: hiddenMacStore,

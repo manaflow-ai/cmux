@@ -26,7 +26,7 @@ permissions:
 jobs:
   tailscale-version-skew:
     name: Tailscale version-skew compatibility
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -70,7 +70,7 @@ jobs:
       max-parallel: 1
       matrix:
         mode: ${{ fromJSON(inputs.mode == 'all' && '["automatic","relay-only","relay-expiry","direct-only","private-path"]' || format('["{0}"]', inputs.mode)) }}
-    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 120
     steps:
       - name: Checkout

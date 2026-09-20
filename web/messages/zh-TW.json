@@ -23,6 +23,11 @@
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
     },
+    "displayName": {
+      "title": "機器名稱無效",
+      "message": "機器名稱必須是不超過 {maxLength} 個字元的可列印文字。",
+      "action": "請使用不含控制字元的較短名稱，或留空以清除名稱。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "驗證電子郵件後繼續",
     "emailUnverifiedBody": "請使用最初註冊時的方式登入，然後驗證電子郵件，再使用此登入方式。",
+    "signupPendingBody": "如果你已有帳戶，請使用之前的方法登入。如果你剛建立帳戶，請在登入前驗證電子郵件。",
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
     "backToSignIn": "返回登入"
@@ -1357,7 +1363,7 @@
       "plusButtonScreenshotAlt": "cmux 加號按鈕右鍵選單顯示 Worktree Agents、New Terminal 與 New Browser",
       "plusButtonScreenshotCaption": "右鍵選單會依照 ui.newWorkspace.contextMenu 的順序。",
       "newWorkspaceButton": "加號按鈕的自訂動作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆寫加號按鈕的行為。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或別名 <rightClick>rightClick</rightClick>）定義有順序的右鍵選單。選單項目可以是動作 ID、動作物件，或 <separator>{ \"type\": \"separator\" }</separator>。 未設定時，選單會列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，並顯示各自目前的快速鍵。僅在啟用 Cloud Machines 時顯示雲端選單項目。",
       "newWorkspaceWorktreeNote": "此範例讓一般加號點擊執行 <action>worktree-agents</action> 動作。來自 <commands>commands</commands> 的工作區命令會先使用可見的設定終端機建立 Git <worktree>worktree</worktree>。Codex 與 Claude 同時啟動，等待該工作區專用的狀態檔，然後在 exec 前進入建立的目錄。",
       "simpleCommands": "簡單指令",
       "simpleCommandsDesc": "簡單指令會在目前聚焦的終端機中執行 shell 指令：",

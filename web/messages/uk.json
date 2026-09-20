@@ -23,6 +23,11 @@
       "message": "Для Cloud VM потрібен план cmux Pro.",
       "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
     },
+    "displayName": {
+      "title": "Неприпустима назва машини",
+      "message": "Назва машини має бути друкованим текстом довжиною не більше {maxLength} символів.",
+      "action": "Використайте коротшу назву без керівних символів або залиште поле порожнім, щоб очистити її."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Для машин із {memory} ГіБ потрібен cmux {plan}. Ваш тариф підтримує до {max} ГіБ.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Підтвердьте електронну пошту, щоб продовжити",
     "emailUnverifiedBody": "Увійдіть способом, який ви використовували спочатку, а потім підтвердьте електронну пошту перед використанням цього способу входу.",
+    "signupPendingBody": "Якщо у вас уже є обліковий запис, увійдіть способом, яким ви користувалися раніше. Якщо ви щойно створили обліковий запис, підтвердьте електронну пошту перед входом.",
     "genericTitle": "Не вдалося увійти",
     "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
     "backToSignIn": "Повернутися до входу"
@@ -1341,7 +1347,7 @@
       "plusButtonScreenshotAlt": "Меню правого кліку кнопки плюс у cmux показує Worktree Agents, New Terminal і New Browser",
       "plusButtonScreenshotCaption": "Меню правого кліку дотримується порядку з ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Користувацькі дії кнопки плюс",
-      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
+      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
       "newWorkspaceWorktreeNote": "У цьому прикладі звичайний клік по плюсу запускає дію <action>worktree-agents</action>. Команда робочого простору з <commands>commands</commands> використовує видимий термінал налаштування, щоб спочатку створити Git <worktree>worktree</worktree>. Codex і Claude запускаються одночасно, чекають файл стану для цього робочого простору, а потім переходять у створений каталог перед exec.",
       "simpleCommands": "Прості команди",
       "simpleCommandsDesc": "Проста команда виконує shell-команду в поточному активному терміналі:",

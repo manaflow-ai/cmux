@@ -3010,6 +3010,27 @@ Example:
 {"id":26,"ok":true,"data":{}}
 ```
 
+### move-tab-to-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-workspace` |
+| status | implemented |
+| since | protocol 12 |
+
+Move an existing tab without restarting its terminal or browser. `surface` is
+required. Optional `workspace` is a numeric workspace ID; omission creates a new
+workspace. Existing nonempty destinations use their active pane. Empty and new
+destinations create a screen and pane in the same durable transaction as the
+move. The destination becomes selected. Unknown source/destination IDs fail.
+Provider-owned workspace creation is rejected. The server advertises
+`tab-workspace-move-v1`; clients hide these UI actions for older owners.
+
+```json
+{"id":26,"cmd":"move-tab-to-workspace","surface":1}
+{"id":26,"ok":true,"data":{}}
+```
+
 ### move-workspace
 
 | Field | Value |
@@ -3879,3 +3900,40 @@ restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
 [Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.
+
+## Guest browser opening
+
+### url-open
+
+A private, Unix-classified control request with `terminal_id` and `url` strings.
+Only HTTP(S) URLs up to 16 KiB and a live terminal in this daemon are accepted.
+The result is `{opened:boolean}`. At most 16 requests remain pending; a missing
+frontend, disconnect, declined delivery, or five-second deadline returns false.
+This command never starts guest Chrome, creates a resource, or writes a journal
+entry. The guest OS opener prints the URL and exits successfully on false.
+Several frontend subscriptions for the same terminal also return false: the
+guest request cannot identify a physical Mac, so the daemon never guesses.
+
+### url-open-subscribe
+
+A private frontend connection registers up to 256 exact `terminal_ids`. It
+receives `{url_open_ready:true}`, then targeted `url-open` control events
+containing `request_id`, `terminal_id`, and the original `url`. It must keep the
+connection open (`raw command --stream`); disconnect rejects pending requests.
+Subscriptions and requests are transient and are never replayed.
+
+### url-open-claim
+
+The frontend sends the random `request_id` capability on the authenticated mux
+connection before opening anything. `{claimed:false}` means it expired, was
+already claimed, or no longer exists. A delayed event therefore cannot open a
+stale authentication page. The source terminal is mapped to a live Mac panel;
+no guest-supplied Mac workspace or surface selector is accepted.
+
+### url-open-result
+
+The frontend sends `request_id` and `opened` after actual delivery. The result
+is `{accepted:boolean}`. The URL follows terminal-link policy, including browser
+preferences and host allowlists, with focus disabled. Local Mac v2 socket methods
+and the SSH relay authorization allowlist are unchanged. These operations are
+exposed only in the SDKs' existing private `raw` namespace.
