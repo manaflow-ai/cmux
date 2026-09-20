@@ -15,6 +15,7 @@ struct CloudWorkspaceSidebarPresentation {
         return String.localizedStringWithFormat(
             String(localized: "sidebar.deviceWorkspace.label", defaultValue: "Workspace on %@"), names.joined(separator: " · ")
         )
+    }
 
     static var unavailableDirectory: String {
         String(localized: "sidebar.cloudWorkspace.directoryUnavailable", defaultValue: "Directory unavailable")
