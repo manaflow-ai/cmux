@@ -337,7 +337,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversigt",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile enheder"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -382,23 +382,25 @@
         "loading": "Indlæser…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile enheder",
+      "description": "Administrer adgang til dine tilsluttede computere, telefoner og tablets.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
+      "teamSwitchError": "Teamet kunne ikke skiftes. Prøv igen.",
+      "loading": "Indlæser enheder…",
+      "empty": "Der er ingen registrerede enheder for dette team.",
+      "unavailable": "Dine enheder kunne ikke indlæses. Opdater siden, og prøv igen.",
+      "retry": "Prøv igen",
+      "mutationError": "Enhedsændringen kunne ikke gennemføres.",
+      "revoke": "Tilbagekald adgang",
+      "deviceId": "Enhed",
       "revision": "Revision",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Tilbagekaldt",
+      "relaySettings": "Relayindstillinger",
+      "relaySettingsDescription": "Vælg de relayservere, som dette team bruger. Indtast én URL pr. linje.",
+      "saveRelaySettings": "Gem relayindstillinger"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Del med teamet",

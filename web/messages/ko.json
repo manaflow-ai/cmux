@@ -337,7 +337,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "개요",
       "team": "팀",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "모바일 기기"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -382,23 +382,25 @@
         "loading": "불러오는 중…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "모바일 기기",
+      "description": "연결된 컴퓨터, 휴대폰 및 태블릿에 대한 액세스를 관리합니다.",
+      "team": "팀",
+      "teamSwitchError": "팀을 전환할 수 없습니다. 다시 시도하세요.",
+      "loading": "기기 로드 중…",
+      "empty": "이 팀에 등록된 기기가 없습니다.",
+      "unavailable": "기기를 불러올 수 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
+      "retry": "다시 시도",
+      "mutationError": "기기 변경을 완료할 수 없습니다.",
+      "revoke": "액세스 취소",
+      "deviceId": "기기",
+      "revision": "리비전",
+      "status": "상태",
+      "active": "활성",
+      "revoked": "취소됨",
+      "relaySettings": "릴레이 설정",
+      "relaySettingsDescription": "이 팀에서 사용할 릴레이 서버를 선택하세요. 한 줄에 URL 하나를 입력하세요.",
+      "saveRelaySettings": "릴레이 설정 저장"
     },
     "coderouterAccounts": {
       "shareWithTeam": "팀과 공유",

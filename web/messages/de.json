@@ -337,7 +337,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile Geräte"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -382,23 +382,25 @@
         "loading": "Wird geladen…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile Geräte",
+      "description": "Verwalte den Zugriff auf deine verbundenen Computer, Telefone und Tablets.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
+      "teamSwitchError": "Das Team konnte nicht gewechselt werden. Versuche es erneut.",
+      "loading": "Geräte werden geladen…",
+      "empty": "Für dieses Team sind keine Geräte registriert.",
+      "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",
+      "retry": "Erneut versuchen",
+      "mutationError": "Die Geräteänderung konnte nicht abgeschlossen werden.",
+      "revoke": "Zugriff entziehen",
+      "deviceId": "Gerät",
       "revision": "Revision",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Entzogen",
+      "relaySettings": "Relay-Einstellungen",
+      "relaySettingsDescription": "Wähle die Relay-Server für dieses Team. Gib pro Zeile eine URL ein.",
+      "saveRelaySettings": "Relay-Einstellungen speichern"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",

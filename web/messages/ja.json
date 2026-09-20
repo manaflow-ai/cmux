@@ -339,7 +339,7 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "mobileDevices": "モバイルデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -614,23 +614,25 @@
         "leave": "TestFlightから退出"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "モバイルデバイス",
+      "description": "接続済みのコンピュータ、スマートフォン、タブレットへのアクセスを管理します。",
+      "team": "チーム",
+      "teamSwitchError": "チームを切り替えられませんでした。もう一度お試しください。",
+      "loading": "デバイスを読み込んでいます…",
+      "empty": "このチームには登録済みのデバイスがありません。",
+      "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
+      "retry": "もう一度試す",
+      "mutationError": "デバイスの変更を完了できませんでした。",
+      "revoke": "アクセスを取り消す",
+      "deviceId": "デバイス",
+      "revision": "リビジョン",
+      "status": "ステータス",
+      "active": "有効",
+      "revoked": "取り消し済み",
+      "relaySettings": "リレー設定",
+      "relaySettingsDescription": "このチームで使用するリレーサーバーを選択します。1 行に 1 つ URL を入力してください。",
+      "saveRelaySettings": "リレー設定を保存"
     }
   },
   "vault": {
