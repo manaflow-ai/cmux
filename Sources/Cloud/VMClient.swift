@@ -2302,7 +2302,7 @@ actor VMClient {
                     statusCode: http.statusCode,
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
                 ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2310,7 +2310,7 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
                 continue
             }
             // The private gateway has not forwarded this request yet. Every
@@ -2321,7 +2321,7 @@ actor VMClient {
                 retriesLeft -= 1
                 onRetry()
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
-                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
                 }
                 continue
             }
@@ -2385,8 +2385,8 @@ actor VMClient {
     ) -> TimeInterval? {
         guard statusCode == 429 else { return nil }
         return TimeInterval(
-            CmxRetryAfterPolicy.seconds(from: retryAfterHeader)
-                ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         )
     }
 

@@ -258,9 +258,9 @@ public actor CmxConnectivityInvalidationSubscriber {
     ) -> Int? {
         guard let response = task.response as? HTTPURLResponse,
               response.statusCode == 429 else { return nil }
-        return CmxRetryAfterPolicy.seconds(
+        return CmxRetryAfterPolicy().seconds(
             from: response,
-            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
         )
     }
 }

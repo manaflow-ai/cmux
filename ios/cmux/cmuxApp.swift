@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
@@ -41,6 +42,7 @@ struct cmuxApp: App {
         )
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
+            macListAuthState: MobileMacListAuthState(),
             keychainAccessGroup: auth.keychainAccessGroup)
         Task { await irx.configure(auth: auth.coordinator) }
 
@@ -156,6 +158,7 @@ struct cmuxApp: App {
     private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
+            macListAuthState: Self.root.irx.macListAuthState,
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,

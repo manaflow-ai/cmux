@@ -13,11 +13,13 @@ public struct MarkdownRemoteImageFetchResult: Sendable {
     }
 }
 
-public enum MarkdownRemoteImageSecurity {
-    public static let maximumRemoteImageBytes = 8 * 1024 * 1024
+public struct MarkdownRemoteImageSecurity: Sendable {
+    public init() {}
 
-    public static func remoteImageURL(from requestURL: URL) -> URL? {
-        guard requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage,
+    public let maximumRemoteImageBytes = 8 * 1024 * 1024
+
+    public func remoteImageURL(from requestURL: URL) -> URL? {
+        guard requestURL.scheme?.lowercased() == MarkdownWebViewerScheme.remoteImage.rawValue,
               let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
               let rawRemoteURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
               let remoteURL = URL(string: rawRemoteURL),
@@ -27,11 +29,11 @@ public enum MarkdownRemoteImageSecurity {
         return remoteURL
     }
 
-    public static func isPotentiallySafeRemoteImageURL(_ url: URL) -> Bool {
+    public func isPotentiallySafeRemoteImageURL(_ url: URL) -> Bool {
         isSafeRemoteImageURL(url, resolveHost: false)
     }
 
-    public static func isSafeRemoteImageURL(_ url: URL, resolveHost: Bool = true) -> Bool {
+    public func isSafeRemoteImageURL(_ url: URL, resolveHost: Bool = true) -> Bool {
         guard url.scheme?.lowercased() == "https",
               url.user == nil,
               url.password == nil,
@@ -43,7 +45,7 @@ public enum MarkdownRemoteImageSecurity {
         return !resolveHost || hostResolvesOnlyToAllowedAddresses(host)
     }
 
-    public static func pinnedFetchTargets(for url: URL) -> [MarkdownRemoteImageFetchTarget] {
+    public func pinnedFetchTargets(for url: URL) -> [MarkdownRemoteImageFetchTarget] {
         guard isPotentiallySafeRemoteImageURL(url),
               let host = url.host(percentEncoded: false),
               let endpoints = resolvedAllowedEndpoints(for: host),
@@ -55,7 +57,7 @@ public enum MarkdownRemoteImageSecurity {
         }
     }
 
-    public static func pathAndQuery(for url: URL) -> String {
+    public func pathAndQuery(for url: URL) -> String {
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         var value = components?.percentEncodedPath.isEmpty == false ? components?.percentEncodedPath ?? "/" : "/"
         if let query = components?.percentEncodedQuery, !query.isEmpty {
@@ -64,7 +66,7 @@ public enum MarkdownRemoteImageSecurity {
         return value
     }
 
-    public static func requestBytes(for url: URL, host: String) -> Data? {
+    public func requestBytes(for url: URL, host: String) -> Data? {
         guard let hostHeader = httpHostHeaderValue(for: host) else { return nil }
         let request = [
             "GET \(pathAndQuery(for: url)) HTTP/1.1",
@@ -78,7 +80,7 @@ public enum MarkdownRemoteImageSecurity {
         return request.data(using: .utf8)
     }
 
-    public static func remoteImageConsentHost(for url: URL) -> String? {
+    public func remoteImageConsentHost(for url: URL) -> String? {
         guard isPotentiallySafeRemoteImageURL(url),
               let host = url.host(percentEncoded: false) else {
             return nil
@@ -87,7 +89,7 @@ public enum MarkdownRemoteImageSecurity {
         return normalized.isEmpty ? nil : normalized
     }
 
-    public static func canonicalImageMIMEType(_ raw: String?) -> String? {
+    public func canonicalImageMIMEType(_ raw: String?) -> String? {
         let mimeType = String(raw ?? "")
             .split(separator: ";", maxSplits: 1, omittingEmptySubsequences: true)
             .first?
@@ -111,14 +113,14 @@ public enum MarkdownRemoteImageSecurity {
         }
     }
 
-    private static func normalizedRemoteImageHost(_ rawHost: String) -> String {
+    private func normalizedRemoteImageHost(_ rawHost: String) -> String {
         rawHost
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]").union(.whitespacesAndNewlines))
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
             .lowercased()
     }
 
-    private static func isAllowedHostNameOrLiteral(_ rawHost: String) -> Bool {
+    private func isAllowedHostNameOrLiteral(_ rawHost: String) -> Bool {
         let host = normalizedRemoteImageHost(rawHost)
         guard !host.isEmpty else { return false }
         if host == "localhost" || host.hasSuffix(".localhost") { return false }
@@ -132,12 +134,12 @@ public enum MarkdownRemoteImageSecurity {
         return true
     }
 
-    private static func hostResolvesOnlyToAllowedAddresses(_ rawHost: String) -> Bool {
+    private func hostResolvesOnlyToAllowedAddresses(_ rawHost: String) -> Bool {
         guard let endpoints = resolvedAllowedEndpoints(for: rawHost) else { return false }
         return !endpoints.isEmpty
     }
 
-    private static func resolvedAllowedEndpoints(for rawHost: String) -> [NWEndpoint.Host]? {
+    private func resolvedAllowedEndpoints(for rawHost: String) -> [NWEndpoint.Host]? {
         let host = rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         if let bytes = ipv4Bytes(host) {
             guard isAllowedIPv4Address(bytes),
@@ -186,21 +188,21 @@ public enum MarkdownRemoteImageSecurity {
         return endpoints.filter { seen.insert(String(describing: $0)).inserted }
     }
 
-    private static func ipv4Bytes(_ host: String) -> [UInt8]? {
+    private func ipv4Bytes(_ host: String) -> [UInt8]? {
         var address = in_addr()
         let result = host.withCString { inet_pton(AF_INET, $0, &address) }
         guard result == 1 else { return nil }
         return Array(withUnsafeBytes(of: address.s_addr) { $0 })
     }
 
-    private static func ipv6Bytes(_ host: String) -> [UInt8]? {
+    private func ipv6Bytes(_ host: String) -> [UInt8]? {
         var address = in6_addr()
         let result = host.withCString { inet_pton(AF_INET6, $0, &address) }
         guard result == 1 else { return nil }
         return Array(withUnsafeBytes(of: address) { $0 })
     }
 
-    private static func isAllowedIPv4Address(_ bytes: [UInt8]) -> Bool {
+    private func isAllowedIPv4Address(_ bytes: [UInt8]) -> Bool {
         guard bytes.count == 4 else { return false }
         let first = bytes[0]
         let second = bytes[1]
@@ -217,7 +219,7 @@ public enum MarkdownRemoteImageSecurity {
         return true
     }
 
-    private static func isAllowedIPv6Address(_ bytes: [UInt8]) -> Bool {
+    private func isAllowedIPv6Address(_ bytes: [UInt8]) -> Bool {
         guard bytes.count == 16 else { return false }
         if bytes.allSatisfy({ $0 == 0 }) { return false }
         if bytes.prefix(15).allSatisfy({ $0 == 0 }) && bytes[15] == 1 { return false }
@@ -232,14 +234,14 @@ public enum MarkdownRemoteImageSecurity {
         return true
     }
 
-    private static func ipv4Endpoint(_ bytes: [UInt8]) -> NWEndpoint.Host? {
+    private func ipv4Endpoint(_ bytes: [UInt8]) -> NWEndpoint.Host? {
         guard bytes.count == 4 else { return nil }
         let value = bytes.map(String.init).joined(separator: ".")
         guard let address = IPv4Address(value) else { return nil }
         return .ipv4(address)
     }
 
-    private static func ipv6Endpoint(_ bytes: [UInt8]) -> NWEndpoint.Host? {
+    private func ipv6Endpoint(_ bytes: [UInt8]) -> NWEndpoint.Host? {
         guard bytes.count == 16 else { return nil }
         var address = in6_addr()
         withUnsafeMutableBytes(of: &address) { buffer in
@@ -258,13 +260,13 @@ public enum MarkdownRemoteImageSecurity {
         }
     }
 
-    private static func isSafeHTTPHeaderValue(_ value: String) -> Bool {
+    private func isSafeHTTPHeaderValue(_ value: String) -> Bool {
         value.utf8.allSatisfy { byte in
             byte >= 0x21 && byte != 0x7f
         }
     }
 
-    private static func httpHostHeaderValue(for rawHost: String) -> String? {
+    private func httpHostHeaderValue(for rawHost: String) -> String? {
         let host = normalizedRemoteImageHost(rawHost)
         guard isSafeHTTPHeaderValue(host) else { return nil }
         if ipv6Bytes(host) != nil {
@@ -288,29 +290,31 @@ public struct MarkdownRemoteImageFetchTarget: Sendable {
     }
 }
 
-public enum MarkdownRemoteImageFetcher {
-    public static func fetch(_ url: URL) async -> MarkdownRemoteImageFetchResult? {
+public struct MarkdownRemoteImageFetcher: Sendable {
+    public init() {}
+
+    public func fetch(_ url: URL) async -> MarkdownRemoteImageFetchResult? {
         guard !Task.isCancelled,
-              let approvedHost = MarkdownRemoteImageSecurity.remoteImageConsentHost(for: url) else {
+              let approvedHost = MarkdownRemoteImageSecurity().remoteImageConsentHost(for: url) else {
             return nil
         }
         return await fetch(url, approvedHost: approvedHost, redirectDepth: 0)
     }
 
-    private static func fetch(
+    private func fetch(
         _ url: URL,
         approvedHost: String,
         redirectDepth: Int
     ) async -> MarkdownRemoteImageFetchResult? {
         guard !Task.isCancelled,
               redirectDepth <= 3 else { return nil }
-        let targets = MarkdownRemoteImageSecurity.pinnedFetchTargets(for: url)
+        let targets = MarkdownRemoteImageSecurity().pinnedFetchTargets(for: url)
         guard !Task.isCancelled else { return nil }
         for target in targets {
             guard !Task.isCancelled else { return nil }
             let loader = MarkdownPinnedRemoteImageLoader(
                 target: target,
-                maximumBytes: MarkdownRemoteImageSecurity.maximumRemoteImageBytes
+                maximumBytes: MarkdownRemoteImageSecurity().maximumRemoteImageBytes
             )
             switch await loader.fetch() {
             case .image(let result):
@@ -319,7 +323,7 @@ public enum MarkdownRemoteImageFetcher {
             case .redirect(let redirectURL):
                 guard !Task.isCancelled,
                       let resolvedRedirect = URL(string: redirectURL.absoluteString, relativeTo: url)?.absoluteURL,
-                      MarkdownRemoteImageSecurity.remoteImageConsentHost(for: resolvedRedirect) == approvedHost else {
+                      MarkdownRemoteImageSecurity().remoteImageConsentHost(for: resolvedRedirect) == approvedHost else {
                     return nil
                 }
                 return await fetch(
@@ -345,7 +349,9 @@ private enum MarkdownRemoteImageLoadOutcome {
 private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     private let maximumBytes: Int
     private let target: MarkdownRemoteImageFetchTarget
+    // Carve-out: NWConnection callbacks and synchronous task cancellation arbitrate one completion.
     private let lock = NSLock()
+    // Carve-out: Network.framework and TLS verification require a callback queue.
     private let queue = DispatchQueue(label: "dev.cmux.markdown-remote-image", qos: .userInitiated)
     private var rawBody = Data()
     private var mimeType = "image/png"
@@ -354,7 +360,7 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     private var headerParsed = false
     private var usesChunkedTransfer = false
     private var expectedBodyBytes: Int?
-    private var timeoutWorkItem: DispatchWorkItem?
+    private var timeoutTask: Task<Void, Never>?
     private var completed = false
 
     init(target: MarkdownRemoteImageFetchTarget, maximumBytes: Int) {
@@ -379,7 +385,7 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     }
 
     private func start(completion: @escaping (MarkdownRemoteImageLoadOutcome?) -> Void) {
-        guard let requestData = MarkdownRemoteImageSecurity.requestBytes(
+        guard let requestData = MarkdownRemoteImageSecurity().requestBytes(
             for: target.url,
             host: target.serverName
         ) else {
@@ -408,9 +414,6 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
             return
         }
         let connection = NWConnection(to: .hostPort(host: target.endpointHost, port: endpointPort), using: parameters)
-        let timeout = DispatchWorkItem { [weak self] in
-            self?.finish(nil)
-        }
         lock.lock()
         guard !completed else {
             lock.unlock()
@@ -419,10 +422,16 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
         }
         self.connection = connection
         self.completion = completion
-        timeoutWorkItem = timeout
+        timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+            self?.finish(nil)
+        }
         lock.unlock()
 
-        queue.asyncAfter(deadline: .now() + 15, execute: timeout)
         connection.stateUpdateHandler = { [weak self] (state: NWConnection.State) in
             switch state {
             case .ready:
@@ -537,12 +546,12 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
         if (300..<400).contains(statusCode),
            let location = headers["location"],
            let redirectURL = URL(string: location, relativeTo: target.url)?.absoluteURL,
-           MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(redirectURL) {
+           MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(redirectURL) {
             return .finish(.redirect(redirectURL))
         }
 
         guard (200..<300).contains(statusCode),
-              let responseMIMEType = MarkdownRemoteImageSecurity.canonicalImageMIMEType(headers["content-type"]) else {
+              let responseMIMEType = MarkdownRemoteImageSecurity().canonicalImageMIMEType(headers["content-type"]) else {
             return .fail
         }
 
@@ -564,7 +573,7 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
         guard headerParsed else { return nil }
         let body: Data
         if usesChunkedTransfer {
-            guard let decoded = MarkdownHTTPChunkedBodyDecoder.decode(
+            guard let decoded = MarkdownHTTPChunkedBodyDecoder().decode(
                 rawBody,
                 maximumBytes: maximumBytes
             ) else {
@@ -591,7 +600,7 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     private func finish(_ outcome: MarkdownRemoteImageLoadOutcome?) {
         let callback: ((MarkdownRemoteImageLoadOutcome?) -> Void)?
         let connectionToCancel: NWConnection?
-        let timeoutToCancel: DispatchWorkItem?
+        let timeoutToCancel: Task<Void, Never>?
         lock.lock()
         guard !completed else {
             lock.unlock()
@@ -602,8 +611,8 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
         completion = nil
         connectionToCancel = connection
         connection = nil
-        timeoutToCancel = timeoutWorkItem
-        timeoutWorkItem = nil
+        timeoutToCancel = timeoutTask
+        timeoutTask = nil
         lock.unlock()
 
         timeoutToCancel?.cancel()
@@ -612,8 +621,10 @@ private final class MarkdownPinnedRemoteImageLoader: @unchecked Sendable {
     }
 }
 
-public enum MarkdownHTTPChunkedBodyDecoder {
-    public static func decode(_ data: Data, maximumBytes: Int) -> Data? {
+public struct MarkdownHTTPChunkedBodyDecoder: Sendable {
+    public init() {}
+
+    public func decode(_ data: Data, maximumBytes: Int) -> Data? {
         let bytes = Array(data)
         var offset = 0
         var decoded = Data()
@@ -650,7 +661,7 @@ public enum MarkdownHTTPChunkedBodyDecoder {
         return nil
     }
 
-    private static func crlfIndex(in bytes: [UInt8], from offset: Int) -> Int? {
+    private func crlfIndex(in bytes: [UInt8], from offset: Int) -> Int? {
         guard offset < bytes.count else { return nil }
         var index = offset
         while index + 1 < bytes.count {
