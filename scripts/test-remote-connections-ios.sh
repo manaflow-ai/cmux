@@ -52,16 +52,34 @@ xcodebuild build-for-testing \
 
 test_host="$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/Build/Products/Debug-iphonesimulator/RemoteConnectionsTestHost.app"
 codesign --display --entitlements :- "$test_host" > "$evidence/test-host-entitlements.plist"
-python3 - "$test_host/Info.plist" "$evidence/test-host-entitlements.plist" <<'PY'
-import plistlib, sys
+python3 - "$test_host/Info.plist" "$evidence/test-host-entitlements.plist" "$test_host/RemoteConnectionsTestHost" "$evidence/effective-test-host-entitlements.plist" <<'PY'
+import plistlib, re, subprocess, sys
 with open(sys.argv[1], 'rb') as file: info = plistlib.load(file)
 with open(sys.argv[2], 'rb') as file: entitlements = plistlib.load(file)
 group = info.get('CMUXRemoteTestKeychainGroup')
 if not isinstance(group, str) or not group or any(char in group for char in '*$'):
     sys.exit('Test host has no exact configured Keychain access group.')
-if group not in entitlements.get('keychain-access-groups', []):
+effective = entitlements
+if group not in effective.get('keychain-access-groups', []):
+    # Xcode 27 ad-hoc simulator signing may leave the outer app signature
+    # empty while embedding the effective simulator entitlements in the
+    # executable's __TEXT,__entitlements section.
+    binary = sys.argv[3]
+    load = subprocess.run(['otool', '-l', binary], check=True, capture_output=True, text=True).stdout
+    match = re.search(r'sectname __entitlements(?P<section>.*?)(?=\n\s*sectname |\Z)', load, re.S)
+    if match:
+        section = match.group('section')
+        offset = re.search(r'\boffset (0x[0-9a-fA-F]+|\d+)', section)
+        size = re.search(r'\bsize (0x[0-9a-fA-F]+|\d+)', section)
+        if offset and size:
+            with open(binary, 'rb') as file:
+                file.seek(int(offset.group(1), 0))
+                effective = plistlib.loads(file.read(int(size.group(1), 0)))
+            with open(sys.argv[4], 'wb') as file:
+                plistlib.dump(effective, file)
+if group not in effective.get('keychain-access-groups', []):
     sys.exit('Signed host Keychain entitlement does not match test configuration.')
-print('Test host signed Keychain group verified.')
+print('Test host effective Keychain group verified.')
 PY
 xcodebuild test-without-building \
   -project ios/RemoteConnectionsTests/RemoteConnectionsTests.xcodeproj \
