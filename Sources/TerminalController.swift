@@ -8921,7 +8921,7 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "title": browserPanel.pageTitle
+                "title": browserPanel.pageTitle, "automation_readiness": browserPanel.browserAutomationReadinessPayload()
             ])
         }
     }

@@ -399,6 +399,7 @@
 		B75040020000000000000001 /* BrowserDiscardedWebViewRestoreRetryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */; };
 		B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */; };
 		B75040030000000000000001 /* BrowserDiscardRestoreHealPredicateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */; };
+		C2035A0D0000000000000001 /* BrowserDocumentReadyMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0D0000000000000002 /* BrowserDocumentReadyMessageHandler.swift */; };
 		C42660030000000000000001 /* BrowserDownloadDelegate+PDFPreviewData.swift in Sources */ = {isa = PBXBuildFile; fileRef = C42660030000000000000002 /* BrowserDownloadDelegate+PDFPreviewData.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
@@ -4512,6 +4513,7 @@
 		B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardedWebViewRestoreRetryTests.swift; sourceTree = "<group>"; };
 		B75040010000000000000002 /* BrowserDiscardRestoreHeal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDiscardRestoreHeal.swift; sourceTree = "<group>"; };
 		B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDiscardRestoreHealPredicateTests.swift; sourceTree = "<group>"; };
+		C2035A0D0000000000000002 /* BrowserDocumentReadyMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDocumentReadyMessageHandler.swift; sourceTree = "<group>"; };
 		C42660030000000000000002 /* BrowserDownloadDelegate+PDFPreviewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDownloadDelegate+PDFPreviewData.swift"; sourceTree = "<group>"; };
 		C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadFilenameResolver.swift; sourceTree = "<group>"; };
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
@@ -10234,6 +10236,7 @@
 				C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */,
 				C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */,
 				C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */,
+				C2035A0D0000000000000002 /* BrowserDocumentReadyMessageHandler.swift */,
 				8478A0010000000000000002 /* BrowserSameDocumentNavigationMessageHandler.swift */,
 				C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */,
 				C2035A040000000000000002 /* BrowserSSLTrustScope.swift */,
@@ -13088,6 +13091,7 @@
 				D35A0000000000000000000B /* BrowserDesignModeToolbarButton.swift in Sources */,
 				B1F0C0050000000000000001 /* BrowserDeveloperToolsDockControlNormalizer.swift in Sources */,
 				B75040010000000000000001 /* BrowserDiscardRestoreHeal.swift in Sources */,
+				C2035A0D0000000000000001 /* BrowserDocumentReadyMessageHandler.swift in Sources */,
 				C42660030000000000000001 /* BrowserDownloadDelegate+PDFPreviewData.swift in Sources */,
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */,

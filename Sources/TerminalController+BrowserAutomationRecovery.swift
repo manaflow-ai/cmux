@@ -139,6 +139,12 @@ extension TerminalController {
         livenessTimeout: TimeInterval =
             BrowserScreenshotTimingBudget().livenessProbeAllowance
     ) -> String {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.automation.readinessTimeout surface=\(surfaceId.uuidString.prefix(5)) " +
+            "channel=\(channel.debugName) state=\(browserPanel.browserAutomationReadinessPayload())"
+        )
+#endif
         var recoveryTask: Task<Void, Never>?
         let outcome: BrowserAutomationRecoveryOutcome? = socketAwaitCallback(
             timeout: livenessTimeout
