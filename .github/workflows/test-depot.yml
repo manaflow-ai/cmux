@@ -3,6 +3,9 @@ name: Run tests on Depot
 on:
   workflow_call:
     inputs:
+      runner:
+        type: string
+        default: ""
       ref:
         type: string
         default: ""
@@ -23,6 +26,11 @@ on:
         default: "120"
   workflow_dispatch:
     inputs:
+      runner:
+        description: Optional hosted macOS runner label
+        required: false
+        default: ""
+        type: string
       ref:
         description: Branch or SHA to test
         required: false
@@ -50,9 +58,12 @@ on:
         required: false
         default: "120"
 
+env:
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+
 jobs:
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

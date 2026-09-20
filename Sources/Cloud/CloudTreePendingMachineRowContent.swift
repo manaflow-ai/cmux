@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// A machine that does not exist yet (or failed to): the row the Machines
@@ -9,14 +10,15 @@ import SwiftUI
 struct CloudTreePendingMachineRowContent: View {
     let operation: MachineCreateOperation
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
+                HStack(alignment: .center, spacing: style.iconGap) {
                     leadingGlyph
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                        .frame(width: scaled(style.iconSlot), alignment: .center)
                     HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
                         name
                         status
@@ -27,18 +29,18 @@ struct CloudTreePendingMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
+            HStack(alignment: .top, spacing: style.iconGap) {
                 leadingGlyph
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                    .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
+                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     name
-                        .frame(height: style.machineNameLineHeight)
+                        .frame(height: scaled(style.machineNameLineHeight))
                     status
-                        .frame(height: style.machineSubtitleLineHeight)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
                 Spacer(minLength: CloudTreeRowGrid.trailingGap)
             }
-            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
@@ -47,20 +49,24 @@ struct CloudTreePendingMachineRowContent: View {
 
     @ViewBuilder
     private var leadingGlyph: some View {
-        if operation.isRunning {
+        if operation.isRunning || operation.isReconciling {
             ProgressView()
                 .controlSize(.mini)
         } else {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9, weight: .medium))
+                .cmuxFont(size: style.iconSize, weight: .medium)
                 .foregroundStyle(.orange)
         }
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(value, percent: magnification)
     }
 
     private var name: some View {
         Text(operation.request.displayName)
             .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-            .foregroundStyle(operation.isRunning ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .foregroundStyle(operation.isRunning || operation.isReconciling ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .lineLimit(1)
             .truncationMode(.tail)
     }
@@ -68,7 +74,7 @@ struct CloudTreePendingMachineRowContent: View {
     private var status: some View {
         Text(operation.statusLabel)
             .cmuxFont(size: style.detailSize, design: style.fontDesign)
-            .foregroundStyle(operation.isRunning ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange.opacity(0.9)))
+            .foregroundStyle(operation.isRunning || operation.isReconciling ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange.opacity(0.9)))
             .lineLimit(1)
             .truncationMode(.tail)
     }
