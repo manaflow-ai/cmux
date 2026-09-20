@@ -7,11 +7,9 @@ import Foundation
 /// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
-/// The periodic fleet read is the only Cloud API traffic an idle app makes, so it
-/// runs only while ``CloudActivationPolicy`` allows background Cloud work (Cloud
-/// Machines on, or this Mac used Cloud before) and follows the Beta Features
-/// toggle at runtime. Demand-driven reads (`refresh(force:)`, a `cmux vm` verb)
-/// are explicit user actions and are not gated here.
+/// Authenticated fleet discovery also prepares the shared terminal carrier, even for
+/// an empty fleet. Both follow the Cloud flag and Beta Features opt-in; disabling
+/// Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -412,6 +410,8 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
         guard !isRetired, let catalog, let page = await listPage() else { return nil }
+        guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
+        if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
         // Reconcile both stores. A restored catalog can contain a machine for

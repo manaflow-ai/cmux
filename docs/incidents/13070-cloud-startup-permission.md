@@ -153,6 +153,59 @@ They exclude Stack auth, the GCP Next.js/DB layer and Mac UI. The provider image
 is current at measurement time, not proven identical to the reported VM's image.
 The first full sequence including network/tunnel/hub setup is about 4.54 s.
 
+## Dogfood follow-up: prepare the carrier when Cloud is enabled
+
+Austin tested the authenticated local tag at `baa85c9101` against its own GCP
+backend on port 4280. He confirmed the permission prompt was gone, but first
+creation still felt slow. The new trace separates the remaining cost:
+
+| Phase | Time |
+| --- | ---: |
+| Create | 2.901 s |
+| `cmux_remote_info` | 49.770 s |
+| `surface_new_terminal` | 0.824 s |
+| Post-create completion | 50.730 s |
+| Create plus completion | 53.631 s |
+
+The first tunnel POST again returned 502: 34.8 s total, including 4.0 s of
+Next.js compilation and 30.8 s of application/provider work. The provider's
+503 was `INTERNAL_ERROR`. A read-only provider query found the resulting tunnel's
+`createdAt` was `2026-09-20T00:29:26.628077Z`, about 30 s before the error response
+at `00:29:57.210Z`. The retry succeeded in 443 ms. The resource record therefore
+existed during the failed request; that timestamp alone does not prove the
+data plane was usable then. The account network had 45 tunnel attachments.
+
+Isolated probes created and cleaned up their own networks and tunnels. Fresh
+networks enrolled in 150/167 ms from the Mac and 144/194 ms from the GCP backend
+using its actual runtime provider credential. Device-name labels did not
+reproduce the failure. A further owned-network trial created and prepared a VM
+before enrolling its tunnel: enrollment was 114 ms, and the subsequent measured
+VM reached a shell in 3.684 s. These results do not reproduce the account
+network's delayed provider response and are not a before/after GUI claim.
+
+The app already had a coalesced `CloudWireGuardHub.prewarm()` API, but no
+production activation path called it. Fleet discovery now schedules preparation
+after a successful authenticated list, including an empty list, while both
+Cloud gates permit background work. It returns without awaiting enrollment.
+The shared hub owns the preparation task, startup/recovery and one account
+claim; the first terminal joins that same startup. Cloud disable/sign-out stop
+the hub, cancel preparation and invalidate stale completions. No NetworkExtension
+configuration or LAN discovery is involved.
+
+The deliberate resource trade-off is one resident userspace helper and an
+enrolled private-network identity for signed-in Cloud users even before they
+own a VM. A create immediately after enabling Cloud can still wait for unfinished
+preparation; the provider response delay and development-route compilation are
+not eliminated. Regression coverage exercises empty-fleet preparation,
+nonblocking discovery, startup sharing, disable/sign-out cancellation and
+unavailable/signed-out gating. Its separate test-only baseline is
+[`bf6742b5de`](https://github.com/manaflow-ai/cmux/actions/runs/35479850124).
+
+The independent workspace-rename CI failure was corrected in `adf2252439`:
+the provider's accepted graph retains the old name while the catalog's
+presentation snapshot intentionally overlays the pending rename. The test now
+checks both rather than expecting the accepted name from the optimistic view.
+
 ## Remaining verification limits
 
 The current cloud-mac provisioner has no controller scheduling path and still
@@ -162,6 +215,7 @@ unverified; the deterministic proof removes the DNS dependency rather than
 simulating the OS privacy database. Independent terminal/browser features can
 still legitimately request LAN access.
 
-The original 33.4-second provider error and private development route compilation
-remain independent performance limits. This fix removes the unnecessary
-hostname-resolution stall/prompt, not the provider's internal outage.
+The repeated 30–33-second provider error and private development route compilation
+remain independent performance limits. The changes remove hostname resolution
+and move carrier preparation ahead of first machine use; they do not claim to
+repair the provider's delayed response.
