@@ -3405,6 +3405,7 @@
 		A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */; };
 		55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */; };
 		A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */; };
+		B0D1ACA70000000000000002 /* TerminalController+RemoteRelayDockReadAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D1ACA70000000000000001 /* TerminalController+RemoteRelayDockReadAuthorization.swift */; };
 		C12813000000000000000511 /* TerminalController+RemoteSessionParked.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12813000000000000000502 /* TerminalController+RemoteSessionParked.swift */; };
 		812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */; };
 		A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */; };
@@ -7362,6 +7363,7 @@
 		C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnostics.swift"; sourceTree = "<group>"; };
 		68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnosticsAsync.swift"; sourceTree = "<group>"; };
 		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
+		B0D1ACA70000000000000001 /* TerminalController+RemoteRelayDockReadAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayDockReadAuthorization.swift"; sourceTree = "<group>"; };
 		C12813000000000000000502 /* TerminalController+RemoteSessionParked.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteSessionParked.swift"; sourceTree = "<group>"; };
 		81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTerminalTransportErrors.swift"; sourceTree = "<group>"; };
 		95B11974CF8937E165A3FAEE /* TerminalController+RemoteTmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmux.swift"; sourceTree = "<group>"; };
@@ -9422,6 +9424,7 @@
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
 				A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */,
+				B0D1ACA70000000000000001 /* TerminalController+RemoteRelayDockReadAuthorization.swift */,
 				A13056000000000000000002 /* TerminalController+ControlWorkspaceReads.swift */,
 				A13056000000000000000001 /* TerminalController+Capabilities.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
@@ -14836,6 +14839,7 @@
 				A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */,
 				55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */,
 				A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */,
+				B0D1ACA70000000000000002 /* TerminalController+RemoteRelayDockReadAuthorization.swift in Sources */,
 				C12813000000000000000511 /* TerminalController+RemoteSessionParked.swift in Sources */,
 				812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */,
 				A31B24551C6E01E86D76B07E /* TerminalController+RemoteTmux.swift in Sources */,
