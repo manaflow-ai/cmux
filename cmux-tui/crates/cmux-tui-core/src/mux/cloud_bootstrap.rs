@@ -137,9 +137,10 @@ impl Mux {
         {
             Ok(commit) => commit,
             Err(error)
-                if error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|error| error.code == "cloud.bootstrap_occupied") =>
+                if error.downcast_ref::<ResourceError>().is_some_and(|error| {
+                    error.code == "operation.failed"
+                        && error.details["reason"] == "cloud_bootstrap_occupied"
+                }) =>
             {
                 self.workspace_registry.lock().unwrap().finish_cloud_bootstrap(reservation)?;
                 return Ok(());

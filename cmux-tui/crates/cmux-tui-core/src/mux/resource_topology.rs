@@ -4511,11 +4511,10 @@ impl Mux {
             if let Some(bootstrap) = registry.cloud_bootstrap()?
                 && registry.cloud_bootstrap_has_other_terminal(&bootstrap)?
             {
-                return Err(anyhow::Error::new(ResourceError::new(
-                    "cloud.bootstrap_occupied",
-                    "the initial Cloud workspace already has user content",
-                    Value::Null,
-                    false,
+                return Err(anyhow::Error::new(ResourceError::operation_failed(
+                    "tab.create_terminal",
+                    "cloud_bootstrap_occupied",
+                    json!({}),
                 )));
             }
             drop(registry);
