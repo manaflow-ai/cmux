@@ -94,6 +94,16 @@ class PreflightTests(unittest.TestCase):
         self.run_mode('cleanup-bucket')
         self.assertEqual(self.calls, [(f'r2/buckets/{self.resource}', 'DELETE', None)])
 
+    def test_worker_cleanup_requires_ownership_and_removes_bound_durable_objects(self):
+        self.run_mode('delete-worker')
+        self.assertEqual(self.calls, [])
+        self.created.write_text(json.dumps({'worker': 'someone-elses-worker'}))
+        self.run_mode('delete-worker')
+        self.assertEqual(self.calls, [])
+        self.created.write_text(json.dumps({'worker': self.resource}))
+        self.run_mode('delete-worker')
+        self.assertEqual(self.calls, [(f'workers/scripts/{self.resource}?force=true', 'DELETE', None)])
+
 
 class MeasurementTests(unittest.TestCase):
     def test_hashes_real_bytes_and_distinguishes_fill_from_hit(self):
