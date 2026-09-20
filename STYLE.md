@@ -22,6 +22,15 @@ Keep the description current when the implementation changes. Include exact comm
 
 Keep measurements tied to what was observed. A faster app-copy step doesn't establish a faster full build.
 
+## Skills and procedural docs
+
+Name the task and when the instructions apply, then show the first useful action.
+Use action headings or a small choice table when paths differ. Put commands beside
+the result to inspect; keep recovery advice near the step that can fail. Link
+longer references at the point they're needed. Finish with the evidence or output
+the task should produce. These are editing tools, not required sections for every
+skill.
+
 ## Before publishing
 
 Read the description as a reviewer who hasn't seen the conversation. Can they understand the change and assess its evidence? Remove anything that repeats an answer they've already received.
