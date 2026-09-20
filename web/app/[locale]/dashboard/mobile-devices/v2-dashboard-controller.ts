@@ -100,7 +100,9 @@ export class V2DashboardController {
   }
 
   private async openSession(): Promise<Ticket> {
-    const stackToken = await this.options.getStackToken();
+    let stackToken: string | null;
+    try { stackToken = await this.options.getStackToken(); }
+    catch { throw this.errorFrom({ code: "unauthorized", retryable: false }); }
     if (!stackToken) throw this.errorFrom({ code: "unauthorized", retryable: false });
     const requestId = this.nextRequestId();
     const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {

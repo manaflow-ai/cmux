@@ -26,7 +26,7 @@ mock.module("@/app/lib/dashboard-auth", () => ({
   dashboardAuthorizationSignInHref: (_locale: string, path: string) => `/handler/sign-in?after=${path}`,
   loadDashboardSection: async () => authorization === "pending" ? new Promise(() => {}) : authorization === "unavailable" ? { kind: "unavailable" } : { kind: "ready", user: { id: "fixture-user" } },
 }));
-mock.module("../app/[locale]/dashboard/dashboard-team-scope", () => ({ useDashboardTeamScope: () => ({ status: "ready", selected: { id: "fixture-team" } }) }));
+mock.module("../app/[locale]/dashboard/dashboard-team-scope", () => ({ useDashboardTeamScope: () => ({ status: "ready", selected: { id: "fixture-team", name: "Fixture team" }, teams: [{ id: "fixture-team", name: "Fixture team" }], switchTeam: async () => {} }) }));
 mock.module("@hexclave/next", () => ({
   useStackApp: () => ({}),
   useUser: () => ({ selectedTeam: { id: "fixture-team" }, useTeams: () => [{ id: "fixture-team", displayName: "Personal" }] }),

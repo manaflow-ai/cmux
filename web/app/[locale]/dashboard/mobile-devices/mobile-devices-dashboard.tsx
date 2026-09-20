@@ -21,7 +21,13 @@ export function MobileDevicesDashboard({ userId }: Props) {
   return <div className="space-y-4" data-testid="mobile-devices-dashboard">
     {scope.status === "loading" ? <p className="text-muted">{t("loading")}</p> :
       scope.status === "unavailable" ? <p role="alert" className="text-muted">{t("unavailable")}</p> :
-        <ConnectedDevices key={`${userId}:${scope.selected.id}`} teamId={scope.selected.id} userId={userId} stack={stack} />}
+        <>
+          <label className="block text-xs text-muted" htmlFor="mobile-devices-team">{t("team")}</label>
+          <select id="mobile-devices-team" value={scope.selected.id} onChange={event => void scope.switchTeam(scope.teams.find(team => team.id === event.target.value) ?? scope.selected)} className="border border-border bg-background px-2 py-1.5">
+            {scope.teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}
+          </select>
+          <ConnectedDevices key={`${userId}:${scope.selected.id}`} teamId={scope.selected.id} userId={userId} stack={stack} />
+        </>}
   </div>;
 }
 
