@@ -43,9 +43,23 @@ extension SurfaceCatalog {
     /// sidebar/CLI readers, so every entrypoint sees one optimistic tree.
     var snapshot: SurfaceCatalogSnapshot {
         var result = authoritativeSnapshot
+        applyPendingWorkspaceCreations(to: &result)
         applyPendingDeletions(to: &result)
         applyPendingRenames(to: &result)
         return result
+    }
+
+    private func applyPendingWorkspaceCreations(to result: inout SurfaceCatalogSnapshot) {
+        var pending: [SurfaceMachineID: [String: UUID]] = [:]
+        for operation in cloudWorkspaceCreationCoordinator.operations.values {
+            guard let receipt = operation.receipt, let reservation = operation.reservation,
+                  let index = result.machines.firstIndex(where: { $0.id == operation.machine }) else { continue }
+            pending[operation.machine, default: [:]][receipt.workspace.id] = reservation.workspaceID
+            if result.machines[index].remoteWorkspaces?.contains(where: { $0.id == receipt.workspace.id }) != true {
+                result.machines[index].remoteWorkspaces = (result.machines[index].remoteWorkspaces ?? []) + [receipt.workspace]
+            }
+        }
+        result.pendingWorkspaceCreations = pending.isEmpty ? nil : pending
     }
 
     /// Hides workspaces admitted for deletion. Shared browser/display resources
