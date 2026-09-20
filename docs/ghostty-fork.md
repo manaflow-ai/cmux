@@ -12,12 +12,15 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `c5c31ce819`, the upstream Ghostty
-merge commit for PR #218 after the embedded-environment lifetime fix from PR
-#227 was merged. It preserves cmux's Cloud loopback link-detection changes
-while adding the localhost-port punctuation fix and owned POSIX environment
-snapshots for embedded hosts. This SHA is reachable from `manaflow-ai/ghostty`
-main and is the release target for cmux's GhosttyKit build workflow.
+The submodule pinned by this branch is `2dc32c14c4`, the `manaflow-ai/ghostty`
+main merge commit for PR #228. It sits directly on `c5c31ce819`, the merge of
+PR #218 after the embedded-environment lifetime fix from PR #227, and adds
+only the PR #228 fix that allows sentence punctuation after a localhost port.
+It preserves cmux's Cloud loopback link-detection changes and the owned POSIX
+environment snapshots for embedded hosts. This SHA is reachable from
+`manaflow-ai/ghostty` main, and its GhosttyKit archive is the one published by
+cmux's GhosttyKit build workflow, so the pinned checksum is the published
+asset's digest.
 
 The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
@@ -41,8 +44,9 @@ resolution.
     through merge commit `3869e81a0`; the pin itself is one merge ahead of
     fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
-  - `c5c31ce819` (upstream merge of Ghostty #218 after #227; preserves Cloud
-    loopback behavior and is reachable from `manaflow-ai/ghostty:main`)
+  - `2dc32c14c4` (fork main merge of Ghostty #228, directly on `c5c31ce819`,
+    the merge of #218 after #227; preserves Cloud loopback behavior and is
+    reachable from `manaflow-ai/ghostty:main`)
 - Summary:
   - Fixes localhost-port sentence punctuation and owns POSIX environment
     snapshots retained by embedded Ghostty, on top of the
