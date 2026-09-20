@@ -51,6 +51,25 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    func testCommandPaletteToolPaneCommandsCoverEveryAvailablePaneMode() throws {
+        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let byMode = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.mode, $0) })
+        XCTAssertEqual(
+            Set(byMode.keys),
+            Set(RightSidebarMode.paneModes.filter { $0.isAvailable() }),
+            "Every pane-capable, available mode gets an Open-as-Pane palette command"
+        )
+        XCTAssertEqual(try XCTUnwrap(byMode[.files]).commandId, "palette.openFilesPane")
+        XCTAssertEqual(try XCTUnwrap(byMode[.find]).commandId, "palette.openFindPane")
+        XCTAssertEqual(try XCTUnwrap(byMode[.sessions]).commandId, "palette.openVaultPane")
+        if RightSidebarMode.machines.isAvailable() {
+            let cloud = try XCTUnwrap(byMode[.machines])
+            XCTAssertEqual(cloud.commandId, "palette.openCloudPane")
+            XCTAssertEqual(cloud.title, String(localized: "command.openCloudPane.title", defaultValue: "Open Cloud as Pane"))
+        }
+        XCTAssertEqual(Set(descriptors.map(\.commandId)).count, descriptors.count)
+    }
+
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard

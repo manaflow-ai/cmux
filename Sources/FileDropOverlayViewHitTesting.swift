@@ -127,9 +127,13 @@ extension FileDropOverlayView {
         let windowPoint = sender.draggingLocation
         if editableTextViewUnderPoint(windowPoint) == nil,
            webViewUnderPoint(windowPoint) != nil {
+            // A Finder drag lands on the page, so Shift offers the split; a sidebar
+            // file-row drag opens as a split, so Shift offers the page.
+            let alternateBehavior: FileDropResolvedBehavior =
+                DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes) ? .text : .preview
             guard DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes),
                   !DragOverlayRoutingPolicy.currentModifierFlags.contains(.shift),
-                  let hintText = FileDropTextDestinationKind.editor.hintText(for: .preview),
+                  let hintText = FileDropTextDestinationKind.page.hintText(for: alternateBehavior),
                   let targetBounds = hintBadgeTargetBoundsUnderPoint(windowPoint) else {
                 hintBadgeView.hide()
                 return
