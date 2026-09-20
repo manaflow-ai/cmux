@@ -7,7 +7,10 @@ import Testing
     @Test func changesOwnedInodeAndCleansAnchor() throws {
         let fixture = try PermissionsFixture()
         defer { fixture.cleanup() }
-        #expect(SocketPathPermissions.apply(to: fixture.path, matching: fixture.identity, permissions: 0o666) == nil)
+        do {
+            let pinnedSocket = try SocketPathPermissions(path: fixture.path, matching: fixture.identity)
+            #expect(pinnedSocket.apply(permissions: 0o666) == nil)
+        }
         #expect(try fixture.mode(at: fixture.path) == 0o666)
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.directory) == ["socket"])
     }
@@ -18,24 +21,25 @@ import Testing
         defer { fixture.cleanup() }
         var replacementFD: Int32 = -1
         defer { if replacementFD >= 0 { close(replacementFD) } }
-        let result = SocketPathPermissions.apply(
-            to: fixture.path, matching: fixture.identity, permissions: 0o666,
-            beforeMutation: {
-                #expect(rename(fixture.path, fixture.directory + "/original") == 0)
-                if kind == "socket" {
-                    replacementFD = (try? PermissionsFixture.bind(fixture.path)) ?? -1
-                    #expect(replacementFD >= 0)
-                } else if kind == "symlink" {
-                    let target = fixture.directory + "/target"
-                    #expect(FileManager.default.createFile(atPath: target, contents: Data("replacement".utf8)))
-                    #expect(chmod(target, 0o640) == 0)
-                    #expect(symlink(target, fixture.path) == 0)
-                } else {
-                    #expect(FileManager.default.createFile(atPath: fixture.path, contents: Data("replacement".utf8)))
-                }
-                if kind != "symlink" { #expect(chmod(fixture.path, 0o640) == 0) }
+        let result: Int32?
+        do {
+            let pinnedSocket = try SocketPathPermissions(path: fixture.path, matching: fixture.identity)
+            // Replace the public path after pinning using real filesystem
+            // operations; production code has no callback or test-only seam.
+            #expect(rename(fixture.path, fixture.directory + "/original") == 0)
+            if kind == "socket" {
+                replacementFD = try PermissionsFixture.bind(fixture.path)
+            } else if kind == "symlink" {
+                let target = fixture.directory + "/target"
+                #expect(FileManager.default.createFile(atPath: target, contents: Data("replacement".utf8)))
+                #expect(chmod(target, 0o640) == 0)
+                #expect(symlink(target, fixture.path) == 0)
+            } else {
+                #expect(FileManager.default.createFile(atPath: fixture.path, contents: Data("replacement".utf8)))
             }
-        )
+            if kind != "symlink" { #expect(chmod(fixture.path, 0o640) == 0) }
+            result = pinnedSocket.apply(permissions: 0o666)
+        }
         #expect(result == ESTALE)
         #expect(try fixture.mode(at: fixture.path) == 0o640)
         if kind != "socket" {
@@ -51,7 +55,10 @@ import Testing
         let replacementFD = try PermissionsFixture.bind(fixture.path)
         defer { close(replacementFD) }
         #expect(chmod(fixture.path, 0o640) == 0)
-        #expect(SocketPathPermissions.apply(to: fixture.path, matching: fixture.identity, permissions: 0o666) == ESTALE)
+        #expect(throws: POSIXError(.ESTALE)) {
+            try SocketPathPermissions(path: fixture.path, matching: fixture.identity)
+        }
+        #expect(!(try FileManager.default.contentsOfDirectory(atPath: fixture.directory)).contains { $0.hasPrefix(".cmux-permissions-") })
         #expect(try fixture.mode(at: fixture.path) == 0o640)
     }
 }

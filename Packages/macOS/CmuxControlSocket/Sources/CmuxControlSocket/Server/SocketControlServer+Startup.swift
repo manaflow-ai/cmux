@@ -406,11 +406,19 @@ extension SocketControlServer {
         let snapshot = listenerStateSnapshot()
         let currentSocketPath = snapshot.socketPath
         let permissions = mode_t(snapshot.accessMode.socketFilePermissions)
-        if let errnoCode = SocketPathPermissions.apply(
-            to: currentSocketPath,
-            matching: snapshot.boundSocketPathIdentity,
-            permissions: permissions
-        ) {
+        let permissionFailure: Int32?
+        do {
+            let pinnedSocket = try SocketPathPermissions(
+                path: currentSocketPath,
+                matching: snapshot.boundSocketPathIdentity
+            )
+            permissionFailure = pinnedSocket.apply(permissions: permissions)
+        } catch let error as POSIXError {
+            permissionFailure = error.code.rawValue
+        } catch {
+            permissionFailure = EIO
+        }
+        if let errnoCode = permissionFailure {
             print(
                 "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
             )

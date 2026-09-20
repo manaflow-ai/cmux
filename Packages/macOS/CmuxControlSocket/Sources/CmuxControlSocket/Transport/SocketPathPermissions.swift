@@ -1,40 +1,65 @@
 internal import Darwin
 internal import Foundation
 
-/// Pins a socket inode before changing its mode. Darwin rejects fchmod on a
-/// listening socket descriptor; chmod on the public path can hit a replacement.
-enum SocketPathPermissions {
-    static func apply(
-        to path: String,
-        matching identity: SocketPathIdentity?,
-        permissions: mode_t,
-        beforeMutation: () -> Void = {}
-    ) -> Int32? {
-        guard let identity else { return ESTALE }
-        // Keep the anchor on the socket's filesystem. mkdtemp creates a private
-        // 0700 directory, and relative operations use its pinned descriptor.
+/// Owns a private link to a validated socket inode for the lifetime of a
+/// permission update. Darwin rejects fchmod on the listening descriptor.
+final class SocketPathPermissions {
+    private let path: String
+    private let identity: SocketPathIdentity
+    private let directory: String
+    private let directoryFD: Int32
+
+    init(path: String, matching identity: SocketPathIdentity?) throws {
+        guard let identity else { throw POSIXError(.ESTALE) }
         let parent = (path as NSString).deletingLastPathComponent
         let anchorParent = parent.isEmpty ? "." : parent
         var template = Array((anchorParent + "/.cmux-permissions-XXXXXX").utf8CString)
-        guard mkdtemp(&template) != nil else { return errno }
+        guard mkdtemp(&template) != nil else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         let directory = String(decoding: template.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
-        defer { _ = rmdir(directory) }
+        var ownsAnchor = false
+        defer { if !ownsAnchor { _ = rmdir(directory) } }
         let directoryFD = open(directory, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard directoryFD >= 0 else { return errno }
-        defer { close(directoryFD) }
-
-        guard linkat(AT_FDCWD, path, directoryFD, "socket", 0) == 0 else { return errno }
-        defer { _ = unlinkat(directoryFD, "socket", 0) }
+        guard directoryFD >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer {
+            if !ownsAnchor {
+                _ = unlinkat(directoryFD, "socket", 0)
+                close(directoryFD)
+            }
+        }
+        // The private directory stays on the socket's filesystem. Its pinned
+        // descriptor keeps the anchor stable even if its parent is renamed.
+        guard linkat(AT_FDCWD, path, directoryFD, "socket", 0) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         var pinned = stat()
-        guard fstatat(directoryFD, "socket", &pinned, AT_SYMLINK_NOFOLLOW) == 0 else { return errno }
+        guard fstatat(directoryFD, "socket", &pinned, AT_SYMLINK_NOFOLLOW) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
         guard pinned.st_mode & mode_t(S_IFMT) == mode_t(S_IFSOCK),
               UInt64(pinned.st_dev) == identity.device,
-              UInt64(pinned.st_ino) == identity.inode else { return ESTALE }
+              UInt64(pinned.st_ino) == identity.inode else { throw POSIXError(.ESTALE) }
 
-        beforeMutation()
+        self.path = path
+        self.identity = identity
+        self.directory = directory
+        self.directoryFD = directoryFD
+        ownsAnchor = true
+    }
+
+    deinit {
+        _ = unlinkat(directoryFD, "socket", 0)
+        close(directoryFD)
+        _ = rmdir(directory)
+    }
+
+    func apply(permissions: mode_t) -> Int32? {
         guard fchmodat(directoryFD, "socket", permissions, AT_SYMLINK_NOFOLLOW) == 0 else { return errno }
-        // The mutation affected only the pinned inode. A replaced public path
-        // still requires the host to stop/rebind instead of reporting success.
+        // Only the pinned inode was mutated. A replaced public path still
+        // requires the host to stop/rebind instead of reporting success.
         var current = stat()
         guard lstat(path, &current) == 0 else { return errno }
         guard current.st_mode & mode_t(S_IFMT) == mode_t(S_IFSOCK),
