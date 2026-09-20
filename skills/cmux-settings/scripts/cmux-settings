@@ -286,10 +286,16 @@ def find_skill_root() -> Path | None:
 
 
 def supported_paths() -> list[str]:
+    # The schema-generated reference covers catalog-owned settings whose paths
+    # are no longer string literals in CmuxSettingsJSONPathSupport.swift. Use
+    # the same complete list in a checkout and in an installed skill.
+    reference_paths = supported_paths_from_reference(find_skill_root())
+    if reference_paths:
+        return reference_paths
     source = find_source_file()
     if source is not None:
         return supported_paths_from_source(source)
-    return supported_paths_from_reference(find_skill_root())
+    return []
 
 
 def cmd_path(args: argparse.Namespace) -> int:
