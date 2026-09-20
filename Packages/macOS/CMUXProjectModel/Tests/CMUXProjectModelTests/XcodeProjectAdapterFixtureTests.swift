@@ -243,6 +243,20 @@ struct XcodeProjectAdapterFixtureTests {
     }
 
     @Test
+    func workspaceEmbeddedInAProjectBundleLoadsThatProject() throws {
+        let fixture = try Fixture()
+        let embedded = fixture.projectURL.appendingPathComponent("project.xcworkspace")
+        try FileManager.default.createDirectory(at: embedded, withIntermediateDirectories: true)
+        #expect(try XcodeProjectAdapter().load(at: embedded).modules.map(\.rootURL.path) == [fixture.projectURL.path])
+
+        try Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <Workspace version="1.0"><FileRef location="self:"/></Workspace>
+        """.utf8).write(to: embedded.appendingPathComponent("contents.xcworkspacedata"))
+        #expect(try XcodeProjectAdapter().load(at: embedded).modules.map(\.rootURL.path) == [fixture.projectURL.path])
+    }
+
+    @Test
     func malformedProjectFileReportsAParseFailure() throws {
         let fixture = try Fixture()
         try Data("{ objects = {}; }".utf8).write(to: fixture.projectURL.appendingPathComponent("project.pbxproj"))

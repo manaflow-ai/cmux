@@ -94,10 +94,18 @@ struct PBXProjDocument {
     /// resolve (`BUILT_PRODUCTS_DIR`, `SDKROOT`, `DEVELOPER_DIR`).
     func fullPath(of id: String, sourceRoot: String) -> String? {
         var visited: Set<String> = []
-        return fullPath(of: id, sourceRoot: sourceRoot, visited: &visited)
+        return fullPath(of: id, sourceRoot: sourceRoot, asContainer: false, visited: &visited)
     }
 
-    private func fullPath(of id: String, sourceRoot: String, visited: inout Set<String>) -> String? {
+    /// `asContainer` resolves the directory a group's children are relative to.
+    /// That differs from the group's own path only for a variant group, which
+    /// stands for its Base child's file but contains files beside that file.
+    private func fullPath(
+        of id: String,
+        sourceRoot: String,
+        asContainer: Bool,
+        visited: inout Set<String>
+    ) -> String? {
         guard visited.insert(id).inserted else { return nil }
         let path = string("path", of: id)
         switch string("sourceTree", of: id) {
@@ -108,13 +116,15 @@ struct PBXProjDocument {
         case "<group>":
             let groupPath: String
             if let parent = parents[id] {
-                groupPath = fullPath(of: parent, sourceRoot: sourceRoot, visited: &visited) ?? sourceRoot
+                groupPath = fullPath(of: parent, sourceRoot: sourceRoot, asContainer: true, visited: &visited)
+                    ?? sourceRoot
             } else if mainGroupIDs.contains(id) {
                 return path.map { Self.join(sourceRoot, $0) } ?? sourceRoot
             } else {
                 return nil
             }
-            let relative = isa(id) == "PBXVariantGroup" ? baseVariantPath(of: id) : path
+            let representsBaseChild = isa(id) == "PBXVariantGroup" && !asContainer
+            let relative = representsBaseChild ? baseVariantPath(of: id) : path
             return relative.map { Self.join(groupPath, $0) } ?? groupPath
         default:
             return nil

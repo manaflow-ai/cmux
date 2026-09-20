@@ -53,10 +53,7 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         } catch {
             throw ProjectLoadError.parseFailure(workspaceURL, reason: String(describing: error))
         }
-        let workspaceDir = workspaceURL.deletingLastPathComponent()
-        let projectURLs = workspace.fileLocations
-            .map { Self.resolveWorkspaceLocation($0, workspaceDir: workspaceDir) }
-            .filter { $0.pathExtension.lowercased() == "xcodeproj" }
+        let projectURLs = workspace.fileURLs.filter { $0.pathExtension.lowercased() == "xcodeproj" }
         var modules: [ProjectModule] = []
         modules.reserveCapacity(projectURLs.count)
         for projectURL in projectURLs {
@@ -665,13 +662,6 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
             return ws
         }
         return contents.first(where: { $0.pathExtension.lowercased() == "xcodeproj" })
-    }
-
-    private static func resolveWorkspaceLocation(_ raw: String, workspaceDir: URL) -> URL {
-        if raw.hasPrefix("/") {
-            return URL(fileURLWithPath: raw)
-        }
-        return URL(fileURLWithPath: raw, relativeTo: workspaceDir).standardizedFileURL
     }
 
     private static func nodeIdentifier(
