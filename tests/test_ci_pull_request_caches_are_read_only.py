@@ -11,6 +11,8 @@ local cache-restore and cache-save actions choose the store.
 from __future__ import annotations
 
 import sys
+import json
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -84,6 +86,28 @@ def main() -> int:
                 failures.append(f"nightly.yml {job_name}: cache writes must use dedicated CI_CACHE_R2_* credentials, never release credentials")
             if "secrets.CI_CACHE_R2_" in str(value) and "== 'r2' &&" not in str(value):
                 failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
+
+    # Exercise the actual decision script: manual cache seeding must not
+    # start app builds or publish, even when other dispatch flags are set.
+    nightly = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
+    decision = nightly["jobs"]["decide"]["steps"][0]["with"]["script"]
+    harness = """
+    const outputs = {};
+    const core = {setOutput: (k,v) => outputs[k]=v,
+      summary: {addHeading(){return this},addTable(){return this},async write(){}}};
+    const context = {repo:{owner:'test',repo:'test'},ref:'refs/heads/main',sha:'test-head'};
+    const github = {rest:{git:{getRef:async()=>({data:{object:{type:'commit',sha:'old'}}})}}};
+    (async()=>{ SCRIPT; console.log(JSON.stringify(outputs)); })().catch(e=>{console.error(e);process.exit(1)});
+    """.replace("SCRIPT", decision)
+    result = subprocess.run(["node", "-e", harness], env={**__import__("os").environ,
+        "SEED_ONLY": "true", "FORCE_BUILD": "true", "BUILD_ONLY": "true", "FAST_BUILD": "true"},
+        text=True, capture_output=True, check=True)
+    outputs = json.loads(result.stdout)
+    if outputs.get("should_build") != "false" or outputs.get("should_publish") != "false":
+        failures.append("manual cache-only dispatch must neither build nor publish an app")
+    for job in ("refresh-compilation-cache", "refresh-test-compilation-cache"):
+        if "inputs.seed_only" not in nightly["jobs"][job]["if"]:
+            failures.append(f"{job} must allow manual cache seeding")
 
     for failure in failures:
         print(f"FAIL: {failure}")
