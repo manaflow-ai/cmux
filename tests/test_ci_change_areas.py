@@ -1058,44 +1058,125 @@ def test_build_input_fingerprint_ignores_only_what_the_build_cannot_read() -> No
         assert not reaches_the_build(path), path
 
 
+def admission_api(runs: list[dict], artifacts: dict[int, list[str]], jobs: dict[int, list[dict]], branch: str = "feature"):
+    """Fake GitHub API: `artifacts` lists the artifact names each run holds."""
+    from urllib.parse import parse_qs, urlsplit
+
+    def api(path: str) -> dict:
+        url = urlsplit(path)
+        query = parse_qs(url.query, strict_parsing=True)
+        if url.path.endswith("/workflows/ci.yml/runs"):
+            assert query["event"] == ["pull_request"] and query["branch"] == [branch], path
+            return {"workflow_runs": runs}
+        run_id = int(url.path.split("/runs/")[1].split("/")[0])
+        if url.path.endswith("/artifacts"):
+            (name,) = query["name"]
+            return {"total_count": artifacts.get(run_id, []).count(name)}
+        assert query["filter"] == ["all"], path
+        return {"jobs": jobs.get(run_id, [])}
+
+    return api
+
+
+def admission_run(run_id: int, owner: str = "manaflow-ai/cmux") -> dict:
+    return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
+
+
+def admission_job(conclusion: str, run_attempt: int = 1) -> dict:
+    return {"name": "macOS compile admission", "conclusion": conclusion, "run_attempt": run_attempt}
+
+
 def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from find_admitted_build import admitted_run
+    from find_admitted_build import admitted_run, artifact_name
 
     repo = "manaflow-ai/cmux"
-
-    def api_for(runs: list[dict], artifacts: dict[int, int], jobs: dict[int, list[dict]]):
-        def api(path: str) -> dict:
-            if "/workflows/ci.yml/runs" in path:
-                assert "event=pull_request" in path and "branch=feature" in path
-                return {"workflow_runs": runs}
-            run_id = int(path.split("/runs/")[1].split("/")[0])
-            if "/artifacts" in path:
-                assert path.endswith("name=build-inputs-abc")
-                return {"total_count": artifacts.get(run_id, 0)}
-            return {"jobs": jobs.get(run_id, [])}
-        return api
-
-    def run(run_id: int, owner: str = repo) -> dict:
-        return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
-
-    passed = [{"name": "macOS compile admission", "conclusion": "success"}]
-    failed = [{"name": "macOS compile admission", "conclusion": "failure"}]
+    api_for, run = admission_api, admission_run
+    inputs = [artifact_name("abc", 1)]
+    passed = [admission_job("success")]
+    failed = [admission_job("failure")]
 
     def find(api) -> str | None:
         return admitted_run(api, repo, "feature", "abc", current_run_id=9)
 
-    assert find(api_for([run(9), run(8)], {8: 1, 9: 1}, {8: passed, 9: passed})) == "https://example/8"
-    assert find(api_for([run(9)], {9: 1}, {9: passed})) is None, "the current run cannot admit itself"
-    assert find(api_for([run(8)], {8: 0}, {8: passed})) is None, "different build inputs"
-    assert find(api_for([run(8)], {8: 1}, {8: failed})) is None, "admission did not pass"
-    assert find(api_for([run(8)], {8: 1}, {8: []})) is None, "admission was skipped or never ran"
-    assert find(api_for([run(8, owner="someone/cmux")], {8: 1}, {8: passed})) is None, "a fork's run is not trusted"
+    assert find(api_for([run(9), run(8)], {8: inputs, 9: inputs}, {8: passed, 9: passed})) == "https://example/8"
+    assert find(api_for([run(9)], {9: inputs}, {9: passed})) is None, "the current run cannot admit itself"
+    assert find(api_for([run(8)], {8: [artifact_name("other", 1)]}, {8: passed})) is None, "different build inputs"
+    assert find(api_for([run(8)], {8: inputs}, {8: failed})) is None, "admission did not pass"
+    assert find(api_for([run(8)], {8: inputs}, {8: []})) is None, "admission was skipped or never ran"
+    assert find(api_for([run(8, owner="someone/cmux")], {8: inputs}, {8: passed})) is None, "a fork's run is not trusted"
 
     def broken(_path: str) -> dict:
         raise subprocess.CalledProcessError(1, "gh")
 
     assert find(broken) is None, "an API failure means compile"
+    assert find(lambda _path: []) is None, "an unexpected payload means compile"
+
+
+def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import admitted_run, artifact_name
+
+    def find(fingerprint: str, artifacts: list[str], jobs: list[dict]) -> str | None:
+        api = admission_api([admission_run(8)], {8: artifacts}, {8: jobs})
+        return admitted_run(api, "manaflow-ai/cmux", "feature", fingerprint, current_run_id=9)
+
+    # Attempt 1 compiled "old" and passed. The rerun fingerprinted "new" (the
+    # selected Xcode moved) and failed, so nothing ever compiled "new".
+    artifacts = [artifact_name("old", 1), artifact_name("new", 2)]
+    jobs = [admission_job("success", run_attempt=1), admission_job("failure", run_attempt=2)]
+    assert find("new", artifacts, jobs) is None
+    assert find("old", artifacts, jobs) == "https://example/8"
+
+    # The reverse: only the rerun passed, so only its inputs are admitted.
+    jobs = [admission_job("failure", run_attempt=1), admission_job("success", run_attempt=2)]
+    assert find("old", artifacts, jobs) is None
+    assert find("new", artifacts, jobs) == "https://example/8"
+
+    # A rerun of failed jobs alone reuses the first attempt's fingerprint, which
+    # no longer pins the toolchain the rerun compiled with.
+    assert find("old", [artifact_name("old", 1)], jobs) is None
+
+
+def test_admission_lookup_sends_reserved_branch_characters_literally() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import admitted_run, artifact_name
+
+    for branch in ("feature/c++", "fix/a&b", "fix/a=b#c d", "wip/100%"):
+        api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: [admission_job("success")]}, branch=branch)
+        assert admitted_run(api, "manaflow-ai/cmux", branch, "abc", current_run_id=9) == "https://example/8", branch
+
+
+def workflow_step_block(job_name: str, step_name: str) -> str:
+    lines = workflow_job_block(job_name).splitlines()
+    start = lines.index(f"      - name: {step_name}")
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("      - ") or (line.strip() and not line.startswith("        ")):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def test_build_input_reuse_steps_never_fail_the_changes_job() -> None:
+    # Reuse is an optimization. A step that breaks leaves compile_admitted unset,
+    # which compiles; it must not take routing down with it.
+    for step in (
+        "Fingerprint the build inputs",
+        "Publish the build-input fingerprint",
+        "Look for an earlier run that compiled these inputs",
+    ):
+        assert "        continue-on-error: true" in workflow_step_block("changes", step).splitlines(), step
+
+
+def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import artifact_name
+
+    block = workflow_step_block("changes", "Publish the build-input fingerprint")
+    (name,) = [line.split("name: ", 1)[1] for line in block.splitlines() if line.startswith("          name: ")]
+    published = name.replace("${{ steps.inputs.outputs.fingerprint }}", "abc").replace("${{ github.run_attempt }}", "2")
+    assert published == artifact_name("abc", 2)
 
 
 def test_full_suite_runs_still_require_the_suite() -> None:
