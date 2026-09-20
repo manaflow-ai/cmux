@@ -324,8 +324,8 @@ struct CloudTreeNodeActions {
                 }
             },
             newWorkspace: { machine in
-                let host = selectedWorkspaceID().flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
-                    .map { CloudWorkspaceCreationHost(manager: $0) }
+                guard let manager = selectedWorkspaceID().flatMap({ Workspace.liveWorkspace(id: $0)?.owningTabManager }) else { return }
+                let host = CloudWorkspaceCreationHost(manager: manager)
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true, host: host)

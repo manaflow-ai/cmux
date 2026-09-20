@@ -37,8 +37,9 @@ final class CloudWorkspaceCreationOperation {
 
     func containsStarter(in state: CloudVMState) -> Bool {
         guard let terminal, state.lookupIndex.terminal(id: terminal.id.key) != nil else { return false }
-        guard let view = terminal.remoteViews?.first else { return true }
+        guard let view = terminal.remoteViews?.first(where: { $0.workspace.id == receipt?.workspace.id }) else { return true }
         guard let tab = state.lookupIndex.tab(id: view.tabID),
+              tab.contentKind == terminal.kind.rawValue, tab.contentID == terminal.id.key,
               let pane = state.lookupIndex.pane(id: tab.paneID),
               let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
         return screen.workspaceID == receipt?.workspace.id

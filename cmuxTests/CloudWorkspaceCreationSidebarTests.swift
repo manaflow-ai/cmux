@@ -160,7 +160,9 @@ struct CloudWorkspaceCreationSidebarTests {
                 let reservation = try #require(reservation)
                 switch reason {
                 case "cancel": withUnsafeCurrentTask { $0?.cancel() }
-                case "account": NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+                case "account":
+                    fixture.catalog.cloudWorkspaceCreationCoordinator.cancelAll()
+                    NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
                 case "provider": fixture.catalog.register(CloudPlacementTestProvider(machine: fixture.provider.machine))
                 case "close":
                     let workspace = try #require(fixture.manager.workspacesById[reservation.workspaceID])
@@ -232,6 +234,53 @@ struct CloudWorkspaceCreationSidebarTests {
             #expect(fixture.manager.tabs.count == 3)
             #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
             #expect(fixture.provider.terminalCreates == 0)
+        }
+    }
+
+
+    @Test("A delayed access-end notification cannot retire work admitted after synchronous teardown")
+    func delayedAccountNotificationCannotCancelNewWork() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.catalog.cloudWorkspaceCreationCoordinator.cancelAll()
+            fixture.provider.usesReceipt = true
+            fixture.provider.beforeMaterialize = { _, reservation in
+                let reservation = try #require(reservation)
+                NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+                #expect(fixture.manager.workspacesById[reservation.workspaceID] != nil)
+                #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.count == 1)
+            }
+            let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                name: nil, focus: false
+            )
+            #expect(result.opened != nil)
+            #expect(fixture.manager.tabs.count == 2)
+        }
+    }
+
+    @Test("The Cloud action uses its injected window even when the app-global manager points elsewhere")
+    func creationStaysInTheInitiatingWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            let other = TabManager(autoWelcomeIfNeeded: false)
+            defer { other.tabs.forEach { $0.teardownAllPanels() } }
+            fixture.app.tabManager = other
+            fixture.provider.usesReceipt = true
+            let completed = CloudLinkFirstValue<Bool>()
+            let actions = CloudTreeNodeActions.bound(
+                catalog: { fixture.catalog }, selectedWorkspaceID: { fixture.manager.selectedTabId },
+                selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
+                onWillMutate: { _ in }, onDidMutate: { completed.resolve(true) },
+                onFailure: { Issue.record("Unexpected create failure: \($0)") }, refresh: {}
+            )
+            actions.newWorkspace(fixture.provider.machine)
+            #expect(await completed.result == true)
+            #expect(fixture.manager.tabs.count == 2)
+            #expect(other.tabs.count == 1)
+            #expect(fixture.catalog.projections.allSatisfy { fixture.manager.workspacesById[$0.workspaceID] != nil })
         }
     }
 

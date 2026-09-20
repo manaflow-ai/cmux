@@ -5,19 +5,8 @@ import Foundation
 final class CloudWorkspaceCreationCoordinator {
     private weak var catalog: SurfaceCatalog?
     private(set) var operations: [UUID: CloudWorkspaceCreationOperation] = [:]
-    private let notificationCenter: NotificationCenter
-    private var accessObserver: NSObjectProtocol?
-
-    init(catalog: SurfaceCatalog, notificationCenter: NotificationCenter = .default) {
+    init(catalog: SurfaceCatalog) {
         self.catalog = catalog
-        self.notificationCenter = notificationCenter
-        accessObserver = notificationCenter.addObserver(forName: .cmuxCloudVMAccessDidEnd, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancelAll() }
-        }
-    }
-
-    deinit {
-        if let accessObserver { notificationCenter.removeObserver(accessObserver) }
     }
 
     func create(
@@ -158,6 +147,7 @@ final class CloudWorkspaceCreationCoordinator {
         try Task.checkCancellation()
         guard operations[operation.id] === operation,
               catalog.provider(for: operation.machine) === operation.provider else { throw CancellationError() }
+        if let host = operation.host, !host.isAvailable { throw CancellationError() }
         if let receipt = operation.receipt {
             try catalog.checkCloudWorkspaceNavigation(machine: operation.machine, workspaceID: receipt.workspace.id)
         }
@@ -220,7 +210,9 @@ final class CloudWorkspaceCreationCoordinator {
         }
     }
 
-    private func cancelAll() {
+    /// Called synchronously by account/team teardown, before another scope can
+    /// admit work. A delayed global notification must never cancel a new request.
+    func cancelAll() {
         for id in Array(operations.keys) { cancel(id) }
     }
 

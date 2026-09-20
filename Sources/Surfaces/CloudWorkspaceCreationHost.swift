@@ -13,6 +13,8 @@ struct CloudWorkspaceCreationHost {
         selectedWorkspaceID = manager.selectedTabId
     }
 
+    var isAvailable: Bool { manager?.isFinalizedForWindowClose == false }
+
     func reserve(title: String, machine: SurfaceMachineID, receipt: SurfaceWorkspaceCreationReceipt, focus: Bool) throws -> CloudTerminalPaneReservation {
         guard let manager,
               let workspace = manager.addWorkspaceIfActive(
@@ -26,7 +28,7 @@ struct CloudWorkspaceCreationHost {
                 focus: false,
                 sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: receipt.workspace.id, remoteTabID: nil),
                 attachmentPlacement: receipt.terminal.map {
-                    SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first, remoteWorkspaceID: receipt.workspace.id)
+                    SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first { $0.workspace.id == receipt.workspace.id }, remoteWorkspaceID: receipt.workspace.id)
                 }
               ) else {
             manager.closeWorkspace(workspace, recordHistory: false)

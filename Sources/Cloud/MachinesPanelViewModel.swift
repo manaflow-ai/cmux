@@ -144,12 +144,14 @@ final class MachinesPanelViewModel: ObservableObject {
         defaultMachineStore: DefaultCloudMachineStore? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         resourceStats: VMResourceStatsStore? = nil,
-        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot }
+        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
+        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
     ) {
         self.resourceStats = resourceStats ?? VMClient.shared?.resourceStats
         self.defaultMachineStore = defaultMachineStore
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
+        if let localWorkspacesProvider { self.localWorkspacesProvider = localWorkspacesProvider }
         // Resolve the main-actor-isolated default here, not in a default argument.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator

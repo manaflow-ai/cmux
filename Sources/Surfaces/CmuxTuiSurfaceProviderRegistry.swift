@@ -171,9 +171,12 @@ final class CmuxTuiSurfaceProviderRegistry {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            MainActor.assumeIsolated { self?.creationEpoch = UUID() }
-            guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
-            Task { @MainActor in await self?.accessDidEnd(epoch: epoch) }
+            MainActor.assumeIsolated {
+                guard let self, self.accessEpoch == epoch else { return }
+                self.creationEpoch = UUID()
+                guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
+                Task { @MainActor in await self.accessDidEnd(epoch: epoch) }
+            }
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
         // panes keep matching the local ones (connect-time push covers new links).
