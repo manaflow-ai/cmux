@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CmuxWorkspaces
 import Combine
