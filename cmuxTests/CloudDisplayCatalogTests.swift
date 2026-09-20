@@ -65,6 +65,12 @@ struct CloudDisplayCatalogTests {
         #expect(!service.canCreate && service.snapshot == nil)
     }
 
+    @Test("The existing Desktop cannot be reported as a newly created display")
+    func rejectsDesktopCreationReceipt() {
+        let raw = #"{"version":1,"canCreate":true,"displays":[{"id":"display:1","number":1,"port":6901,"state":"running"}],"created":"display:1"}"#
+        #expect(throws: (any Error).self) { try CloudGuestDisplaySnapshot(data: Data(raw.utf8)) }
+    }
+
     @Test("Provider invalidation clears a previously discovered guest catalog")
     func invalidationClearsSnapshot() async {
         let service = CloudDisplayCoordinator { _, _ in

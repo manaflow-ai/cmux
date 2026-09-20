@@ -15,7 +15,7 @@ struct CloudGuestDisplaySnapshot: Decodable, Sendable {
               Set(displays.map(\.id)).count == displays.count,
               displays.contains(where: { $0.number == 1 }),
               displays.allSatisfy({ (1...16).contains($0.number) && $0.id == "display:\($0.number)" && $0.port == 6900 + $0.number }),
-              created == nil || displays.contains(where: { $0.id == created }) else {
+              created == nil || (displays.contains(where: { $0.id == created }) && created != "display:1") else {
             throw SurfaceCatalogError.unsupported(Self.unavailableMessage)
         }
     }
