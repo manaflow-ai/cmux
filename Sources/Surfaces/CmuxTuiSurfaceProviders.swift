@@ -59,7 +59,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// watcher for the new link.
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
-    private var scheduledRefresh: Task<Void, Never>?
+    var scheduledRefresh: Task<Void, Never>?
+    var refreshRequestedWhileScheduled = false
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
     /// Panels this provider created (or replaced) in this process. A projection whose
@@ -198,6 +199,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        refreshRequestedWhileScheduled = false
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
@@ -1534,6 +1536,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
+    /// A restored session brings back the pane (with its UUID) but not the attach process:
+    /// the catalog resolved the record into a projection whose panel is a placeholder shell.
+    /// Every placeholder is swapped at once, synchronously, for a native pane reserved as a
+    /// tab of the same Bonsplit pane, so the whole layout is in place before any machine
+    /// round trip; each reserved pane then attaches in parallel and keeps retrying while
+    /// the link comes up (`attachReservedTerminalPane`). No pane waits for another.
     func scheduleRefresh() {
         let lifecycle = lifecycleGeneration
         guard scheduledRefresh == nil else { return }

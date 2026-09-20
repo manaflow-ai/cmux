@@ -54,11 +54,16 @@ extension Workspace {
         insertFirst: Bool,
         focus: Bool
     ) -> Bool {
-        guard let resource = cloudProjectedResource(forPanel: panelID),
-              let paneID = paneId(forPanelId: panelID) else { return false }
+        guard let paneID = paneId(forPanelId: panelID) else { return false }
         let direction: SurfaceSplitDirection = orientation == .horizontal
             ? (insertFirst ? .left : .right)
             : (insertFirst ? .up : .down)
+        if let pending = cloudPendingCreations[panelID] {
+            return routePendingCloudTerminalCreate(from: pending,
+                destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
+                focus: focus, splitDirection: direction)
+        }
+        guard let resource = cloudProjectedResource(forPanel: panelID) else { return false }
         return routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: panelID,
             destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: direction),
@@ -71,6 +76,13 @@ extension Workspace {
     /// projects a cloud resource: the already-created empty pane receives the machine's
     /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
+        if let pending = cloudPendingCreations[sourcePanelID] {
+            let routed = routePendingCloudTerminalCreate(from: pending,
+                destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
+                focus: true, splitDirection: orientation == .horizontal ? .right : .down)
+            if !routed { closeUntouchedPane(newPane) }
+            return true
+        }
         guard SurfaceCatalog.shared.hasCloudProjection(panelID: sourcePanelID, workspaceID: id) else { return false }
         // Projection identity survives a missing provider graph during restore
         // or reconnect. A handled Cloud split must not seed a local shell.
@@ -93,6 +105,13 @@ extension Workspace {
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
     /// resource to that machine. Returns false when the pane is not cloud-anchored.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
+        if let selected = bonsplitController.selectedTab(inPane: paneID),
+           let panelID = panelIdFromSurfaceId(selected.id),
+           let pending = cloudPendingCreations[panelID] {
+            return routePendingCloudTerminalCreate(from: pending,
+                destination: .tab(workspaceID: id, paneID: paneID.id.uuidString, index: nil),
+                focus: focus, splitDirection: nil)
+        }
         guard let resource = cloudProjectedResource(inPane: paneID) else { return false }
         return routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) },
@@ -100,6 +119,38 @@ extension Workspace {
             preferredRemoteWorkspaceID: bonsplitController.selectedTab(inPane: paneID).flatMap { panelIdFromSurfaceId($0.id) }.flatMap { SurfaceCatalog.shared.projection(forPanel: $0)?.remoteWorkspaceID },
             focus: focus
         )
+    }
+
+    /// A repeated gesture reserves its own pane immediately, then awaits its exact anchor.
+    private func routePendingCloudTerminalCreate(
+        from anchor: CloudTerminalPaneReservation,
+        destination: SurfaceDestination,
+        focus: Bool,
+        splitDirection: SurfaceSplitDirection?
+    ) -> Bool {
+        guard let resolve = anchor.resolveResource,
+              let reservation = reserveCloudTerminalPane(machine: anchor.machine, at: destination, focus: focus) else { return true }
+        let catalog = SurfaceCatalog.shared
+        let requestID = cloudPaneCreationFailureStore.beginRequest()
+        let request = CloudTerminalCreationRequest(id: requestID)
+        runOptimisticCloudTerminalCreation(
+            reservation: reservation, requestID: requestID, destination: destination,
+            create: {
+                let resource = try await resolve()
+                try Task.checkCancellation()
+                guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
+                let view = resource.remoteViews?.count == 1 ? resource.remoteViews?.first : nil
+                if let view, let layout = provider as? any SurfaceLayoutTerminalCreating {
+                    return try await layout.createTerminal(nearTabID: view.tabID, splitDirection: splitDirection, request: request)
+                }
+                guard let workspaceID = view?.workspace.id ?? resource.remoteWorkspace?.id else {
+                    throw SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
+                }
+                let cwd = await provider.currentWorkingDirectory(of: resource)
+                return try await provider.createTerminal(command: nil, cwd: cwd, name: nil, remoteWorkspaceID: workspaceID, request: request)
+            }, onStart: {}, onFinish: {}
+        )
+        return true
     }
 
     /// Creates a terminal on `resource`'s machine (in the remote workspace of the
@@ -313,7 +364,7 @@ extension Workspace {
         }
         reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
         reservation.cancel = { [weak store] in store?.cancel(requestID: requestID) }
-        store.run(
+        let coordinator = store.run(
             machine: reservation.machine,
             requestID: requestID,
             create: create,
@@ -331,6 +382,9 @@ extension Workspace {
             },
             operations: AppDelegate.shared?.cloudOperations
         )
+        reservation.resolveResource = { [coordinator] in
+            return try await coordinator.resource()
+        }
     }
 
     /// Removes a pane a split created that never received a tab.

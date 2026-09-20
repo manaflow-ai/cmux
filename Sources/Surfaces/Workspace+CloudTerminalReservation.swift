@@ -112,6 +112,7 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.resolveResource = nil
         reservation.retry = nil
         reservation.cancel = nil
         if adoptedPanelID != reservation.panelID {
@@ -156,6 +157,7 @@ extension Workspace {
         reservation.inputRelay.discard()
         let cancel = reservation.cancel
         reservation.cancel = nil
+        reservation.resolveResource = nil
         reservation.retry = nil
         cancel?()
     }

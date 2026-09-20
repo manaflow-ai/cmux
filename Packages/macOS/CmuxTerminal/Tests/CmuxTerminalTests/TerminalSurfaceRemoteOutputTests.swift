@@ -100,6 +100,28 @@ struct TerminalSurfaceRemoteOutputTests {
         runtimeSurface.deallocate()
     }
 
+    @Test @MainActor
+    func parserFencePreservesTheLaneForSubsequentOutput() async {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeSurfaceBits = UInt(bitPattern: runtimeSurface)
+        let surface = makeSurface(runtimeSurfaceBits: runtimeSurfaceBits)
+        defer {
+            releaseBlockingProcessOutput()
+            resetBlockingProcessOutput()
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        for _ in 0..<2 {
+            beginBlockingProcessOutput(runtimeSurface)
+            surface.processRemoteOutput(Data("replay".utf8))
+            let started = await Task.detached { waitUntilProcessOutputStarted() }.value
+            #expect(started)
+            releaseBlockingProcessOutput()
+            #expect(await surface.waitForRemoteOutput())
+            resetBlockingProcessOutput()
+        }
+    }
+
     @MainActor
     private func makeSurface(
         runtimeSurfaceBits: UInt

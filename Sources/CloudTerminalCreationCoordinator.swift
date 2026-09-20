@@ -25,6 +25,8 @@ final class CloudTerminalCreationCoordinator {
     private let onSuccess: @MainActor () -> Void
     private var task: Task<Void, Never>?
     private var generation: UInt64 = 0
+    private var creationTask: Task<SurfaceResource, Error>?
+    private var cancelled = false
     private var createdResource: SurfaceResource?
 
     /// Runs the same create/project lifecycle for every optimistic pane.
@@ -46,6 +48,20 @@ final class CloudTerminalCreationCoordinator {
         self.onCancel = onCancel
         self.onSuccess = onSuccess
         self.discardProjection = discardProjection
+    }
+
+    /// Shares the exact create receipt with shortcuts anchored to the pending pane.
+    func resource() async throws -> SurfaceResource {
+        guard !cancelled else { throw CancellationError() }
+        if let createdResource { return createdResource }
+        if creationTask == nil {
+            let create = self.create
+            creationTask = Task { @MainActor in try await CloudOperationContext.phase(.provider, create) }
+        }
+        let resource = try await creationTask!.value
+        guard !cancelled else { throw CancellationError() }
+        createdResource = resource
+        return resource
     }
 
     /// All Cloud terminal gestures establish a root before reaching the link.
@@ -78,7 +94,7 @@ final class CloudTerminalCreationCoordinator {
     func start() {
         // A repeated retry is still the same intent. Cancelling a create can
         // discard its receipt after the remote mutation has already committed.
-        guard task == nil else { return }
+        guard task == nil, !cancelled else { return }
         generation &+= 1
         let operationGeneration = generation
         onStart()
@@ -92,14 +108,8 @@ final class CloudTerminalCreationCoordinator {
                     guard self.generation == operationGeneration, !Task.isCancelled else { return }
                     self.onFailure(error)
                 }) {
-                    let resource: SurfaceResource
-                    if let createdResource = self.createdResource {
-                        resource = createdResource
-                    } else {
-                        resource = try await CloudOperationContext.phase(.provider, self.create)
-                        guard self.generation == operationGeneration else { throw CancellationError() }
-                        self.createdResource = resource
-                    }
+                    let resource = try await self.resource()
+                    guard self.generation == operationGeneration else { throw CancellationError() }
                     try Task.checkCancellation()
                     let projectionResult = try await CloudOperationContext.phase(.materialize) { try await self.project(resource) }
                     guard self.generation == operationGeneration,
@@ -129,13 +139,16 @@ final class CloudTerminalCreationCoordinator {
 
     /// Cancels work when the user closes the temporary pane.
     func cancel() {
+        cancelled = true
         generation &+= 1
+        creationTask?.cancel()
         task?.cancel()
         task = nil
         onCancel()
     }
 
     deinit {
+        creationTask?.cancel()
         task?.cancel()
     }
 }
