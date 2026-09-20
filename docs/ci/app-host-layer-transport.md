@@ -60,7 +60,10 @@ and inner bytes, received bytes, elapsed seconds and result.
 `CMUX_APP_HOST_LAYER_ASSEMBLY` records the all-layer assembly time and outcome.
 These are whole operations, not isolated wire throughput measurements.
 
-The existing flat download action and R2 broker are unchanged. Retention stays
+The existing flat download action and R2 broker keep their contracts. A verified
+layered hit skips both flat transports. A layer miss first tries the flat R2
+artifact transport, then GitHub if R2 is unavailable; all three routes enter the
+same restore step and retain their inner validation. Retention stays
 three days; this change deletes no artifacts and makes no same-digest origin
 substitutions. Reusing individual layers across producers is future work because
 it must preserve exact producer identity and the signed product tree contract.

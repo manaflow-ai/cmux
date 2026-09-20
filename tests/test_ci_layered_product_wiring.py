@@ -65,9 +65,27 @@ class LayeredWorkflowTests(unittest.TestCase):
             self.assertEqual(job["permissions"], {"contents": "read", "actions": "read"})
             steps = {step["name"]: step for step in job["steps"]}
             download = steps["Download compiled app-host test product"]
-            self.assertFalse(condition(download["if"], {"steps.restore-layers.outputs.hit": "true"}))
-            for miss in ("", "false"):
-                self.assertTrue(condition(download["if"], {"steps.restore-layers.outputs.hit": miss}))
+            r2 = steps["Try shared R2 artifact transport"]
+            self.assertTrue(r2["continue-on-error"])
+            self.assertEqual(r2["run"], "python3 scripts/ci/restore-r2-artifact.py")
+            # Exercise the real three-route gates, including absent outputs
+            # from skipped/failed optional steps. A layer hit skips BOTH flat
+            # transports; an R2 hit skips only GitHub, never inner validation.
+            for layer_hit in ("true", "false", ""):
+                for r2_hit in ("true", "false", ""):
+                    with self.subTest(job=name, layer_hit=layer_hit, r2_hit=r2_hit):
+                        values = {"steps.restore-layers.outputs.hit": layer_hit,
+                                  "steps.r2-products.outputs.hit": r2_hit}
+                        self.assertEqual(condition(r2["if"], values), layer_hit != "true")
+                        self.assertEqual(condition(download["if"], values),
+                                         layer_hit != "true" and r2_hit != "true")
+            sequence = list(steps)
+            self.assertLess(sequence.index("Restore opt-in layered app-host test product"),
+                            sequence.index("Try shared R2 artifact transport"))
+            self.assertLess(sequence.index("Try shared R2 artifact transport"),
+                            sequence.index("Download compiled app-host test product"))
+            self.assertLess(sequence.index("Download compiled app-host test product"),
+                            sequence.index("Restore compiled app-host test product"))
             restore = steps["Restore compiled app-host test product"]
             self.assertNotIn("if", restore)
             self.assertEqual(restore["run"], "scripts/ci/restore-app-host-test-product.sh")

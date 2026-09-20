@@ -903,6 +903,9 @@ jobs:
         run: bun run test:db:behavior
 
   app-host-unit-tests:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -1077,8 +1080,18 @@ jobs:
         run: |
           python3 scripts/ci/app_host_layer_transport.py restore "${CMUX_DERIVED_DATA_PATH}-layers" --index-id "$LAYER_INDEX_ID" --index-digest "$LAYER_INDEX_DIGEST"
 
-      - name: Download compiled app-host test product
+      - name: Try shared R2 artifact transport
+        id: r2-products
         if: steps.restore-layers.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      - name: Download compiled app-host test product
+        if: ${{ steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' }}
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3037,6 +3050,9 @@ jobs:
           compression-level: 0
 
   tests-build-and-lag:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -3124,8 +3140,18 @@ jobs:
         run: |
           python3 scripts/ci/app_host_layer_transport.py restore "${CMUX_DERIVED_DATA_PATH}-layers" --index-id "$LAYER_INDEX_ID" --index-digest "$LAYER_INDEX_DIGEST"
 
-      - name: Download compiled app-host test product
+      - name: Try shared R2 artifact transport
+        id: r2-products
         if: steps.restore-layers.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      - name: Download compiled app-host test product
+        if: ${{ steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' }}
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}

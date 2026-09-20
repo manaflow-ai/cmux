@@ -1,0 +1,44 @@
+name: CI cache receipt contract
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/cache-restore/action.yml
+      - .github/actions/cache-save/action.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/ci-cache-receipts.yml
+      - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
+      - tests/test_ci_cache_restore_receipt.py
+      - tests/test_ci_pull_request_caches_are_read_only.py
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/cache-restore/action.yml
+      - .github/actions/cache-save/action.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/ci-cache-receipts.yml
+      - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
+      - tests/test_ci_cache_restore_receipt.py
+      - tests/test_ci_pull_request_caches_are_read_only.py
+
+permissions:
+  contents: read
+
+jobs:
+  receipt-contract:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install PyYAML==6.0.3
+      - run: python3 tests/test_ci_cache_restore_receipt.py
+      - run: python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict

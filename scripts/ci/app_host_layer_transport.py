@@ -21,9 +21,9 @@ import tempfile
 import time
 import zipfile
 
-NAMES = ("app-cli", "runtime", "tests", "diagnostics")
+from app_host_layered_products import LAYERS as NAMES, MANIFEST, SCHEMA as LAYER_SCHEMA
+
 INDEX = "app-host-layer-index.json"
-MANIFEST = "app-host-layers.json"
 MAX_INDEX = 8 * 1024 * 1024
 MAX_ARCHIVE = 8 * 1024 * 1024 * 1024
 SCHEMA = "cmux.app-host-layer-transport"
@@ -208,7 +208,7 @@ def extract_files(archive, expectations, output):
 
 def layer_map(manifest):
     mapping(manifest)
-    if (manifest.get("schema") != "cmux.app-host-layers" or manifest.get("version") != 1
+    if (manifest.get("schema") != LAYER_SCHEMA or manifest.get("version") != 1
             or manifest.get("profile") != "app-host-full"):
         raise ValueError("unsupported canonical manifest")
     layers = records(manifest.get("layers", []))

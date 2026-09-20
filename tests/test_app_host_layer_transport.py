@@ -13,10 +13,10 @@ import sys
 from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci/app_host_layer_transport.py"
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("transport", SCRIPT)
 t = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(t)
-sys.path.insert(0, str(SCRIPT.parent))
 
 
 def zipped(files):
