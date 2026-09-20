@@ -1131,13 +1131,16 @@ jobs:
           # The broad app-host suite tolerates ordinary assertion failures.
           # Wheel ownership must be a strict gate against the pinned Ghostty.
           set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-copy-mode-scrollback.txt"
           scripts/ci/run-in-console-session.sh \
             scripts/ci/run-app-host-xcodebuild.sh \
             -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyCopyModeScrollbackTests \
-            test-without-building
+            test-without-building 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/GhosttyCopyModeScrollbackTests
 
       - name: Run five-tab renderer memory regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
