@@ -5569,7 +5569,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             handler.shouldOpenExternally(
                 aliasedURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         XCTAssertEqual(handler.openConfiguredExternallyResult(aliasedURL), .opened)
@@ -5625,21 +5626,24 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         XCTAssertFalse(
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .other,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         XCTAssertFalse(
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 url,
                 navigationType: .linkActivated,
-                targetFrameIsMain: false
+                targetFrameIsMain: false,
+                hasUserActivation: true
             )
         )
         let callbackURL = try XCTUnwrap(
@@ -5650,7 +5654,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 callbackURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         let siblingCallbackURL = try XCTUnwrap(
@@ -5660,7 +5665,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 siblingCallbackURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         XCTAssertFalse(
@@ -5679,7 +5685,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 diffViewerURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             )
         )
         let customAppURL = try XCTUnwrap(URL(string: "slack://open?token=secret"))
@@ -5687,7 +5694,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
                 customAppURL,
                 navigationType: .linkActivated,
-                targetFrameIsMain: true
+                targetFrameIsMain: true,
+                hasUserActivation: true
             ),
             "Configured browser rules must not bypass the existing custom-scheme confirmation prompt."
         )
@@ -5712,6 +5720,7 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             url,
             navigationType: .linkActivated,
             targetFrameIsMain: true,
+            hasUserActivation: true,
             onOpened: {
                 didRunAfterOpen = true
             }
@@ -5734,6 +5743,92 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         ).openConfiguredExternallyResult(url)
 
         XCTAssertEqual(result, .failed)
+    }
+
+    func testExternalOpenDomainPatternCoversSubdomainURLs() throws {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        XCTAssertTrue(handler.shouldOpenExternally(try XCTUnwrap(URL(string: "https://corp.example/"))))
+        XCTAssertTrue(handler.shouldOpenExternally(try XCTUnwrap(URL(string: "https://sso.corp.example/login"))))
+        XCTAssertTrue(handler.shouldOpenExternally(try XCTUnwrap(URL(string: "https://CORP.EXAMPLE/tools"))))
+        XCTAssertFalse(handler.shouldOpenExternally(try XCTUnwrap(URL(string: "https://unrelated.example/"))))
+    }
+
+    func testNavigationEscapeRequiresUserActivation() throws {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let url = try XCTUnwrap(URL(string: "https://sso.corp.example/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        // A page can call click() on an anchor and WebKit still reports
+        // .linkActivated, so the rules alone are not enough to let it escape.
+        XCTAssertFalse(
+            handler.shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                shouldPerformDownload: false,
+                hasUserActivation: false
+            )
+        )
+        XCTAssertTrue(
+            handler.shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                shouldPerformDownload: false,
+                hasUserActivation: true
+            )
+        )
+        XCTAssertEqual(
+            handler.openConfiguredExternallyResult(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                hasUserActivation: false
+            ),
+            .notConfigured
+        )
+    }
+
+    func testNavigationEscapeStillRejectsDownloadsAndNonLinkNavigations() throws {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let url = try XCTUnwrap(URL(string: "https://sso.corp.example/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        XCTAssertFalse(
+            handler.shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true,
+                shouldPerformDownload: true,
+                hasUserActivation: true
+            )
+        )
+        XCTAssertFalse(
+            handler.shouldOpenExternally(
+                url,
+                navigationType: .other,
+                targetFrameIsMain: true,
+                shouldPerformDownload: false,
+                hasUserActivation: true
+            )
+        )
+    }
+
+    func testSimpleUserActivationTracksTheEventInFlight() {
+        XCTAssertTrue(browserNavigationHasSimpleUserActivation(currentEventType: .leftMouseUp))
+        XCTAssertTrue(browserNavigationHasSimpleUserActivation(currentEventType: .keyDown))
+        XCTAssertTrue(browserNavigationHasSimpleUserActivation(currentEventType: .otherMouseDown))
+        XCTAssertTrue(browserNavigationHasSimpleUserActivation(currentEventType: .otherMouseUp))
+        XCTAssertFalse(browserNavigationHasSimpleUserActivation(currentEventType: nil))
+        XCTAssertFalse(browserNavigationHasSimpleUserActivation(currentEventType: .mouseMoved))
+    }
+
+    func testSidebarLinkEscapesOnlyForWebSchemes() throws {
+        defaults.set("corp.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+        XCTAssertTrue(handler.linkEscapesToSystemBrowser(try XCTUnwrap(URL(string: "https://sso.corp.example/"))))
+        XCTAssertFalse(handler.linkEscapesToSystemBrowser(try XCTUnwrap(URL(string: "file:///tmp/corp.example.html"))))
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.linkEscapesToSystemBrowser(try XCTUnwrap(URL(string: "https://corp.example/"))))
     }
 }
 

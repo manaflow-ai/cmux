@@ -6273,11 +6273,14 @@ extension BrowserPanel {
     }
 
     /// Routes the context-menu tab action through configured external rules.
+    /// Choosing a menu item is the user's own gesture, so the user-event
+    /// guard is satisfied by construction here.
     func openContextMenuLinkInNewTab(url: URL) {
         switch externalNavigationHandler.openConfiguredExternallyResult(
             url,
             navigationType: .linkActivated,
-            targetFrameIsMain: true
+            targetFrameIsMain: true,
+            hasUserActivation: true
         ) {
         case .opened:
             return
@@ -8571,7 +8574,8 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             switch externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
-                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame
+                targetFrameIsMain: navigationAction.targetFrame?.isMainFrame,
+                shouldPerformDownload: navigationAction.shouldPerformDownload
             ) {
             case .opened:
                 return nil
