@@ -123,6 +123,11 @@ struct CloudDesktopAccessTests {
         state.didCommit(url: url)
         state.desktopConnectionDidChange(url: url, isConnected: true)
         #expect(state.showsPage, "A live RFB connection is stronger evidence than document finish")
+        state.configure(model: model, url: remote)
+        #expect(state.resourceID?.key == "display:\(port == 6901 ? 1 : 2)",
+                "Rebinding an existing WebView preserves the display identity")
+        let reboundURL = try #require(state.nextURL())
+        state.didCommit(url: reboundURL)
         state.desktopConnectionDidChange(url: url, isConnected: false)
         #expect(state.showsFailureAlert)
         state.desktopConnectionDidChange(url: url, isConnected: true)
