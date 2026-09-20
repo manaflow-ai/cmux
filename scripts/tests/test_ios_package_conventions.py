@@ -12,7 +12,7 @@ class NamespaceLintTests(unittest.TestCase):
             checkout = Path(temporary)
             scripts = checkout / 'scripts'
             scripts.mkdir()
-            for name in ('lint-ios-package-conventions.sh', 'swift_source_mask.py'):
+            for name in ('lint-ios-package-conventions.sh', 'swift_source_mask.py', 'lint_swift_namespaces.py'):
                 path = root / 'scripts' / name
                 if path.exists():
                     shutil.copy2(path, scripts / name)
@@ -21,7 +21,7 @@ class NamespaceLintTests(unittest.TestCase):
             (package / 'Fixture.swift').write_text(source)
             return subprocess.run(
                 ['bash', str(scripts / 'lint-ios-package-conventions.sh')],
-                text=True, capture_output=True,
+                text=True, capture_output=True, timeout=30,
             )
 
     def test_braces_in_strings_and_comments_do_not_hide_instance_members(self):
