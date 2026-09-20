@@ -17,13 +17,6 @@ ios/Config/AppStoreConnect.local.plist
 
 # Swift Package Manager
 .swiftpm/
-# SwiftPM reads this package-local link when CMUXProjectModel is resolved on its
-# own. Everything else SwiftPM writes under .swiftpm stays ignored.
-!Packages/macOS/CMUXProjectModel/.swiftpm/
-Packages/macOS/CMUXProjectModel/.swiftpm/*
-!Packages/macOS/CMUXProjectModel/.swiftpm/configuration/
-Packages/macOS/CMUXProjectModel/.swiftpm/configuration/*
-!Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
 .ci-source-packages/
 .ci-reload-derived-data/
 
