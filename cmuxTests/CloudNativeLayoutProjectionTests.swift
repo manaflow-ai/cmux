@@ -10,6 +10,39 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test func deviceNamesFollowTheCatalogWithoutCreatingACloudBinding() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelID = try #require(workspace.focusedPanelId)
+        let service = CloudWorkspaceRenameService(environment: .init(
+            workspace: { $0 == workspace.id ? workspace : nil },
+            tabManager: { $0 == workspace.id ? manager : nil }, workspaces: { [workspace] }
+        ))
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
+        let remote = SurfaceRemoteWorkspace(id: "source-workspace", name: "Source project", index: 0, focused: true)
+        var resource = SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal"),
+            title: "Build logs", detail: "/remote/project", lifecycle: .running, agent: nil, remoteWorkspace: remote,
+            remoteViews: [SurfaceRemoteView(tabID: "terminal", workspace: remote, name: "Build logs")], port: nil, url: nil)
+        catalog.upsert(resource)
+        catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: remote.id, remoteTabID: "terminal"))
+        catalog.replaceResources([resource], on: machine)
+        #expect(workspace.title == "Source project")
+        #expect(workspace.panelTitle(panelId: panelID) == "Build logs")
+        #expect(workspace.cloudVMBinding == nil)
+        resource.title = "Tests"
+        resource.remoteViews?[0].name = "Tests"
+        resource.remoteViews?[0].workspace.name = "Renamed project"
+        resource.remoteWorkspace?.name = "Renamed project"
+        catalog.replaceResources([resource], on: machine)
+        #expect(workspace.title == "Renamed project")
+        #expect(workspace.panelTitle(panelId: panelID) == "Tests")
+        #expect(workspace.cloudVMBinding == nil)
+        for panel in workspace.panels.values { panel.close() }
+        manager.tabs = []
+    }
+
     @Test func macLayoutRequestReadsOnlyTheRequestedWorkspace() throws {
         let id = UUID()
         let layout = DeviceWorkspaceLayoutNode.pane(id: "pane", surfaceIDs: ["first", "second"], selectedSurfaceID: "second")
