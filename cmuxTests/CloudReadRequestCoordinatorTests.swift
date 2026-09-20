@@ -251,7 +251,7 @@ struct CloudReadRequestCoordinatorTests {
     }
 }
 
-private actor CloudReadResponseGate {
+actor CloudReadResponseGate {
     private(set) var requests = 0
     private var released = false
     private var waiting: [(CloudReadRequestCoordinator.Response, CheckedContinuation<CloudReadRequestCoordinator.Response, Never>)] = []

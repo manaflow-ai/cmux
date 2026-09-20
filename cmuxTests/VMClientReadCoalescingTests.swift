@@ -61,7 +61,9 @@ struct VMClientReadCoalescingTests {
         let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
         model.startPolling()
         await CloudRefreshURLProtocol.waitUntilStarted()
+        model.beginOperation("fixture operation")
         model.stopPolling()
+        model.endOperation()
         await CloudRefreshURLProtocol.waitUntilStopped()
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)
@@ -76,7 +78,8 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.reset()
         await CloudRefreshURLProtocol.holdResponses()
         var model: MachinesPanelViewModel? = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
-        weak var weakModel = model
+        weak var weakModel: MachinesPanelViewModel?
+        weakModel = model
         model?.refresh()
         await CloudRefreshURLProtocol.waitUntilStarted()
         model = nil
@@ -95,9 +98,13 @@ struct VMClientReadCoalescingTests {
         try await eventually { model.machines.first?.stats?.state == .awake }
         await CloudRefreshURLProtocol.configure(.statsUnavailable)
         model.refresh()
-        try await eventually { !model.isLoading && model.machines.first?.stats?.state == .unavailable }
+        try await eventually { !model.isLoading && model.machines.first?.stats?.state == .unknown }
         #expect(model.machines.count == 1)
         #expect(model.listProblem == nil)
+        #expect(model.machines.first?.stats?.cpus == 2)
+        #expect(model.machines.first?.stats?.cpuPercent == nil)
+        #expect(model.machines.first?.stats?.memoryUsedMb == nil)
+        #expect(model.machines.first?.stats?.diskUsedMb == nil)
     }
 
     @Test("Known offline state clears live samples without waiting for the next poll")
@@ -110,7 +117,9 @@ struct VMClientReadCoalescingTests {
         model.refresh()
         try await eventually { model.machines.first?.stats?.state == .awake }
         NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
-        #expect(model.machines.first?.stats?.state == .unavailable)
+        #expect(model.machines.first?.stats?.state == .unknown)
+        #expect(model.machines.first?.stats?.cpus == 2)
+        #expect(model.machines.first?.stats?.cpuPercent == nil)
         #expect(model.listProblem == .unreachable)
         #expect(model.lastErrorDescription == URLError(.notConnectedToInternet).localizedDescription)
     }
@@ -218,6 +227,33 @@ struct VMClientReadCoalescingTests {
         do { _ = try await recovery.value; Issue.record("usage exceeded its 15 second budget") }
         catch { #expect((error as? URLError)?.code == .timedOut) }
         await CloudRefreshURLProtocol.releaseResponses()
+    }
+
+    @Test("Successful resize invalidates only its authenticated list and machine stats")
+    func mutationInvalidationUsesRequestScope() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let identity = try #require(fixture.auth.authenticatedSessionIdentity)
+        let paths = ["/api/vm", "/api/vm/fixture-0/stats", "/api/vm/fixture-1/stats"]
+        let gates = paths.map { _ in CloudReadResponseGate() }
+        let requests = zip(paths, gates).map { path, gate in
+            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
+                generation: identity.generation, teamID: fixture.auth.resolvedTeamID)
+            return Task { try await fixture.readRequests.read(key) {
+                let status = await gate.requests == 0 ? 200 : 201
+                return await gate.read(.init(data: Data(), http: HTTPURLResponse(
+                    url: URL(string: "https://fixture.invalid")!, statusCode: status, httpVersion: nil, headerFields: nil
+                )!))
+            } }
+        }
+        for gate in gates { try await eventually { await gate.requests == 1 } }
+        _ = try await fixture.client.request("POST", path: "/api/vm/fixture-0/resize", jsonBody: ["cpu": 4])
+        for gate in gates { await gate.release() }
+        for (index, request) in requests.enumerated() {
+            #expect(try await request.value.http.statusCode == (index < 2 ? 201 : 200))
+            #expect(await gates[index].requests == (index < 2 ? 2 : 1))
+        }
     }
 
     private func eventually(_ condition: () async -> Bool) async throws {

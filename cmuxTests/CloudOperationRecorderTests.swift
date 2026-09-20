@@ -8,6 +8,46 @@ import Testing
 
 @MainActor
 struct CloudOperationRecorderTests {
+    @Test("Placement receipts distinguish acceptance from permanent rejection", arguments: [202, 400])
+    func placementUploaderReceipt(status: Int) async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let queueURL = directory.appendingPathComponent("queue.json")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlacementReceiptURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let uploader = CloudTelemetryUploader(
+            auth: fixture.auth,
+            baseURL: try #require(URL(string: "https://receipt-\(status).test")),
+            client: CloudTelemetryClient.current(info: [:], flavor: .dev),
+            session: session,
+            queueURL: queueURL
+        )
+        let identity = try #require(fixture.auth.authenticatedSessionIdentity)
+        let recorder = CloudOperationRecorder(uploader: uploader, identity: { identity })
+        let operation = recorder.begin(.open)
+        await recorder.finish(operation, error: CmuxTuiSurfaceProvider.ProviderError.remotePlacementUnavailable("fixture-machine"))
+        let persisted = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: queueURL)) as? [[String: Any]])
+        let span = try #require(persisted.first?["span"] as? [String: Any])
+        #expect(span["failure"] as? String == "placement")
+        #expect(span["traceId"] as? String == operation.traceID)
+        #expect(span["operationId"] as? String == operation.operationID.uuidString.lowercased())
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        var acknowledged = false
+        while ContinuousClock.now < deadline {
+            let data = try Data(contentsOf: queueURL)
+            let entries = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+            if entries.isEmpty { acknowledged = true; break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(acknowledged)
+        #expect(await uploader.droppedCount == (status == 400 ? 1 : 0))
+        await uploader.clearForSignOut()
+    }
+
     @Test func authenticationFailuresKeepTheirTelemetryClassification() async throws {
         let identity = AuthenticatedSessionIdentity(generation: 1, accountID: "synthetic")
         let sink = CapturedCloudDiagnostics()
@@ -246,5 +286,47 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
     private(set) var spans: [CloudTelemetrySpan] = []
     func enqueue(_ span: CloudTelemetrySpan, identity: AuthenticatedSessionIdentity) { spans.append(span) }
     func clearForSignOut() { spans.removeAll() }
+}
+
+/// The request is handled synchronously without shared mutable fixture state.
+private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+    override func startLoading() {
+        do {
+            var body = request.httpBody ?? Data()
+            if body.isEmpty, let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    if count < 0 { throw URLError(.cannotDecodeContentData) }
+                    if count == 0 { break }
+                    body.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            guard let batch = try JSONSerialization.jsonObject(with: body) as? [String: Any],
+                  let spans = batch["spans"] as? [[String: Any]], spans.count == 1,
+                  let span = spans.first, let eventID = span["eventId"] as? String,
+                  span["failure"] as? String == "placement",
+                  (span["traceId"] as? String)?.count == 32,
+                  (span["spanId"] as? String)?.count == 16 else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            let status = request.url?.host == "receipt-202.test" ? 202 : 400
+            guard let url = request.url,
+                  let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
+                throw URLError(.badURL)
+            }
+            let receipt = try JSONSerialization.data(withJSONObject: ["eventIds": [eventID]])
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: receipt)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
 }
 #endif
