@@ -267,6 +267,11 @@ describe("VM Effect workflows", () => {
 
   dbTest("reconciles retained guest allocations before allowing a retry", async () => {
     if (!sql) throw new Error("test database not initialized");
+    // The preceding cleanup-pending case intentionally leaves its row
+    // reserved. Remove those fixture rows so this race assertion measures one
+    // provider allocation, while production reconciliation still scans all
+    // eligible rows in order.
+    await sql`delete from cloud_vms where user_id like 'user-guest-cleanup%'`;
     let failInstall = true;
     const fixture = freestyleGuestFixture({
       exec: async () => Response.json({ statusCode: failInstall ? 1 : 0 }),
