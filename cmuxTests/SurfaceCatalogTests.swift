@@ -287,7 +287,13 @@ struct SurfaceCatalogTests {
         _ = try await catalog.projectGroupAsNewLocalWorkspace(
             SurfaceResourceGroup(title: "remote", placements: placements, remoteWorkspaceID: workspace.id),
             title: "remote", focus: false,
-            host: .init(create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }),
+            host: .init(
+                create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in },
+                optimistic: .init(
+                    reserve: { _, _, _ in Issue.record("Device terminals cannot use Cloud VM reservations"); return nil },
+                    attach: { _, _, _ in Issue.record("Device terminals must attach through their own provider") }
+                )
+            ),
             layout: .leaf(placements: placements)
         )
         #expect(provider.materialized.map { $0.0.key } == ["selected", "first", "last"])
