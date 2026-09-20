@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct CmuxTopProcessInfo: Sendable {
@@ -66,4 +67,3 @@ struct CmuxTopProcessInfo: Sendable {
         return processGroupID == terminalProcessGroupID
     }
 }
-
