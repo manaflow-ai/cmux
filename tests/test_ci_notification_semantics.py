@@ -110,9 +110,15 @@ else:
             root = Path(directory)
             for package in (ROOT / "Packages").glob("*/*"):
                 if package.is_dir():
-                    (root / package.relative_to(ROOT)).mkdir(parents=True)
+                    fake = root / package.relative_to(ROOT)
+                    fake.mkdir(parents=True)
+                    # The step's package selector only lists directories that hold a manifest.
+                    (fake / "Package.swift").write_text("")
             helpers = root / "scripts/ci"
             helpers.mkdir(parents=True)
+            shutil.copy(ROOT / "scripts/ci/select_package_tests.py", helpers)
+            runner_temp = root / "runner-temp"
+            runner_temp.mkdir()
             isolated = helpers / "run-swift-testing-suites.sh"
             isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
             isolated.chmod(0o755)
@@ -137,7 +143,10 @@ print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
             swift.chmod(0o755)
             calls = root / "calls.jsonl"
             env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
-                       CALLS=str(calls), WARNING_PACKAGE=warning_package)
+                       CALLS=str(calls), WARNING_PACKAGE=warning_package,
+                       RUNNER_TEMP=str(runner_temp))
+            # An unknown diff selects every package, so both warning gates run.
+            env.pop("CHANGED_FILES", None)
             result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                                     text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             return result, [json.loads(line) for line in calls.read_text().splitlines()]
