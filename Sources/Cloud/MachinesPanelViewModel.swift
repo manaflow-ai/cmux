@@ -392,16 +392,16 @@ final class MachinesPanelViewModel: ObservableObject {
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
                     group.addTask {
-                        (id, (try? await VMClient.shared.stats(id: id)) ?? .unavailable())
+                        (id, try? await VMClient.shared.stats(id: id))
                     }
                 }
                 for await (id, stats) in group {
-                    guard !Task.isCancelled, let stats else { continue }
+                    guard !Task.isCancelled else { continue }
                     await MainActor.run { [weak self] in
                         guard let self, CloudMachinesFeature.isEnabled,
                               let index = self.machines.firstIndex(where: { $0.id == id }),
                               self.machines[index].capabilities.stats else { return }
-                        self.machines[index].stats = stats
+                        self.machines[index].stats = stats ?? .unavailable(preservingCapacityFrom: self.machines[index].stats)
                     }
                 }
             }

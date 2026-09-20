@@ -185,6 +185,20 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.disk.percent == nil)
     }
 
+    @Test func failedPollClearsGaugesAndKeepsConfirmedCapacity() {
+        var snapshot = machine()
+        snapshot.stats = .unavailable(preservingCapacityFrom: snapshot.stats, at: Self.sampleTime)
+        let resources = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
+        #expect(resources.availability == .unavailable)
+        #expect(resources.cpu.inlineDetail == "4 vCPU · Unavailable")
+        #expect(resources.memory.inlineDetail.contains("4 GB total"))
+        #expect(resources.disk.inlineDetail.contains("4 GB total"))
+        #expect(resources.cpu.percent == nil)
+        #expect(resources.memory.percent == nil)
+        #expect(resources.disk.percent == nil)
+        #expect(snapshot.stats?.resourceSampledAt == nil)
+    }
+
     /// Existing stats and resize replies can carry real gauges with only sampledAt.
     @Test func legacyRepliesPreserveMeasuredValues() {
         let json: [String: Any] = [
