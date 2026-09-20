@@ -62,6 +62,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let loading = workspace.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
         guard !loading.isEmpty else { return }
         if loading.count < workspace.panels.count {
+            // A cancelled create may destroy its provider machine after this
+            // callback. Detach the preserved user content from that machine
+            // before the shared destroy cleanup scans bound workspaces.
+            workspace.cloudVMBinding = nil
             workspace.withClosedPanelHistorySuppressed {
                 for panel in loading { _ = workspace.closePanel(panel.id, force: true) }
             }

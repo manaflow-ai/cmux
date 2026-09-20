@@ -40,10 +40,10 @@ extension CMUXCLI {
         guard fullClient else {
             let workspaceID = try resolveWorkspaceId(target, client: client, windowHandle: windowRaw)
             var windows: [String] = []
-            if let windowRaw, !windowRaw.isEmpty {
-                windows = [windowRaw]
-            } else if let listed = try? client.sendV2(method: "window.list") {
-                windows = (listed["windows"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+            if let windowRaw, !windowRaw.isEmpty { windows.append(windowRaw) }
+            if let listed = try? client.sendV2(method: "window.list") {
+                let all = (listed["windows"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+                windows.append(contentsOf: all.filter { !windows.contains($0) })
             }
             for windowID in windows {
                 guard let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowID]) else { continue }
@@ -56,7 +56,6 @@ extension CMUXCLI {
                 }
             }
             var receipt: [String: Any] = ["workspace_id": workspaceID]
-            if let windowRaw, !windowRaw.isEmpty { receipt["window_id"] = windowRaw }
             return receipt
         }
         do {

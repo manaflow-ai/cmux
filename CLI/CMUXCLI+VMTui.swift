@@ -403,7 +403,7 @@ extension CMUXCLI {
             )
             workspaceId = (ready["workspace_id"] as? String) ?? target
             workspaceRef = ready["workspace_ref"] as? String
-            windowId = (ready["window_id"] as? String) ?? windowRaw
+            windowId = (ready["window_id"] as? String) ?? (options.fullClient ? windowRaw : nil)
             terminalSurfaceId = ready["surface_id"] as? String
             didCreateWorkspace = false
         } else {

@@ -34,6 +34,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
             let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
             let panel = try #require(app.workspace.focusedTerminalPanel)
+            pending.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cancelled-machine", isBase: false)
             NewMachineSheetPresenter.closeReservedWorkspace(app.workspace.id)
             #expect(app.manager.tabs.contains { $0.id == app.workspace.id })
             #expect(app.workspace.panels[panel.id] === panel)
@@ -43,6 +44,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
+            #expect(pending.cloudVMBinding == nil)
             #expect(command.surface.initialCommand?.contains("first-command") == true)
         }
     }
