@@ -45,7 +45,8 @@ struct CloudTerminalPaneReservationTests {
         let sender = RecordingUntrackedSender()
         relay.send(.bytes(Data("ls".utf8)))
         relay.send(.namedKey("enter"))
-        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender)
+        let bindingToken = try #require(relay.beginRemoteBinding())
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender, token: bindingToken)
 
         let queue = DispatchQueue(label: "reservation-early-input-test")
         let router = CloudTuiManualIOInputRouter(surfaceID: 17, queue: queue)
@@ -86,7 +87,8 @@ struct CloudTerminalPaneReservationTests {
         let relay = CloudOptimisticInputRelay()
         for _ in 0..<5_000 { relay.send(.bytes(Data([0x61]))) }
         let sender = RecordingUntrackedSender()
-        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender)
+        let bindingToken = try #require(relay.beginRemoteBinding())
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender, token: bindingToken)
         try await Self.waitUntilAsync { await sender.count == 4_096 }
     }
 

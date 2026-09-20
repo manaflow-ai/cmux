@@ -26,6 +26,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteEpoch: UInt64 = 0
         var requestedRouter: CloudTuiManualIOInputRouter?
         var remoteBindingPending = false
+        var remoteBindingToken: UUID?
         var remoteRebind: (@Sendable () async -> Bool)?
         var remoteRebindInFlight = false
         var remoteRebindToken: UUID?
@@ -57,10 +58,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Marks the relay as awaiting the binding attempt that precedes materialization.
     /// Pending input remains owned by this relay until bindRemoteTerminal succeeds.
-    func beginRemoteBinding() {
+    @discardableResult
+    func beginRemoteBinding() -> UUID? {
         state.withLock { state in
-            guard !state.discarded, state.router == nil else { return }
+            guard !state.discarded, state.router == nil else { return nil }
             state.remoteBindingPending = true
+            let token = UUID()
+            state.remoteBindingToken = token
+            return token
         }
     }
 
@@ -74,10 +79,11 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 
     /// Ends a binding attempt before any remote input was handed to the PTY.
     /// The native mirror is the safe fallback for this pre-send failure.
-    func remoteBindingFailed() {
+    func remoteBindingFailed(token: UUID?) {
         state.withLock { state in
-            guard !state.discarded else { return }
+            guard !state.discarded, state.remoteBindingToken == token else { return }
             state.remoteBindingPending = false
+            state.remoteBindingToken = nil
             state.remoteSink = nil
             state.remoteRebind = nil
             state.remoteRebindInFlight = false
@@ -90,11 +96,15 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     @discardableResult
     func bindRemoteTerminal(
         terminalID: String,
-        sender: any CloudTuiUntrackedCommandSending
+        sender: any CloudTuiUntrackedCommandSending,
+        token: UUID?
     ) -> Bool {
         state.withLock { state in
-            guard !state.discarded, state.router == nil else { return false }
+            guard !state.discarded,
+                  state.router == nil,
+                  state.remoteBindingToken == token else { return false }
             state.remoteBindingPending = false
+            state.remoteBindingToken = nil
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
             if let existing = state.remoteSink, existing.terminalID == terminalID {
@@ -137,6 +147,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.requestedRouter = nil
             state.remoteSink = nil
             state.remoteBindingPending = false
+            state.remoteBindingToken = nil
             state.remoteEpoch &+= 1
             state.remoteWorker?.cancel()
             state.remoteWorker = nil

@@ -13,21 +13,21 @@ extension CmuxTuiSurfaceProvider {
             guard let self, let relay else { return false }
             return (try? await self.bindOptimisticTerminalInput(relay, terminalID: terminalID)) ?? false
         }
-        relay.beginRemoteBinding()
+        guard let bindingToken = relay.beginRemoteBinding() else { return false }
         do {
             _ = try await links.connected(machineID: machineID)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            relay.remoteBindingFailed()
+            relay.remoteBindingFailed(token: bindingToken)
             return false
         }
         guard let link = await links.link(machineID: machineID) else {
-            relay.remoteBindingFailed()
+            relay.remoteBindingFailed(token: bindingToken)
             return false
         }
-        let bound = relay.bindRemoteTerminal(terminalID: terminalID, sender: link)
-        if !bound { relay.remoteBindingFailed() }
+        let bound = relay.bindRemoteTerminal(terminalID: terminalID, sender: link, token: bindingToken)
+        if !bound { relay.remoteBindingFailed(token: bindingToken) }
         return bound
     }
 
