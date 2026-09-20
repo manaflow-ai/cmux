@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
-from select_package_tests import select  # noqa: E402
+from select_package_tests import GLOBAL_INPUTS, select  # noqa: E402
 
 PACKAGES = ["Base", "Middle", "Top", "Loner", "Palette", "Splitter"]
 
@@ -41,6 +42,25 @@ def fixture(root: Path) -> None:
 def check(root: Path, changed: list[str] | None, expected: list[str], why: str) -> None:
     actual = select(root, PACKAGES, changed)
     assert actual == expected, f"{why}: expected {expected}, got {actual}"
+
+
+def job_scripts() -> set[str]:
+    """Scripts the swift-package-tests job runs, plus the helpers those scripts call beside them."""
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  swift-package-tests:\n", 1)[1]
+    job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
+    found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
+    pending = list(found)
+    while pending:
+        script = ROOT / pending.pop()
+        if not script.is_file():
+            continue
+        for name in re.findall(r"\$script_dir/([A-Za-z0-9_.-]+\.(?:sh|py))", script.read_text(encoding="utf-8")):
+            sibling = str((script.parent / name).relative_to(ROOT))
+            if sibling not in found:
+                found.add(sibling)
+                pending.append(sibling)
+    return found
 
 
 def main() -> int:
@@ -88,6 +108,13 @@ def main() -> int:
     select_step = workflow.split("      - name: Select package tests\n", 1)[1].split("      - name:", 1)[0]
     assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
     assert "'^vendor/bonsplit(/|$)'" in select_step, "a Bonsplit submodule bump must run the Bonsplit tests"
+
+    # A change to any script the job runs can break every package's tests, so
+    # each one must force the full set.
+    missing = sorted(job_scripts() - set(GLOBAL_INPUTS))
+    if missing:
+        print(f"FAIL: scripts the package test job runs are not global inputs: {missing}")
+        return 1
 
     print("PASS: package test selection follows path dependencies and fails safe")
     return 0
