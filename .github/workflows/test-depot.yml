@@ -57,7 +57,7 @@ jobs:
   tests:
     # Depot is retired for cmux CI. Keep this reusable test lane on the
     # repository's normal macOS runner and do not expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
