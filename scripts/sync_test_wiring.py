@@ -601,7 +601,11 @@ def _dirty_disk_filenames(text: str, filenames: list[str]) -> list[str]:
             dirty.append(filename)
             continue
 
-        named_source_entries = source_ids_by_comment.get(expected_comment, [])
+        named_source_entries = [
+            entry_id
+            for entry_id in source_ids_by_comment.get(expected_comment, [])
+            if entry_id not in build_files or build_files[entry_id].file_ref == ref.identifier
+        ]
         if named_source_entries != [build.identifier]:
             dirty.append(filename)
             continue
@@ -851,7 +855,8 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
         source_ids = [
             entry_id
             for entry_id, comment in source_entries
-            if entry_id in linked_ids or comment == expected_source_comment
+            if entry_id in linked_ids
+            or (entry_id not in build_files and comment == expected_source_comment)
         ]
 
         preferred = sorted(linked_ids.intersection(source_ids))
@@ -890,8 +895,10 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
         duplicate_entries = [
             (entry_id, comment)
             for entry_id, comment in current_entries
-            if (entry_id in linked_ids or comment == expected_source_comment)
-            and entry_id != canonical_build_id
+            if (
+                entry_id in linked_ids
+                or (entry_id not in build_files and comment == expected_source_comment)
+            ) and entry_id != canonical_build_id
         ]
         for duplicate_build_id, duplicate_comment in sorted(duplicate_entries):
             current_sources = _sources_blocks(text)[tests_sources_id]
@@ -996,6 +1003,21 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
     file_refs = _parse_file_references(text)
     group = _find_cmux_tests_group(text)
     direct_refs_by_name = _direct_group_refs(group, file_refs)
+    # A partially deleted entry can lose its group child before its Sources
+    # membership. That membership still identifies the direct test reference;
+    # do not rely on display comments or unrelated direct references elsewhere.
+    source_blocks = _sources_blocks(text)
+    tests_sources_id = _cmux_tests_sources_id(_find_cmux_tests_target(text), source_blocks)
+    test_build_ids = {entry_id for entry_id, _ in _list_entries(source_blocks[tests_sources_id].text, "files")}
+    test_ref_ids = {
+        build.file_ref for build in _parse_build_files(text).values()
+        if build.identifier in test_build_ids
+    }
+    for filename, refs in _direct_refs_by_name(file_refs).items():
+        known_ids = {ref.identifier for ref in direct_refs_by_name.get(filename, [])}
+        for ref in refs:
+            if ref.identifier in test_ref_ids and ref.identifier not in known_ids:
+                direct_refs_by_name.setdefault(filename, []).append(ref)
     for filename in sorted(set(direct_refs_by_name) - disk):
         refs = sorted(direct_refs_by_name[filename], key=lambda item: item.identifier)
         for ref in refs:
@@ -1032,17 +1054,18 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
                 for entry_id, comment in _list_entries(current_group.text, "children")
                 if entry_id == ref.identifier
             ]
-            if len(current_group_comments) != 1:
+            if len(current_group_comments) > 1:
                 raise WiringError(
                     f"expected one cmuxTests group entry for deleted {filename}"
                 )
-            new_group = _remove_list_entry(
-                current_group.text,
-                "children",
-                ref.identifier,
-                current_group_comments[0],
-            )
-            text = _replace_block(text, current_group, new_group, "cmuxTests PBXGroup")
+            if current_group_comments:
+                new_group = _remove_list_entry(
+                    current_group.text,
+                    "children",
+                    ref.identifier,
+                    current_group_comments[0],
+                )
+                text = _replace_block(text, current_group, new_group, "cmuxTests PBXGroup")
 
             for build in linked_builds:
                 current_sources = _sources_blocks(text)[tests_sources_id]
@@ -1067,10 +1090,11 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
             # Also remove dangling Sources entries with this filename even if
             # the PBXBuildFile object had already disappeared.
             current_sources = _sources_blocks(text)[tests_sources_id]
+            remaining_build_files = _parse_build_files(text)
             dangling_ids = [
                 entry_id
                 for entry_id, comment in _list_entries(current_sources.text, "files")
-                if comment == f"{filename} in Sources"
+                if entry_id not in remaining_build_files and comment == f"{filename} in Sources"
             ]
             for dangling_id in dangling_ids:
                 current_sources = _sources_blocks(text)[tests_sources_id]
