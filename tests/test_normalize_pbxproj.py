@@ -10,6 +10,27 @@ import unittest
 
 NORMALIZER = Path(__file__).resolve().parents[1] / "scripts/normalize-pbxproj.py"
 
+# Keep valid spelling coverage independent of the validator's token expression.
+STRING_SPELLINGS = [
+    ('"AppDelegate+Cloud.swift"', True),
+    ("'AppDelegate+Cloud.swift'", True),
+    ("$SRCROOT/Cloud_Tab-1.0.swift", True),
+    ("https://example.test/path", True),
+    ('"日本語+Cloud.swift"', True),
+    (r'"echo \"{ A1 = {}; }\"; // not a comment"', True),
+    ("'echo { FILE1 = {}; }; // + not a comment'", True),
+    ("<dead beef>", True),
+    ("AppDelegate+Cloud.swift", False),
+    ("mail@example.test", False),
+    ("Cloud*.swift", False),
+    ("日本語.swift", False),
+    ("<group>", False),
+    ("value[sdk=macosx*]", False),
+    ("O'Brien.swift", False),
+    ('"Missing end', False),
+    ("'Missing end", False),
+]
+
 
 def project(objects: str) -> str:
     return "// !$*UTF8*$!\n{\n\tobjectVersion = 60;\n\tobjects = {\n" + objects + "\n\t};\n}\n"
@@ -54,6 +75,31 @@ class NormalizeProjectTests(unittest.TestCase):
                     self.assertIn("line 7", result.stderr)
                     self.assertEqual(path.read_text(), contents)
 
+    def test_accepts_quoted_special_characters_and_rejects_unquoted_ones(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            for spelling, valid in STRING_SPELLINGS:
+                for args in [(), ("--check",)]:
+                    with self.subTest(spelling=spelling, args=args):
+                        contents = project(f"FILE1 = {{ path = {spelling}; }};")
+                        path.write_text(contents)
+                        result = self.run_normalizer(path, *args)
+                        self.assertEqual(result.returncode, 0 if valid else 1, result.stderr)
+                        self.assertEqual(path.read_text(), contents)
+
+    @unittest.skipUnless(sys.platform == "darwin", "Apple plutil compatibility check")
+    def test_string_spelling_matches_apple_property_list_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            for spelling, valid in STRING_SPELLINGS:
+                with self.subTest(spelling=spelling):
+                    path.write_text(project(f"FILE1 = {{ path = {spelling}; }};"))
+                    result = subprocess.run(
+                        ["/usr/bin/plutil", "-lint", str(path)],
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+
     def test_rejects_colliding_build_files_despite_different_comments(self) -> None:
         identifier = "C1B1810000000000000005"
         self.assert_rejected(
@@ -90,6 +136,20 @@ class NormalizeProjectTests(unittest.TestCase):
             "ABC123",
         )
 
+    def test_rejects_duplicate_single_quoted_object_id(self) -> None:
+        self.assert_rejected(
+            project("ABC123 = {}; 'ABC123' = {};"),
+            "ABC123",
+        )
+
+    def test_preserves_apostrophe_inside_quoted_object_id(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            contents = project("ABC123 = {}; \"ABC123'\" = {};")
+            path.write_text(contents)
+            result = self.run_normalizer(path, "--check")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_accepts_repeated_references_and_nested_dictionary_keys(self) -> None:
         contents = project(r'''
 /* Begin PBXBuildFile section */
@@ -113,8 +173,8 @@ class NormalizeProjectTests(unittest.TestCase):
         SCRIPT1 = {
             isa = PBXShellScriptBuildPhase;
             shellScript = "echo \"{ BUILD1 = { } }\"; // not a comment";
-            /* BUILD1 = {isa = PBXBuildFile; }; */
-            // FILE1 = {isa = PBXFileReference; };
+            /* BUILD1 = {path = Not+ARealObject.swift; }; */
+            // FILE1 = {path = Not+ARealObject.swift; };
         };
 /* End PBXShellScriptBuildPhase section */
 /* Begin PBXSourcesBuildPhase section */

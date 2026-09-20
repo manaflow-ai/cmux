@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Validate object identities and sort high-churn sections of project.pbxproj.
+Validate object identities/string spelling and sort project.pbxproj sections.
 
 Object IDs must be unique across the objects dictionary. Duplicate definitions
 silently replace each other in Xcode, and sorting can change which one wins.
@@ -36,9 +36,15 @@ DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
 
 ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
 OPENSTEP_TOKEN_RE = re.compile(
-    r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|[{}=;(),]|[^\s{}=;(),"]+',
+    r'(?P<comment>/\*.*?\*/|//[^\n]*)|'
+    r'(?P<string>"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\')|'
+    r'(?P<data><[0-9A-Fa-f\s]*>)|(?P<punctuation>[{}=;(),])|'
+    r'(?P<unquoted>[^\s{}=;(),"\']+)',
     re.DOTALL,
 )
+# CoreFoundation's CFOldStylePList.c: isValidUnquotedStringCharacter.
+# Quoted strings, comments and data literals have separate token branches.
+OPENSTEP_UNQUOTED_RE = re.compile(r"[A-Za-z0-9_$/:.\-]+")
 
 # Sections we sort flat. Every entry is a single line of the form
 #   <UUID> /* <label> */ = { ... };
@@ -58,6 +64,14 @@ BUILD_PHASE_SECTIONS = (
 )
 
 
+def validate_token_gap(gap: str, line: int) -> None:
+    """The token regex must not silently skip an unmatched quote."""
+    if gap.strip():
+        leading_space = gap[: len(gap) - len(gap.lstrip())]
+        line += leading_space.count("\n")
+        raise ValueError(f"unterminated quoted string at line {line}")
+
+
 def validate_object_ids(text: str) -> None:
     """Reject repeated keys in the global objects dictionary, not references.
 
@@ -73,15 +87,24 @@ def validate_object_ids(text: str) -> None:
     line = 1
     end = 0
     for match in OPENSTEP_TOKEN_RE.finditer(text):
-        line += text[end:match.start()].count("\n")
+        gap = text[end:match.start()]
+        validate_token_gap(gap, line)
+        line += gap.count("\n")
         token = match.group()
         token_line = line
         line += token.count("\n")
         end = match.end()
-        if token.startswith(("/*", "//")):
+        if match.lastgroup == "comment":
             continue
+        if match.lastgroup == "unquoted" and not OPENSTEP_UNQUOTED_RE.fullmatch(token):
+            raise ValueError(
+                f"invalid unquoted string at line {token_line}; "
+                "enclose strings containing special characters in double quotes"
+            )
         if token == "{":
-            key = previous[-2].strip('"') if len(previous) == 2 and previous[-1] == "=" else None
+            key = previous[-2] if len(previous) == 2 and previous[-1] == "=" else None
+            if key is not None and key.startswith(('"', "'")):
+                key = key[1:-1]
             if dictionaries == [None, "objects"] and key is not None:
                 if key in definitions:
                     duplicates.append(
@@ -93,6 +116,7 @@ def validate_object_ids(text: str) -> None:
         elif token == "}" and dictionaries:
             dictionaries.pop()
         previous = (previous + [token])[-2:]
+    validate_token_gap(text[end:], line)
     if duplicates:
         raise ValueError("; ".join(duplicates))
 

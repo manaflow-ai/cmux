@@ -3,6 +3,7 @@
 # Fails when:
 #   - objectVersion drifts from the pinned value (Xcode major leak)
 #   - object IDs collide (Xcode silently replaces one definition with another)
+#   - unquoted strings contain characters rejected by OpenStep property lists
 #   - the file is not normalized (someone bypassed the pre-commit hook)
 set -euo pipefail
 
