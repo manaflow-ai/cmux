@@ -20,8 +20,11 @@ type Options = {
 /** The SDK's Promise-based fetch boundary; provider workflows remain Effect-owned. */
 export function freestyleRequestFetch(options: Options): typeof fetch {
   const fetchImpl = options.fetch ?? fetch;
+  const timeoutSignal = () => AbortSignal.timeout(options.timeoutMs);
   const request = ((input, init) => fetchImpl(input, {
-    ...(init ?? {}), signal: AbortSignal.timeout(options.timeoutMs),
+    ...(init ?? {}), signal: init?.signal
+      ? AbortSignal.any([init.signal, timeoutSignal()])
+      : timeoutSignal(),
   })) as typeof fetch;
   if (!options.record) return request;
 

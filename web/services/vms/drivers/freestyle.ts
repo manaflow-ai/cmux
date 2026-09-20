@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
+import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
@@ -39,6 +40,7 @@ import {
   type VMProvider,
   type VMResizeOptions,
   type VMStats,
+  type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
@@ -910,6 +912,7 @@ export class FreestyleProvider implements VMProvider {
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
+  private readonly resourceStats: FreestyleResourceStatsReader;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -918,6 +921,7 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+    this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1247,6 +1251,11 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /** Read guest gauges without the general exec path's CLI installation/heal. */
+  getResourceStats(vmId: string): Promise<VMResourceStatsResult | null> {
+    return this.resourceStats.read(vmId);
   }
 
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {

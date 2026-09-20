@@ -1,4 +1,12 @@
 {
+  "cloudTree.resources.provisionedCPU": {
+    "source": "%@ vCPU · %@",
+    "identityLocales": {
+      "de": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "fr": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale.",
+      "es": "vCPU is an invariant resource unit symbol; placeholders and the separator are identical in this locale."
+    }
+  },
   "cli.socketControlStatus.command": {
     "source": "socket-status [--json]",
     "identityLocales": {
