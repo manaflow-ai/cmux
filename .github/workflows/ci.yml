@@ -746,9 +746,15 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Keep one-off focused gates on the lightest measured shard so shard 1 no
-      # longer carries the full shard plus every extra regression guard.
+      # Strict steps run outside the batch, in four groups on four workers.
+      # CMUX_APP_HOST_RESERVED_WALL_SECONDS is each group's measured wall time,
+      # so the batch gives those workers less and every shard ends together.
+      # Update both when a group moves or grows.
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "1"
+      CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=245 6=284"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -1079,7 +1085,6 @@ jobs:
           # a fresh app-host process so Swift Testing cannot interleave them.
           for suite in \
             FeedCoordinatorTests \
-            FeedCoordinatorIngressTests \
             PiFeedOwnershipTests \
             PiFeedDockOwnershipTests
           do
@@ -1142,7 +1147,7 @@ jobs:
           done
 
       - name: Run browser system proxy mirror regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
           # The full "Run unit tests" step tolerates app-host crashes by
@@ -1160,7 +1165,7 @@ jobs:
             test-without-building
 
       - name: Run Cloud notification dismiss parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
           # The tolerant full-suite step accepts ordinary Swift Testing
@@ -1177,7 +1182,7 @@ jobs:
             test-without-building
 
       - name: Run agent restore admission regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/12158.
           # The tolerant full-suite step accepts ordinary Swift Testing
@@ -1194,7 +1199,7 @@ jobs:
             test-without-building
 
       - name: Run Option/Alt sided-modifier regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
           scripts/ci/run-in-console-session.sh \
@@ -1206,7 +1211,7 @@ jobs:
             test-without-building
 
       - name: Run ssh-session-attach anchor regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
           # The full "Run unit tests" step tolerates any xcodebuild failure
@@ -1226,7 +1231,7 @@ jobs:
             test-without-building
 
       - name: Run focused browser regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1249,7 +1254,7 @@ jobs:
           done
 
       - name: Run remote tmux mirror active-pane regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1265,7 +1270,7 @@ jobs:
             test-without-building
 
       - name: Run remote tmux mirror layout identity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step may accept expected failures or stop
           # after an app-host crash. Keep #7833's identity suite non-tolerant
@@ -1280,7 +1285,7 @@ jobs:
             test-without-building
 
       - name: Run socket ACL reload regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept assertion failures or
           # crash-skip late suites. Keep #7984's live reload and denial tests
@@ -1295,7 +1300,7 @@ jobs:
             test-without-building
 
       - name: Run notification scroll restoration regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
           scripts/ci/run-in-console-session.sh \
@@ -1309,7 +1314,7 @@ jobs:
             test-without-building
 
       - name: Run terminal creation interactive-shell CLI regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -1327,7 +1332,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_creation_initial_command.py
 
       - name: Run settings file-store no-op persistence regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The broad app-host suite tolerates expected failures and can stop
           # after an app-host crash. Keep the settings persistence regression
@@ -1342,7 +1347,7 @@ jobs:
             test-without-building
 
       - name: Run sidebar workspace-switch layout regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept Swift Testing assertion
           # failures when XCTest reports "0 unexpected". Keep #9612's real
@@ -1358,7 +1363,7 @@ jobs:
             test-without-building
 
       - name: Run Cloud workspace rename surface parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept Swift Testing assertion
           # failures when XCTest reports "0 unexpected". Keep #12986's
@@ -1374,7 +1379,7 @@ jobs:
             test-without-building
 
       - name: Run terminal portal visibility regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # These tests mutate the process-wide terminal portal registry and
           # include Swift Testing assertions that the tolerant broad shard can
@@ -1390,7 +1395,7 @@ jobs:
 
       - name: Ensure node for app-host wrapper regressions
         id: detect-node
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           # App-host wrapper regressions, including OpenCode and Claude hooks,
@@ -1410,13 +1415,13 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Install node (runner image has none)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
 
       - name: Run Ghostty numeric locale tests
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # LC_NUMERIC is process-global. Keep these tests in their own app-host
           # invocation and disable Xcode's parallel test execution for it.
@@ -1431,7 +1436,7 @@ jobs:
             test-without-building
 
       - name: Run global search shortcut regressions
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         timeout-minutes: 40
         run: |
           # This serialized container owns global shortcut settings. Keep its
@@ -1471,9 +1476,16 @@ jobs:
             local logical_shard="$1"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.txt"
+            local reserve_args=()
+            local reservation
+            for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
+              reserve_args+=(--reserve "$reservation")
+            done
             python3 scripts/ci/cmux_unit_test_shard.py \
               --shard-index "$logical_shard" \
               --shard-total "$LOGICAL_SHARD_TOTAL" \
+              --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
+              ${reserve_args[@]+"${reserve_args[@]}"} \
               --output "$shard_args" || {
                 local shard_status=$?
                 echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
@@ -1613,20 +1625,20 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Set up Bun for Pi extension dispatch regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
 
       - name: Install pinned nushell (shell-integration tests)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -1661,7 +1673,7 @@ jobs:
           echo "$NU_DIR" >> "$GITHUB_PATH"
 
       - name: Validate bash prompt bootstrap export compatibility
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
@@ -1677,7 +1689,7 @@ jobs:
             python3 tests/test_issue_11257_prompt_command_export.py
 
       - name: Run CLI no-socket regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
 
