@@ -1008,7 +1008,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stderr.contains("Retrying in now (attempt 1/1)."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Retrying now (attempt 1/1)."), result.stderr)
         XCTAssertEqual(
             state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info", "vm.ssh_info"]
