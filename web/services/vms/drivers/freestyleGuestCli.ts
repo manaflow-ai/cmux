@@ -17,6 +17,7 @@ export class GuestCliInstallError extends Data.TaggedError("GuestCliInstallError
   readonly outcome: InstallOutcome;
   readonly exitCode?: number | null;
   readonly diagnostic?: string;
+  readonly rollbackError?: string;
   readonly elapsedMs?: number;
   readonly cause?: unknown;
   readonly cleanupCause?: unknown;
@@ -35,7 +36,7 @@ function guestFailure(result: unknown): GuestCliInstallError | undefined {
   const outcome: InstallOutcome = status === undefined ? "missing_status"
     : status === null ? "provider_timeout"
       : typeof status === "number" && Number.isInteger(status) ? "guest_exit" : "invalid_status";
-  const failure: { stage: InstallStage; diagnostic?: string } = { stage: "install" };
+  const failure: { stage: InstallStage; diagnostic?: string; rollbackError?: string } = { stage: "install" };
   // Only our own bounded diagnostic record enters telemetry. Arbitrary guest
   // stdout/stderr may contain private data and is deliberately not logged.
   const marker = typeof response.stderr === "string"
@@ -48,6 +49,9 @@ function guestFailure(result: unknown): GuestCliInstallError | undefined {
         failure.diagnostic = detail.error
           + (Number.isInteger(detail.errno) ? ` errno=${detail.errno}` : "")
           + (Number.isInteger(detail.exitCode) ? ` exit=${detail.exitCode}` : "");
+      }
+      if (typeof detail.rollbackError === "string" && /^[A-Za-z]{1,40}$/.test(detail.rollbackError)) {
+        failure.rollbackError = detail.rollbackError;
       }
     } catch { /* Unknown provider output is not evidence of an install stage. */ }
   }
@@ -110,6 +114,7 @@ export function installFreestyleGuestCli(client: FreestyleClientFactory, vmId: s
         elapsedMs: finished - started,
         exitCode: error.exitCode,
         diagnostic: error.diagnostic,
+        rollbackError: error.rollbackError,
         cause: error.cause,
         cleanupCause,
       }))

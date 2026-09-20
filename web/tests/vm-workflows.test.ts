@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
@@ -319,6 +319,9 @@ describe("VM Effect workflows", () => {
 
   dbTest("retains failed cleanup with durable backoff and does not duplicate the provider delete", async () => {
     if (!sql) throw new Error("test database not initialized");
+    const nowMs = 1_800_000_000_000;
+    setSystemTime(nowMs);
+    try {
     const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });
     let destroyCalls = 0;
     const layer = providerLayer({
@@ -350,8 +353,11 @@ describe("VM Effect workflows", () => {
     `;
     expect(row.status).toBe("provisioning");
     expect(row.metadata.createCleanupProviderVmId).toBe("vm-fixture-1");
-    expect(Number(row.metadata.createCleanupNextAttemptAtMs)).toBeGreaterThan(Date.now());
+    expect(Number(row.metadata.createCleanupNextAttemptAtMs)).toBe(nowMs + 5_000);
     expect(row.metadata.createCleanupLeaseId).toBeUndefined();
+    } finally {
+      setSystemTime();
+    }
   });
 
   dbTest("treats malformed cleanup timestamps and oversized attempts as immediately eligible", async () => {
@@ -421,20 +427,22 @@ describe("VM Effect workflows", () => {
       select id, provider_metadata->>'createCleanupProviderVmId' as "providerVmId"
       from cloud_vms where user_id = 'user-guest-cleanup-cas'
     `;
+    const now = new Date("2026-09-20T00:00:00.000Z");
+    const leaseExpiresAt = new Date(now.getTime() + 60_000);
     const claim = await Effect.runPromise(vmRepositoryLiveShape.claimCreateCleanup!({
       id: row.id,
       providerVmId: row.providerVmId,
       leaseId: "lease-a",
-      now: new Date(),
-      leaseExpiresAt: new Date(Date.now() + 60_000),
+      now,
+      leaseExpiresAt,
     }));
     expect(claim?.attempt).toBe(1);
     const duplicateClaim = await Effect.runPromise(vmRepositoryLiveShape.claimCreateCleanup!({
       id: row.id,
       providerVmId: row.providerVmId,
       leaseId: "lease-b",
-      now: new Date(),
-      leaseExpiresAt: new Date(Date.now() + 60_000),
+      now,
+      leaseExpiresAt,
     }));
     expect(duplicateClaim).toBeNull();
     await sql`

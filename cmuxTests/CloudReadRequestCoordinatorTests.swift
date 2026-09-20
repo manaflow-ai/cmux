@@ -304,6 +304,7 @@ struct CloudReadRequestCoordinatorTests {
         let owner = Owner()
         let gate = CloudReadResponseGate()
         let first = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await gate.requests == 1 }
         let replacement = try await owner.read(key(generation: 2)) { response(201) }
         #expect(replacement.http.statusCode == 201)
         await gate.release()
@@ -448,8 +449,9 @@ struct CloudMachinesOfflineStateTests {
     @Test("Offline before the first list load exposes retry state")
     @MainActor
     func offlineBeforeFirstLoadIsVisible() {
-        let model = MachinesPanelViewModel(client: nil, isCloudEnabled: { true })
-        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
+        let notificationCenter = NotificationCenter()
+        let model = MachinesPanelViewModel(client: nil, isCloudEnabled: { true }, notificationCenter: notificationCenter)
+        notificationCenter.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
         #expect(model.hasLoadedOnce)
         #expect(model.listProblem == .unreachable)
         #expect(model.lastErrorDescription != nil)

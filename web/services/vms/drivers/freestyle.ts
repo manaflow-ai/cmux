@@ -1756,6 +1756,7 @@ export class FreestyleProvider implements VMProvider {
           "cmux.vm.guest_install.exit_code": result.left.exitCode,
           "cmux.duration_ms": result.left.elapsedMs,
           "cmux.vm.guest_install.cleanup_failed": result.left.cleanupCause !== undefined,
+          "cmux.vm.guest_install.rollback_error": result.left.rollbackError,
         });
         throw result.left;
       }

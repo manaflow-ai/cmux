@@ -88,7 +88,6 @@ final class MachinesPanelViewModel: ObservableObject {
         let selected = tabManager.selectedTabId
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
-
     func beginOperation(_ label: String) {
         activeOperation = label
     }
@@ -108,6 +107,7 @@ final class MachinesPanelViewModel: ObservableObject {
     let isCloudEnabled: @MainActor () -> Bool
     let pollingClock: any Clock<Duration>
     private var networkObserver: NSObjectProtocol?
+    private let notificationCenter: NotificationCenter
     var pollTask: Task<Void, Never>?
     var statsTask: Task<Void, Never>?
     private var resourceUpdatesTask: Task<Void, Never>?
@@ -136,7 +136,6 @@ final class MachinesPanelViewModel: ObservableObject {
     private var createChangeObserver: NSObjectProtocol?
     var treeTask: Task<Void, Never>?
     let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
-
     let defaultMachineStore: DefaultCloudMachineStore?
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
@@ -152,7 +151,8 @@ final class MachinesPanelViewModel: ObservableObject {
         pollingClock: any Clock<Duration> = ContinuousClock(),
         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
-        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
+        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil,
+        notificationCenter: NotificationCenter = .default
     ) {
         self.client = client
         self.pollingClock = pollingClock
@@ -161,6 +161,7 @@ final class MachinesPanelViewModel: ObservableObject {
         self.defaultMachineStore = defaultMachineStore
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
+        self.notificationCenter = notificationCenter
         if let localWorkspacesProvider { self.localWorkspacesProvider = localWorkspacesProvider }
         // Resolve the main-actor-isolated default here, not in a default argument.
         let createCoordinator = createCoordinator ?? .shared
@@ -208,7 +209,7 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
-        networkObserver = NotificationCenter.default.addObserver(forName: .cmuxCloudReadNetworkChanged, object: nil, queue: .main) { [weak self] notification in
+        networkObserver = notificationCenter.addObserver(forName: .cmuxCloudReadNetworkChanged, object: nil, queue: .main) { [weak self] notification in
             guard let online = notification.userInfo?["isOnline"] as? Bool else { return }
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -274,7 +275,7 @@ final class MachinesPanelViewModel: ObservableObject {
         usageTask?.cancel()
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
-        if let networkObserver { NotificationCenter.default.removeObserver(networkObserver) }
+        if let networkObserver { notificationCenter.removeObserver(networkObserver) }
         resourceUpdatesTask?.cancel()
         for observer in authScopeObservers {
             NotificationCenter.default.removeObserver(observer)

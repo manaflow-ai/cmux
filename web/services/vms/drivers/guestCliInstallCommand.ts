@@ -249,7 +249,8 @@ except Exception as error:
             rollback_error = backup_error
     detail = {
         "stage": stage,
-        "error": "RollbackError" if rollback_error else type(error).__name__,
+        "error": type(error).__name__,
+        "rollbackError": type(rollback_error).__name__ if rollback_error else None,
         "errno": getattr(error, "errno", None),
         "exitCode": getattr(error, "returncode", None),
     }

@@ -59,4 +59,22 @@ describe("Freestyle guest install result contract (SDK 0.2.10)", () => {
     });
     expect(fixture.liveVms.size).toBe(1);
   });
+
+  test("keeps the guest install error when rollback also fails", async () => {
+    const fixture = freestyleGuestFixture({
+      exec: async () => Response.json({
+        statusCode: 1,
+        stderr: `CMUX_GUEST_INSTALL_FAILURE=${JSON.stringify({
+          stage: "publish", error: "OSError", rollbackError: "PermissionError", errno: 13,
+        })}`,
+      }),
+    });
+    const error = await fixture.provider.create(guestCreateOptions).catch((error: unknown) => error);
+    expect((error as { cause?: unknown }).cause).toMatchObject({
+      name: "GuestCliInstallError",
+      stage: "publish",
+      diagnostic: "OSError errno=13",
+      rollbackError: "PermissionError",
+    });
+  });
 });
