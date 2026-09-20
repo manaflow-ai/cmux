@@ -1987,9 +1987,7 @@ actor VMClient {
                     allowedUnderManagedPolicy: allowedUnderManagedPolicy)
             }
             try Task.checkCancellation()
-            if !allowedUnderManagedPolicy, self.isDisabledByManagedPolicy?() == true {
-                throw VMClientError.disabledByManagedPolicy
-            }
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
             let context = CloudOperationContext.current
             let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
             let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
@@ -2008,11 +2006,21 @@ actor VMClient {
                 guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
                       await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
             }
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
             return (value.data, value.http)
         }
         if CloudOperationContext.current != nil || operations == nil { return try await work() }
         let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
         return try await operations!.perform(kind, foreground: method != "GET", work)
+    }
+
+    private func checkCloudAccess(allowedUnderManagedPolicy: Bool) throws {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
+        if !allowedUnderManagedPolicy, !isCloudEnabled() {
+            throw VMClientError.cloudMachinesDisabled
+        }
     }
 
     private func requestMeasured(
@@ -2024,12 +2032,7 @@ actor VMClient {
         retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
-        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
-            throw VMClientError.disabledByManagedPolicy
-        }
-        if !allowedUnderManagedPolicy, !isCloudEnabled() {
-            throw VMClientError.cloudMachinesDisabled
-        }
+        try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
         let minted = VMRequestTraceContext.mint()
         let trace = CloudOperationContext.current.map {
             VMRequestTraceContext(traceId: $0.traceID, spanId: $0.spanID, clientRequestId: minted.clientRequestId)
