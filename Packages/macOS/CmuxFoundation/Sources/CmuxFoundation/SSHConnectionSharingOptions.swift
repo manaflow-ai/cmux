@@ -162,35 +162,41 @@ public struct SSHConnectionSharingOptions: Sendable {
     }
 
     /// Parses resolved host control settings against OpenSSH's built-in
-    /// defaults. Comparing with a `-F /dev/null` baseline distinguishes an
-    /// explicit host `ControlMaster=no` from the ordinary default `false`.
+    /// defaults, taken from a `-F /dev/null` baseline when one is available.
+    ///
+    /// `ssh -G` prints defaults too, and omits unset keys such as
+    /// `ControlPath`, so an absent key means the built-in default on both
+    /// sides. A host setting counts as configured only when its effective value
+    /// differs from the baseline. OpenSSH versions that normalize a host
+    /// `ControlMaster no` to the default `false` report no difference, and
+    /// cmux sharing stays enabled for them.
     public func userConfiguredControlOptions(
         fromSSHConfigOutput output: String,
         baselineSSHConfigOutput: String?,
         explicitOptions: [String]
     ) -> [String]? {
-        let values = controlConfigurationValues(fromSSHConfigOutput: output)
-        let baselineValues = baselineSSHConfigOutput.map(controlConfigurationValues(fromSSHConfigOutput:))
-
-        // Keep the fallback explicitly disabled if an OpenSSH version omits default-valued keys.
-        let controlMaster = values["controlmaster"] ?? "false"
-        let controlPath = values["controlpath"] ?? "none"
-        let controlPersist = values["controlpersist"] ?? "no"
-        let resolver = SSHAgentSocketResolver()
-        let defaultValues = baselineValues ?? [
+        // OpenSSH omits unset keys, so an absent key is its built-in default.
+        let builtInDefaults = [
             "controlmaster": "false",
             "controlpath": "none",
             "controlpersist": "no",
         ]
-        let hasCustomValue = ["controlmaster", "controlpath", "controlpersist"].contains { key in
+        let values = builtInDefaults.merging(
+            controlConfigurationValues(fromSSHConfigOutput: output)
+        ) { _, reported in reported }
+        let baselineValues = builtInDefaults.merging(
+            baselineSSHConfigOutput.map(controlConfigurationValues(fromSSHConfigOutput:)) ?? [:]
+        ) { _, reported in reported }
+        let resolver = SSHAgentSocketResolver()
+        let hasCustomValue = builtInDefaults.keys.contains { key in
             guard !resolver.hasOptionKey(explicitOptions, key: key) else { return false }
-            return values[key]?.lowercased() != defaultValues[key]?.lowercased()
+            return values[key]?.lowercased() != baselineValues[key]?.lowercased()
         }
         guard hasCustomValue else { return nil }
         return [
-            "ControlMaster=\(controlMaster)",
-            "ControlPath=\(controlPath)",
-            "ControlPersist=\(controlPersist)",
+            "ControlMaster=\(values["controlmaster"] ?? "false")",
+            "ControlPath=\(values["controlpath"] ?? "none")",
+            "ControlPersist=\(values["controlpersist"] ?? "no")",
         ]
     }
 

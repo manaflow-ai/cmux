@@ -181,6 +181,33 @@ struct SSHConnectionSharingOptionsTests {
         ])
     }
 
+    @Test("A baseline that omits unset keys still reads as OpenSSH defaults")
+    func baselineOmittingUnsetKeysMatchesDefaults() {
+        let baseline = """
+        controlmaster false
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: baseline,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+        let configured = """
+        controlmaster false
+        controlpath /Users/alice/.ssh/control-a1b2
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == [
+            "ControlMaster=false",
+            "ControlPath=/Users/alice/.ssh/control-a1b2",
+            "ControlPersist=no",
+        ])
+    }
+
     @Test("Explicit CLI control options win per key over resolved ssh_config settings")
     func explicitOptionsWinOverResolvedConfiguration() {
         let configured = [
