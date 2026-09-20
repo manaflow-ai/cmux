@@ -464,6 +464,9 @@ struct RightSidebarPanelView: View {
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager
                 )
+#if DEBUG
+                .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
+#endif
             case .customSidebar:
                 customSidebarPanel
             }

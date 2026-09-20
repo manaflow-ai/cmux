@@ -29,6 +29,8 @@ extension cmuxApp {
         // A retry must reopen the same workspace/terminal rather than minting a
         // second remote workspace while the daemon graph catches up.
         var pendingReceipts: [CloudWorkspaceCreationRequest: (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource?)] = [:]
+        var pendingReceiptOrder: [CloudWorkspaceCreationRequest] = []
+        let maxPendingReceipts = 8
         return CloudWorkspaceCoordinator(
             machinePinStore: machinePinStore,
             allowsOperation: { CloudMachinesFeature.isEnabled && auth.accountFlow.isAuthenticated },
@@ -53,6 +55,7 @@ extension cmuxApp {
                 }
                 try validate()
                 pendingReceipts = pendingReceipts.filter { $0.key.scopeID == request.scopeID }
+                pendingReceiptOrder = pendingReceiptOrder.filter { pendingReceipts[$0] != nil }
                 let receipt = pendingReceipts[request]
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(request.machineID), provider: provider, catalog: SurfaceCatalog.shared,
@@ -62,9 +65,20 @@ extension cmuxApp {
                     onReceipt: { workspace, terminal in
                         let previousTerminal = pendingReceipts[request]?.terminal
                         pendingReceipts[request] = (workspace, terminal ?? previousTerminal)
+                        pendingReceiptOrder.removeAll { $0 == request }
+                        pendingReceiptOrder.append(request)
+                        while pendingReceiptOrder.count > maxPendingReceipts {
+                            pendingReceipts.removeValue(forKey: pendingReceiptOrder.removeFirst())
+                        }
+                    },
+                    onReceiptInvalidated: { workspace in
+                        guard pendingReceipts[request]?.workspace.id == workspace.id else { return }
+                        pendingReceipts.removeValue(forKey: request)
+                        pendingReceiptOrder.removeAll { $0 == request }
                     }
                 )
                 pendingReceipts[request] = nil
+                pendingReceiptOrder.removeAll { $0 == request }
                 return result.opened?.workspaceID
             }
         )
