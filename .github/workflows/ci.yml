@@ -8,6 +8,16 @@ on:
   pull_request:
   merge_group:
   workflow_dispatch:
+    inputs:
+      cache_backend:
+        description: Cache store for this run. `default` follows the CI_CACHE_BACKEND repository variable.
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - github
+          - warp
 
 permissions:
   contents: read
@@ -826,7 +836,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2317,7 +2327,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2344,7 +2354,7 @@ jobs:
       - name: Restore test compilation cache
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -2512,7 +2522,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2829,7 +2839,7 @@ jobs:
       - name: Cache Xcode compilation results
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -2838,7 +2848,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
