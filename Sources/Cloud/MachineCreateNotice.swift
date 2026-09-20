@@ -27,14 +27,14 @@ struct MachineCreateNotice: Equatable {
                     localized: "machines.notification.createdOpenFailed.title",
                     defaultValue: "%@ was created, but opening it failed"
                 ),
-                machineID
+                request.reservedWorkspaceID == nil ? machineID : request.displayName
             )
             self.subtitle = subtitle
             body = Self.body(
                 lead: String(localized: "machines.notification.createdOpenFailed.body", defaultValue: "Open it from the Machines list."),
                 output: output
             )
-            workspaceID = nil
+            workspaceID = request.presentationWorkspaceID
             isFailure = true
         case .failed(let output):
             title = request.failureLabel
@@ -43,7 +43,7 @@ struct MachineCreateNotice: Equatable {
                 lead: String(localized: "machines.notification.failed.body", defaultValue: "Retry or dismiss it from the Machines list."),
                 output: output
             )
-            workspaceID = request.baseWorkspaceID
+            workspaceID = request.presentationWorkspaceID
             isFailure = true
         }
     }

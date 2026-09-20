@@ -4,7 +4,7 @@ import Foundation
 
 /// Supplies a timestamped aggregate process-memory sample.
 protocol MemoryPressureAggregateSampling: Sendable {
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample
 }
 
 /// Coalition usage returned by the optional macOS coalition ABI.
@@ -20,15 +20,15 @@ protocol MemoryPressureCoalitionSampling: Sendable {
 /// Captures cmux plus all unique descendants, preferring the resource coalition.
 struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     private let processID: Int
-    private let snapshotProvider: @Sendable () -> CmuxTopProcessSnapshot
+    private let snapshotProvider: @Sendable () async -> CmuxTopProcessSnapshot
     private let coalitionSampler: any MemoryPressureCoalitionSampling
     private let physicalMemoryProvider: @Sendable () -> UInt64
     private let availableMemoryProvider: @Sendable () -> UInt64?
 
     init(
         processID: Int = Int(getpid()),
-        snapshotProvider: @escaping @Sendable () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.captureCached(
+        snapshotProvider: @escaping @Sendable () async -> CmuxTopProcessSnapshot = {
+            await CmuxTopProcessSnapshot.captureCached(
                 includeProcessDetails: false,
                 includeCMUXScope: false,
                 maximumAge: 15
@@ -50,7 +50,12 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
         self.availableMemoryProvider = availableMemoryProvider
     }
 
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample {
         let physicalMemoryBytes = physicalMemoryProvider()
         let availableMemoryBytes = availableMemoryProvider()
         if let coalitionUsage = coalitionSampler.usage(forProcessID: processID),
@@ -75,7 +80,7 @@ struct DarwinMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
             )
         }
 
-        let snapshot = snapshotProvider()
+        let snapshot = await snapshotProvider()
         let descendantPIDs = snapshot.expandedPIDs(rootPIDs: [processID])
         var processFootprints: [MemoryPressureAggregateProcessFootprint] = []
         processFootprints.reserveCapacity(descendantPIDs.count)
