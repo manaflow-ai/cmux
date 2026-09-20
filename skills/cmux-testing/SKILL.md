@@ -5,38 +5,42 @@ description: "Choose scoped cmux verification, add behavioral tests, and validat
 
 # cmux Testing
 
-## Choose scope first
+## Choose the first check
 
-Start with the cheapest check relevant to the change:
+Run from the repository root in a trusted checkout.
 
-```sh
-python3 scripts/verify-local.py --help           # quick start and composition
-python3 scripts/verify-local.py --swift-changed  # static checks + current Swift edits
-python3 scripts/verify-local.py --list           # discover focused checks
-```
+| Task | Command |
+| --- | --- |
+| Run the fast static recipe | `python3 scripts/verify-local.py` |
+| Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
+| Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
 
-For already-committed Swift changes, supply a base ref with `--swift-changed
-origin/main`. For a focused edit loop, add `--only swift-syntax`. The
-[command guide](../../docs/verification-receipts.md) covers piped selections and
-JSON output; read it when composing commands or handing off evidence. Use
-[the validation guide](references/local-vs-ci-validation.md) when deciding what
-native, web or runtime checks are still needed. Parsing does not establish
-typechecking or test execution. Docs and portable tooling need their own scoped checks.
+Add a base ref after `--swift-changed` to include committed changes. Use `--list`
+to find other checks and `--help` for options. Parsing checks syntax; it doesn't
+typecheck or run tests.
 
-## Regression commits
+Read the [command guide](../../docs/verification-receipts.md) for piped paths or
+JSON receipts. Use the [validation guide](references/local-vs-ci-validation.md)
+to choose package, native, web or runtime checks. Docs and portable tooling use
+their scoped checks.
 
-Keep the failing behavioral test and repair in separate commits. Record both
-SHAs and the same focused command failing before and passing after; push both
-together when reproduced locally. Follow the root [regression policy](../../CLAUDE.md#regression-test-commits)
-for CI-only failures and final-head checks. Setup failures and zero tests do not
-prove the regression.
+## Reproduce and repair
+
+Keep a focused command that fails on the reported symptom, then rerun it after
+the repair. Setup failures and zero executed tests don't demonstrate the bug.
+Exercise one behavior at a time so a failure identifies what needs fixing.
+
+Keep the failing test and repair in separate commits. Record both SHAs and the
+red/green command; push both together when reproduced locally. Follow the root
+[regression policy](../../CLAUDE.md#regression-test-commits) for CI-only failures
+and final-head checks.
 
 ## Test wiring
 
 New `cmuxTests/*.swift` files need both PBXFileReference and Sources build-phase
 membership in `cmux.xcodeproj/project.pbxproj`. Add through Xcode or follow a wired
-sibling. Run `python3 scripts/verify-local.py --only test-wiring` before an expensive
-test build: an unwired file can otherwise produce a misleading zero-test pass.
+sibling, then run the wiring check above: an unwired file can otherwise produce
+a misleading zero-test pass.
 
 ## Test quality
 
@@ -45,7 +49,8 @@ test build: an unwired file can otherwise produce a misleading zero-test pass.
   to mirror implementation. For metadata behavior, inspect the produced artifact
   or execute the code that consumes it.
 - Add a small runtime harness when needed; skip a fake regression test if there
-  is no meaningful behavioral oracle and explain the limit.
+  is no meaningful behavioral oracle and explain the limit. See
+  [regression and quality](references/regression-and-quality.md) for the judgment call.
 
 ## Swift tests
 
@@ -65,7 +70,4 @@ need the relevant test target compiled, then the selected tests actually execute
 Follow [build-for-testing and execution guidance](references/local-vs-ci-validation.md)
 and the current native capacity owner; report skipped/unsupported checks explicitly.
 
-## References
-
-- [Regression and quality](references/regression-and-quality.md)
-- [Remote tmux sizing E2E](references/remote-tmux-sizing-e2e.md)
+For remote tmux sizing changes, use the [E2E recipe](references/remote-tmux-sizing-e2e.md).
