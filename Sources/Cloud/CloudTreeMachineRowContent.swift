@@ -39,8 +39,9 @@ struct CloudTreeMachineRowContent: View {
 
     /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+        HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
+            // Match the cloud glyph and disclosure control's name-line center.
+            HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
                 Text(machine.displayName)
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
@@ -49,7 +50,7 @@ struct CloudTreeMachineRowContent: View {
                     .layoutPriority(1)
                 if machine.isDefault {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .cmuxFont(size: 9, weight: .semibold)
                         .foregroundStyle(.secondary)
                         .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
                 }
