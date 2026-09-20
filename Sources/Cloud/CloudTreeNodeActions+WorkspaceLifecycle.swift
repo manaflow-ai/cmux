@@ -51,12 +51,7 @@ extension CloudTreeNodeActions {
         if let existing {
             terminal = existing
         } else {
-            terminal = try await provider.createTerminal(
-                command: openLocally ? CloudTuiCommandLine.cloudWelcomeTerminalCommand : nil,
-                cwd: nil,
-                name: nil,
-                remoteWorkspaceID: workspace.id
-            )
+            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
         onReceipt(workspace, terminal)
         guard openLocally else { return (workspace, terminal, nil) }

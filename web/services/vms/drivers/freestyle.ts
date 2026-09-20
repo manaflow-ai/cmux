@@ -55,7 +55,7 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
-import { GUEST_CMUX_WELCOME_IDENTITY_PATH, GUEST_CMUX_WELCOME_PENDING_PATH } from "../guestWelcome";
+import { GUEST_CMUX_WELCOME_IDENTITY_PATH, GUEST_CMUX_WELCOME_PENDING_PATH, guestWelcomeEligibilityCommand } from "../guestWelcome";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -1008,7 +1008,7 @@ export class FreestyleProvider implements VMProvider {
 
             // The in-VM shim is a separate convenience layer over the baked
             // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm, vmId, options.promptIdentity);
+            await this.installGuestCli(vm, vmId, options.promptIdentity, false);
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1394,7 +1394,7 @@ export class FreestyleProvider implements VMProvider {
           // remains best-effort for a transient resume race. The new machine's
           // edge rule is supplied inline, so its route is still fail-closed.
           try {
-            await this.installGuestCli(vm, vmId);
+            await this.installGuestCli(vm, vmId, undefined, false);
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
@@ -1449,7 +1449,8 @@ export class FreestyleProvider implements VMProvider {
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
-          const promptSetup = options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "";
+          const promptSetup = `${guestWelcomeEligibilityCommand(vmId, options?.providerMetadata?.cloudWelcomeEligible === true)}; `
+            + (options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "");
           let bundleResult = await this.execResult(
             vm,
             promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
@@ -1732,14 +1733,14 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity, welcomeEligible?: boolean): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     const identityTemporaryPath = `${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp-${randomBytes(12).toString("hex")}`;
-    const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${identityTemporaryPath}' && mv -f '${identityTemporaryPath}' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
+    const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${identityTemporaryPath}' && chmod 0644 '${identityTemporaryPath}' && mv -f '${identityTemporaryPath}' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
     const pendingTemporaryPath = `${GUEST_CMUX_WELCOME_PENDING_PATH}.tmp-${randomBytes(12).toString("hex")}`;
-    const pendingInstall = promptIdentity
-      ? `printf '1\\n' > '${pendingTemporaryPath}' && mv -f '${pendingTemporaryPath}' '${GUEST_CMUX_WELCOME_PENDING_PATH}'`
-      : "";
+    // Only creation/restore sets eligibility. Healing must never rearm it.
+    const pendingInstall = welcomeEligible === undefined ? ""
+      : `printf '%s\\n' ${shellQuote(welcomeEligible ? vmId : "")} > '${pendingTemporaryPath}' && chmod 0644 '${pendingTemporaryPath}' && mv -f '${pendingTemporaryPath}' '${GUEST_CMUX_WELCOME_PENDING_PATH}'`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({

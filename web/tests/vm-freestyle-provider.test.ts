@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
+import { GUEST_CMUX_WELCOME_PENDING_PATH } from "../services/vms/guestWelcome";
 import path from "node:path";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import { FreestyleApiError, type Freestyle } from "freestyle";
@@ -93,6 +94,23 @@ function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
 }
 
 describe("FreestyleProvider transport contract", () => {
+  test.each([true, false])("create leaves delivery unarmed until successful repository finalization (%s)", async (eligible) => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({
+      image: "sh-devbox", providerMetadata: { cloudWelcomeEligible: eligible },
+      promptIdentity: { machineId: CLOUD_VM_ID, name: "fixture", revision: 1 },
+    });
+    const install = fake.execs.find(command => command.includes(`${GUEST_CMUX_WELCOME_PENDING_PATH}.tmp-`));
+    expect(install).toBeDefined();
+    expect(install).toContain(`printf '%s\\n' '' > '${GUEST_CMUX_WELCOME_PENDING_PATH}.tmp-`);
+  });
+
+  test("guest CLI healing does not rearm first use", async () => {
+    const fake = fakeFreestyle({ probeExit: 0, guestCliExit: 1 });
+    await providerWith(fake).exec(VM_ID, "true");
+    expect(fake.execs.some(command => command.includes(`${GUEST_CMUX_WELCOME_PENDING_PATH}.tmp-`))).toBe(false);
+  });
+
   test("cmux-remote is the only session transport", () => {
     const provider = new FreestyleProvider();
     expect(provider.attachTransports).toEqual(["cmux-remote"]);

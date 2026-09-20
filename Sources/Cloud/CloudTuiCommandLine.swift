@@ -80,16 +80,6 @@ struct CloudTuiCommandLine: Sendable {
         return arguments + ["--"] + command
     }
 
-    /// Starts the first interactive Cloud shell with the local, guest-safe
-    /// welcome before handing control to the user's login shell. The command is
-    /// passed as the terminal's initial argv, so no text is injected after a
-    /// prompt appears. Older images that do not ship the guest welcome fall
-    /// through to a normal shell.
-    static let cloudWelcomeTerminalCommand = [
-        "bash", "-lc",
-        "if command -v cmux >/dev/null 2>&1; then cmux welcome --auto || :; fi; exec bash -l",
-    ]
-
     /// `workspace create [--name <name>]`: the daemon owns auto-naming.
     static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", "create"]

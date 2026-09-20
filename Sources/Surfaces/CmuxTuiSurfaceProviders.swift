@@ -888,7 +888,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let created = try await createRemoteWorkspaceData(link: link, socketPath: connected.socketPath, name: workspaceName, expectedRevision: expectedRevision)
+        var arguments = CloudTuiRequests.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
+        if let expectedRevision { arguments = arguments.adding(["expected_revision": String(expectedRevision)]) }
+        let created = try await link.run(arguments: arguments)
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)

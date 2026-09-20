@@ -440,7 +440,7 @@ extension TerminalController {
         if let existing = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id), !existing.isEmpty {
             group = existing
         } else {
-            let terminal = try await provider.createTerminal(command: CloudTuiCommandLine.cloudWelcomeTerminalCommand, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+            let terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
             starterTerminalID = terminal.id.key
             let placement = SurfaceResourcePlacement(
                 resource: terminal.id,

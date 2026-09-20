@@ -1,13 +1,21 @@
+import { shellQuote } from "./drivers/cmuxTuiDaemon";
+
 /**
  * The offline Cloud welcome shown by the in-VM `cmux welcome` command.
  *
- * This is intentionally a shell renderer rather than a startup profile hook:
- * the Mac starts it as the terminal's initial argv, before the user's shell
- * can accept input.  The state machine is kept here so the guest command and
- * its automatic first-use wrapper share one implementation.
+ * Rendering never reads stdin or fetches data. Automatic delivery is an
+ * explicit startup-only caller; manual replay never touches its ledger.
  */
 export const GUEST_CMUX_WELCOME_IDENTITY_PATH = "/etc/cmux/.cloud-welcome-machine-id";
 export const GUEST_CMUX_WELCOME_PENDING_PATH = "/etc/cmux/.cloud-welcome-pending";
+
+/** Mirrors the repository grant during the existing attach preparation exec. */
+export function guestWelcomeEligibilityCommand(machineId: string, eligible: boolean): string {
+  const value = shellQuote(eligible ? machineId : "");
+  return `(mkdir -p /etc/cmux && temporary=$(mktemp '${GUEST_CMUX_WELCOME_PENDING_PATH}.XXXXXX') && `
+    + `trap 'rm -f "$temporary"' EXIT && printf '%s\\n' ${value} > "$temporary" && chmod 0644 "$temporary" && `
+    + `mv -f "$temporary" '${GUEST_CMUX_WELCOME_PENDING_PATH}') >/dev/null 2>&1 || :`;
+}
 
 export const GUEST_CMUX_WELCOME_SHELL = `guest_welcome_display_available() {
   [ -n "\${DISPLAY:-}" ] && return 0
@@ -17,7 +25,6 @@ export const GUEST_CMUX_WELCOME_SHELL = `guest_welcome_display_available() {
 
 guest_welcome_render() {
   cmux_welcome_reset='\\033[0m'
-  cmux_welcome_subdued='\\033[2m'
   cmux_welcome_c1='\\033[38;2;0;212;255m'
   cmux_welcome_c2='\\033[38;2;24;181;250m'
   cmux_welcome_c3='\\033[38;2;48;150;245m'
@@ -31,8 +38,8 @@ guest_welcome_render() {
   printf '%b    ::::              %bc%bm%bu%bx cloud%b\\n' \\
     "\$cmux_welcome_c2" "\$cmux_welcome_c1" "\$cmux_welcome_c2" "\$cmux_welcome_c3" "\$cmux_welcome_c7" "\$cmux_welcome_reset"
   printf '%b      ::::::%b\\n' "\$cmux_welcome_c3" "\$cmux_welcome_reset"
-  printf '%b        ::::::%b        %bCloud machine%b\\n' "\$cmux_welcome_c4" "\$cmux_welcome_reset" "\$cmux_welcome_subdued" "\$cmux_welcome_reset"
-  printf '%b      ::::::%b          %bReady for coding agents%b\\n' "\$cmux_welcome_c5" "\$cmux_welcome_reset" "\$cmux_welcome_subdued" "\$cmux_welcome_reset"
+  printf '%b        ::::::%b\\n' "\$cmux_welcome_c4" "\$cmux_welcome_reset"
+  printf '%b      ::::::%b\\n' "\$cmux_welcome_c5" "\$cmux_welcome_reset"
   printf '%b    ::::%b\\n' "\$cmux_welcome_c6" "\$cmux_welcome_reset"
   printf '%b  ::%b\\n' "\$cmux_welcome_c7" "\$cmux_welcome_reset"
   printf '\\n'
@@ -51,60 +58,46 @@ guest_welcome_render() {
   printf '\\n'
 }
 
-# The provider creates the pending gate only for a newly-created machine.
-# Claiming is machine-local and atomic. The marker carries the provider's
-# stable VM identity so a fork/restore with a new identity gets its own guide.
-# A pending claim is released when rendering fails, so a later successful
-# attachment can still be the first
-# welcome. A dead owner is reclaimed without polling or a sleep.
+# Only the user's first machine can be eligible. The provider pins the gate
+# to that machine id; cloning its disk cannot transfer eligibility.
 guest_welcome_auto() {
   [ "\${CMUX_CLOUD_WELCOME:-1}" != 0 ] || return 0
+  [ -z "\${CMUX_CLOUD_WELCOME_SHOWN:-}" ] || return 0
   cmux_welcome_pending_gate="\${CMUX_CLOUD_WELCOME_PENDING_PATH:-${GUEST_CMUX_WELCOME_PENDING_PATH}}"
   [ -e "\$cmux_welcome_pending_gate" ] || return 0
   cmux_welcome_state="\${CMUX_GUEST_HOME:-\${HOME:-/root}/.cmux}/cloud-welcome"
   cmux_welcome_marker="\$cmux_welcome_state/shown"
-  cmux_welcome_pending="\$cmux_welcome_state/pending"
-  cmux_welcome_identity="\${CMUX_VM_ID:-}"
-  if [ -z "\$cmux_welcome_identity" ]; then
-    for cmux_welcome_env in "\${HOME:-/root}/.config/cmux/model-plane.env" /etc/cmux/model-plane.env; do
-      [ -r "\$cmux_welcome_env" ] || continue
-      cmux_welcome_identity="\$(sed -n "s/^export CMUX_VM_ID='\\([^']*\\)'$/\\1/p" "\$cmux_welcome_env" | head -n 1)"
-      [ -n "\$cmux_welcome_identity" ] && break
-    done
-  fi
-  if [ -z "\$cmux_welcome_identity" ] && [ -r ${GUEST_CMUX_WELCOME_IDENTITY_PATH} ]; then
-    cmux_welcome_identity="\$(cat ${GUEST_CMUX_WELCOME_IDENTITY_PATH} 2>/dev/null | head -n 1)"
-  fi
-  if [ -z "\$cmux_welcome_identity" ] && [ -r /etc/cmux/.prompt-identity ]; then
-    cmux_welcome_identity="\$(sed -n 's/.*"machineId"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' /etc/cmux/.prompt-identity | head -n 1)"
-  fi
-  [ -n "\$cmux_welcome_identity" ] || cmux_welcome_identity=unknown
+  cmux_welcome_identity_file="\${CMUX_CLOUD_WELCOME_IDENTITY_PATH:-${GUEST_CMUX_WELCOME_IDENTITY_PATH}}"
+  cmux_welcome_identity="\$(cat "\$cmux_welcome_identity_file" 2>/dev/null)" || return 0
+  [ -n "\$cmux_welcome_identity" ] || return 0
+  [ "\$(cat "\$cmux_welcome_pending_gate" 2>/dev/null)" = "\$cmux_welcome_identity" ] || return 0
   mkdir -p "\$cmux_welcome_state" 2>/dev/null || return 0
-  if [ -e "\$cmux_welcome_marker" ]; then
-    [ "\$(cat "\$cmux_welcome_marker" 2>/dev/null || true)" = "\$cmux_welcome_identity" ] && return 0
-    rm -f "\$cmux_welcome_marker" 2>/dev/null || return 0
-  fi
-  if [ -e "\$cmux_welcome_pending" ]; then
-    cmux_welcome_owner="\$(cat "\$cmux_welcome_pending" 2>/dev/null || true)"
-    case "\$cmux_welcome_owner" in
-      ''|*[!0-9]*) rm -f "\$cmux_welcome_pending" 2>/dev/null || return 0 ;;
-      *) kill -0 "\$cmux_welcome_owner" 2>/dev/null && return 0
-         rm -f "\$cmux_welcome_pending" 2>/dev/null || return 0 ;;
-    esac
-  fi
-  ( set -C; umask 077; printf '%s\\n' "\$\$" > "\$cmux_welcome_pending" ) 2>/dev/null || return 0
-  if guest_welcome_render; then
-    cmux_welcome_marker_tmp="\$cmux_welcome_marker.tmp.\$\$"
-    if printf '%s\\n' "\$cmux_welcome_identity" > "\$cmux_welcome_marker_tmp" 2>/dev/null && mv -f "\$cmux_welcome_marker_tmp" "\$cmux_welcome_marker" 2>/dev/null; then
-      rm -f "\$cmux_welcome_pending" 2>/dev/null || true
-      rm -f "\$cmux_welcome_pending_gate" 2>/dev/null || true
-      return 0
-    fi
-    rm -f "\$cmux_welcome_marker_tmp" "\$cmux_welcome_pending" 2>/dev/null || true
-    return 1
-  fi
-  rm -f "\$cmux_welcome_pending" 2>/dev/null || true
-  return 1
+  cmux_welcome_text="\$(guest_welcome_render)" || return 1
+  # Kernel locking releases even on abrupt process exit. Record only after
+  # the complete output write; never unlink a lock another process may hold.
+  python3 -c '
+import fcntl, os, pathlib, sys, tempfile
+marker = pathlib.Path(sys.argv[1])
+identity = sys.argv[2]
+with open(str(marker) + ".lock", "a") as lock:
+    try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError: sys.exit(0)
+    if marker.exists() and marker.read_text().strip() == identity: sys.exit(0)
+    data = (sys.argv[3] + "\\n").encode()
+    while data:
+        written = os.write(1, data)
+        if written == 0: raise OSError("welcome output closed")
+        data = data[written:]
+    fd, temporary = tempfile.mkstemp(prefix=".shown-", dir=marker.parent)
+    try:
+        with os.fdopen(fd, "w") as stream:
+            stream.write(identity + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, marker)
+    finally:
+        if os.path.exists(temporary): os.unlink(temporary)
+' "\$cmux_welcome_marker" "\$cmux_welcome_identity" "\$cmux_welcome_text"
 }
 
 guest_welcome_command() {
