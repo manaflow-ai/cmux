@@ -1035,6 +1035,9 @@
 		62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */; };
 		D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */; };
 		D12439010000000000000001 /* CloudWorkspaceBindingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */; };
+		81B7F6D88BAB4427BD69134C /* CloudWorkspaceCreationSidebarFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E21C24C997481EB96755B5 /* CloudWorkspaceCreationSidebarFixture.swift */; };
+		07B256DD8A2540B1942AF2E2 /* CloudWorkspaceCreationSidebarProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84467A53C7DC449E80A327BE /* CloudWorkspaceCreationSidebarProvider.swift */; };
+		232EA238DD8F42BF960DC463 /* CloudWorkspaceCreationSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46EBB82D5AD4493785328504 /* CloudWorkspaceCreationSidebarTests.swift */; };
 		C12575000000000000000040 /* CloudWorkspaceDeleteOptimismTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000041 /* CloudWorkspaceDeleteOptimismTests.swift */; };
 		C12575000000000000000042 /* CloudWorkspaceDeleteTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000043 /* CloudWorkspaceDeleteTestProvider.swift */; };
 		C12575000000000000000030 /* CloudWorkspaceDeletionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000031 /* CloudWorkspaceDeletionLedger.swift */; };
@@ -5062,6 +5065,9 @@
 		C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubTests.swift; sourceTree = "<group>"; };
 		D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingReconciliation.swift; sourceTree = "<group>"; };
 		D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingRegressionTests.swift; sourceTree = "<group>"; };
+		16E21C24C997481EB96755B5 /* CloudWorkspaceCreationSidebarFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarFixture.swift; sourceTree = "<group>"; };
+		84467A53C7DC449E80A327BE /* CloudWorkspaceCreationSidebarProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarProvider.swift; sourceTree = "<group>"; };
+		46EBB82D5AD4493785328504 /* CloudWorkspaceCreationSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarTests.swift; sourceTree = "<group>"; };
 		C12575000000000000000041 /* CloudWorkspaceDeleteOptimismTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceDeleteOptimismTests.swift; sourceTree = "<group>"; };
 		C12575000000000000000043 /* CloudWorkspaceDeleteTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceDeleteTestProvider.swift; sourceTree = "<group>"; };
 		C12575000000000000000031 /* CloudWorkspaceDeletionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceDeletionLedger.swift; sourceTree = "<group>"; };
@@ -11445,6 +11451,9 @@
 				FCBB7EB399B58A6D076EAF1E /* CloudWorkspaceLayoutTranslatorTests.swift */,
 				5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */,
 				4088DB52FA564E2A8E670921 /* CloudWorkspaceLiveProjectionTests.swift */,
+				46EBB82D5AD4493785328504 /* CloudWorkspaceCreationSidebarTests.swift */,
+				16E21C24C997481EB96755B5 /* CloudWorkspaceCreationSidebarFixture.swift */,
+				84467A53C7DC449E80A327BE /* CloudWorkspaceCreationSidebarProvider.swift */,
 				B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */,
 				4FBF296FE6654DB6BE033698 /* CloudSidebarRenameReconciliationTests.swift */,
 				5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */,
@@ -15706,6 +15715,9 @@
 				C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */,
 				62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */,
 				D12439010000000000000001 /* CloudWorkspaceBindingRegressionTests.swift in Sources */,
+				81B7F6D88BAB4427BD69134C /* CloudWorkspaceCreationSidebarFixture.swift in Sources */,
+				07B256DD8A2540B1942AF2E2 /* CloudWorkspaceCreationSidebarProvider.swift in Sources */,
+				232EA238DD8F42BF960DC463 /* CloudWorkspaceCreationSidebarTests.swift in Sources */,
 				C12575000000000000000040 /* CloudWorkspaceDeleteOptimismTests.swift in Sources */,
 				C12575000000000000000042 /* CloudWorkspaceDeleteTestProvider.swift in Sources */,
 				C12575000000000000000032 /* CloudWorkspaceDeletionLedgerTests.swift in Sources */,
