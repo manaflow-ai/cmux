@@ -42,6 +42,9 @@ extension cmuxApp {
                     onReceipt: { workspace, terminal in
                         let previousTerminal = pendingReceipts[id]?.terminal
                         pendingReceipts[id] = (workspace, terminal ?? previousTerminal)
+                    },
+                    onRollback: {
+                        pendingReceipts[id] = nil
                     }
                 )
                 pendingReceipts[id] = nil

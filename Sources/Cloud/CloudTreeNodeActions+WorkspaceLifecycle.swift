@@ -40,7 +40,8 @@ extension CloudTreeNodeActions {
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
-        onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in }
+        onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in },
+        onRollback: @MainActor () -> Void = {}
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
@@ -56,8 +57,15 @@ extension CloudTreeNodeActions {
         var committed = false
         defer {
             if !committed, let reservation {
-                rollbackLocalWorkspace(reservation)
+                if !rollbackLocalWorkspace(reservation) {
+                    Workspace.liveWorkspace(id: reservation.workspaceID)?.panels[reservation.loadingPanelID]
+                        .flatMap { $0 as? CloudVMLoadingPanel }?.showFailure(String(
+                            localized: "panel.cloudVM.loading.failed.generic",
+                            defaultValue: "Cloud VM could not be opened."
+                        ))
+                }
             }
+            if !committed { onRollback() }
         }
 
         let createdRemoteWorkspace = existingWorkspace == nil
@@ -78,6 +86,7 @@ extension CloudTreeNodeActions {
         var createdRemoteTerminal = false
         if let existing {
             terminal = existing
+            createdRemoteTerminal = createdRemoteWorkspace && existingTerminal == nil
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
             createdRemoteTerminal = true
@@ -206,13 +215,14 @@ extension CloudTreeNodeActions {
     }
 
     @MainActor
-    private static func rollbackLocalWorkspace(_ reservation: LocalWorkspaceReservation) {
+    private static func rollbackLocalWorkspace(_ reservation: LocalWorkspaceReservation) -> Bool {
         guard let manager = AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID),
               let workspace = manager.tabs.first(where: { $0.id == reservation.workspaceID }),
               workspace.effectiveCustomTitleSource != .user,
               workspace.panels.count == 1,
-              workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel else { return }
+              workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel else { return false }
         manager.closeWorkspace(workspace, recordHistory: false)
+        return true
     }
 
     @MainActor
