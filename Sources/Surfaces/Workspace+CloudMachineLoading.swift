@@ -94,4 +94,12 @@ extension Workspace {
         }
         return true
     }
+
+    @discardableResult
+    func failCloudMachineLoadingPanel(panelID: UUID, machineID: String, message: String) -> Bool {
+        guard cloudVMBinding?.vmID == machineID,
+              let loading = panels[panelID] as? CloudVMLoadingPanel else { return false }
+        loading.showFailure(message)
+        return true
+    }
 }

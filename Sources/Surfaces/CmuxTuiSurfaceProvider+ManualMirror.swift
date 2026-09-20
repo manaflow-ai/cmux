@@ -56,7 +56,19 @@ extension CmuxTuiSurfaceProvider {
             resourceID: resource.id, remoteTabID: remoteTabID,
             materializedPlacement: resolvedPlacement, catalog: catalog
         ) ?? resolvedPlacement
-        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
+        do {
+            try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
+        } catch {
+            if let reservation = CloudMachineLoadingReservation.current,
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                _ = workspace.failCloudMachineLoadingPanel(
+                    panelID: reservation.panelID,
+                    machineID: reservation.machineID,
+                    message: String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
+                )
+            }
+            throw error
+        }
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
