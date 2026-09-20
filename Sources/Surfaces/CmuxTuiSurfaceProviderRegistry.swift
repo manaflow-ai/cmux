@@ -242,7 +242,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                       access == self.accessEpoch, !Task.isCancelled else { return false }
                 let activeMachines = force
                     ? Set(discovered.map(\.machine))
-                    : Set(self.catalog?.snapshot.projections.map(\.resource.machine) ?? [])
+                    : Set(self.catalog?.snapshot.projections.map { $0.resource.machine } ?? [])
                 await withTaskGroup(of: Void.self) { group in
                     for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
