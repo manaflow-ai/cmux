@@ -27,6 +27,10 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
+      full_suite: ${{ steps.suite.outputs.full_suite }}
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -146,6 +150,27 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      # Compile admission runs on every routed push. The rest of the macOS suite
+      # runs on merge groups and dispatches always, and on pull requests unless
+      # the repository variable CI_PULL_REQUEST_SUITE is "compile-only". Under
+      # that policy the "full-ci" label opts one pull request back in. Labels are
+      # read live so a re-run sees a label added after the push.
+      - name: Choose the macOS suite for this run
+        id: suite
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(--event-name "$EVENT_NAME" --pull-request-policy "$PULL_REQUEST_POLICY" --github-output "$GITHUB_OUTPUT")
+          labels="$RUNNER_TEMP/pull-request-labels.txt"
+          if [ -n "$PULL_REQUEST_NUMBER" ] && gh api "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --paginate --jq '.[].name' > "$labels"; then
+            args+=(--labels-file "$labels")
+          fi
+          python3 scripts/ci/choose_ci_suite.py "${args[@]}"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -737,7 +762,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions, so route through the shared MACOS_RUNNER_15 var like the other
@@ -747,7 +772,9 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
-      fail-fast: false
+      # A pull request wants every shard's failures in one run. A merge group
+      # only needs a verdict, and the first failure already is one.
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
     env:
@@ -1827,6 +1854,10 @@ jobs:
           changes = needs["changes"]
           tests = needs["app-host-unit-tests"]
           macos = changes.get("outputs", {}).get("macos")
+          # A compile-only pull request run skips the suite on purpose; the
+          # merge group runs it before anything lands.
+          full_suite = changes.get("outputs", {}).get("full_suite") != "false"
+          suite_required = macos == "true" and full_suite
 
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)
@@ -1851,12 +1882,15 @@ jobs:
               )
               sys.exit(1)
 
-          if macos == "true" and tests["result"] != "success":
+          if suite_required and tests["result"] != "success":
               print(f"app-host unit tests were required but did not pass: {tests['result']}", file=sys.stderr)
               sys.exit(1)
 
-          if macos != "true" and tests["result"] not in {"success", "skipped"}:
-              print(f"app-host unit tests had unexpected result for macos={macos}: {tests['result']}", file=sys.stderr)
+          if not suite_required and tests["result"] not in {"success", "skipped"}:
+              print(
+                  f"app-host unit tests had unexpected result for macos={macos} full_suite={full_suite}: {tests['result']}",
+                  file=sys.stderr,
+              )
               sys.exit(1)
 
           # The remaining test/build suites in this workflow gate too. A job that
@@ -1870,6 +1904,7 @@ jobs:
                   sys.exit(1)
 
           print(f"changes.macos={macos}")
+          print(f"changes.full_suite={full_suite}")
           print(f"linux-preflight={preflight['result']}")
           print(f"macos-compile-admission={admission['result']}")
           print(f"app-host unit tests={tests['result']}")
@@ -1886,7 +1921,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
@@ -2395,7 +2430,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
@@ -2735,7 +2770,7 @@ jobs:
     # See app-host-unit-tests: explicit direct-needs gate instead of the
     # implicit success() so skipped routed linux jobs upstream of
     # linux-preflight do not skip this job transitively.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
