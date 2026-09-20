@@ -5,8 +5,7 @@ extension AppDelegate {
     func ownsLocalComputerUseSurface(_ surfaceID: UUID, workspaceID: UUID?) -> Bool {
         guard let owner = liveSurfaceOwner(surfaceID: surfaceID, preferredTabID: workspaceID),
               let workspace = owner.tabManager.workspacesById[owner.tabID],
-              !workspace.isRemoteWorkspace,
-              workspace.panels[owner.surfaceID] is TerminalPanel else { return false }
+              !workspace.isRemoteWorkspace else { return false }
         return true
     }
 
