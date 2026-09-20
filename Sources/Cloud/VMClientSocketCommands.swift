@@ -561,14 +561,14 @@ extension TerminalController {
                 transportUnsupportedMachineID: vmId
             ) {
                 let registry = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared }
-                let cachedCapabilities = await MainActor.run { registry.provider(machineID: vmId)?.capabilities }
-                let capabilities: VMCapabilities
-                if let cachedCapabilities {
-                    capabilities = cachedCapabilities
-                } else {
-                    capabilities = try await VMClient.shared.status(id: vmId).capabilities
-                }
-                guard capabilities.cmuxRemote else {
+                // The attach endpoint is the authoritative capability check. A
+                // status read here was redundant and, on a cold Next dev backend,
+                // forced an extra compilation of GET /api/vm/[id] before the
+                // attach request could begin. Reuse a cached provider verdict
+                // when available; otherwise let openCmuxRemote return the typed
+                // transport-unsupported error.
+                if let cachedCapabilities = await MainActor.run({ registry.provider(machineID: vmId)?.capabilities }),
+                   !cachedCapabilities.cmuxRemote {
                     throw VMClientError.httpStatus(501, #"{"error":"vm_attach_transport_unsupported"}"#)
                 }
                 guard clientCapabilities.contains(CloudTuiCommandLine.wireGuardHubCapability) else {

@@ -67,7 +67,10 @@ extension CloudTreeNodeActions {
             if createdRemoteWorkspace { await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil) }
             throw CancellationError()
         }
-        await provider.refresh()
+        // createRemoteWorkspace installs its committed workspace/terminal receipt
+        // into the catalog immediately. Waiting for a full graph refresh here
+        // serialized the next terminal mutation behind a redundant snapshot;
+        // the provider schedules reconciliation in the background.
         let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
         }
