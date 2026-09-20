@@ -58,9 +58,6 @@ on:
         required: false
         default: "120"
 
-env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
-
 jobs:
   tests:
     runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
