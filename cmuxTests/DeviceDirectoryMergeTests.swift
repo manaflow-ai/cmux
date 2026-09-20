@@ -15,6 +15,42 @@ import Testing
 /// account's, since the viewer presents its bearer token only to those.
 @Suite("Devices: directory merge")
 struct DeviceDirectoryMergeTests {
+    @Test("Only outgoing directory changes refresh My Devices", arguments: [false, true])
+    func hostingMetadataDoesNotReloadDiscovery(peerChanged: Bool) async {
+        let identity = V2Identity(appNamespace: "com.cmuxterm.app", buildTag: "default", deviceID: "self",
+            environment: "development", projectID: "project", teamID: "team", userID: "user")
+        func record(_ identity: V2Identity, hosting: Bool) -> V2DeviceRecord {
+            V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: "endpoint", identity: identity, identityGeneration: 1,
+                metadata: V2DeviceMetadata(appVersion: "1", capabilities: hosting ? ["cmux.mac-host.v1"] : [],
+                    displayName: "Mac", pairingEnabled: hosting, platform: .mac, relayURLs: [])),
+                deviceRecordID: identity.deviceID, revision: hosting ? 2 : 1, revoked: false)
+        }
+        let client = DeviceIrxClient(context: { throw DeviceLinkError.notConnected },
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "device-discovery"))
+        var cache = V2CachedState(identity: identity)
+        cache.device = record(identity, hosting: false)
+        cache.directory = V2Directory(devices: [record(identity, hosting: false)], issuedAt: 1,
+            permissionExpiresAt: 100, relayURLs: [], revision: 1, teamID: "team")
+        await client.enforce(cache)
+        let stream = await client.directoryChanges()
+        var iterator = stream.makeAsyncIterator()
+        _ = await iterator.next()
+        cache.device = record(identity, hosting: true)
+        var devices = [record(identity, hosting: true)]
+        if peerChanged {
+            let peer = V2Identity(appNamespace: identity.appNamespace, buildTag: identity.buildTag, deviceID: "peer",
+                environment: identity.environment, projectID: identity.projectID, teamID: identity.teamID, userID: identity.userID)
+            devices.append(record(peer, hosting: true))
+        }
+        cache.directory = V2Directory(devices: devices, issuedAt: 2, permissionExpiresAt: 100,
+            relayURLs: [], revision: 2, teamID: "team")
+        await client.enforce(cache)
+        await client.stop()
+        var count = 0
+        while await iterator.next() != nil { count += 1 }
+        #expect(count == (peerChanged ? 1 : 0))
+    }
+
     @Test("V2 discovery merges enabled hosts and excludes discovery-only Macs", arguments: [true, false])
     func authenticatedDiscovery(enabled: Bool) throws {
         func record(deviceID: String, endpoint: String, hosting: Bool) -> V2DeviceRecord {
