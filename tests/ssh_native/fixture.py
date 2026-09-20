@@ -127,12 +127,22 @@ async def run(args):
             sftp_factory=lambda chan: asyncssh.SFTPServer(chan, chroot=str(root)),
         )
         port = srv.get_addresses()[0][1]
+        if args.server_only:
+            if not args.server_info:
+                raise SystemExit("--server-info is required with --server-only")
+            pathlib.Path(args.server_info).write_text(json.dumps({
+                "host": "127.0.0.1", "port": port, "username": USER,
+                "password": PASSWORD, "hostFingerprint": hostfp
+            }) + "\n")
+            await asyncio.Event().wait()
+            return
         env = os.environ.copy()
         env.update({
             "CMUX_FIXTURE_ROOT": str(root),
             "CMUX_FIXTURE_PORT": str(port),
         })
         # Fixture only invokes a local binary path controlled by this experiment.
+        if not args.harness: raise SystemExit("--harness is required unless --server-only")
         harness = pathlib.Path(args.harness).resolve()
         modes = [
             ("hostkey-ok", ["--expect-success"]),
@@ -192,8 +202,10 @@ async def run(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--harness", required=True)
-    ap.add_argument("--output", required=True)
+    ap.add_argument("--harness")
+    ap.add_argument("--server-only", action="store_true")
+    ap.add_argument("--server-info")
+    ap.add_argument("--output")
     ap.add_argument("--libssh-version", default="unknown")
     args = ap.parse_args()
     asyncio.run(run(args))

@@ -119,22 +119,28 @@ int cmux_ssh_closed(cmux_ssh *s) {return ssh_channel_is_closed(s->channel);}
 static int ensure_sftp(cmux_ssh *s) {
     if(s->sftp)return CMUX_SSH_OK;
     s->sftp=sftp_new(s->session); if(!s->sftp)return CMUX_SSH_ERROR;
-    if(sftp_init(s->sftp)!=SSH_OK) { sftp_free(s->sftp); s->sftp=NULL; return CMUX_SSH_ERROR; }
+    int rc=sftp_init(s->sftp);
+    if(rc==SSH_AGAIN)return CMUX_SSH_AGAIN;
+    if(rc!=SSH_OK) { sftp_free(s->sftp); s->sftp=NULL; return CMUX_SSH_ERROR; }
     return CMUX_SSH_OK;
 }
 int cmux_ssh_sftp_read_file(cmux_ssh *s,const char *path,void *buffer,uint32_t capacity,uint32_t *written) {
-    if(!path || !buffer || !written || ensure_sftp(s)!=CMUX_SSH_OK)return CMUX_SSH_ERROR;
-    sftp_file file=sftp_open(s->sftp,path,O_RDONLY,0); if(!file)return CMUX_SSH_ERROR;
-    ssize_t count=sftp_read(file,buffer,capacity); sftp_close(file);
+    if(!path || !buffer || !written)return CMUX_SSH_ERROR;
+    int previous=ssh_is_blocking(s->session); ssh_set_blocking(s->session,1);
+    int setup=ensure_sftp(s); if(setup!=CMUX_SSH_OK) { ssh_set_blocking(s->session,previous); return setup; }
+    sftp_file file=sftp_open(s->sftp,path,O_RDONLY,0); if(!file) { ssh_set_blocking(s->session,previous); return CMUX_SSH_ERROR; }
+    ssize_t count=sftp_read(file,buffer,capacity); sftp_close(file); ssh_set_blocking(s->session,previous);
     if(count<0)return CMUX_SSH_ERROR; *written=(uint32_t)count; return CMUX_SSH_OK;
 }
 int cmux_ssh_sftp_list(cmux_ssh *s,const char *path,char *buffer,uint32_t capacity,uint32_t *written) {
-    if(!path || !buffer || !written || ensure_sftp(s)!=CMUX_SSH_OK)return CMUX_SSH_ERROR;
-    sftp_dir dir=sftp_opendir(s->sftp,path); if(!dir)return CMUX_SSH_ERROR;
+    if(!path || !buffer || !written)return CMUX_SSH_ERROR;
+    int previous=ssh_is_blocking(s->session); ssh_set_blocking(s->session,1);
+    int setup=ensure_sftp(s); if(setup!=CMUX_SSH_OK) { ssh_set_blocking(s->session,previous); return setup; }
+    sftp_dir dir=sftp_opendir(s->sftp,path); if(!dir) { ssh_set_blocking(s->session,previous); return CMUX_SSH_ERROR; }
     uint32_t used=0; sftp_attributes attr;
     while((attr=sftp_readdir(s->sftp,dir))!=NULL) {
-        size_t length=strlen(attr->name); if(used+length+1>capacity) { sftp_attributes_free(attr); sftp_closedir(dir); return CMUX_SSH_ERROR; }
+        size_t length=strlen(attr->name); if(used+length+1>capacity) { sftp_attributes_free(attr); sftp_closedir(dir); ssh_set_blocking(s->session,previous); return CMUX_SSH_ERROR; }
         memcpy(buffer+used,attr->name,length); used+=(uint32_t)length; buffer[used++]='\n'; sftp_attributes_free(attr);
     }
-    sftp_closedir(dir); *written=used; return CMUX_SSH_OK;
+    sftp_closedir(dir); ssh_set_blocking(s->session,previous); *written=used; return CMUX_SSH_OK;
 }

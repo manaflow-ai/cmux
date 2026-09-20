@@ -68,30 +68,44 @@ fileprivate actor MobileRemoteNativeSSHHandle {
         guard cmux_ssh_host_key(raw, &algorithm, algorithm.count, &fingerprint, fingerprint.count) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         return try MobileRemoteSSHHostKeyChallenge(profileID: profileID, algorithm: String(decoding: algorithm.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self), fingerprint: String(decoding: fingerprint.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
     }
-    func authenticate(_ credential: MobileRemoteCredentialMaterial?, profile: MobileRemoteProfile) throws -> any MobileRemoteSSHSession {
+    func authenticate(_ credential: MobileRemoteCredentialMaterial?, profile: MobileRemoteProfile) async throws -> any MobileRemoteSSHSession {
         guard let raw else { throw MobileRemoteNativeSSHError.closed }
         let result: Int32
         switch credential {
-        case let .password(value): result = value.withCString { cmux_ssh_auth_password(raw, $0) }
-        case .none: result = cmux_ssh_auth_none(raw)
+        case let .password(value): result = try await repeatAuthentication { value.withCString { cmux_ssh_auth_password(raw, $0) } }
+        case .none: result = try await repeatAuthentication { cmux_ssh_auth_none(raw) }
         case let .privateKey(bytes, passphrase):
             let encoded = bytes.base64EncodedString()
             result = encoded.withCString { key in passphrase?.withCString { cmux_ssh_load_private_key(raw, key, $0) } ?? cmux_ssh_load_private_key(raw, key, nil) }
-            guard result == Int32(CMUX_SSH_OK), cmux_ssh_auth_key(raw) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+            let authenticated = try await repeatAuthentication({ cmux_ssh_auth_key(raw) })
+            guard result == Int32(CMUX_SSH_OK), authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
         }
         guard result == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
-        guard cmux_ssh_open_channel(raw) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+        guard try await repeatAuthentication({ cmux_ssh_open_channel(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         for (name, value) in profile.environment {
-            guard cmux_ssh_environment(raw, name, value) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+            guard try await repeatAuthentication({ cmux_ssh_environment(raw, name, value) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         }
         switch profile.sessionBackend {
         case .shell:
-            guard cmux_ssh_request_pty(raw, 80, 24) == Int32(CMUX_SSH_OK),
-                  cmux_ssh_request_shell(raw) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+            guard try await repeatAuthentication({ cmux_ssh_request_pty(raw, 80, 24) }) == Int32(CMUX_SSH_OK),
+                  try await repeatAuthentication({ cmux_ssh_request_shell(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         case .tmux, .zellij, .herdr, .cmuxTUI:
             throw MobileRemoteNativeSSHError.unsupportedSessionBackend(profile.sessionBackend)
         }
         return MobileRemoteNativeSSHSession(handle: self)
+    }
+
+    private func repeatAuthentication(_ operation: () -> Int32) async throws -> Int32 {
+        while !closed {
+            let result = operation()
+            if result != Int32(CMUX_SSH_AGAIN) { return result }
+            guard let raw else { throw MobileRemoteNativeSSHError.closed }
+            try Task.checkCancellation()
+            if cmux_ssh_wait(raw, 250) == Int32(CMUX_SSH_ERROR) {
+                throw MobileRemoteNativeSSHError.nativeFailure
+            }
+        }
+        throw MobileRemoteNativeSSHError.closed
     }
 
     func read(_ bytes: inout [UInt8], timeoutMilliseconds: Int32) throws -> Int {
@@ -126,22 +140,26 @@ fileprivate actor MobileRemoteNativeSSHHandle {
     func isEOF() -> Bool { guard let raw else { return true }; return cmux_ssh_eof(raw) != 0 }
     func isClosed() -> Bool { guard let raw else { return true }; return closed || cmux_ssh_closed(raw) != 0 }
 
-    func sftpReadFile(path: String, maxBytes: Int) throws -> Data {
+    func sftpReadFile(path: String, maxBytes: Int) async throws -> Data {
         guard let raw, maxBytes > 0, maxBytes <= 64 * 1024 * 1024,
               !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
         var buffer = [UInt8](repeating: 0, count: maxBytes)
         var written: UInt32 = 0
-        let result = path.withCString { cmux_ssh_sftp_read_file(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        let result = try await repeatAuthentication({
+            path.withCString { cmux_ssh_sftp_read_file(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        })
         guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
         return Data(buffer.prefix(Int(written)))
     }
 
-    func sftpList(path: String, maxEntries: Int, maxBytes: Int) throws -> [String] {
+    func sftpList(path: String, maxEntries: Int, maxBytes: Int) async throws -> [String] {
         guard let raw, (1...10_000).contains(maxEntries), (1...4 * 1024 * 1024).contains(maxBytes),
               !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
         var buffer = [CChar](repeating: 0, count: maxBytes)
         var written: UInt32 = 0
-        let result = path.withCString { cmux_ssh_sftp_list(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        let result = try await repeatAuthentication({
+            path.withCString { cmux_ssh_sftp_list(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        })
         guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
         let names = String(decoding: buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
             .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
