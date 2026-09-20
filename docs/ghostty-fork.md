@@ -12,8 +12,13 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `35ae29b7c2`, the pin cmux `main`
-adopted in cmux #12669. It is the merge of fork `main` at `3869e81a0` into the
+The submodule pinned by this branch is `2dc32c14c4`, reachable from fork
+`main`. It contains cmux's previous `35ae29b7c2` pin, the merged Copy Mode
+wheel-ownership fix (#220), the owned environment snapshots (#227), and the
+localhost punctuation correction (#228). Both `35ae29b7c2` and `7dccfd734`
+are ancestors, so the update preserves the existing cmux and fork-main fixes.
+
+The previous pin, adopted in cmux #12669, merged fork `main` at `3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790` bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
@@ -31,22 +36,30 @@ resolution.
 ### Current feature pin
 
 - Branch:
-  - https://github.com/manaflow-ai/ghostty/tree/main (contains the Hangul fix
-    through merge commit `3869e81a0`; the pin itself is one merge ahead of
-    fork `main`, on the Cloud loopback link-detection branch)
+  - https://github.com/manaflow-ai/ghostty/tree/main
 - Commit:
-  - `35ae29b7c2` (merge of fork `main` `3869e81a0` into `46428d790`; pinned by
-    cmux #12669)
+  - `2dc32c14c4` (merged fork PR #228, retaining #218, #220, and #227)
 - Summary:
-  - Adds the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
+  - Gives active Copy Mode ownership of wheel input while preserving application
+    mouse modes, copy selection, and normal wheel handling after exit.
+  - Owns POSIX environment strings and pointer vectors across later host
+    environment mutation; earlier snapshots remain valid for retained views.
+  - Recognizes `localhost:8000.` through the port while rejecting
+    `localhost:8000.evil`, preserving existing loopback-link detection.
+  - Preserves the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
     upstream picks, the write-pool FIFO fix, `clear_screen` scrollback erasure
     and bare localhost port-link detection on top of cmux's prior pin,
     preserving incremental embedded configuration propagation and Fish SSH
     feature gating, with the renderer/API compatibility pin and repeated
     word-selection drag anchor behavior.
 - Verification:
-  - `src/font` at `35ae29b7c2` is byte-identical to `370f08cf1`
-    (`git diff 370f08cf1 35ae29b7c2 -- src/font` is empty), so the Hangul
+  - https://github.com/manaflow-ai/cmux/actions/runs/35505626310 passed 74/74
+    Zig tests (the localhost matcher plus 73 dependency tests), all four
+    `EnvironSnapshots` tests, the embedded environment-relocation regression,
+    and all three Copy Mode app tests, including three mouse-mode cases.
+  - The pin's tree is identical to validated candidate `f44c09ab9`.
+  - `src/font` at `2dc32c14c4` is byte-identical to `370f08cf1`
+    (`git diff 370f08cf1 2dc32c14c4 -- src/font` is empty), so the Hangul
     results below apply to this pin's font code unchanged.
   - Zig 0.16.0 on macOS 26.4, at `370f08cf1`, `-Dtest-filter=Hangul`: 78/78
     with the CoreText shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`.
@@ -61,12 +74,13 @@ resolution.
     outside ghostty-org, so these were run by hand on a leased fleet Mac.
   - A tagged cmux app built against the `370f08cf1` GhosttyKit renders both
     configurations from cmux #12753 correctly where the earlier pins drew
-    unrelated symbols (cmux #12826). The `35ae29b7c2` archive itself was not
-    run through that check.
+    unrelated symbols (cmux #12826). The new archive has not been run through
+    that particular Hangul UI check.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-35ae29b7c2bcee7c721d515d0096a9bc3f3242bb-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-  - SHA-256 `6f83f20842140a782c8029156aabe92c246a181682794f01ad0a30ca43c76620`
-    is pinned in `scripts/ghosttykit-checksums.txt` (cmux #12669).
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2dc32c14c4b5fb94f5fb7be88e574e2a159b1a6f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `f3b23be50a001472c2bfba3b0daf02bb7b920dbef0d25b15cc2239ea5771321b`
+    is pinned in `scripts/ghosttykit-checksums.txt`; built by
+    https://github.com/manaflow-ai/cmux/actions/runs/35506787418.
   - The Hangul branch tip `370f08cf1` also has a published archive,
     https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-370f08cf15a6ab646b9a291f72af034bb0960fb3-crashsubdir-cmux-crash-sentry-off-noi18n-v2
     (SHA-256 `ec53b8992b466ecd9cc87b42754188fe504898ff0b139f54b3eef1dc6a441233`,
@@ -383,6 +397,21 @@ and matched SHA-256
 - Conflict note:
   - Preserve this ordering during future `global.init` merges: process-wide
     locale mutation must stay before any Ghostty-owned background thread starts.
+
+### Embedded environment snapshot ownership
+
+- PR: https://github.com/manaflow-ai/ghostty/pull/227
+- Files: `src/global.zig`, `src/os/EnvironSnapshots.zig`,
+  `src/apprt/gtk/class/application.zig`
+- Captures owned copies of both the POSIX environment vector and its strings.
+  Host `setenv` calls after initialization cannot invalidate retained views;
+  previous captures remain alive until the owning snapshot arena is destroyed.
+- Preserve that lifetime when rebasing global initialization or environment
+  refresh. Capture still requires a quiescent source; it does not synchronize
+  concurrent host mutation with initialization or refresh.
+- Regression coverage includes snapshot ownership, retained older views, empty
+  environments, allocation failures, and config finalization after actual libc
+  environment-vector relocation (`test/embedded-environment/run.py`).
 
 ### Empty opener stderr diagnostics
 
