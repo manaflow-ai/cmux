@@ -32,7 +32,8 @@ localized.
 | `cmux <path>` | Open a directory or file parent in cmux through the app's file-open path, without requiring control-socket access. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
-| `cmux help` | Print top-level usage without a socket. |
+| `cmux help` | Print top-level usage without a socket. Commands are listed once each under task groups: Start & Resume, Agents, Navigate & Arrange, Inspect, Customize, Automation, Browser, Remote, Diagnostics / Advanced. |
+| `cmux help <topic>` | Print one task group without a socket. Topics: `start`, `agents`, `navigate`, `inspect`, `customize`, `automation`, `browser`, `remote`, `diagnostics`. An unknown topic, or more than one argument, prints top-level usage. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
 
 Global options:
@@ -724,6 +725,23 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
+- `cmux --help` -> `Start & Resume:`
+- `cmux --help` -> `Diagnostics / Advanced:`
+- `cmux help start` -> `Start & Resume:`
+- `cmux help agents` -> `Agents:`
+- `cmux help navigate` -> `Navigate & Arrange:`
+- `cmux help inspect` -> `Inspect:`
+- `cmux help customize` -> `Customize:`
+- `cmux help automation` -> `Automation:`
+- `cmux help browser` -> `Browser:`
+- `cmux help remote` -> `Remote:`
+- `cmux help diagnostics` -> `Diagnostics / Advanced:`
+- `cmux help diagnostics` -> `socket-status [--json]`
+- `cmux help remote` -> `auth <status|login|logout|team>`
+- `cmux --help` -> `socket-status [--json]`
+- `cmux --help` -> `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>`
+- `cmux help --help` -> `Usage: cmux help [topic]`
+- `cmux help unknown-task-topic` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `cmux guide | cmux --skill`
 - `cmux cloud --help` -> `guide | --skill`
 - `cmux guide` -> `# cmux guide`
