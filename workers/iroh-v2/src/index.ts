@@ -15,7 +15,7 @@ export default {
       const services = runtime(env);
       const shared = {
         ...services, now: () => Math.floor(Date.now() / 1000),
-        observe: (event: { event: string; requestId: string; code: string; status: number }) => observe(ctx, env, { environment: env.ENVIRONMENT, ...event }),
+        observe: (event: { event: string; requestId: string; code: string; status: number; reason?: string }) => observe(ctx, env, { environment: env.ENVIRONMENT, ...event }),
         dispatchTeam: (teamId: string, forwarded: Request) => env.TEAM_CONTROL.getByName(objectName(services.environment, services.projectId, teamId)).fetch(forwarded),
       };
       response = new URL(request.url).pathname.startsWith("/v2/dashboard/") ? await routeDashboard(request, {

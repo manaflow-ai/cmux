@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Этот размер машины недоступен. Выберите до {max} ГиБ.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go включает две сохранённые ВМ, в том числе работающую.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go поддерживает 2 vCPU, 4 GiB ОЗУ и 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Если мы нашли аккаунт, проверьте электронную почту, чтобы узнать дальнейшие действия"
   },
@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "обзор",
       "team": "команда",
-      "irohDevices": "IROH devices"
+      "connectedDevices": "Connected devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -370,11 +370,11 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Connected devices",
+      "description": "Devices signed in to this team that can reach its Macs. Revoke any device you no longer use.",
+      "noTeam": "Join a team to see its connected devices.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "No devices are connected for this team.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",

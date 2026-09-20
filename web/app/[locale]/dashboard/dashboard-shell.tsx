@@ -56,7 +56,7 @@ export function DashboardShell({
         },
         {
           href: "/dashboard/iroh",
-          label: t("irohDevices"),
+          label: t("connectedDevices"),
           active: pathname.startsWith("/dashboard/iroh"),
         },
       ],
