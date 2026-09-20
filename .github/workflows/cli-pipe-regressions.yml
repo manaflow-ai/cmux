@@ -7,6 +7,9 @@ on:
       - 'tests/test_cli_broken_pipe_writes.py'
       - 'tests/test_cli_socket_operation_deadline.py'
       - 'tests/test_cli_cloud_hostname.py'
+      - 'tests/test_cli_current.py'
+      - 'tests/test_current_command_fixture.py'
+      - 'tests/fixtures/CurrentCommandFixture.swift'
       - 'tests/fixtures/cloud-hostname-resolver-tripwire.m'
       - 'tests/fixtures/CloudHostnameFixture.swift'
       - 'Sources/Cloud/CloudTuiClientPaths.swift'
@@ -91,6 +94,15 @@ jobs:
           export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
           python3 tests/test_cli_cloud_hostname.py 2>&1 | tee "$RUNNER_TEMP/cloud-hostname.log"
 
+      - name: Exercise bounded read-only current-work consumers
+        run: |
+          set -euo pipefail
+          CMUX_CLI_PRODUCTS="$CMUX_CLI_DERIVED/Build/Products/Debug"
+          export CMUX_CLI_BIN="$CMUX_CLI_PRODUCTS/cmux"
+          export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
+          python3 tests/test_cli_current.py 2>&1 | tee "$RUNNER_TEMP/current-cli.log"
+          python3 tests/test_current_command_fixture.py 2>&1 | tee "$RUNNER_TEMP/current-fixture.log"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -100,4 +112,6 @@ jobs:
             ${{ runner.temp }}/cli-build.log
             ${{ runner.temp }}/cli-pipes.log
             ${{ runner.temp }}/cloud-hostname.log
+            ${{ runner.temp }}/current-cli.log
+            ${{ runner.temp }}/current-fixture.log
           retention-days: 7

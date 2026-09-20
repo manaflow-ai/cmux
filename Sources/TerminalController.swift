@@ -1940,6 +1940,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "current.list":
+            return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
@@ -3249,7 +3251,7 @@ class TerminalController {
             "vm.tunnel_up",
             "vm.tunnel_down",
             "vm.tunnel_wait",
-            "surface.catalog",
+            "surface.catalog", "current.list",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",
@@ -4068,9 +4070,7 @@ class TerminalController {
         guard let id else { return .null }
         return JSONValue(foundationObject: id)
     }
-    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
-    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
+    /// Bridges async work into a socket response while parking its worker on a semaphore.
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
