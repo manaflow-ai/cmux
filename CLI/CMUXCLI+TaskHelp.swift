@@ -32,15 +32,15 @@ extension CMUXCLI {
 
         var title: String {
             switch self {
-            case .start: return "Start & Resume"
-            case .agents: return "Agents"
-            case .navigate: return "Navigate & Arrange"
-            case .inspect: return "Inspect"
-            case .customize: return "Customize"
-            case .automation: return "Automation"
-            case .browser: return "Browser"
-            case .remote: return "Remote"
-            case .diagnostics: return "Diagnostics / Advanced"
+            case .start: return String(localized: "cli.help.topic.start", defaultValue: "Start & Resume")
+            case .agents: return String(localized: "cli.help.topic.agents", defaultValue: "Agents")
+            case .navigate: return String(localized: "cli.help.topic.navigate", defaultValue: "Navigate & Arrange")
+            case .inspect: return String(localized: "cli.help.topic.inspect", defaultValue: "Inspect")
+            case .customize: return String(localized: "cli.help.topic.customize", defaultValue: "Customize")
+            case .automation: return String(localized: "cli.help.topic.automation", defaultValue: "Automation")
+            case .browser: return String(localized: "cli.help.topic.browser", defaultValue: "Browser")
+            case .remote: return String(localized: "cli.help.topic.remote", defaultValue: "Remote")
+            case .diagnostics: return String(localized: "cli.help.topic.diagnostics", defaultValue: "Diagnostics / Advanced")
             }
         }
 
@@ -91,15 +91,15 @@ extension CMUXCLI {
     /// Text for `cmux help --help`.
     func helpCommandUsage() -> String {
         return """
-        Usage: cmux help [topic]
+        \(String(localized: "cli.help.usage", defaultValue: "Usage: cmux help [topic]"))
 
-        Show top-level CLI usage, or one task-focused command group.
+        \(String(localized: "cli.help.description", defaultValue: "Show top-level CLI usage, or one task-focused command group."))
 
-        Topics:
+        \(String(localized: "cli.help.topics", defaultValue: "Topics:"))
         \(Self.taskHelpTopicSummary)
 
-        Unknown topics keep the top-level help behavior.
-        Also works without a running cmux app or socket.
+        \(String(localized: "cli.help.unknownTopic", defaultValue: "Unknown topics keep the top-level help behavior."))
+        \(String(localized: "cli.help.noSocket", defaultValue: "Also works without a running cmux app or socket."))
         """
     }
 
@@ -113,7 +113,7 @@ extension CMUXCLI {
         \(topic.title):
         \(commands)
 
-        Run `cmux <command> --help` for command-specific usage.
+        \(String(localized: "cli.help.topic.commandUsage", defaultValue: "Run `cmux <command> --help` for command-specific usage."))
         """
     }
 
@@ -166,9 +166,9 @@ extension CMUXCLI {
           Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
-        Task Help:
+        \(String(localized: "cli.help.taskHelp.heading", defaultValue: "Task Help:"))
           cmux help <\(Self.taskHelpTopicNames)>
-          Show one command group without connecting to the cmux socket.
+          \(String(localized: "cli.help.taskHelp.description", defaultValue: "Show one command group without connecting to the cmux socket."))
 
         Commands:
         \(commandGroups)
