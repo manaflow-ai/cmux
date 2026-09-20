@@ -19,6 +19,6 @@ struct ForegroundRefreshIsolationTests {
         #expect(completedWhileSecondaryWasBlocked)
         #expect(store.connectionState == .connected)
         #expect(!store.workspaces.isEmpty)
-        store.pauseForegroundRefresh()
+        store.suspendForegroundRefresh()
     }
 }
