@@ -225,7 +225,18 @@ final class MachineCreateCoordinator {
         for handle in cancelledHandles { handle.cancel() }
         for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
         for operation in closed { cancelOperation(operation) }
-        if let finished { notifier(MachineCreateNotice(finished: finished)) }
+        // A successful Cloud create already opens/selects its workspace. A
+        // second notification is redundant; retain notifications for failures,
+        // where they remain actionable.
+        if let finished {
+            switch finished.outcome {
+            case .created:
+                // Workspace selection above is the success acknowledgement.
+                break
+            case .createdButOpenFailed, .failed:
+                notifier(MachineCreateNotice(finished: finished))
+            }
+        }
         if transition.changed { postDidChange(finished: finished) }
     }
 

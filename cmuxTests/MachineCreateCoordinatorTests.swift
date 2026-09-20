@@ -204,8 +204,8 @@ struct MachineCreateCoordinatorTests {
     }
 
     /// The operation must be registered before the launcher runs: a launcher
-    /// whose completion fires synchronously still has to find its row, finish
-    /// it, and notify — never leave a phantom pending row behind.
+    /// whose completion fires synchronously still has to find its row and
+    /// finish it — never leave a phantom pending row behind.
     @Test func synchronousCompletionStillResolvesTheOperation() {
         let (coordinator, _, notices, changes, _) = makeCoordinator()
         let immediate: MachineCreateCoordinator.Launch = { _, _, completion in
@@ -220,7 +220,7 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.start(Self.newMachineRequest(), launch: immediate))
         #expect(coordinator.operations.isEmpty, "the synchronous completion resolved the row")
         #expect(changes.finished.count == 1)
-        #expect(notices.notices.first?.title == "calm-petrel is ready")
+        #expect(notices.notices.isEmpty, "a successful create is acknowledged by workspace selection")
     }
 
     @Test func emittedMachineMarkerCorrelatesPendingRowBeforeCLIExits() {
@@ -260,7 +260,7 @@ struct MachineCreateCoordinatorTests {
 
     // MARK: Success
 
-    @Test func successDropsTheRowAndTellsThePersonWhereTheMachineOpened() {
+    @Test func successDropsTheRowAndSelectsTheOpenedWorkspace() {
         let (coordinator, launches, notices, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
@@ -271,27 +271,22 @@ struct MachineCreateCoordinatorTests {
         #expect(changes.finished.count == 1)
         #expect(changes.finished.first?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
         #expect(coordinator.lastFinished?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
-        let notice = try? #require(notices.notices.first)
-        #expect(notice?.title == "calm-petrel is ready")
-        #expect(notice?.workspaceID == workspaceID, "the notification's click goes to the new workspace")
-        #expect(notice?.isFailure == false)
+        #expect(notices.notices.isEmpty, "the new workspace is already selected")
     }
 
-    @Test func successKeepsTheTypedLabelInTheNotification() {
+    @Test func successKeepsTheTypedLabelInTheFinishedOperation() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
-        #expect(notices.notices.first?.title == "build box is ready")
-        #expect(notices.notices.first?.workspaceID == nil)
+        #expect(notices.notices.isEmpty, "success does not post a redundant notification")
     }
 
-    @Test func baseSuccessIsAnnouncedAsBase() {
+    @Test func baseSuccessDoesNotPostANotification() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         let workspaceID = UUID()
         coordinator.start(Self.baseRequest(workspaceID: workspaceID), launch: launches.launch)
         launches.complete(status: 0, output: "Opened Base base-1\n", workspaceID: workspaceID)
-        #expect(notices.notices.first?.title == "Base is ready")
-        #expect(notices.notices.first?.workspaceID == workspaceID)
+        #expect(notices.notices.isEmpty, "base setup success does not post a notification")
     }
 
     // MARK: Failure
@@ -324,7 +319,7 @@ struct MachineCreateCoordinatorTests {
 
         launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
         #expect(coordinator.operations.isEmpty)
-        #expect(notices.notices.count == 2)
+        #expect(notices.notices.count == 1, "retry success does not add a redundant notification")
     }
 
     @Test func emptyFailureOutputGetsAGenericMessage() {

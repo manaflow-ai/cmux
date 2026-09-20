@@ -1,9 +1,8 @@
 import Foundation
 
-/// What the person is told when a background create finishes: the words for
-/// the notification and, when the machine opened somewhere, the workspace the
-/// notification's click should land in. Built from the coordinator's
-/// ``MachineCreateCoordinator/Finished`` so the wording lives in one place.
+/// What the person is told when a background create fails: the words for the
+/// actionable notification and its workspace anchor. Successful creates are
+/// acknowledged by selecting their workspace and do not post a notification.
 struct MachineCreateNotice: Equatable {
     let title: String
     let subtitle: String
