@@ -163,7 +163,13 @@ final class CloudBrowserAccessState {
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
         observationGeneration &+= 1
         unavailable = nil
-        self.resourceID = resourceID
+        // WebView/profile replacement reconfigures the existing route without
+        // passing the identity again. Keep the stable display ID until an
+        // explicit replacement supplies a new one; callers that leave Cloud
+        // first still clear it deliberately.
+        if let resourceID {
+            self.resourceID = resourceID
+        }
         self.model = model
         remoteURL = url
         navigationURL = nil
