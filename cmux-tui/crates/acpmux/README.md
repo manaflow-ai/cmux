@@ -478,6 +478,47 @@ takes `-m NAME/MODEL`. Declared `models` feed the pickers and `daemon models`; t
 catalog is merged after them. `kind: "claude-stdio"` selects the Claude Code stream-json backend
 instead of ACP.
 
+### cmux Codex as the default
+
+`cmux-codex` is our Codex fork with aggressive retries. It runs through the existing
+Codex ACP adapter by setting `CODEX_PATH` to the fork executable. It shares Codex's
+login and provider configuration; the harness name does not create another model API provider.
+
+Merge this into `~/.acpmux/config.json`, using your installed adapter and fork paths:
+
+```json
+{
+  "harnesses": {
+    "cmux-codex": {
+      "argv": ["${home}/.local/share/cmux-acp/current/bin/codex-acp"],
+      "family": "codex",
+      "env": {"CODEX_PATH": "${home}/.local/cmux-codex/bin/cmux-codex"},
+      "description": "cmux Codex with aggressive retries"
+    }
+  },
+  "defaultHarness": "cmux-codex",
+  "defaults": {
+    "codex": {
+      "prefer": ["cmux-codex", "codex"],
+      "model": "gpt-6-astra",
+      "effort": "high"
+    }
+  }
+}
+```
+
+Then `acpmux daemon reload` makes the profile/default available for new sessions.
+`acpmux new` uses it by default; `acpmux new -m cmux-codex` chooses it explicitly.
+Existing session processes retain their current executable.
+
+The verified fork ([`40be6cca8`](https://github.com/manaflow-ai/codex/commit/40be6cca8004ed0424b35b4610d4bc19598d42f5))
+retries transient stream failures without a limit, with a one-second default delay
+or the server's requested delay. Remote compaction uses the same unlimited default;
+quota-class errors stay terminal. Leave the provider's `stream_max_retries` unset:
+an explicit value selects a finite budget (clamped to 100). The retry loop belongs
+to the fork, not acpmux's `--retries` flag. Keep `codex-code-mode-host` and
+`codex-responses-api-proxy` installed beside the fork executable.
+
 ### DeepSeek Harness and OpenCode v2
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)
