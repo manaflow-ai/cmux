@@ -30,7 +30,7 @@ extension Workspace {
         panel.deviceAttachment = status
         status.onChange = { [weak self] in self?.postRemoteConnectionPresentationDidChange() }
         status.onRetry = { [weak self] in
-            guard let self, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
+            guard self != nil, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
                   let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) else { return }
             Task { await provider.refresh(force: true) }
         }
