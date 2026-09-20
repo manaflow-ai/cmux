@@ -386,6 +386,7 @@
 		D35A00000000000000000017 /* BrowserDesignModePopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000017 /* BrowserDesignModePopover.swift */; };
 		D35A00000000000000000018 /* BrowserDesignModePopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */; };
 		D35A00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */; };
+		D35C00000000000000000005 /* BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000005 /* BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift */; };
 		D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */; };
 		D35A00000000000000000021 /* BrowserDesignModeSelection+FullPageCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000021 /* BrowserDesignModeSelection+FullPageCapture.swift */; };
 		D35A00000000000000000019 /* BrowserDesignModeSelectionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000019 /* BrowserDesignModeSelectionChip.swift */; };
@@ -4478,6 +4479,7 @@
 		D35B00000000000000000017 /* BrowserDesignModePopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopover.swift; sourceTree = "<group>"; };
 		D35B00000000000000000018 /* BrowserDesignModePopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModePopoverHost.swift; sourceTree = "<group>"; };
 		D35B00000000000000000016 /* BrowserDesignModeScreenshotEvaluator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeScreenshotEvaluator.swift; sourceTree = "<group>"; };
+		D35D00000000000000000005 /* BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift"; sourceTree = "<group>"; };
 		D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDesignModeScreenshotEvaluatorTests.swift; sourceTree = "<group>"; };
 		D35B00000000000000000021 /* BrowserDesignModeSelection+FullPageCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserDesignModeSelection+FullPageCapture.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000019 /* BrowserDesignModeSelectionChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDesignModeSelectionChip.swift; sourceTree = "<group>"; };
@@ -11316,6 +11318,7 @@
 				D35D00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift */,
 				D35D00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift */,
 				D35D00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift */,
+				D35D00000000000000000005 /* BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift */,
 				8827D0010000000000000001 /* BrowserScreenshotCropTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
@@ -15679,6 +15682,7 @@
 				D35C00000000000000000003 /* BrowserDesignModeArtifactStoreTests.swift in Sources */,
 				D35C00000000000000000002 /* BrowserDesignModeComposerHostingViewTests.swift in Sources */,
 				D35C00000000000000000004 /* BrowserDesignModeOffscreenSelectionHandoffTests.swift in Sources */,
+				D35C00000000000000000005 /* BrowserDesignModeScreenshotEvaluatorTests+SmoothScrolling.swift in Sources */,
 				D35C00000000000000000001 /* BrowserDesignModeScreenshotEvaluatorTests.swift in Sources */,
 				B1F0C0060000000000000001 /* BrowserDeveloperToolsDockControlNormalizerTests.swift in Sources */,
 				B1F0C0070000000000000001 /* BrowserDeveloperToolsLifecycleTests.swift in Sources */,

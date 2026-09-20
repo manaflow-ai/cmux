@@ -334,11 +334,12 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     func testCommandYRoutesThroughSharedMachineAction() async throws {
 #if DEBUG
-        let appDelegate = makeAppDelegate()
+        let (appDelegate, _, mainWindow) = authFixture!.makeAppDelegateWithMainWindow()
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
+        KeyboardShortcutSettings.resetShortcut(for: .newCloudMachine)
         appDelegate.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
 
         let event = try XCTUnwrap(NSEvent.keyEvent(
@@ -346,7 +347,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             location: .zero,
             modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+            windowNumber: mainWindow.window.windowNumber,
             context: nil,
             characters: "y",
             charactersIgnoringModifiers: "y",
@@ -409,10 +410,11 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
     func testReboundKeyRoutesAndOldKeyDoesNot() async throws {
 #if DEBUG
-        let appDelegate = makeAppDelegate()
+        let (appDelegate, _, mainWindow) = authFixture!.makeAppDelegateWithMainWindow()
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
+        KeyboardShortcutSettings.resetShortcut(for: .newCloudMachine)
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "k", command: true, shift: true, option: false, control: false),
             for: .newCloudWorkspace
@@ -425,7 +427,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
                 location: .zero,
                 modifierFlags: modifiers,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+                windowNumber: mainWindow.window.windowNumber,
                 context: nil,
                 characters: characters,
                 charactersIgnoringModifiers: characters,
@@ -454,8 +456,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 
 
     func testNewWorkspaceCapturesSelectedMachineAndDoesNotFallBackToLocalOnRepeat() async throws {
-        let app = makeAppDelegate()
-        let manager = TabManager()
+        let (app, manager, _) = authFixture!.makeAppDelegateWithMainWindow()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
@@ -482,8 +483,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     }
 
     func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
-        let app = makeAppDelegate()
-        let manager = TabManager()
+        let (app, manager, _) = authFixture!.makeAppDelegateWithMainWindow()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)

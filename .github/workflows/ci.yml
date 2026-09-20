@@ -1163,6 +1163,35 @@ jobs:
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GhosttyCopyModeScrollbackTests
 
+      - name: Run app-host lifecycle and fixture regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # These failures were exposed by a complete app-host run. Keep each
+          # repaired selector strict, including a nonzero execution count.
+          set -euo pipefail
+          for selector in \
+            AgentChatTranscriptServiceLifetimeTests \
+            CompositorBlurWindowLifetimeTests \
+            SidebarWorkspaceDragDelegateTests \
+            NewCloudWorkspaceShortcutTests \
+            CloudPortAccessLateCoordinatorTests \
+            KeyboardShortcutSpaceKeyTests \
+            BrowserDesignModeScreenshotEvaluatorTests/smoothScrollingPageCapturesRequestedRegionAndRestoresOffset \
+            CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasUsesCmuxRemoteWhenProviderSSHIsUnmanaged \
+            CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH \
+            CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasDoesNotFallbackForGenericHTTP404
+          do
+            test_log="$RUNNER_TEMP/cmux-lifecycle-${selector//\//-}.txt"
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$selector" \
+              test-without-building 2>&1 | tee "$test_log"
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$selector"
+          done
+
       - name: Run five-tab renderer memory regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
