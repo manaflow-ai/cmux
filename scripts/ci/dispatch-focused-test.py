@@ -32,13 +32,60 @@ def positive_integer(value: str) -> int:
     return int(value)
 
 
-def output(*command: str, timeout: float | None = None) -> str:
+def output(
+    *command: str,
+    timeout: float | None = None,
+    cancel_event: threading.Event | None = None,
+) -> str:
+    if cancel_event is None:
+        try:
+            return subprocess.check_output(
+                command, cwd=ROOT, text=True, timeout=timeout
+            ).strip()
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("GitHub command timed out during focused-run discovery") from error
+
+    process = subprocess.Popen(
+        command,
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
     try:
-        return subprocess.check_output(
-            command, cwd=ROOT, text=True, timeout=timeout
-        ).strip()
-    except subprocess.TimeoutExpired as error:
-        raise ValueError("GitHub command timed out during focused-run discovery") from error
+        while True:
+            if cancel_event.is_set():
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                raise ValueError("focused-run discovery cancelled")
+            try:
+                stdout, _ = process.communicate(
+                    timeout=min(0.25, timeout) if timeout is not None else 0.25
+                )
+            except subprocess.TimeoutExpired:
+                if timeout is not None:
+                    timeout -= 0.25
+                    if timeout <= 0:
+                        process.kill()
+                        process.wait()
+                        raise ValueError(
+                            "GitHub command timed out during focused-run discovery"
+                        )
+                continue
+            if process.returncode:
+                raise subprocess.CalledProcessError(
+                    process.returncode, command, output=stdout
+                )
+            return stdout.strip()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        if process.stdout is not None:
+            process.stdout.close()
 
 
 def wait_for_retry(cancel_event: threading.Event, delay_seconds: float) -> bool:
@@ -84,6 +131,7 @@ def find_run(
             "--event", "workflow_dispatch", "--limit", "100",
             "--json", "databaseId,displayTitle,url",
             timeout=remaining,
+            cancel_event=cancel_event,
         ))
         if cancel_event.is_set():
             raise ValueError("focused-run discovery cancelled")

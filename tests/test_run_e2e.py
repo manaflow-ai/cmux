@@ -159,6 +159,22 @@ class RunDiscoveryTests(unittest.TestCase):
                     HEAD, "cmuxTests/Example", "mine", cancel_event=cancelled
                 )
 
+    def test_cancellation_terminates_inflight_command(self):
+        cancelled = threading.Event()
+        timer = threading.Timer(0.1, cancelled.set)
+        timer.start()
+        try:
+            with self.assertRaisesRegex(ValueError, "cancelled"):
+                self.dispatch.output(
+                    self.dispatch.sys.executable,
+                    "-c",
+                    "import time; time.sleep(30)",
+                    timeout=60,
+                    cancel_event=cancelled,
+                )
+        finally:
+            timer.cancel()
+
     def test_cancellation_scope_handles_sigint_and_restores_handlers(self):
         original = self.dispatch.signal.getsignal(self.dispatch.signal.SIGINT)
         with self.dispatch.cancellation_scope() as cancelled:
