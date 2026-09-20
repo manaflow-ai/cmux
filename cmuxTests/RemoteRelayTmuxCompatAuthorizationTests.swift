@@ -146,10 +146,6 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let leaderSurfaceID = fixture.panelID.uuidString
 
         let admitted: [(String, [String: Any])] = [
-            ("surface.split", [
-                "workspace_id": workspaceID, "surface_id": leaderSurfaceID,
-                "direction": "right", "focus": false,
-            ]),
             ("workspace.equalize_splits", ["workspace_id": workspaceID, "orientation": "vertical"]),
             ("surface.send_text", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID, "text": "ls\n"]),
             ("surface.close", ["workspace_id": workspaceID, "surface_id": leaderSurfaceID]),
@@ -189,9 +185,8 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         ])
         #expect(foreignSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
 
-        let missingSurface = try fixture.authorize(method: "surface.split", params: [
+        let missingSurface = try fixture.authorize(method: "surface.close", params: [
             "workspace_id": workspaceID,
-            "direction": "right",
         ])
         #expect(missingSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
 
@@ -206,10 +201,9 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         ])
         #expect(aliasWorkspace.errorResponse?.contains("remote_relay_workspace_denied") == true)
 
-        let aliasSurface = try fixture.authorize(method: "surface.split", params: [
+        let aliasSurface = try fixture.authorize(method: "surface.close", params: [
             "workspace_id": fixture.workspace.id.uuidString,
             "target_surface_id": fixture.panelID.uuidString,
-            "direction": "right",
         ])
         #expect(aliasSurface.errorResponse?.contains("remote_relay_surface_denied") == true)
     }

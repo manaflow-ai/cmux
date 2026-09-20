@@ -193,6 +193,23 @@ extension TerminalController {
                ownerID: ownerID,
                containingPanel: surfaceID
            ) {
+            if remoteRelayOwnerWorkspaceID != nil,
+               !remoteRelayDockTargetIsCurrent(
+                   routing: ControlRoutingSelectors(
+                       hasWindowIDParam: false,
+                       windowID: nil,
+                       groupID: nil,
+                       workspaceID: remoteRelayOwnerWorkspaceID,
+                       surfaceID: surfaceID,
+                       paneID: nil,
+                       remoteRelayOwnerWorkspaceID: remoteRelayOwnerWorkspaceID,
+                       remoteRelayConnectionID: remoteRelayConnectionID
+                   ),
+                   dock: dock,
+                   surfaceID: surfaceID
+               ) {
+                return false
+            }
             dock.updatePanelShellActivityState(panelId: surfaceID, state: state)
             return true
         }

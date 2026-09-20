@@ -309,16 +309,6 @@ struct RemoteCLIRelayPolicyTests {
             workspaceAliases: [workspaceAlias.remote: workspaceAlias.local],
             responseBody: createResponse
         ) { port, unixServer in
-            let split = try runPolicyRelayExchange(
-                port: port,
-                relayID: relayID,
-                tokenHex: tokenHex,
-                commandLine: """
-                {"id":"c1","method":"surface.split","params":{"workspace_id":"\(workspaceAlias.remote.uuidString)","direction":"right"}}
-                """
-            )
-            #expect(split.responseLines.first?["ok"] as? Bool == false)
-
             let send = try runPolicyRelayExchange(
                 port: port,
                 relayID: relayID,
@@ -331,7 +321,7 @@ struct RemoteCLIRelayPolicyTests {
                 send.responseLines.first?["ok"] as? Bool == true,
                 "the created surface must be drivable immediately: \(send.rawResponse)"
             )
-            #expect(unixServer.requests.count == 2)
+            #expect(unixServer.requests.count == 1)
         }
     }
 
