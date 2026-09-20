@@ -297,4 +297,4 @@ struct CloudMachineOrderingTests {
         #expect(fixture.model.sidebarMachines.map(\.id) == ["d", "a", "b", "c"])
         #expect(second.sidebarMachines.map(\.id) == ["d", "a", "b", "c"])
     }
-
+}
