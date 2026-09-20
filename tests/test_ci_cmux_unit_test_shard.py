@@ -16,6 +16,35 @@ CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 
+def production_shard_constants() -> tuple[int, int]:
+    """Read the production matrix constants so this test exercises its topology."""
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    values: dict[str, int] = {}
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        for name in ("PHYSICAL_SHARD_TOTAL", "LOGICAL_BATCHES_PER_WORKER"):
+            prefix = f"{name}="
+            if stripped.startswith(prefix):
+                values[name] = int(stripped[len(prefix):])
+    try:
+        return values["PHYSICAL_SHARD_TOTAL"], values["LOGICAL_BATCHES_PER_WORKER"]
+    except KeyError as error:
+        raise AssertionError(f"production CI is missing {error.args[0]}") from error
+
+
+def check_test_topology_matches_production() -> int:
+    physical, batches = production_shard_constants()
+    if (physical, batches) != (CI_PHYSICAL_SHARD_TOTAL, CI_LOGICAL_BATCHES_PER_WORKER):
+        print(
+            "FAIL: test shard topology differs from production: "
+            f"test={CI_PHYSICAL_SHARD_TOTAL}x{CI_LOGICAL_BATCHES_PER_WORKER}, "
+            f"production={physical}x{batches}"
+        )
+        return 1
+    print("PASS: test shard topology matches production")
+    return 0
+
+
 def write_large_suite_fixture(test_root: Path) -> None:
     methods = "\n".join(
         f"    func testGenerated{index:02d}() {{}}"
@@ -407,6 +436,8 @@ def check_focused_gates_run_once() -> int:
 
 
 def main() -> int:
+    if (rc := check_test_topology_matches_production()) != 0:
+        return rc
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
