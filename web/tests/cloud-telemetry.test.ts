@@ -30,6 +30,53 @@ function request(body: unknown = batch(), headers: Record<string, string> = {}) 
 }
 
 describe("Cloud diagnostic boundary", () => {
+  test("acknowledges and exports placement failures without dropping neighboring spans", async () => {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const payload = batch([
+      span({ operation: "terminal", phase: "materialize", failure: "placement" }),
+      span({ eventId: "8cc333de-a1bc-4eb1-8d69-1decd01e17a9" }),
+    ]);
+    const accepted: unknown[] = [];
+    const sent: { url: string; body: any }[] = [];
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        accepted.push(value);
+        await exportCloudDiagnostics(value.spans.map((span) => ({
+          userId, eventId: span.eventId, attempts: 1, payload: { client: value.client, span },
+        })), {
+          origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+          identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+          errorsDataset: "test-errors", environment: "preview", revision: "abcdef123",
+        }, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+    const response = await handler(request(payload));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      accepted: 2, eventIds: payload.spans.map((span) => span.eventId),
+    });
+    expect(accepted).toEqual([payload]);
+    const errors = sent.find((item) => item.url.endsWith("/v1/ingest/test-errors"))!.body;
+    expect(errors.map((item: any) => item.failure)).toEqual(["placement", "network"]);
+    expect(errors[0]).toMatchObject({
+      event_id: payload.spans[0]!.eventId, operation_id: payload.spans[0]!.operationId,
+      trace_id: payload.spans[0]!.traceId, span_id: payload.spans[0]!.spanId,
+      operation: "terminal", phase: "materialize", outcome: "failure",
+    });
+    const spans = sent.find((item) => item.url.endsWith("/v1/traces"))!.body.resourceSpans;
+    expect(spans[0].scopeSpans[0].spans[0].attributes).toContainEqual({
+      key: "error.type", value: { stringValue: "placement" },
+    });
+    expect(JSON.stringify(sent)).not.toContain("synthetic-owner");
+  });
+
   test("accepts a timed operation with a real parent span", () => {
     expect(parseCloudTelemetryBatch(batch(), now)?.spans[0]).toEqual(span());
   });
