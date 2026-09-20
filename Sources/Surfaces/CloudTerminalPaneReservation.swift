@@ -67,16 +67,17 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     }
 
     /// Starts routing input to the remote terminal as soon as its stable id is known.
+    @discardableResult
     func bindRemoteTerminal(
         terminalID: String,
         sender: any CloudTuiUntrackedCommandSending
-    ) {
+    ) -> Bool {
         state.withLock { state in
-            guard !state.discarded, state.router == nil else { return }
+            guard !state.discarded, state.router == nil else { return false }
             state.remoteBindingPending = false
             if let existing = state.remoteSink, existing.terminalID == terminalID {
                 promoteRequestedRouterIfReadyLocked(&state)
-                return
+                return true
             }
             state.remoteSink = RemoteSink(terminalID: terminalID, sender: sender)
             state.remoteEpoch &+= 1
@@ -85,6 +86,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.pending.removeAll(keepingCapacity: true)
             startRemoteWorkerLocked(&state)
             promoteRequestedRouterIfReadyLocked(&state)
+            return true
         }
     }
 
