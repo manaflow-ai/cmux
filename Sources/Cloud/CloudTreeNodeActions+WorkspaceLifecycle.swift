@@ -1,13 +1,7 @@
 import AppKit
 import Foundation
-import os
 
 extension CloudTreeNodeActions {
-    private struct LocalWorkspaceReservation {
-        let workspaceID: UUID
-        let loadingPanelID: UUID
-    }
-
     /// The local workspace's title: the remote workspace's own name — what a
     /// person actually named it, or typed into its terminal — never the
     /// machine's raw provider id. `hostName` (the machine's friendly label)
@@ -39,201 +33,32 @@ extension CloudTreeNodeActions {
         name: String?,
         focus: Bool,
         openLocally: Bool = true,
-        host: SurfaceCatalog.NewWorkspaceHost? = nil,
-        validateOperation: @MainActor () throws -> Void = { try Task.checkCancellation() },
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
-        existingTerminal: SurfaceResource? = nil
+        existingTerminal: SurfaceResource? = nil,
+        host suppliedHost: CloudWorkspaceCreationHost? = nil,
+        validateOperation: @MainActor () throws -> Void = { try Task.checkCancellation() },
+        reuseFailedCreation: Bool = false
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
         opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        try validateOperation()
-        let projectionHost = host ?? .appOptimistic
-        let reservation = openLocally
-            ? try reserveLocalWorkspace(machine: machine, focus: focus, catalog: catalog, host: host)
-            : nil
-        // An app-owned presentation workspace is part of the transaction. Do
-        // not create remote state that cannot be shown locally if the host is
-        // unavailable or its active window changed during admission.
-        guard !openLocally || reservation != nil else { throw CancellationError() }
-        var committed = false
-        var projectionPanelIDs: Set<UUID> = []
-        defer {
-            if !committed, let reservation {
-                rollbackLocalWorkspace(reservation, projectionPanelIDs: projectionPanelIDs)
-            }
-        }
-
-        // Remote receipts belong to this transaction until local binding commits.
-        // Every exit uses the same rollback; no app-lifetime retry cache can lose them.
-        var createdWorkspace: SurfaceRemoteWorkspace?
-        var createdTerminal: SurfaceResource?
-        do {
-            let workspace: SurfaceRemoteWorkspace
-            if let existingWorkspace {
-                workspace = existingWorkspace
-            } else {
-                workspace = try await provider.createRemoteWorkspace(name: name)
-                createdWorkspace = workspace
-            }
-            // Providers may supply the first terminal as part of workspace creation.
-            let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
-                resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
-            }
-            if createdWorkspace != nil, let existing { createdTerminal = existing }
-            try validateOperation()
-            guard !openLocally || isLiveReservation(reservation) else { throw CancellationError() }
-            let terminal: SurfaceResource
-            if let existing {
-                terminal = existing
-            } else {
-                terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
-                createdTerminal = terminal
-            }
-            try validateOperation()
-            guard openLocally else {
-                committed = true
-                return (workspace, terminal, nil)
-            }
-            let placement = SurfaceResourcePlacement(
-                resource: terminal.id,
-                remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },
-                remoteWorkspaceID: workspace.id
-            )
-            let group = SurfaceResourceGroup(title: workspace.name, placements: [placement], remoteWorkspaceID: workspace.id)
-            guard let reservation, isLiveReservation(reservation) else { throw CancellationError() }
-            let projections = try await catalog.projectGroup(
-                group,
-                into: .workspace(id: reservation.workspaceID, placement: .split),
-                focus: focus,
-                paneLookup: projectionHost.paneLookup,
-                optimistic: projectionHost.optimistic
-            )
-            projectionPanelIDs = Set(projections.map(\.panelID))
-            try validateOperation()
-            guard isLiveReservation(reservation) else { throw CancellationError() }
-            projectionHost.closeStarter(reservation.loadingPanelID, reservation.workspaceID)
-            let generatedTitle = localWorkspaceTitle(
-                hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group
-            )
-            if let loadingWorkspace = Workspace.liveWorkspace(id: reservation.workspaceID),
-               loadingWorkspace.effectiveCustomTitleSource != .user,
-               let manager = loadingWorkspace.owningTabManager
-                   ?? AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID) {
-                _ = manager.setCustomTitle(
-                    tabId: reservation.workspaceID, title: generatedTitle, source: .remote,
-                    propagateToRemoteTmux: false, propagateToCloud: false, catalog: catalog
-                )
-            }
-            catalog.bindCloudWorkspace(
-                localWorkspaceID: reservation.workspaceID, machine: machine,
-                remoteWorkspaceID: workspace.id, generatedTitle: generatedTitle
-            )
-            if focus, let first = projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
-            committed = true
-            return (workspace, terminal, (reservation.workspaceID, projections))
-        } catch {
-            // Cleanup uses only IDs returned by this operation's provider.
-            let ownedWorkspace = createdWorkspace
-            let ownedTerminal = createdTerminal
-            await cleanupRemoteWorkspaceCreation(provider: provider, workspace: ownedWorkspace, terminal: ownedTerminal)
-            throw error
-        }
-    }
-
-    /// Reserves the local loading workspace before the first remote workspace request.
-    /// The caller owns the reservation until the terminal projection commits.
-    @MainActor
-    private static func reserveLocalWorkspace(
-        machine: SurfaceMachineID,
-        focus: Bool,
-        catalog: SurfaceCatalog,
-        host: SurfaceCatalog.NewWorkspaceHost?
-    ) throws -> LocalWorkspaceReservation? {
-        let title = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
-        let workspace: Workspace
-        let starterPanelID: UUID?
-        if let host {
-            // A supplied host already captured the originating window. Never
-            // redirect its reservation to a window selected after admission.
-            let created = try host.create(title)
-            guard let createdWorkspace = Workspace.liveWorkspace(id: created.workspaceID) else { return nil }
-            workspace = createdWorkspace
-            starterPanelID = created.starterPanelID
+        let host: CloudWorkspaceCreationHost?
+        if openLocally, let suppliedHost {
+            host = suppliedHost
+        } else if openLocally {
+            guard let manager = AppDelegate.shared?.preferredMainWindowContextForWorkspaceCreation(
+                debugSource: "cloud.workspace.create"
+            )?.tabManager else { throw CancellationError() }
+            host = CloudWorkspaceCreationHost(manager: manager)
         } else {
-            guard let appDelegate = AppDelegate.shared else { return nil }
-            let preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
-            let context = appDelegate.contextForMainWindow(preferredWindow)
-                ?? appDelegate.preferredMainWindowContextForWorkspaceCreation(
-                    debugSource: "cloudWorkspace.optimisticReservation"
-                )
-            guard let tabManager = context?.tabManager
-                ?? appDelegate.activeTabManagerForCommands(preferredWindow: preferredWindow),
-                  let createdWorkspace = tabManager.addWorkspaceIfActive(
-                    title: title,
-                    titleSource: .auto,
-                    initialSurface: .cloudVMLoading,
-                    inheritWorkingDirectory: false,
-                    select: focus,
-                    autoWelcomeIfNeeded: false
-                  ) else { return nil }
-            workspace = createdWorkspace
-            starterPanelID = nil
+            host = nil
         }
-        let loadingPanel = starterPanelID.flatMap { workspace.panels[$0] as? CloudVMLoadingPanel }
-            ?? workspace.panels.values.compactMap({ $0 as? CloudVMLoadingPanel }).first
-        guard let loadingPanel else {
-            return nil
-        }
-        let machineName = resolvedMachineName(machine, snapshot: catalog.snapshot)
-        loadingPanel.configureLoadingHeadline(String(format: String(
-            localized: "cloudTree.operation.newWorkspace",
-            defaultValue: "Creating a workspace on %@\u{2026}"
-        ), machineName))
-        return LocalWorkspaceReservation(workspaceID: workspace.id, loadingPanelID: loadingPanel.id)
-    }
-
-    @MainActor
-    private static func rollbackLocalWorkspace(
-        _ reservation: LocalWorkspaceReservation,
-        projectionPanelIDs: Set<UUID>
-    ) {
-        guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
-              let manager = workspace.owningTabManager
-                  ?? AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID),
-              workspace.effectiveCustomTitleSource != .user else { return }
-        // Projection may have succeeded before a scope/cancellation check failed.
-        // Roll back only panes this transaction owns; user edits take ownership.
-        let ownedPanelIDs = projectionPanelIDs.union([reservation.loadingPanelID])
-        guard Set(workspace.panels.keys).isSubset(of: ownedPanelIDs) else { return }
-        manager.closeWorkspace(workspace, recordHistory: false)
-    }
-
-    @MainActor
-    private static func isLiveReservation(_ reservation: LocalWorkspaceReservation?) -> Bool {
-        guard let reservation,
-              let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) else { return false }
-        return workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel
-    }
-
-    private static func cleanupRemoteWorkspaceCreation(
-        provider: any SurfaceProvider,
-        workspace: SurfaceRemoteWorkspace?,
-        terminal: SurfaceResource?
-    ) async {
-        if let terminal {
-            do { try await provider.closeTerminal(terminal.id) } catch {
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app", category: "CloudWorkspace")
-                    .error("Failed to roll back created terminal: \(String(describing: error), privacy: .private)")
-            }
-        }
-        if let workspace {
-            do { try await provider.closeRemoteWorkspace(id: workspace.id) } catch {
-                Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app", category: "CloudWorkspace")
-                    .error("Failed to roll back created workspace: \(String(describing: error), privacy: .private)")
-            }
-        }
+        return try await catalog.cloudWorkspaceCreationCoordinator.create(
+            provider: provider, name: name, focus: focus, host: host, reuseFailedCreation: reuseFailedCreation,
+            existingWorkspace: existingWorkspace, existingTerminal: existingTerminal,
+            validateOperation: validateOperation
+        )
     }
 
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and

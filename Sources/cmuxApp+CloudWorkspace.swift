@@ -50,7 +50,8 @@ extension cmuxApp {
                 try validate()
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(request.machineID), provider: provider, catalog: SurfaceCatalog.shared,
-                    name: nil, focus: false, host: .init(tabManager: manager), validateOperation: validate
+                    name: nil, focus: false, host: .init(manager: manager),
+                    validateOperation: validate, reuseFailedCreation: true
                 )
                 return result.opened?.workspaceID
             }
