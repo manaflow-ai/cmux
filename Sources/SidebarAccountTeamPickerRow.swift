@@ -34,14 +34,17 @@ struct SidebarAccountTeamPickerRow: View {
         .onHover { hovering in
             if hovering { isPresented = true }
         }
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPresented,
-            preferredEdge: .maxX,
-            detachedGap: 4,
-            group: popoverGroup
-        ) {
-            SidebarAccountTeamPicker(accountFlow: accountFlow)
-        }.frame(width: 1, height: 1))
+        .overlay(alignment: .trailing) {
+            ArrowlessPopoverAnchor(
+                isPresented: $isPresented,
+                preferredEdge: .maxX,
+                detachedGap: 4,
+                group: popoverGroup
+            ) {
+                SidebarAccountTeamPicker(accountFlow: accountFlow)
+            }
+            .frame(width: 1, height: 1)
+        }
         .accessibilityLabel(teamPickerAccessibilityLabel)
         .accessibilityHint(String(
             localized: "settings.account.activeTeam",
