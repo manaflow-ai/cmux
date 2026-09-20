@@ -15,7 +15,7 @@ mock.module("../app/handler/cli-auth-confirmation", () => ({
   },
 }));
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   MagicLinkSignIn: () => React.createElement("div"),
   StackHandler: () => {
     throw pendingStackRender;
