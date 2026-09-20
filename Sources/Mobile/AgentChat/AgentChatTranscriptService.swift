@@ -1,105 +1,8 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
 import CmuxTerminal
+import CmuxTerminalCore
 import Foundation
-
-/// Retains terminal render/tick notifications only while live prose streaming
-/// can consume them. Frame notifications cover visible surfaces; tick
-/// notifications cover hidden/background surfaces that receive PTY output
-/// without drawing a Metal frame.
-@MainActor
-private final class AgentChatProseStreamWakeDriver {
-    private let streamer: AgentChatProseStreamer
-    private let hasSubscribers: @MainActor () -> Bool
-    private var observers: [NSObjectProtocol] = []
-    private var releaseFrameDemand: (() -> Void)?
-    private var releaseTickDemand: (() -> Void)?
-
-    init(
-        streamer: AgentChatProseStreamer,
-        hasSubscribers: @escaping @MainActor () -> Bool
-    ) {
-        self.streamer = streamer
-        self.hasSubscribers = hasSubscribers
-    }
-
-    func start() {
-        guard observers.isEmpty else { return }
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .mobileHostEventSubscriptionsDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.streamer.subscribersDidChange()
-                self?.refreshDemand(kickIfRetained: true)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidRenderFrame,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                guard let view = notification.object as? GhosttyNSView,
-                      let surfaceID = view.terminalSurface?.id else {
-                    return
-                }
-                self?.streamer.surfaceDidChange(surfaceID)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidTick,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.streamer.terminalDidTick()
-            }
-        })
-        refreshDemand(kickIfRetained: true)
-    }
-
-    func stop() {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        observers.removeAll()
-        releaseDemand()
-    }
-
-    func refreshDemand(kickIfRetained: Bool = false) {
-        let shouldRetainDemand = hasSubscribers() && streamer.hasActiveUnsettledTurns
-        if shouldRetainDemand {
-            if releaseFrameDemand == nil {
-                releaseFrameDemand = GhosttyNSView.retainRenderedFrameNotifications()
-            }
-            if releaseTickDemand == nil {
-                releaseTickDemand = GhosttyApp.retainTickNotifications()
-            }
-            if kickIfRetained {
-                streamer.terminalDidTick()
-            }
-        } else {
-            releaseDemand()
-        }
-    }
-
-    private func releaseDemand() {
-        releaseFrameDemand?()
-        releaseFrameDemand = nil
-        releaseTickDemand?()
-        releaseTickDemand = nil
-    }
-
-    deinit {
-        for observer in observers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        releaseFrameDemand?()
-        releaseTickDemand?()
-    }
-}
 
 /// Mac-side facade for the agent chat surface: tracks sessions from hook
 /// events, tails their transcripts, serves history pages, and pushes
@@ -117,7 +20,7 @@ final class AgentChatTranscriptService {
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
-    private var proseStreamer: AgentChatProseStreamer!
+    private(set) var proseStreamer: AgentChatProseStreamer!
     /// Bridges terminal output/render wakeups into the prose streamer.
     private var proseWakeDriver: AgentChatProseStreamWakeDriver!
     /// Current live prose-stream generation per session, consumed only when a
@@ -162,7 +65,10 @@ final class AgentChatTranscriptService {
         },
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
-        fallbackResolutionTimeout: Duration = .seconds(3)
+        fallbackResolutionTimeout: Duration = .seconds(3),
+        notificationCenter: NotificationCenter = .default,
+        renderedFrameNotificationDemand: any RenderDemandGating = GhosttyApp.renderedFrameNotificationDemand,
+        tickNotificationDemand: any RenderDemandGating = GhosttyApp.tickNotificationDemand
     ) {
         self.registry = registry
         self.resolver = resolver
@@ -188,7 +94,10 @@ final class AgentChatTranscriptService {
         self.proseStreamer = proseStreamer
         self.proseWakeDriver = AgentChatProseStreamWakeDriver(
             streamer: proseStreamer,
-            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false }
+            hasSubscribers: { [weak self] in self?.hasEventSubscribers() ?? false },
+            notificationCenter: notificationCenter,
+            frameDemand: renderedFrameNotificationDemand,
+            tickDemand: tickNotificationDemand
         )
         self.proseWakeDriver.start()
     }
@@ -705,6 +614,8 @@ final class AgentChatTranscriptService {
 
     deinit {
         // ARC may run deinit on the executor that releases the final reference.
+        // This boundary hop owns both dependencies until synchronous teardown
+        // finishes; it must outlive self and has no ongoing work to cancel.
         let wakeDriver = proseWakeDriver
         let streamer = proseStreamer
         Task { @MainActor in

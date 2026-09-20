@@ -1188,6 +1188,9 @@ jobs:
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
               -only-testing:"cmuxTests/$selector" \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 120 \
+              -maximum-test-execution-time-allowance 120 \
               test-without-building 2>&1 | tee "$test_log"
             scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$selector"
           done
