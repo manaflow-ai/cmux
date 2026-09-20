@@ -1150,7 +1150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         get { mainWindowLifecycleCoordinator.registeredContextsByLookupKey }
         set { mainWindowLifecycleCoordinator.replaceRegisteredContextLookups(newValue) }
     }
-    private var saveWorkspaceActionTasks: [UUID: Task<Void, Never>] = [:]
+    var saveWorkspaceActionTasks: [UUID: Task<Void, Never>] = [:]
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
     var cloudOperations: CloudOperationRecorder?

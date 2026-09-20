@@ -186,6 +186,63 @@ struct AgentHibernationEvaluationSchedulingTests {
         #expect(processCensusCount.withLock { $0 } == 2)
     }
 
+    @MainActor
+    @Test
+    func scheduledHibernationDoesNotPublishCachedIndexAfterRefreshCompletesDuringCensus() async {
+        let hookStoreDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hibernation-generation-(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: hookStoreDirectory) }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let refreshStarted = AsyncStream<Void>.makeStream()
+        let censusStarted = AsyncStream<Void>.makeStream()
+        let releaseCensus = AsyncStream<Void>.makeStream()
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [], sampledAt: .now, includesProcessDetails: true,
+            includesCMUXScope: true, includesResources: false
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let generation = loadCount.withLock { value -> Int in
+                    value += 1
+                    return value
+                }
+                if generation == 2 { refreshStarted.continuation.yield() }
+                return (
+                    index: generation == 1 ? .empty : .unavailable,
+                    liveAgentProcessFingerprint: ["generation-(generation)"],
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: []
+                )
+            },
+            processSnapshotLoader: {
+                censusStarted.continuation.yield()
+                var iterator = releaseCensus.stream.makeAsyncIterator()
+                _ = await iterator.next()
+                return snapshot
+            },
+            hookStoreDirectoryProvider: { hookStoreDirectory.path }
+        )
+
+        _ = await sharedIndex.indexRefreshingNow()
+        let scheduled = Task { @MainActor in
+            await sharedIndex.indexForScheduledHibernation()
+        }
+        await Self.waitForSignal(censusStarted.stream)
+
+        let fullRefresh = Task { @MainActor in
+            await sharedIndex.indexRefreshingNow()
+        }
+        await Self.waitForSignal(refreshStarted.stream)
+        _ = await fullRefresh.value
+
+        releaseCensus.continuation.yield()
+        releaseCensus.continuation.finish()
+        let result = await scheduled.value
+        #expect(result?.isComplete == false)
+        #expect(sharedIndex.index?.isComplete == false)
+        #expect(loadCount.withLock { $0 } >= 2)
+    }
+
     private static func waitForSignal(_ stream: AsyncStream<Void>) async {
         for await _ in stream {
             return
