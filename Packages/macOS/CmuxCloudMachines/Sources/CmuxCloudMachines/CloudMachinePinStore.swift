@@ -5,7 +5,7 @@ import Observation
 /// Machines panel shows them in, per account/team scope.
 ///
 /// Pinned machines sort first. Within the pinned and unpinned groups, machines
-/// keep the order they were first seen in, so refreshes, catalog discovery, and
+/// keep the chosen order (initially first-seen), so refreshes, catalog discovery, and
 /// asynchronous loading never shuffle the fleet; a newly created machine appends
 /// after the existing fleet. A newly pinned machine joins the end of the pinned
 /// group (earlier pins stay above it), and unpinning leaves a machine at the top
@@ -82,13 +82,7 @@ public final class CloudMachinePinStore {
     /// - Returns: The same identities, deduplicated, in display order.
     public func orderedMachineIDs(_ machineIDs: [String]) -> [String] {
         let current = activeScope.flatMap { scopes[$0] } ?? CloudMachinePinStoreState()
-        let visible = Set(machineIDs)
-        var seen = Set<String>()
-        var order: [String] = []
-        order.reserveCapacity(machineIDs.count)
-        for id in current.order where visible.contains(id) && seen.insert(id).inserted { order.append(id) }
-        for id in machineIDs where seen.insert(id).inserted { order.append(id) }
-        return order.filter { current.pinned.contains($0) } + order.filter { !current.pinned.contains($0) }
+        return current.ordered(machineIDs)
     }
 
     /// Appends newly visible machines to the remembered order. A partial list
@@ -139,6 +133,37 @@ public final class CloudMachinePinStore {
         let pins = current.pinned
         current.order = current.order.filter { pins.contains($0) } + current.order.filter { !pins.contains($0) }
         commit(current, scope: scope)
+    }
+
+    /// Whether a move changes the visible order within the existing pin tier.
+    ///
+    /// - Parameters:
+    ///   - move: The adjacent or relative destination.
+    ///   - machineID: The immutable source machine identity.
+    ///   - machineIDs: Current visible identities; missing targets are rejected.
+    /// - Returns: Whether the same request would be accepted by ``move(_:machineID:machineIDs:)``.
+    public func canMove(_ move: CloudMachineMove, machineID: String, machineIDs: [String]) -> Bool {
+        guard let scope = activeScope, scope == scopeIdentifier else { return false }
+        return (scopes[scope] ?? CloudMachinePinStoreState()).moving(move, machineID: machineID, visible: machineIDs) != nil
+    }
+
+    /// Moves one visible machine within its existing pin tier and persists it.
+    /// Missing machines are retained in saved order until an authoritative
+    /// ``reconcile(machineIDs:)`` removes them. Moving never changes pins.
+    ///
+    /// - Parameters:
+    ///   - move: The adjacent or relative destination.
+    ///   - machineID: The immutable source machine identity.
+    ///   - machineIDs: Current visible identities; this may be a partial list.
+    /// - Returns: True only when the visible order changed.
+    @discardableResult
+    public func move(_ move: CloudMachineMove, machineID: String, machineIDs: [String]) -> Bool {
+        syncScope()
+        guard let scope = activeScope,
+              let next = (scopes[scope] ?? CloudMachinePinStoreState())
+                .moving(move, machineID: machineID, visible: machineIDs) else { return false }
+        commit(next, scope: scope)
+        return true
     }
 
     private func syncScope() {
