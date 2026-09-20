@@ -287,7 +287,7 @@ struct MarkdownWebContentView: UIViewRepresentable {
 
             // The diagram bundles are megabytes; read and inflate them off the
             // main actor, then inject on main.
-            Task { [weak self] in
+            Task { [weak self, assets] in
                 guard let sources = await assets.assets(specs),
                       sources.contains(where: { !$0.isEmpty }) else {
                     self?.requestedLibs.remove(lib)
