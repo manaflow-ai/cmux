@@ -54,6 +54,7 @@ struct CloudTreeNodeActions {
 
     @MainActor
     static func bound(
+        navigationHost: CloudTerminalNavigationHost,
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
@@ -159,11 +160,10 @@ struct CloudTreeNodeActions {
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
-                let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
-                        into: try target.get(),
+                        into: try destination(placement),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view
@@ -418,10 +418,13 @@ struct CloudTreeNodeActions {
                 try await catalog.createDisplay(on: machine, into: target.get())
             }
         }
-        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { label, operation in
+            run(label) { catalog in try await operation(catalog) }
+        }
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
             run: navigationRun,
+            host: navigationHost,
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }

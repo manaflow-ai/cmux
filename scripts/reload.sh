@@ -1482,6 +1482,28 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
+# Managed profiles already supply their own SourcePackages path. Warm that
+# exact path from local seeds before resolution; cache warming never downloads
+# on the reload path, and populated native state is never replaced.
+if [[ "${GITHUB_ACTIONS:-false}" != "true" && -n "${CMUX_SOURCE_PACKAGES_DIR:-}" && "${CMUX_LOCAL_CACHE_PREFLIGHT:-1}" == "1" ]]; then
+  CACHE_PREFLIGHT_RECEIPT="${RELOAD_LOG}.cache.json"
+  if python3 "$PWD/scripts/local-build-cache-preflight.py" \
+      --local-only --source-packages-dir "$CMUX_SOURCE_PACKAGES_DIR" --receipt "$CACHE_PREFLIGHT_RECEIPT"; then
+    if python3 - "$CACHE_PREFLIGHT_RECEIPT" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    verified = json.load(stream).get("ghosttykit", {}).get("verified_install") is True
+raise SystemExit(0 if verified else 1)
+PY
+    then
+      export CMUX_GHOSTTYKIT_PREPROVISIONED=1
+    fi
+  else
+    echo "==> Build cache preflight unavailable; using normal dependency setup."
+  fi
+fi
+
 # CI can verify/download the xcframework before deciding whether Zig is needed.
 # Fail closed if that caller assertion is inconsistent with the checkout.
 if [[ "${CMUX_GHOSTTYKIT_PREPROVISIONED:-0}" == "1" ]]; then

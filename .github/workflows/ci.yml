@@ -365,6 +365,9 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Ghostty helper cache failure handling
+        run: bash tests/test_ghostty_cli_helper_cache.sh
+
       - name: Validate stale run cleanup eligibility
         run: python3 tests/test_cleanup_stale_runs.py
 
@@ -439,6 +442,11 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate local build cache preflight
+        run: |
+          python3 tests/test_local_build_cache_preflight.py
+          python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
@@ -537,6 +545,7 @@ jobs:
           python3 tests/test_ci_change_areas.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -883,6 +892,9 @@ jobs:
         run: bun run test:db:behavior
 
   app-host-unit-tests:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -1043,12 +1055,21 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: steps.r2-products.outputs.hit != 'true'
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:
@@ -2824,8 +2845,37 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
+      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # both the reuse selector and broker require an in-repository producer.
+      # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Choose product artifact publication
+        id: publish-products
+        env:
+          PRODUCT_FULL_SUITE: ${{ needs.changes.outputs.full_suite }}
+          PRODUCT_EVENT: ${{ github.event_name }}
+          PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PRODUCT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os
+          head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
+          repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
+          unused_fork_product = (
+              os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_EVENT") == "pull_request"
+              and bool(head) and bool(repository)
+              and head.casefold() != repository.casefold()
+          )
+          publish = not unused_fork_product
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"publish={str(publish).lower()}\n")
+          if not publish:
+              print("Skipping unused compile-only fork product packaging and upload.")
+          PY
+
       - name: Package compiled app-host test product
         id: package-products
+        if: steps.publish-products.outputs.publish == 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -2836,6 +2886,7 @@ jobs:
 
       - name: Upload compiled app-host test product
         id: upload-products
+        if: steps.publish-products.outputs.publish == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
@@ -2845,6 +2896,9 @@ jobs:
           compression-level: 0
 
   tests-build-and-lag:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -2918,7 +2972,17 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
+        if: steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
