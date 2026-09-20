@@ -7,12 +7,13 @@ let package = Package(
     products: [.library(name: "CmuxComputerUse", targets: ["CmuxComputerUse"])],
     dependencies: [
         .package(path: "../CmuxControlSocket"),
+        .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSettings")
     ],
     targets: [
         .target(
             name: "CmuxComputerUse",
-            dependencies: ["CmuxControlSocket", "CmuxSettings"],
+            dependencies: ["CmuxControlSocket", "CmuxFoundation", "CmuxSettings"],
             // Lane A preserves the executable target's language mode.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

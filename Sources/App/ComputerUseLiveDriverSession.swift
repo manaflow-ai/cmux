@@ -1,5 +1,6 @@
 import CmuxComputerUse
 import Foundation
+import CmuxFoundation
 
 /// The logical agent session and process roots currently assigned to a Computer Use driver session.
 struct ComputerUseLiveDriverSession: Equatable, Sendable {

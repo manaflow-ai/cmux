@@ -1,4 +1,4 @@
-import CmuxComputerUse
+import CmuxFoundation
 import CmuxWorkspaces
 
 extension RestorableAgentProcessLiveness {

@@ -46,7 +46,7 @@ assert(scope.matches(driverSessionID: "session-mcp-child"))
 
 ## Moved files
 
-- `Sources/AgentPIDProcessIdentity.swift` → `Sources/CmuxComputerUse/AgentPIDProcessIdentity.swift`
+- `Sources/AgentPIDProcessIdentity.swift` → `Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/AgentPIDProcessIdentity.swift` (not this package: the file was a member of both the app and the `cmux-cli` target, and the CLI does not link `CmuxComputerUse`; `CmuxFoundation` is linked by both)
 - `Sources/App/AgentCursorPointerView.swift` → `Sources/CmuxComputerUse/AgentCursorPointerView.swift`
 - `Sources/App/ComputerUseDaemonProfile.swift` → `Sources/CmuxComputerUse/ComputerUseDaemonProfile.swift`
 - `Sources/App/ComputerUseDaemonReadiness.swift` → `Sources/CmuxComputerUse/ComputerUseDaemonReadiness.swift`
@@ -74,14 +74,6 @@ Each entry is a visibility seam. The single new initializer is also the construc
 - `AgentCursorPointerView.swift:145`: `public override func viewDidChangeBackingProperties() {`
 - `AgentCursorPointerView.swift:151`: `public override func hitTest(_ point: NSPoint) -> NSView? {`
 - `AgentCursorPointerView.swift:160`: `public override func draw(_ dirtyRect: NSRect) {`
-- `AgentPIDProcessIdentity.swift:4`: `public struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {`
-- `AgentPIDProcessIdentity.swift:6`: `public let pid: pid_t`
-- `AgentPIDProcessIdentity.swift:8`: `public let startSeconds: Int64`
-- `AgentPIDProcessIdentity.swift:10`: `public let startMicroseconds: Int64`
-- `AgentPIDProcessIdentity.swift:13`: `public init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {`
-- `AgentPIDProcessIdentity.swift:32`: `public init?(pid: pid_t) {`
-- `AgentPIDProcessIdentity.swift:40`: `public static func processSnapshot(`
-- `AgentPIDProcessIdentity.swift:60`: `public static func hasExitedWithoutReaping(pid: pid_t) -> Bool {`
 - `ComputerUsePermissionRequestOutcome.swift:2`: `public enum ComputerUseSystemPermission: String, Hashable, Sendable {`
 - `ComputerUseRuntimePaths.swift:5`: `public struct ComputerUseRuntimePaths: Sendable {`
 - `ComputerUseRuntimePaths.swift:7`: `public static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"`

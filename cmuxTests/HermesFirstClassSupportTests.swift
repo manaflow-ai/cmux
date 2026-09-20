@@ -1,4 +1,4 @@
-@testable import CmuxComputerUse
+import CmuxFoundation
 import AppKit
 import CMUXAgentLaunch
 import Foundation

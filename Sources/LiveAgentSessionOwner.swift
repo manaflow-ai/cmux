@@ -1,4 +1,4 @@
-import CmuxComputerUse
+import CmuxFoundation
 import Foundation
 
 /// A process-generation-validated owner of one managed Vault session.

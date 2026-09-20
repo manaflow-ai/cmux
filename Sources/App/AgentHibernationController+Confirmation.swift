@@ -1,4 +1,4 @@
-import CmuxComputerUse
+import CmuxFoundation
 import Foundation
 
 extension AgentHibernationController {

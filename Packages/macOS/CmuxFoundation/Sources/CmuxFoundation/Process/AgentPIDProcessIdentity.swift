@@ -1,4 +1,4 @@
-import Darwin
+public import Darwin
 
 /// The agent pidprocess identity exposed to the host application.
 public struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {

@@ -1,4 +1,4 @@
-import CmuxComputerUse
+import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import Darwin

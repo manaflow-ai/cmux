@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import Darwin
 import Foundation
+import CmuxFoundation
 
 /// Owns the dedicated computer-use status item and renders value-only session snapshots.
 @MainActor

@@ -1,4 +1,4 @@
-@testable import CmuxComputerUse
+import CmuxFoundation
 import Foundation
 import os
 import Testing

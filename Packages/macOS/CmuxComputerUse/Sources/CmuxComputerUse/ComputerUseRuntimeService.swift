@@ -5,6 +5,7 @@ import CoreServices
 import Darwin
 import Foundation
 import Security
+import CmuxFoundation
 
 /// The computer use direct screen capture verification exposed to the host application.
 public enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {

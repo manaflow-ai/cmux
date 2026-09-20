@@ -1,4 +1,4 @@
-import CmuxComputerUse
+import CmuxFoundation
 import Darwin
 
 /// Best-effort operating-system evidence that a process ID still exists.

@@ -1,4 +1,4 @@
-@testable import CmuxComputerUse
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
