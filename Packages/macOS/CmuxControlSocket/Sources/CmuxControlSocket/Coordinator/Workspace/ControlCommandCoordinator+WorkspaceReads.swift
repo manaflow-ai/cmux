@@ -44,6 +44,7 @@ extension ControlCommandCoordinator {
     /// order (per-row workspace refs, then the window ref).
     private enum WorkspaceListHopOutcome: Sendable {
         case tabManagerUnavailable
+        case relayOwnerUnavailable
         case relayWorkspace(id: UUID, title: String)
         case resolved(
             windowID: UUID?,
