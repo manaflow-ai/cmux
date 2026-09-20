@@ -55,7 +55,7 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
-import { GUEST_CMUX_WELCOME_IDENTITY_PATH } from "../guestWelcome";
+import { GUEST_CMUX_WELCOME_IDENTITY_PATH, GUEST_CMUX_WELCOME_PENDING_PATH } from "../guestWelcome";
 import {
   approveCmuxTuiEnrollment,
   CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
@@ -1736,11 +1736,16 @@ export class FreestyleProvider implements VMProvider {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     const identityTemporaryPath = `${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${identityTemporaryPath}' && mv -f '${identityTemporaryPath}' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
+    const pendingTemporaryPath = `${GUEST_CMUX_WELCOME_PENDING_PATH}.tmp-${randomBytes(12).toString("hex")}`;
+    const pendingInstall = promptIdentity
+      ? `printf '1\\n' > '${pendingTemporaryPath}' && mv -f '${pendingTemporaryPath}' '${GUEST_CMUX_WELCOME_PENDING_PATH}'`
+      : "";
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
         command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
           + ` && ${identityInstall}`
+          + (pendingInstall ? ` && ${pendingInstall}` : "")
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
@@ -1752,6 +1757,7 @@ export class FreestyleProvider implements VMProvider {
     } catch (error) {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       await vm.fs.remove(identityTemporaryPath).catch(() => undefined);
+      await vm.fs.remove(pendingTemporaryPath).catch(() => undefined);
       throw error;
     }
     await this.ensureResourceReporter(vm, vmId);

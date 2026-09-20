@@ -225,14 +225,21 @@ esac
 
   test("Cloud welcome claims first use once, supports replay, and reports display capability", () => {
     const directory = makeShimDirectory();
+    const pending = join(directory, "pending");
     try {
-      const first = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1" });
+      const existing = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1" });
+      expect(existing.status).toBe(0);
+      expect(existing.stdout).toBe("");
+      writeFileSync(pending, "1\n");
+      const welcomeEnv = { DISPLAY: ":1", CMUX_CLOUD_WELCOME_PENDING_PATH: pending };
+      const first = runShimInDirectory(directory, ["welcome", "--auto"], welcomeEnv);
       expect(first.status).toBe(0);
       expect(first.stdout).toContain("Welcome to cmux Cloud");
       expect(first.stdout).toContain("Displays → Desktop");
       expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(true);
+      expect(existsSync(pending)).toBe(false);
 
-      const reconnect = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1" });
+      const reconnect = runShimInDirectory(directory, ["welcome", "--auto"], welcomeEnv);
       expect(reconnect.status).toBe(0);
       expect(reconnect.stdout).toBe("");
 
@@ -247,15 +254,19 @@ esac
 
       const offline = makeShimDirectory();
       try {
+        const offlinePending = join(offline, "pending");
+        writeFileSync(offlinePending, "1\n");
         rmSync(join(offline, "cmux-tui"), { force: true });
-        const result = runShimInDirectory(offline, ["welcome"]);
+        const result = runShimInDirectory(offline, ["welcome", "--auto"], { CMUX_CLOUD_WELCOME_PENDING_PATH: offlinePending });
         expect(result.status).toBe(0);
         expect(result.stdout).toContain("Welcome to cmux Cloud");
       } finally {
         rmSync(offline, { recursive: true, force: true });
       }
 
-      const fork = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1", CMUX_VM_ID: "forked-vm" });
+      const forkPending = join(directory, "fork-pending");
+      writeFileSync(forkPending, "1\n");
+      const fork = runShimInDirectory(directory, ["welcome", "--auto"], { ...welcomeEnv, CMUX_VM_ID: "forked-vm", CMUX_CLOUD_WELCOME_PENDING_PATH: forkPending });
       expect(fork.status).toBe(0);
       expect(fork.stdout).toContain("Welcome to cmux Cloud");
       expect(readFileSync(join(directory, ".cmux", "cloud-welcome", "shown"), "utf8")).toBe("forked-vm\n");
@@ -276,21 +287,24 @@ esac
   test("suppression and a failed state write do not consume first use", () => {
     const directory = makeShimDirectory();
     const blocked = join(directory, "blocked-state");
+    const pending = join(directory, "pending");
     try {
       writeFileSync(blocked, "not a directory");
+      writeFileSync(pending, "1\n");
       const suppressed = runShimInDirectory(directory, ["welcome", "--auto"], {
         CMUX_CLOUD_WELCOME: "0",
         CMUX_GUEST_HOME: blocked,
+        CMUX_CLOUD_WELCOME_PENDING_PATH: pending,
       });
       expect(suppressed.status).toBe(0);
       expect(suppressed.stdout).toBe("");
 
-      const failed = runShimInDirectory(directory, ["welcome", "--auto"], { CMUX_GUEST_HOME: blocked });
+      const failed = runShimInDirectory(directory, ["welcome", "--auto"], { CMUX_GUEST_HOME: blocked, CMUX_CLOUD_WELCOME_PENDING_PATH: pending });
       expect(failed.status).toBe(0);
       expect(failed.stdout).toBe("");
       rmSync(blocked, { force: true });
 
-      const retried = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1" });
+      const retried = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1", CMUX_CLOUD_WELCOME_PENDING_PATH: pending });
       expect(retried.status).toBe(0);
       expect(retried.stdout).toContain("Welcome to cmux Cloud");
       expect(existsSync(join(directory, ".cmux", "cloud-welcome", "shown"))).toBe(true);

@@ -7,6 +7,7 @@
  * its automatic first-use wrapper share one implementation.
  */
 export const GUEST_CMUX_WELCOME_IDENTITY_PATH = "/etc/cmux/.cloud-welcome-machine-id";
+export const GUEST_CMUX_WELCOME_PENDING_PATH = "/etc/cmux/.cloud-welcome-pending";
 
 export const GUEST_CMUX_WELCOME_SHELL = `guest_welcome_display_available() {
   [ -n "\${DISPLAY:-}" ] && return 0
@@ -50,6 +51,7 @@ guest_welcome_render() {
   printf '\\n'
 }
 
+# The provider creates the pending gate only for a newly-created machine.
 # Claiming is machine-local and atomic. The marker carries the provider's
 # stable VM identity so a fork/restore with a new identity gets its own guide.
 # A pending claim is released when rendering fails, so a later successful
@@ -57,6 +59,8 @@ guest_welcome_render() {
 # welcome. A dead owner is reclaimed without polling or a sleep.
 guest_welcome_auto() {
   [ "\${CMUX_CLOUD_WELCOME:-1}" != 0 ] || return 0
+  cmux_welcome_pending_gate="\${CMUX_CLOUD_WELCOME_PENDING_PATH:-${GUEST_CMUX_WELCOME_PENDING_PATH}}"
+  [ -e "\$cmux_welcome_pending_gate" ] || return 0
   cmux_welcome_state="\${CMUX_GUEST_HOME:-\${HOME:-/root}/.cmux}/cloud-welcome"
   cmux_welcome_marker="\$cmux_welcome_state/shown"
   cmux_welcome_pending="\$cmux_welcome_state/pending"
@@ -93,6 +97,7 @@ guest_welcome_auto() {
     cmux_welcome_marker_tmp="\$cmux_welcome_marker.tmp.\$\$"
     if printf '%s\\n' "\$cmux_welcome_identity" > "\$cmux_welcome_marker_tmp" 2>/dev/null && mv -f "\$cmux_welcome_marker_tmp" "\$cmux_welcome_marker" 2>/dev/null; then
       rm -f "\$cmux_welcome_pending" 2>/dev/null || true
+      rm -f "\$cmux_welcome_pending_gate" 2>/dev/null || true
       return 0
     fi
     rm -f "\$cmux_welcome_marker_tmp" "\$cmux_welcome_pending" 2>/dev/null || true
