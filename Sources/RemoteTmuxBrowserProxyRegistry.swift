@@ -23,6 +23,15 @@ final class RemoteTmuxBrowserProxyRegistry {
         var forwardPort: Int?
         var task: Task<BrowserProxyEndpoint, Error>?
         var retainingWorkspaceIDs: Set<UUID> = []
+        /// Identifies which `acquire()` call owns this entry's in-flight (or
+        /// most recently completed) `start()`. Without this, a
+        /// teardown-then-reacquire race lets a stale attempt's callbacks act
+        /// on a newer attempt's entry: attempt A's failure handler would clear
+        /// attempt B's `task` and broadcast a false nil endpoint, or A's
+        /// `start()` would commit its listener/forward into B's (or a third
+        /// attempt C's) entry after B already moved it forward. Every commit
+        /// and every callback checks this id first.
+        var startupID: UUID?
     }
 
     private var entriesByConnectionHash: [String: Entry] = [:]
@@ -65,15 +74,27 @@ final class RemoteTmuxBrowserProxyRegistry {
             return task
         }
 
+        let startupID = UUID()
+        entry.startupID = startupID
         let task = Task { [weak self] () -> BrowserProxyEndpoint in
             guard let self else { throw RemoteTmuxError.unreachable("browser proxy registry deallocated") }
             do {
-                let endpoint = try await self.start(host: host, connectionHash: hash)
+                let endpoint = try await self.start(host: host, connectionHash: hash, startupID: startupID)
+                // `start()` already verified ownership before returning, but
+                // a newer attempt could have taken over in the gap between
+                // that check and resuming here — check again before
+                // publishing under this attempt's name.
+                guard self.entriesByConnectionHash[hash]?.startupID == startupID else {
+                    throw CancellationError()
+                }
                 self.onEndpointChange?(hash, endpoint)
                 return endpoint
             } catch {
-                self.entriesByConnectionHash[hash]?.task = nil
-                self.onEndpointChange?(hash, nil)
+                if self.entriesByConnectionHash[hash]?.startupID == startupID {
+                    self.entriesByConnectionHash[hash]?.task = nil
+                    self.entriesByConnectionHash[hash]?.startupID = nil
+                    self.onEndpointChange?(hash, nil)
+                }
                 throw error
             }
         }
@@ -115,7 +136,7 @@ final class RemoteTmuxBrowserProxyRegistry {
         }
     }
 
-    private func start(host: RemoteTmuxHost, connectionHash hash: String) async throws -> BrowserProxyEndpoint {
+    private func start(host: RemoteTmuxHost, connectionHash hash: String, startupID: UUID) async throws -> BrowserProxyEndpoint {
         let transport = transportProvider(host)
         guard try await transport.ensureMasterReady() else {
             throw RemoteTmuxError.unreachable("ssh-tmux ControlMaster is not ready for the browser proxy")
@@ -134,7 +155,7 @@ final class RemoteTmuxBrowserProxyRegistry {
 
             let listener = RemoteTmuxBrowserProxyListener(localPort: listenerPort, dynamicForwardPort: forwardPort)
             do {
-                try listener.start()
+                try await listener.start()
             } catch {
                 lastError = error
                 continue
@@ -153,10 +174,12 @@ final class RemoteTmuxBrowserProxyRegistry {
 
             // `releaseHost` may have cancelled this task and removed the
             // registry entry while the forward above was opening (the last
-            // retaining workspace closed mid-acquire) — commit only if the
-            // entry is still there, or the listener and forward just opened
-            // would run with nothing left to own or ever close them.
-            guard !Task.isCancelled, entriesByConnectionHash[hash] != nil else {
+            // retaining workspace closed mid-acquire), or a newer `acquire()`
+            // may have replaced this entry with its own attempt — commit
+            // only if this attempt's id still owns the entry, or the
+            // listener and forward just opened would run with nothing left
+            // to own them, or would stomp a newer attempt's resources.
+            guard !Task.isCancelled, entriesByConnectionHash[hash]?.startupID == startupID else {
                 listener.stop()
                 Task { await transport.cancelDynamicForward(localPort: forwardPort) }
                 throw CancellationError()

@@ -2,6 +2,7 @@ import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import Darwin
 import Foundation
+import Network
 
 /// Dials out through the local `ssh -D` SOCKS5 listener ssh-tmux keeps open,
 /// conforming to ``RemoteProxyStreamOpening`` so ``RemoteDaemonProxySession``
@@ -154,12 +155,20 @@ extension RemoteTmuxSocksProxyStreamClient {
     }
 
     /// Sends the SOCKS5 greeting + CONNECT request (reusing `SocksV5Client`'s
-    /// pure codec — the target here is always a literal loopback IP, since
-    /// `RemoteDaemonProxySession` already resolves the loopback alias before
-    /// calling `openStream`, so `SocksV5Client`'s IP-only support is enough)
-    /// and validates the reply, all with bounded reads/writes against
-    /// `deadline`. `fd` stays nonblocking throughout; each read/write is
-    /// preceded by a `poll(2)`.
+    /// pure, host-agnostic pieces — greeting, method-selection check, reply
+    /// parsing) and validates the reply, all with bounded reads/writes
+    /// against `deadline`. `fd` stays nonblocking throughout; each read/write
+    /// is preceded by a `poll(2)`.
+    ///
+    /// The CONNECT request itself is NOT built with `SocksV5Client.connectRequest`
+    /// — that one is IP-literal-only by design for its original caller (the
+    /// cmux-tui WireGuard hub, which never resolves names). This dials
+    /// through ssh's own `-D` dynamic forward instead, a real OpenSSH SOCKS5
+    /// implementation that resolves a DOMAINNAME request on the remote host —
+    /// the whole point of a SOCKS dynamic forward, and the only way to reach
+    /// a hostname that only exists on that side. `connectRequest(host:port:)`
+    /// below adds that address type locally rather than widening the shared
+    /// type's documented IP-only contract for its other caller.
     fileprivate static func performSocksHandshake(
         fd: Int32,
         targetHost: String,
@@ -170,7 +179,7 @@ extension RemoteTmuxSocksProxyStreamClient {
         let methodSelection = try readExact(fd: fd, count: SocksV5Client.methodSelectionLength, deadline: deadline)
         try SocksV5Client.checkMethodSelection(methodSelection)
 
-        let request = try SocksV5Client.connectRequest(host: targetHost, port: targetPort)
+        let request = try connectRequest(host: targetHost, port: targetPort)
         try writeAll(fd: fd, bytes: request, deadline: deadline)
 
         let header = try readExact(fd: fd, count: SocksV5Client.replyHeaderLength, deadline: deadline)
@@ -183,6 +192,35 @@ extension RemoteTmuxSocksProxyStreamClient {
         }
         let trailer = trailerLength > 0 ? try readExact(fd: fd, count: trailerLength, deadline: deadline) : []
         try SocksV5Client.checkReply(header + trailer)
+    }
+
+    /// `VER CMD RSV ATYP DST.ADDR DST.PORT` for `host`, using SOCKS5's
+    /// DOMAINNAME address type (RFC 1928 §5) when `host` isn't a literal IP —
+    /// see the doc comment on `performSocksHandshake` for why this can't just
+    /// reuse `SocksV5Client.connectRequest`.
+    private static func connectRequest(host: String, port: Int) throws -> [UInt8] {
+        guard (1...65_535).contains(port) else {
+            throw RemoteTmuxError.launchFailed("browser proxy SOCKS request has an invalid port: \(host):\(port)")
+        }
+        var request: [UInt8] = [SocksV5Client.version, SocksV5Client.commandConnect, 0x00]
+        if let ipv4 = IPv4Address(host) {
+            request.append(SocksV5Client.addressTypeIPv4)
+            request.append(contentsOf: ipv4.rawValue)
+        } else if let ipv6 = IPv6Address(host) {
+            request.append(SocksV5Client.addressTypeIPv6)
+            request.append(contentsOf: ipv6.rawValue)
+        } else {
+            let nameBytes = Array(host.utf8)
+            guard !nameBytes.isEmpty, nameBytes.count <= 255 else {
+                throw RemoteTmuxError.launchFailed("browser proxy SOCKS request host is invalid: \(host)")
+            }
+            request.append(SocksV5Client.addressTypeDomain)
+            request.append(UInt8(nameBytes.count))
+            request.append(contentsOf: nameBytes)
+        }
+        request.append(UInt8(port >> 8))
+        request.append(UInt8(port & 0xFF))
+        return request
     }
 
     private static func writeAll(fd: Int32, bytes: [UInt8], deadline: DispatchTime) throws {
