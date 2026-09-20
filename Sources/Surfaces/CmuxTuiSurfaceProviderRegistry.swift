@@ -343,14 +343,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         unregisterMachine(rawID)
     }
 
-    /// Both an explicit delete and fleet reconciliation use the same owned
-    /// teardown. Discovery must not await cleanup of an unrelated machine.
+    /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
     private func unregisterMachine(_ rawID: String) {
-        // Callers may hand over a canonicalized (lowercased) id while the
-        // registry keys everything by the control plane's own `summary.id`;
-        // resolve to the registered key so no table is left behind.
+        // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
         let provider = providers.removeValue(forKey: id)
+        provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
@@ -507,20 +505,24 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask = nil
         isFeatureSuspended = false
         let retiringProviders = providers
+        // Suspend before unregistering so terminal callbacks cannot race a
+        // catalog removal during account teardown.
+        for provider in retiringProviders.values { provider.suspendForFeatureFlag() }
         let retiredIDs = Set(retiringProviders.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
         for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
-        for provider in retiringProviders.values { await provider.stop() }
         let teardowns = Array(machineTeardowns.values)
         machineTeardowns.removeAll()
         let previous = teardownInFlight
         let teardown = Task { [closeTransports] in
             await previous?.value
             await suspension?.value
+            await Self.stopRetiringProviders(Array(retiringProviders.values))
             for task in teardowns { await task.value }
             // Signing out drops the tunnel too: the next account enrolls its own.
             await closeTransports()
         }
+        // Sign-in must observe this fence before any provider drain can suspend.
         teardownInFlight = teardown
         await teardown.value
         if teardownInFlight == teardown { teardownInFlight = nil }
