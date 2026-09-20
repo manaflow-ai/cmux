@@ -9,6 +9,43 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudMachineWorkspaceAdoptionTests {
+    @Test("The bind acknowledgement returns the explicit workspace's owning window")
+    func bindReceiptOwnsWindowResolution() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let controller = TerminalController.shared
+            let previousManager = controller.activeTabManagerForCallerNotification()
+            let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+            let previousBeta = UserDefaults.standard.object(forKey: betaKey)
+            let flag = CmuxFeatureFlags.cloudMachinesFlag
+            let previousFlag = CmuxFeatureFlags.shared.overrideValue(for: flag)
+            let other = TabManager(autoWelcomeIfNeeded: false)
+            let otherWindow = app.appDelegate.registerMainWindowContextForTesting(tabManager: other)
+            defer {
+                app.appDelegate.unregisterMainWindowContextForTesting(windowId: otherWindow)
+                other.tabs.forEach { $0.teardownAllPanels() }
+                app.tearDown()
+                controller.setActiveTabManager(previousManager)
+                UserDefaults.standard.set(previousBeta, forKey: betaKey)
+                CmuxFeatureFlags.shared.setOverride(previousFlag, for: flag)
+            }
+            UserDefaults.standard.set(true, forKey: betaKey)
+            CmuxFeatureFlags.shared.setOverride(true, for: flag)
+            controller.setActiveTabManager(other)
+            let ref = try #require(controller.v2Ref(kind: .workspace, uuid: app.workspace.id) as? String)
+            for target in [ref, app.workspace.id.uuidString.lowercased()] {
+                let response = controller.v2WorkspaceCloudVMBind(params: ["workspace_id": target, "vm_id": "receipt-fixture"])
+                let bytes = Data(controller.v2Result(id: "receipt", response).utf8)
+                let object = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+                #expect(object["ok"] as? Bool == true)
+                let result = try #require(object["result"] as? [String: Any])
+                #expect(result["workspace_id"] as? String == app.workspace.id.uuidString)
+                #expect(result["workspace_ref"] as? String == ref)
+                #expect(result["window_id"] as? String == app.windowID.uuidString)
+            }
+        }
+    }
+
     @Test("Abandoning the last creating card leaves no orphan and keeps the window usable")
     func cancellationOfLastWorkspace() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

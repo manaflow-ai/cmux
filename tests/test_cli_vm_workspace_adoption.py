@@ -15,6 +15,8 @@ import unittest
 class MachineSocket:
     workspace = "11111111-1111-4111-8111-111111111111"
     machine = "vm-create-adoption"
+    window = "33333333-3333-4333-8333-333333333333"
+    other_window = "44444444-4444-4444-8444-444444444444"
 
     def __init__(self, fail_at=None, bound_workspace=None):
         self.fail_at = fail_at
@@ -45,7 +47,7 @@ class MachineSocket:
                         method = request["method"]
                         if method == "workspace.cloud_vm_bind":
                             self.bound_workspace = request["params"].get("remote_workspace_id", self.bound_workspace)
-                        result = self.response(method)
+                        result = self.response(method, request.get("params", {}))
                         response = {"id": request["id"], "ok": method != self.fail_at, "result": result}
                         if method == self.fail_at:
                             response["error"] = {"code": "unavailable", "message": "Fixture failure"}
@@ -55,7 +57,7 @@ class MachineSocket:
             if not self.stopping.is_set():
                 self.errors.append(error)
 
-    def response(self, method):
+    def response(self, method, params):
         if method == "vm.create":
             return {"id": self.machine, "provider": "freestyle", "image": "fixture", "slug": "brave-sapphire-lobster"}
         if method == "vm.cmux_remote_info":
@@ -71,11 +73,13 @@ class MachineSocket:
         if method == "surface.project":
             return {"workspace_id": self.workspace, "surface_id": "22222222-2222-4222-8222-222222222222"}
         if method == "workspace.cloud_vm_bind":
-            return {"workspace_id": self.workspace, "remote_workspace_id": self.bound_workspace}
+            return {"workspace_id": self.workspace, "workspace_ref": "workspace:fixture",
+                    "window_id": self.window, "remote_workspace_id": self.bound_workspace}
         if method == "window.list":
-            return {"windows": [{"id": "window-fixture"}]}
+            return {"windows": [{"id": self.window}, {"id": self.other_window}]}
         if method == "workspace.list":
-            return {"workspaces": [{"id": self.workspace, "ref": "workspace:fixture", "window_id": "window-fixture"}]}
+            return {"workspaces": [] if params.get("window_id") == self.other_window else
+                    [{"id": self.workspace, "ref": "workspace:fixture", "window_id": self.window}]}
         if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.current", "workspace.select"}:
             return {"workspace_id": self.workspace}
         raise AssertionError("Unexpected mutation: " + method)
@@ -94,7 +98,7 @@ class MachineSocket:
 
 
 class VMWorkspaceAdoptionTests(unittest.TestCase):
-    def run_open(self, server, verb="new", detach=False):
+    def run_open(self, server, verb="new", detach=False, target=None, window=None, json_output=False):
         cli = os.environ["CMUX_CLI_BIN"]
         environment = {key: value for key, value in os.environ.items() if not key.startswith("CMUX")}
         with tempfile.TemporaryDirectory(prefix="cmux-adopt-home-") as home:
@@ -102,7 +106,11 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
             args = ["vm", verb] + ([server.machine] if verb == "open" else [])
             if detach:
                 args += ["--detach"]
-            result = subprocess.run([cli, "--socket", server.path, *args, "--workspace", server.workspace, "--focus", "false"],
+            if window:
+                args += ["--window", window]
+            if json_output:
+                args += ["--json"]
+            result = subprocess.run([cli, "--socket", server.path, *args, "--workspace", target or server.workspace, "--focus", "false"],
                                     env=environment, capture_output=True, text=True, timeout=30)
         return result
 
@@ -119,6 +127,17 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
             project = next(r["params"] for r in server.requests if r["method"] == "surface.project")
             self.assertEqual(project["remote_workspace_id"], "ws-first")
             self.assertEqual(project["resource"], server.machine + "/terminal/term-first")
+
+    def test_app_receipt_resolves_cross_window_refs_and_uuid_targets(self):
+        for target in [MachineSocket.workspace, "workspace:fixture"]:
+            with self.subTest(target=target), MachineSocket() as server:
+                result = self.run_open(server, "open", target=target, window=server.other_window, json_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout)
+                self.assertEqual(receipt["workspace_id"], server.workspace)
+                self.assertEqual(receipt["workspace_ref"], "workspace:fixture")
+                self.assertEqual(receipt["window_id"], server.window)
+                self.assertNotIn("workspace.list", [r["method"] for r in server.requests])
 
     def test_create_and_retry_preserve_the_reserved_workspace_and_first_terminal(self):
         for verb in ["new", "open"]:
