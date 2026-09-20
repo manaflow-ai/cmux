@@ -10,23 +10,27 @@ final class BrowserDataImportCoordinator {
     private let browserDetection: BrowserInstalledBrowserDetectionService
     @ObservationIgnored private var presentationTask: Task<Void, Never>?
 
+    var isPresentationAvailable: Bool { presentationTask == nil }
+
     init(browserDetection: BrowserInstalledBrowserDetectionService = .init()) {
         self.browserDetection = browserDetection
     }
 
     deinit { presentationTask?.cancel() }
 
+    @discardableResult
     func presentImportDialog(
         defaultDestinationProfileID: UUID? = nil,
         defaultScope: BrowserImportScope? = nil
-    ) {
-        guard presentationTask == nil else { return }
+    ) -> Bool {
+        guard presentationTask == nil else { return false }
         presentationTask = Task { @MainActor [weak self] in
             await self?.presentImportDialogAsync(
                 defaultDestinationProfileID: defaultDestinationProfileID,
                 defaultScope: defaultScope
             )
         }
+        return true
     }
 
     func detectInstalledBrowsers() async -> [InstalledBrowserCandidate] {
@@ -134,4 +138,79 @@ final class BrowserDataImportCoordinator {
         hideProgressWindow(progressWindow)
         presentOutcome(outcome)
     }
+
+#if DEBUG
+    private struct CapturedImportSelection: Encodable {
+        struct Entry: Encodable {
+            let sourceProfiles: [String]
+            let destinationKind: String
+            let destinationName: String
+        }
+
+        let browserName: String
+        let mode: String
+        let scope: String
+        let domainFilters: [String]
+        let entries: [Entry]
+    }
+
+    private func captureSelectionIfRequested(
+        _ selection: ImportSelection,
+        destinationProfiles: [BrowserProfileDefinition]?
+    ) -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_UI_TEST_BROWSER_IMPORT_MODE"] == "capture-only" else { return false }
+        guard let path = environment["CMUX_UI_TEST_BROWSER_IMPORT_CAPTURE_PATH"], !path.isEmpty else {
+            return true
+        }
+
+        let availableDestinationProfiles = destinationProfiles ?? BrowserProfileStore.shared.profiles
+        let payload = CapturedImportSelection(
+            browserName: selection.browser.displayName,
+            mode: captureModeName(selection.executionPlan.mode),
+            scope: selection.scope.rawValue,
+            domainFilters: selection.domainFilters,
+            entries: selection.executionPlan.entries.map { entry in
+                let destinationKind: String
+                let destinationName: String
+                switch entry.destination {
+                case .existing(let id):
+                    destinationKind = "existing"
+                    destinationName = availableDestinationProfiles.first(where: { $0.id == id })?.displayName
+                        ?? BrowserProfileStore.shared.displayName(for: id)
+                case .createNamed(let name):
+                    destinationKind = "create"
+                    destinationName = name
+                }
+                return CapturedImportSelection.Entry(
+                    sourceProfiles: entry.sourceProfiles.map(\.displayName),
+                    destinationKind: destinationKind,
+                    destinationName: destinationName
+                )
+            }
+        )
+
+        guard let data = try? JSONEncoder().encode(payload) else { return true }
+        let url = URL(fileURLWithPath: path)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        try? data.write(to: url)
+        return true
+    }
+
+    private func captureModeName(_ mode: BrowserImportDestinationMode) -> String {
+        switch mode {
+        case .singleDestination:
+            return "singleDestination"
+        case .separateProfiles:
+            return "separateProfiles"
+        case .mergeIntoOne:
+            return "mergeIntoOne"
+        }
+    }
+#endif
+
 }

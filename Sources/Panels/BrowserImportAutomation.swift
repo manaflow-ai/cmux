@@ -17,7 +17,7 @@ enum BrowserImportAutomation {
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
-            let preferredDestinationProfileID = try resolvedDestinationProfileID(
+            let preferredDestinationProfileID = try BrowserImportDestinationResolver.resolve(
                 params: params,
                 destinationProfiles: destinationProfiles
             )
@@ -106,37 +106,6 @@ enum BrowserImportAutomation {
             result.append(profile)
         }
         return result
-    }
-
-    @MainActor
-    private static func resolvedDestinationProfileID(
-        params: [String: Any],
-        destinationProfiles: [BrowserProfileDefinition]
-    ) throws -> UUID? {
-        guard let query = stringParam(params, keys: ["destination_profile", "to_profile", "to"]) else {
-            return nil
-        }
-
-        if let uuid = UUID(uuidString: query),
-           destinationProfiles.contains(where: { $0.id == uuid }) {
-            return uuid
-        }
-
-        if let profile = destinationProfiles.first(where: {
-            $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame ||
-                $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
-        }) {
-            return profile.id
-        }
-
-        guard BrowserAutomationParameters(values: params).bool(keys: ["create_destination_profile", "create_profile"]) else {
-            throw BrowserImportAutomationError.destinationProfileNotFound(query)
-        }
-
-        guard let profile = BrowserProfileStore.shared.createProfile(named: query) else {
-            throw BrowserImportAutomationError.destinationProfileCreationFailed(query)
-        }
-        return profile.id
     }
 
     private static func matchesBrowser(_ browser: InstalledBrowserCandidate, query: String) -> Bool {

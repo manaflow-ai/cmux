@@ -440,6 +440,7 @@
 		A28B087F0000000000000015 /* BrowserImageCopyPasteboardBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000014 /* BrowserImageCopyPasteboardBuilder.swift */; };
 		A28B087F0000000000000011 /* BrowserImageCopyPasteboardPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000010 /* BrowserImageCopyPasteboardPayload.swift */; };
 		C12791C00000000000000002 /* BrowserImportAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000001 /* BrowserImportAutomation.swift */; };
+		C12791C00000000000000008 /* BrowserImportDestinationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12791C00000000000000007 /* BrowserImportDestinationResolver.swift */; };
 		FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
 		FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 		B75040040000000000000001 /* BrowserInsecureHTTPAlertTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */; };
@@ -4524,6 +4525,7 @@
 		A28B087F0000000000000014 /* BrowserImageCopyPasteboardBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserImageCopyPasteboardBuilder.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000010 /* BrowserImageCopyPasteboardPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserImageCopyPasteboardPayload.swift; sourceTree = "<group>"; };
 		C12791C00000000000000001 /* BrowserImportAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserImportAutomation.swift"; sourceTree = "<group>"; };
+		C12791C00000000000000007 /* BrowserImportDestinationResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserImportDestinationResolver.swift; sourceTree = "<group>"; };
 		FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
 		FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 		B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserInsecureHTTPAlertTestSupport.swift; sourceTree = "<group>"; };
@@ -10172,6 +10174,7 @@
 				C12791000000000000000002 /* BrowserDataImportCoordinator.swift */,
 				C12791C00000000000000003 /* TerminalController+BrowserImport.swift */,
 				C12791C00000000000000001 /* BrowserImportAutomation.swift */,
+				C12791C00000000000000007 /* BrowserImportDestinationResolver.swift */,
 				C12791C00000000000000005 /* BrowserAutomationParameters.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				A9210001000000000000000A /* BrowserScreenshotAnimationFrameWaiter.swift */,
@@ -13032,6 +13035,7 @@
 				A28B087F0000000000000015 /* BrowserImageCopyPasteboardBuilder.swift in Sources */,
 				A28B087F0000000000000011 /* BrowserImageCopyPasteboardPayload.swift in Sources */,
 				C12791C00000000000000002 /* BrowserImportAutomation.swift in Sources */,
+				C12791C00000000000000008 /* BrowserImportDestinationResolver.swift in Sources */,
 				D35A0000000000000000000F /* BrowserInsecureHTTPNavigationResolution.swift in Sources */,
 				B1F0C0010000000000000001 /* BrowserInspectorFocusHandoff.swift in Sources */,
 				D7C0DE00000000000000A109 /* BrowserJavaScriptCompletionBridge.swift in Sources */,
