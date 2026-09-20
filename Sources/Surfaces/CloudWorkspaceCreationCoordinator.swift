@@ -27,6 +27,8 @@ final class CloudWorkspaceCreationCoordinator {
             try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                               existingTerminal: existingTerminal, catalog: catalog)
         } onCancel: {
+            // The synchronous cancellation callback only hops to this actor;
+            // perform's catch also owns the same idempotent cleanup on unwind.
             Task { @MainActor [weak self] in self?.cancel(operation.id) }
         }
     }

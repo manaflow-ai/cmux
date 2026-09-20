@@ -60,7 +60,8 @@ struct CloudTreeNodeActions {
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
-        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
+        workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
@@ -324,9 +325,12 @@ struct CloudTreeNodeActions {
                 }
             },
             newWorkspace: { machine in
-                guard let manager = selectedWorkspaceID().flatMap({ Workspace.liveWorkspace(id: $0)?.owningTabManager }) else { return }
-                let host = CloudWorkspaceCreationHost(manager: manager)
+                let host = workspaceCreationHost() ?? selectedWorkspaceID()
+                    .flatMap { Workspace.liveWorkspace(id: $0)?.owningTabManager }
+                    .map { CloudWorkspaceCreationHost(manager: $0) }
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
+                    // A sidebar whose window closed must never fall back to a different window.
+                    guard let host, host.isAvailable else { throw CancellationError() }
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true, host: host)
                 }

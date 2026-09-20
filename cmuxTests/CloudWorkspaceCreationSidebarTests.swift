@@ -260,21 +260,23 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
-    @Test("The Cloud action uses its injected window even when the app-global manager points elsewhere")
-    func creationStaysInTheInitiatingWindow() async throws {
+    @Test("The Cloud action uses its injected window even without a selected workspace", arguments: [false, true])
+    func creationStaysInTheInitiatingWindow(hasSelection: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             let other = TabManager(autoWelcomeIfNeeded: false)
             defer { other.tabs.forEach { $0.teardownAllPanels() } }
             fixture.app.tabManager = other
+            if !hasSelection { fixture.manager.selectedTabId = nil }
             fixture.provider.usesReceipt = true
             let completed = CloudLinkFirstValue<Bool>()
             let actions = CloudTreeNodeActions.bound(
                 catalog: { fixture.catalog }, selectedWorkspaceID: { fixture.manager.selectedTabId },
                 selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
                 onWillMutate: { _ in }, onDidMutate: { completed.resolve(true) },
-                onFailure: { Issue.record("Unexpected create failure: \($0)") }, refresh: {}
+                onFailure: { Issue.record("Unexpected create failure: \($0)") }, refresh: {},
+                workspaceCreationHost: { CloudWorkspaceCreationHost(manager: fixture.manager) }
             )
             actions.newWorkspace(fixture.provider.machine)
             #expect(await completed.result == true)
