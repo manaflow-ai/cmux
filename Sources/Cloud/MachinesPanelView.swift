@@ -33,7 +33,6 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
 
-
     init(
         chromeBackgroundColor: NSColor,
         defaultMachineStore: DefaultCloudMachineStore,
@@ -506,6 +505,7 @@ struct MachinesPanelView: View {
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in

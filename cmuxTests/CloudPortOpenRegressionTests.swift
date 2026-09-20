@@ -15,7 +15,6 @@ import CmuxWorkspaces
 struct CloudPortOpenRegressionTests {
     private let machine = SurfaceMachineID.cloud("port-vm")
     private let workspace = SurfaceRemoteWorkspace(id: "ws_app", name: "app", index: 0, focused: true)
-
     @MainActor
     private final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
@@ -395,6 +394,7 @@ struct CloudPortOpenRegressionTests {
         var completion: AsyncStream<Void>.Continuation!
         let completionStream = AsyncStream<Void> { completion = $0 }
         let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { catalog },
             selectedWorkspaceID: { unrelatedWorkspaceID },
             selectLocalWorkspace: { _ in },
