@@ -564,6 +564,7 @@ def _dirty_disk_filenames(text: str, filenames: list[str]) -> list[str]:
     source_ids_by_comment: dict[str, list[str]] = {}
     for entry_id, comment in tests_source_entries:
         source_ids_by_comment.setdefault(comment, []).append(entry_id)
+    group_child_comments: dict[str, list[str]] | None = None
 
     dirty: list[str] = []
     for filename in filenames:
@@ -577,11 +578,11 @@ def _dirty_disk_filenames(text: str, filenames: list[str]) -> list[str]:
             dirty.append(filename)
             continue
         ref = refs[0]
-        group_comments = [
-            comment
-            for entry_id, comment in _list_entries(group.text, "children")
-            if entry_id == ref.identifier
-        ]
+        if group_child_comments is None:
+            group_child_comments = {}
+            for entry_id, comment in _list_entries(group.text, "children"):
+                group_child_comments.setdefault(entry_id, []).append(comment)
+        group_comments = group_child_comments.get(ref.identifier, [])
         if (
             ref.comment != filename
             or group_comments != [filename]
@@ -1217,6 +1218,8 @@ def main(argv: list[str] | None = None) -> int:
             print("sync-test-wiring: project wiring is out of sync", file=sys.stderr)
             for action in result.actions:
                 print(f"  - {action}", file=sys.stderr)
+            if not result.actions:
+                print("  - normalized pbxproj section and Sources ordering", file=sys.stderr)
             print("run ./scripts/sync-test-wiring and commit the pbxproj change", file=sys.stderr)
             return 1
         print(f"sync-test-wiring: ok (checked {len(filenames)} test files)")
