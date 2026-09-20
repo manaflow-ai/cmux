@@ -327,13 +327,18 @@ struct CloudMachineOrderingTests {
         #expect(coordinators.allSatisfy { $0.nodes.compactMap(\.machineOrderID) == ["a", "b", "c", "d"] })
         let actions = try #require(fixture.coordinator.machineActions.ordering)
         #expect(actions.move("d", .top) != nil)
-        // Drain the scheduled UI transaction, then lay out without replacing
-        // rootView, manually invalidating the host, or publishing the adapter.
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
+        // Wait on the rendered order, allowing SwiftUI to schedule more than
+        // one transaction. The deadline bounds a missing observation update.
+        let expectedOrder = ["d", "a", "b", "c"]
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !coordinators.allSatisfy({ $0.nodes.compactMap(\.machineOrderID) == expectedOrder }),
+              ContinuousClock.now < deadline {
+            await withCheckedContinuation { continuation in
+                RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
+            }
+            for host in hosts { host.layoutSubtreeIfNeeded() }
         }
-        for host in hosts { host.layoutSubtreeIfNeeded() }
-        #expect(coordinators.allSatisfy { $0.nodes.compactMap(\.machineOrderID) == ["d", "a", "b", "c"] })
+        #expect(coordinators.allSatisfy { $0.nodes.compactMap(\.machineOrderID) == expectedOrder })
     }
 
     private func findOutline(in view: NSView) -> CloudTreeNSOutlineView? {
