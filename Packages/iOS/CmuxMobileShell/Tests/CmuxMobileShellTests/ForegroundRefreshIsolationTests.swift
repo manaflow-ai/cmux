@@ -16,9 +16,9 @@ struct ForegroundRefreshIsolationTests {
         let completedWhileSecondaryWasBlocked = completed
         await paired.release(teamID: nil)
         await pull.value
-        store.secondaryAggregationTask?.cancel()
         #expect(completedWhileSecondaryWasBlocked)
         #expect(store.connectionState == .connected)
         #expect(!store.workspaces.isEmpty)
+        store.pauseForegroundRefresh()
     }
 }
