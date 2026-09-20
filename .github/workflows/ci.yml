@@ -48,6 +48,11 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
+      linux_guard_tests: ${{ steps.linux_guards.outputs.linux_guard_tests }}
+      linux_guard_history: ${{ steps.linux_guards.outputs.linux_guard_history }}
+      linux_guard_cli: ${{ steps.linux_guards.outputs.linux_guard_cli }}
+      linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
+      ghosttykit_release: ${{ steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
     permissions:
@@ -197,6 +202,31 @@ jobs:
           fi
           python3 scripts/ci/choose_ci_suite.py "${args[@]}"
 
+      - name: Route Linux guard suites
+        id: linux_guards
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MACOS: ${{ steps.detect.outputs.macos }}
+        run: |
+          set -euo pipefail
+          # A candidate router cannot skip its own tests. Keep this decision
+          # in the workflow, outside the PR-editable helper.
+          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/ci.yml|scripts/ci/*|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
+                  for route in linux_guard_tests linux_guard_history linux_guard_cli linux_guard_source ghosttykit_release; do
+                    echo "$route=true" >> "$GITHUB_OUTPUT"
+                  done
+                  exit 0
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+          fi
+          python3 scripts/ci/detect_linux_guard_changes.py \
+            --event-name "$EVENT_NAME" --macos "$MACOS" \
+            --files-from /tmp/cmux-ci-changed-files.txt >> "$GITHUB_OUTPUT"
+
       # A push that changes nothing the Xcode build reads (a guard test, another
       # workflow, docs, a merge of main that only moved web) has nothing new to
       # compile. Each pull request run publishes its build-input fingerprint as
@@ -279,7 +309,8 @@ jobs:
         run: python3 scripts/lint-feature-flags.py
 
   workflow-guard-tests:
-    needs: static-preflight
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.linux_guard_tests == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
@@ -543,6 +574,7 @@ jobs:
       - name: Validate CI change area filter
         run: |
           python3 tests/test_ci_change_areas.py
+          python3 tests/test_ci_linux_guard_routing.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_ci_product_publication.py
@@ -598,7 +630,8 @@ jobs:
           python3 scripts/check-test-determinism.py --strict
 
   workflow-guard-history:
-    needs: static-preflight
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.linux_guard_history == 'true' }}
     # The lockfile policy diffs against the merge base, so this is the only
     # guard job that fetches history.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -627,7 +660,8 @@ jobs:
           python3 scripts/check-package-resolved-policy.py
 
   workflow-guard-cli-scripts:
-    needs: static-preflight
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.linux_guard_cli == 'true' }}
     # Slow guards run beside workflow-guard-tests so they do not extend it.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -654,7 +688,8 @@ jobs:
         run: ./tests/test_start_cmux_profiling.sh
 
   workflow-guard-source-lints:
-    needs: static-preflight
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.linux_guard_source == 'true' }}
     # Slow guards run beside workflow-guard-tests so they do not extend it.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -686,11 +721,12 @@ jobs:
           python3 scripts/lint-stored-dispatch-work-items.py
 
   ghosttykit-release-check:
-    needs: static-preflight
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.ghosttykit_release == 'true' }}
     name: GhosttyKit release check
     permissions:
       contents: read
-    # Every event checks that the pinned framework is available before using a Mac.
+    # Check the pinned framework before using a Mac, and on provenance changes.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -2664,13 +2700,13 @@ jobs:
           required = (
               "changes",
               "static-preflight",
+          )
+          allowed_routed = {
               "workflow-guard-tests",
               "workflow-guard-history",
               "workflow-guard-cli-scripts",
               "workflow-guard-source-lints",
               "ghosttykit-release-check",
-          )
-          allowed_routed = {
               "web-typecheck",
               "react-apps-check",
               "diff-sidecar-check",
@@ -2686,6 +2722,11 @@ jobs:
 
           outputs = needs["changes"].get("outputs", {})
           routed_outputs = {
+              "workflow-guard-tests": "linux_guard_tests",
+              "workflow-guard-history": "linux_guard_history",
+              "workflow-guard-cli-scripts": "linux_guard_cli",
+              "workflow-guard-source-lints": "linux_guard_source",
+              "ghosttykit-release-check": "ghosttykit_release",
               "web-typecheck": "web",
               "react-apps-check": "web",
               "diff-sidecar-check": "macos",
@@ -2695,7 +2736,9 @@ jobs:
           for name in sorted(allowed_routed):
               result = needs[name]["result"]
               route = routed_outputs[name]
-              if outputs.get(route) == "true":
+              if outputs.get(route) not in {"true", "false"}:
+                  bad[name] = f"invalid route {route}={outputs.get(route)!r}"
+              elif outputs.get(route) == "true":
                   if result != "success":
                       bad[name] = f"{result} (route {route}=true)"
               elif result not in {"success", "skipped"}:
