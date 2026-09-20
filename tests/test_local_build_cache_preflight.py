@@ -249,14 +249,67 @@ class PreflightTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_https_fetch_forbids_protocol_downgrade(self):
+        output = self.root / "download"
+        def fake_run(command, *_args, **_kwargs):
+            self.assertEqual(command[command.index("--proto-redir") + 1], "=https")
+            self.assertEqual(command[command.index("--proto") + 1], "=https")
+            output.write_bytes(b"compressed fixture")
+        with patch.object(preflight, "run", side_effect=fake_run):
+            self.assertTrue(preflight.fetch("https://cache.example/object.tar.gz", output, self.deadline))
+
+    def test_busy_lock_uses_deadline_worker_without_polling(self):
+        from types import SimpleNamespace
+        lock = self.root / "busy.lock"
+        with lock.open("a") as owner:
+            preflight.fcntl.flock(owner, preflight.fcntl.LOCK_EX)
+            def no_polling(*_args):
+                raise AssertionError("polling")
+            with patch.object(preflight, "time", SimpleNamespace(monotonic=time.monotonic, sleep=no_polling)):
+                with self.assertRaises(TimeoutError):
+                    with preflight.locked(lock, time.monotonic() + .15):
+                        self.fail("acquired a held lock")
+        with preflight.locked(lock, self.deadline):
+            pass
+
     def test_timeout_kills_downloader_descendants(self):
-        marker = self.root / "orphan"
-        child = f"import time; from pathlib import Path; time.sleep(.4); Path({str(marker)!r}).touch()"
-        parent = f"import subprocess,time; subprocess.Popen([{os.sys.executable!r},'-c',{child!r}]); time.sleep(60)"
-        with self.assertRaises(TimeoutError):
-            preflight.run([os.sys.executable, "-c", parent], time.monotonic() + .1)
-        time.sleep(.5)
-        self.assertFalse(marker.exists())
+        import select
+        ready_read, ready_write = os.pipe()
+        gate_read, gate_write = os.pipe()
+        real_popen = subprocess.Popen
+        child = f"import os; os.write({ready_write}, b'ready'); os.read({gate_read}, 1)"
+        parent = (f"import os,subprocess; p=subprocess.Popen([{os.sys.executable!r},'-c',{child!r}], "
+                  f"pass_fds=({ready_write},{gate_read})); os.close({ready_write}); p.wait()")
+        def start_ready(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            os.close(ready_write)
+            self.assertTrue(select.select([ready_read], [], [], 5)[0], "descendant never started")
+            self.assertEqual(os.read(ready_read, 5), b"ready")
+            wait = process.wait
+            calls = 0
+            def timeout_once(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise subprocess.TimeoutExpired("ready helper", 0)
+                return wait(*args, **kwargs)
+            process.wait = timeout_once
+            return process
+        try:
+            with patch.object(preflight.subprocess, "Popen", side_effect=start_ready):
+                with self.assertRaises(TimeoutError):
+                    preflight.run([os.sys.executable, "-c", parent], self.deadline,
+                                  pass_fds=(ready_write, gate_read))
+            # Only the blocked descendant owns the write end. EOF proves it
+            # exited; a surviving descendant would keep this pipe open.
+            self.assertTrue(select.select([ready_read], [], [], 5)[0], "descendant survived timeout")
+            self.assertEqual(os.read(ready_read, 1), b"")
+        finally:
+            for fd in (ready_read, ready_write, gate_read, gate_write):
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
 
     def test_slow_copy_fallback_cannot_finish_after_deadline(self):
         source = self.root / "source"
