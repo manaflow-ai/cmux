@@ -87,7 +87,7 @@ function codexCredential(userId: string, accountId: string): CodexCredential {
   };
 }
 
-async function insertLegacyCodexAccount(credential: CodexCredential) {
+async function insertLegacyCodexAccount(credential: CodexCredential, visibility: "private" | "team" = "team") {
   const id = randomUUID();
   const encrypted = await encryptCredential({
     teamId: TEAM_A,
@@ -98,8 +98,8 @@ async function insertLegacyCodexAccount(credential: CodexCredential) {
     keyId: "vm-scope-test-key",
     keys: testKeys,
   });
-  await db`insert into coderouter_accounts (id, team_id, provider, provider_account_id, label, state, vault_revision)
-    values (${id}, ${TEAM_A}, 'codex', ${credential.accountId}, 'legacy', 'active', 1)`;
+  await db`insert into coderouter_accounts (id, team_id, provider, provider_account_id, label, state, vault_revision, visibility, created_by)
+    values (${id}, ${TEAM_A}, 'codex', ${credential.accountId}, 'legacy', 'active', 1, ${visibility}, ${visibility === "team" ? USER : "another-user"})`;
   await db`insert into coderouter_credentials (account_id, team_id, provider, credential_revision, algorithm, ciphertext, nonce, auth_tag, encrypted_data_key, kms_key_id)
     values (${id}, ${TEAM_A}, 'codex', 1, ${encrypted.algorithm}, ${encrypted.ciphertext}, ${encrypted.nonce}, ${encrypted.authTag}, ${encrypted.encryptedDataKey}, ${encrypted.kmsKeyId})`;
   return id;
@@ -233,7 +233,6 @@ dbTest("a VM import is granted to its current custom pool and rejects stale or f
 dbTest("VM Codex imports migrate visible legacy rows and reject hidden duplicates", async () => {
   const visibleCredential = codexCredential("legacy-visible-user", "legacy-visible-workspace");
   const visibleId = await insertLegacyCodexAccount(visibleCredential);
-  await db`insert into coderouter_pool_accounts (team_id, pool_id, account_id) values (${TEAM_A}, ${poolA}, ${visibleId})`;
 
   const visibleResult = await addAccount(
     TEAM_A,
@@ -248,7 +247,7 @@ dbTest("VM Codex imports migrate visible legacy rows and reject hidden duplicate
   expect(migrated.provider_account_id).not.toBe(visibleCredential.accountId);
 
   const hiddenCredential = codexCredential("legacy-hidden-user", "legacy-hidden-workspace");
-  await insertLegacyCodexAccount(hiddenCredential);
+  await insertLegacyCodexAccount(hiddenCredential, "private");
   await expect(addAccount(
     TEAM_A,
     hiddenCredential,
