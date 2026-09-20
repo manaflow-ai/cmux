@@ -61,7 +61,6 @@ struct CloudVMLoadingPanelView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
-                            .disabled(panel.retryInFlight)
 
                             Button {
                                 FeedbackComposerBridge().openComposer()
@@ -91,6 +90,7 @@ struct CloudVMLoadingPanelView: View {
 
     @MainActor
     private func retryCloudMachine() {
+        guard panel.hasFailed else { return }
         if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.presentationWorkspaceID == panel.workspaceId }) {
             if MachineCreateCoordinator.shared.retry(operation.id) {
                 panel.resetLoading()
@@ -108,8 +108,6 @@ struct CloudVMLoadingPanelView: View {
             )
             return
         }
-        guard !panel.retryInFlight else { return }
-        panel.retryInFlight = true
         panel.resetLoading()
         let socketPath = TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath())
         let didStart = CloudVMActionLauncher.shared.start(
@@ -118,14 +116,12 @@ struct CloudVMLoadingPanelView: View {
             arguments: ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"],
             presentsFailureAlert: false,
             onCompletion: { completion in
-                panel.retryInFlight = false
                 if !completion.succeeded {
                     panel.showFailure(completion.output)
                 }
             }
         )
         if !didStart {
-            panel.retryInFlight = false
             panel.showFailure(String(localized: "panel.cloudVM.loading.failed.launch", defaultValue: "Cloud VM command could not be launched."))
         }
     }
