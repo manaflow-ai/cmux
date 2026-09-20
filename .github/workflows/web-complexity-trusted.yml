@@ -7,6 +7,9 @@ on:
     branches:
       - main
     types: [opened, edited, reopened, synchronize, ready_for_review]
+  # The merge queue's commit is checked the same way, as data, against the
+  # policy on the branch it is about to join.
+  merge_group:
   push:
     branches:
       - main
@@ -20,7 +23,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: web-complexity-trusted-${{ github.event.pull_request.number || github.ref }}
+  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -30,12 +33,19 @@ jobs:
     # hosted runner and never allow a repository variable to select the host.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      # The policy comes from the base of a pull request or merge group, and
+      # from the pushed commit itself on main. The tree being judged is the
+      # pull request's head or the merge group's commit.
+      TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Checkout trusted policy revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ env.TRUSTED_SHA }}
           path: trusted
           fetch-depth: 0
           persist-credentials: false
@@ -48,8 +58,6 @@ jobs:
           exit 1
 
       - name: Verify trusted checkout
-        env:
-          TRUSTED_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
         run: |
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -66,28 +74,36 @@ jobs:
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
-      - name: Checkout pull-request source
-        if: github.event_name == 'pull_request_target'
+      # Bun reads bunfig.toml and .env from its working directory. Every check
+      # below runs from the trusted checkout with this empty config and no env
+      # file, so the tree being judged cannot configure the runtime judging it.
+      # --config needs the = form: given a separate argument, Bun runs the config
+      # file as the script, exits 0, and the check never happens.
+      - name: Create empty trusted Bun config
+        run: |
+          set -euo pipefail
+          : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
+
+      - name: Checkout pull-request or merge-group source
+        if: github.event_name != 'push'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Check pull-request source with trusted policy
-        if: github.event_name == 'pull_request_target'
-        working-directory: candidate/web
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Check pull-request or merge-group source with trusted policy
+        if: github.event_name != 'push'
+        working-directory: trusted/web
         run: |
           set -euo pipefail
-          bun "$GITHUB_WORKSPACE/trusted/web/scripts/check-complexity.mjs" \
+          bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs \
             --repo-root "$GITHUB_WORKSPACE/candidate" \
             --tool-root "$GITHUB_WORKSPACE/trusted" \
             --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt" \
-            --head "$HEAD_SHA"
+            --head "$CANDIDATE_SHA"
 
       - name: Check main push with trusted policy
         if: github.event_name == 'push'
@@ -98,7 +114,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            bun scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
+            bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
           else
-            bun scripts/check-complexity.mjs
+            bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs
           fi

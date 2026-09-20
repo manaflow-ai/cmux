@@ -25,15 +25,14 @@ REQUIRED_CHECKS = (
     "web-validation",
 )
 
-# Checks that judge a pull request's head in workflows a pull request may not
-# edit. BRIDGE reports them for a merge group without running anything, so it
+# Checks that judge a pull request's author and head in workflows a pull request
+# may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
 # would run with those names' authority.
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
     "cla-policy-guard": "CLA policy guard",
-    "web-complexity": "Web complexity",
 }
 
 

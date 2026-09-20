@@ -1,0 +1,51 @@
+name: Cloud command deadlines
+on:
+  pull_request:
+    paths:
+      - Sources/Cloud/CloudTuiPersistent*.swift
+      - Sources/Cloud/CloudTuiManualIO*.swift
+      - Sources/Cloud/CloudTuiTerminalProjectionTarget.swift
+      - Sources/Cloud/CloudTuiRemoteColors.swift
+      - cmuxTests/CloudCommand*.swift
+      - cmuxTests/CloudTuiManualIOConnectionTests.swift
+      - tests/fixtures/cloud-command-deadlines/**
+      - tests/run_cloud_command_deadline_tests.sh
+      - Sources/Mobile/MobileHostIdentity.swift
+      - Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxDeviceIDCanonicalization.swift
+      - Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Concurrency/AtomicBooleanGate.swift
+      - Packages/macOS/CmuxFoundation/Sources/CmuxFoundationAtomicsC/**
+      - tests/fixtures/mobile-host-identity-cold-start/**
+      - tests/run_mobile_host_identity_cold_start_tests.sh
+      - tests/test_mobile_host_identity_cold_start.py
+      - .github/workflows/cloud-command-deadlines.yml
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source commit to exercise (empty uses the dispatch ref)
+        default: ""
+        type: string
+      runner:
+        description: Hosted macOS runner
+        default: blacksmith-6vcpu-macos-15
+        type: choice
+        options:
+          - blacksmith-6vcpu-macos-15
+          - blacksmith-6vcpu-macos-26
+permissions:
+  contents: read
+concurrency:
+  group: cloud-command-deadlines-${{ github.ref }}-${{ inputs.source_ref }}-${{ inputs.runner }}
+  cancel-in-progress: true
+jobs:
+  command-regressions:
+    runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.source_ref || github.ref }}
+      - name: Exercise the persistent Cloud command transport in isolation
+        run: tests/run_cloud_command_deadline_tests.sh "$RUNNER_TEMP/issue-11008-${{ github.run_id }}"
+      - name: Prove cold identity publication before defaults notification
+        run: tests/run_mobile_host_identity_cold_start_tests.sh "$RUNNER_TEMP/issue-11008-identity-${{ github.run_id }}"
