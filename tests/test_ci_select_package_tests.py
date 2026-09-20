@@ -55,7 +55,7 @@ def job_scripts() -> set[str]:
         script = ROOT / pending.pop()
         if not script.is_file():
             continue
-        for name in re.findall(r"\$script_dir/([A-Za-z0-9_.-]+\.(?:sh|py))", script.read_text(encoding="utf-8")):
+        for name in re.findall(r"\$(?:script_dir|SCRIPT_DIR)/([A-Za-z0-9_.-]+\.(?:sh|py|txt))", script.read_text(encoding="utf-8")):
             sibling = str((script.parent / name).relative_to(ROOT))
             if sibling not in found:
                 found.add(sibling)

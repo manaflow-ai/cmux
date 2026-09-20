@@ -328,7 +328,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         frame.origin.x = disclosureLeading(atRow: row)
         // The native disclosure control keeps its own artwork and height; only
         // its column is fixed so every row's caret lines up at the same depth.
-        frame.size.width = GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot)
+        frame.size.width = GlobalFontMagnification.scaledSize(treeStyle.rowGrid.disclosureSlot)
         if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
            treeStyle.machineRowLayout == .twoLine {
             // Multi-line machine rows: the chevron centers on the name line (first
@@ -349,7 +349,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         var frame = super.frameOfCell(atColumn: column, row: row)
         let trailing = frame.maxX
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
-            CloudTreeRowGrid.disclosureSlot + CloudTreeRowGrid.disclosureGap
+            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
         )
         frame.size.width = max(0, trailing - frame.minX)
         return frame
