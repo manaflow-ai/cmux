@@ -78,6 +78,8 @@ struct CloudTreeNodeActions {
                     }
                 } catch is CancellationError {
                     // A locally admitted delete or disabled feature invalidates navigation.
+                } catch let failure as CloudDiagnosticFailure {
+                    onFailure(failure.label)
                 } catch {
                     onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
                 }
@@ -200,6 +202,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                let target: Result<SurfaceDestination, Error> = Result { try destination(.tab) }
                 // A cloud machine gets its pane at once; the sidebar shares the
                 // shortcut routes' optimistic path. The local machine and a missing
                 // workspace keep the awaited create below.
@@ -209,6 +212,7 @@ struct CloudTreeNodeActions {
                     return
                 }
                 run(startingLabel(machine)) { catalog in
+                    let requestedDestination = try target.get()
                     if let remoteWorkspaceID {
                         try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                     }
@@ -216,35 +220,40 @@ struct CloudTreeNodeActions {
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
                     defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                    let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).remoteView(of: resource)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: try destination(.tab),
+                        into: requestedDestination,
                         focus: true,
                         reuseExisting: true,
-                        remoteView: Self.uniqueRemoteView(resource)
+                        remoteView: remoteView
                     )
                     SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
+                let target = Result { try destination(group.isEmpty ? .tab : placement) }
+                let targetRemoteWorkspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID
                 if group.isEmpty {
                     if !machine.isLocal, let workspaceID = selectedWorkspaceID(),
                        let workspace = Workspace.liveWorkspace(id: workspaceID),
-                       workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: remoteWorkspaceID) {
+                       workspace.openCloudTerminalOptimistically(on: machine, remoteWorkspaceID: targetRemoteWorkspaceID) {
                         return
                     }
                     run(startingLabel(machine)) { catalog in
-                        if let workspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID {
-                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+                        let requestedDestination = try target.get()
+                        if let targetRemoteWorkspaceID {
+                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: targetRemoteWorkspaceID)
                         }
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: targetRemoteWorkspaceID)
+                        let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: targetRemoteWorkspaceID).remoteView(of: resource)
                         let (projection, _) = try await catalog.project(
                             resource.id,
-                            into: try destination(.tab),
+                            into: requestedDestination,
                             focus: true,
                             reuseExisting: true,
-                            remoteView: Self.uniqueRemoteView(resource)
+                            remoteView: remoteView
                         )
                         SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                     }
@@ -253,7 +262,7 @@ struct CloudTreeNodeActions {
                         let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
                         _ = try await catalog.projectGroup(
                             routedGroup,
-                            into: try destination(placement),
+                            into: try target.get(),
                             focus: true,
                             optimistic: .app
                         )
@@ -261,22 +270,24 @@ struct CloudTreeNodeActions {
                 }
             },
             openGroupAsWorkspace: { machine, group, remoteWorkspaceID in
+                let targetRemoteWorkspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID
                 if group.isEmpty {
                     run(startingLabel(machine)) { catalog in
-                        if let workspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID {
-                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+                        if let targetRemoteWorkspaceID {
+                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: targetRemoteWorkspaceID)
                         }
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: targetRemoteWorkspaceID)
+                        let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: targetRemoteWorkspaceID).remoteView(of: resource)
                         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             SurfaceResourceGroup(
                                 title: group.title,
                                 placements: [SurfaceResourcePlacement(
                                     resource: resource.id,
-                                    remoteView: Self.uniqueRemoteView(resource),
-                                    remoteWorkspaceID: remoteWorkspaceID ?? group.remoteWorkspaceID
+                                    remoteView: remoteView,
+                                    remoteWorkspaceID: targetRemoteWorkspaceID
                                 )],
-                                remoteWorkspaceID: remoteWorkspaceID ?? group.remoteWorkspaceID
+                                remoteWorkspaceID: targetRemoteWorkspaceID
                             ),
                             title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
                             focus: true,
@@ -284,7 +295,7 @@ struct CloudTreeNodeActions {
                         )
                         catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
-                            remoteWorkspaceID: resource.remoteWorkspace?.id ?? remoteWorkspaceID,
+                            remoteWorkspaceID: targetRemoteWorkspaceID ?? remoteView?.workspace.id ?? resource.remoteWorkspace?.id,
                             generatedTitle: Self.localWorkspaceTitle(hostName: machineName(machine), group: group)
                         )
                     }
@@ -402,14 +413,6 @@ struct CloudTreeNodeActions {
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
         return actions
     }
-    /// A create operation returns the exact tab receipt. A newly-created
-    /// resource should carry that receipt into projection, while a missing or
-    /// multi-view receipt must remain explicit and use catalog resolution.
-    private static func uniqueRemoteView(_ resource: SurfaceResource) -> SurfaceRemoteView? {
-        guard resource.remoteViews?.count == 1 else { return nil }
-        return resource.remoteViews?.first
-    }
-
     @MainActor
     private static func copyToPasteboard(_ text: String) {
         let pasteboard = NSPasteboard.general

@@ -233,6 +233,9 @@ jobs:
       - name: Validate required checks report for the merge queue
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate the trusted web complexity workflow
+        run: python3 tests/test_web_complexity_trusted_workflow.py
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
@@ -1458,6 +1461,28 @@ jobs:
             test-without-building 2>&1 | tee "$test_log"
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
+
+      - name: Run Cloud machine ordering acceptance
+        if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        timeout-minutes: 10
+        run: |
+          # Separate invocations prove each selector executed tests; a healthy
+          # suite cannot mask a miswired or accidentally empty selector.
+          set -euo pipefail
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
+            test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 60 \
+              -maximum-test-execution-time-allowance 60 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building 2>&1 | tee "$test_log"
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
+          done
 
       - name: Run unit tests
         run: |

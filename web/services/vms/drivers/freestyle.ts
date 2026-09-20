@@ -15,6 +15,8 @@ import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { currentVmRequestContext } from "../requestContext";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
@@ -201,10 +203,15 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
-    fetch(input as Request, { ...(init ?? {}), signal: init?.signal
-      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
-      : AbortSignal.timeout(timeoutMs) })) as typeof fetch;
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
