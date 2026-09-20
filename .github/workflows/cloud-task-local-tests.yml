@@ -5,6 +5,8 @@ on:
     paths:
       - Sources/Cloud/CloudOperation*.swift
       - Sources/Cloud/CloudTelemetry*.swift
+      - Sources/Cloud/CloudRemoteOperationStep.swift
+      - scripts/select-ci-xcode.sh
       - tests/cloud_task_local/**
       - tests/test_cloud_task_local_lifecycle.py
       - .github/workflows/cloud-task-local-tests.yml

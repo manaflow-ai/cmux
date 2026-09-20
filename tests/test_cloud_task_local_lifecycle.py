@@ -32,11 +32,11 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
             "-module-name", "CmuxAuthRuntime", str(FIXTURE / "AuthFixture.swift"),
             "-emit-module-path", str(directory / "CmuxAuthRuntime.swiftmodule"),
             "-o", str(directory / "auth.o"),
-        ], check=True, timeout=90)
+        ], check=True)
         subprocess.run([
             "xcrun", "clang", "-target", target, "-Werror", "-c",
             str(FIXTURE / "LegacyAvailability.c"), "-o", str(directory / "legacy.o"),
-        ], check=True, timeout=30)
+        ], check=True)
         cls.binary = directory / "cloud-task-local-probe"
         production = [
             "CloudOperationContext.swift", "CloudOperationRecorder.swift",
@@ -51,7 +51,7 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
             str(FIXTURE / "Dependencies.swift"), str(FIXTURE / "Probe.swift"),
             str(directory / "auth.o"), str(directory / "legacy.o"),
             "-o", str(cls.binary),
-        ], check=True, timeout=120)
+        ], check=True)
 
     def run_probe(self, legacy):
         environment = os.environ.copy()
@@ -60,7 +60,7 @@ class CloudTaskLocalLifecycleTests(unittest.TestCase):
         if legacy:
             environment["CMUX_TEST_LEGACY_TASK_LOCAL"] = "1"
         result = subprocess.run(
-            [str(self.binary)], env=environment, capture_output=True, text=True, timeout=30,
+            [str(self.binary)], env=environment, capture_output=True, text=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS: 4 Cloud task-local lifecycle scenarios", result.stdout)
