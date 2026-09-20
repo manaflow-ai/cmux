@@ -33,10 +33,14 @@ BUNDLED_SKILL = ROOT / "Resources" / "en.lproj" / "cloud-agent-skill.md"
 
 # Every skill file whose `cmux vm …` examples must name real verbs.
 SKILL_FILES = [
-    *sorted(SKILL_DIR.rglob("*.md")),
+    SKILL_DIR / "SKILL.md",
+    SKILL_DIR / "references" / "commands.md",
+    SKILL_DIR / "references" / "agent-workflows.md",
+    SKILL_DIR / "references" / "sidebar-parity.md",
     SKILL_DIR / "agents" / "openai.yaml",
     BUNDLED_SKILL,
 ]
+SKILL_FILES.extend(path for path in sorted(SKILL_DIR.rglob("*.md")) if path not in SKILL_FILES)
 # Verbs the dispatcher accepts but the usage line deliberately omits.
 USAGE_LINE_INTERNAL = {"ssh-attach"}
 
