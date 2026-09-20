@@ -111,6 +111,20 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1)
         self.assertEqual(a.check(json.loads(completed.stdout), "tests")["status"], "failed")
 
+    def test_rejects_missing_or_unsupported_schema(self):
+        for version in (None, "cmux-verification/v2", 1):
+            value = a.envelope()
+            if version is None:
+                del value["schema_version"]
+            else:
+                value["schema_version"] = version
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "schema"):
+                a.assess(value)
+
+    def test_git_startup_failure_is_unknown_source(self):
+        with patch.object(a.subprocess, "check_output", side_effect=FileNotFoundError("git")):
+            self.assertEqual(a.observe(Path(".")), {"commit": None, "tree": None, "clean": None})
+
     def test_assessment_is_idempotent(self):
         for path in sorted((ROOT / "fixtures").glob("*.json")):
             with self.subTest(path=path.name):
