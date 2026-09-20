@@ -3,6 +3,8 @@ import Foundation
 /// Owns overlapping read requests for one VM client. Caller cancellation releases
 /// only that waiter; the last waiter cancels the transport. A cancelled request
 /// keeps its slot until teardown completes, preventing replacement amplification.
+/// Caller deadlines are independent upper bounds. The shared transport also has
+/// a fixed lifetime cap; reaching it fails even later callers without extending it.
 actor CloudReadRequestCoordinator {
     @TaskLocal static var current: Context?
 
@@ -55,7 +57,7 @@ actor CloudReadRequestCoordinator {
         if let entry = entries[key] {
             if entry.terminalError != nil {
                 queueAfterTeardown(key, waiter: waiter, deadline: deadline, continuation: continuation, operation: operation)
-            } else if clock.now() >= entry.deadline {
+            } else if clock.now() >= entry.transportDeadline {
                 expire(key, id: entry.id)
                 queueAfterTeardown(key, waiter: waiter, deadline: deadline, continuation: continuation, operation: operation)
             } else {
@@ -68,17 +70,18 @@ actor CloudReadRequestCoordinator {
             continuation.resume(returning: response)
             return
         }
-        startEntry(key, id: UUID(), deadline: deadline,
+        startEntry(key, id: UUID(),
                    waiters: [waiter: Waiter(deadline: deadline, continuation: continuation)], operation: operation)
     }
 
     private func startEntry(
-        _ key: Key, id: UUID, deadline: Duration, waiters: [UUID: Waiter],
+        _ key: Key, id: UUID, waiters: [UUID: Waiter],
         operation: @escaping @Sendable () async throws -> Response
     ) {
         let waiters = unexpired(waiters)
         guard !waiters.isEmpty else { return }
-        if clock.now() >= deadline || isOnline == false {
+        let transportDeadline = makeDeadline()
+        if clock.now() >= transportDeadline || isOnline == false {
             let error = URLError(isOnline == false ? .notConnectedToInternet : .timedOut)
             for waiter in waiters.values { waiter.continuation.resume(throwing: error) }
             return
@@ -87,7 +90,7 @@ actor CloudReadRequestCoordinator {
             for waiter in waiters.values { waiter.continuation.resume(returning: response) }
             return
         }
-        entries[key] = Entry(id: id, deadline: deadline, waiters: waiters, operation: operation)
+        entries[key] = Entry(id: id, transportDeadline: transportDeadline, waiters: waiters, operation: operation)
         startWork(key, id: id, operation: operation)
         armTimer(key, id: id)
     }
@@ -95,7 +98,7 @@ actor CloudReadRequestCoordinator {
     private func armTimer(_ key: Key, id: UUID) {
         guard let entry = entries[key], entry.terminalError == nil else { return }
         entry.timer?.cancel()
-        let deadline = min(entry.deadline, entry.waiters.values.map(\.deadline).min() ?? entry.deadline)
+        let deadline = min(entry.transportDeadline, entry.waiters.values.map(\.deadline).min() ?? entry.transportDeadline)
         entries[key]?.timer = Task { [weak self, clock] in
             do { try await clock.sleepUntil(deadline) } catch { return }
             await self?.expireDueWaiters(key, id: id)
@@ -115,7 +118,7 @@ actor CloudReadRequestCoordinator {
 
     private func expireDueWaiters(_ key: Key, id: UUID) {
         guard let entry = entries[key], entry.id == id, entry.terminalError == nil else { return }
-        if clock.now() >= entry.deadline { expire(key, id: id); return }
+        if clock.now() >= entry.transportDeadline { expire(key, id: id); return }
         entries[key]?.waiters = unexpired(entry.waiters)
         if entries[key]?.waiters.isEmpty == true { expire(key, id: id) }
         else { armTimer(key, id: id) }
@@ -182,15 +185,16 @@ actor CloudReadRequestCoordinator {
     }
 
     /// Retains the server's minimum retry time across cancellation and later
-    /// polls. When it exceeds this operation's remaining budget, return the
-    /// original 429 now; future reads receive a compact 429 until retry is legal.
+    /// polls. Retry only while a live caller and the transport both have budget;
+    /// otherwise return 429 now and preserve that minimum for future reads.
     func noteRetryAfter(_ key: Key, seconds: TimeInterval, response: Response) -> Bool {
         // Retry-After can contain Int.max seconds. Keep that distant deadline
         // as a monotonic floating-point instant rather than overflowing Duration.
         let until = self.seconds(clock.now()) + seconds
         cooldowns.record(key, until: until, now: self.seconds(clock.now()), response: response)
-        guard let entry = entries[key], entry.terminalError == nil else { return false }
-        return until < self.seconds(entry.deadline)
+        guard let entry = entries[key], entry.terminalError == nil,
+              let callerDeadline = entry.waiters.values.map(\.deadline).max() else { return false }
+        return until < self.seconds(min(entry.transportDeadline, callerDeadline))
     }
 
     private func seconds(_ duration: Duration) -> TimeInterval {
@@ -242,8 +246,7 @@ actor CloudReadRequestCoordinator {
         for waiter in completed.waiters.values { waiter.continuation.resume(with: result) }
         if let pending = completed.pending {
             pending.timer?.cancel()
-            let deadline = min(makeDeadline(), pending.waiters.values.map(\.deadline).max() ?? clock.now())
-            startEntry(key, id: pending.id, deadline: deadline, waiters: pending.waiters, operation: pending.operation)
+            startEntry(key, id: pending.id, waiters: pending.waiters, operation: pending.operation)
         }
     }
 

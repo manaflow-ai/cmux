@@ -3,7 +3,8 @@ import Foundation
 extension CloudReadRequestCoordinator {
     struct Entry: Sendable {
         let id: UUID
-        let deadline: Duration
+        /// Fixed at transport admission; later callers and retries never renew it.
+        let transportDeadline: Duration
         var waiters: [UUID: Waiter]
         var work: Task<Void, Never>?
         var timer: Task<Void, Never>?
