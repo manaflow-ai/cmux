@@ -372,7 +372,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Invalidates refresh completions when the Cloud gate closes. A cancelled
     /// URLSession task may still resume on the main actor, so cancellation
     /// alone is not enough to prevent stale rows or follow-up work.
-    private var refreshGeneration: UInt64 = 0
+    private(set) var refreshGeneration: UInt64 = 0
     func refresh() {
         guard CloudMachinesFeature.isEnabled else { return }
         guard refreshTask == nil else {
@@ -507,7 +507,7 @@ final class MachinesPanelViewModel: ObservableObject {
         return task
     }
 
-    private func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
+    func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
         // The Cloud registry owns only Cloud account scope. The device registry
