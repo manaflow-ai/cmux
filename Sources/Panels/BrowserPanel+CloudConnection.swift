@@ -7,6 +7,7 @@ extension BrowserPanel {
     /// editing the remote workspace layout while removing stale restore
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
+        pendingCloudRestoreURL = nil
         if cloudAccess.retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
         }
@@ -25,6 +26,7 @@ extension BrowserPanel {
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil) {
+        pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         do { try catalog.validateOwnership(of: [resource], at: .workspace(id: workspaceId, placement: .tab)) }
         catch { cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message); return }
@@ -39,7 +41,12 @@ extension BrowserPanel {
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
             if let url = URL(string: raw) {
-                provider.configureBrowser(self, url: Self.cloudRestoredURL(preferredURL, on: url), resourceID: resource)
+                let configured = provider.configureBrowser(
+                    self,
+                    url: Self.cloudRestoredURL(pendingCloudRestoreURL, on: url),
+                    resourceID: resource
+                )
+                if configured { pendingCloudRestoreURL = nil }
             }
         case .unsupported(let message): cloudAccess.showUnavailable(message)
         }
@@ -52,6 +59,10 @@ extension BrowserPanel {
         components.query = saved.query
         components.fragment = saved.fragment
         return components.url ?? target
+    }
+
+    func cloudRestoreURL(on target: URL) -> URL {
+        Self.cloudRestoredURL(pendingCloudRestoreURL ?? currentURLForTabDuplication, on: target)
     }
 
     /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.

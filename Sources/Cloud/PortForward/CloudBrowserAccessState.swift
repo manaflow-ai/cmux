@@ -181,6 +181,7 @@ final class CloudBrowserAccessState {
         desktopConnected = false
         activeNavigationID = nil
         connectionDeadline.cancel()
+        startDeadline()
         attempt += 1
         trace("configured")
         // Reconfiguration invalidates the previous observation generation.
@@ -191,7 +192,6 @@ final class CloudBrowserAccessState {
 
     func nextURL() -> URL? {
         guard let remoteURL, let url = model?.url(for: remoteURL) else {
-            connectionDeadline.cancel()
             hasCommittedNavigation = false
             desktopConnected = false
             navigationURL = nil
@@ -204,7 +204,6 @@ final class CloudBrowserAccessState {
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
-        connectionDeadline.cancel()
         startDeadline()
         loaded = false
         trace("route_ready")
@@ -281,6 +280,7 @@ final class CloudBrowserAccessState {
         desktopConnected = false
         activeNavigationID = nil
         connectionDeadline.cancel()
+        startDeadline()
         model?.retry()
         observeRoute()
     }

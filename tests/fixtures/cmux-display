@@ -192,6 +192,20 @@ class DisplayService:
             pass
 
     @staticmethod
+    def scoped_component_path(executable, path, number, runtime):
+        """Give per-display desktop clients names the :1 supervisor cannot match."""
+        source = Path(path)
+        if not source.is_file():
+            return path
+        directory = Path(runtime) / "bin"
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = directory / f"cmux-display-{number}-{source.name}"
+        if not target.exists() or target.stat().st_mtime_ns < source.stat().st_mtime_ns:
+            shutil.copy2(source, target)
+            target.chmod(0o700)
+        return str(target)
+
+    @staticmethod
     def wait_for_port(port, timeout=20):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -266,6 +280,7 @@ class DisplayService:
                     if executable == "vncconfig":
                         continue
                     raise RuntimeError(f"missing display component: {executable}")
+                path = self.scoped_component_path(executable, path, number, runtime)
                 process = subprocess.Popen([path] + args, env=environment,
                                            stdin=subprocess.DEVNULL,
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

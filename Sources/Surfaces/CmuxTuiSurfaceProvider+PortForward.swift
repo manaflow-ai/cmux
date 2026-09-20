@@ -8,7 +8,10 @@ extension CmuxTuiSurfaceProvider {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID) else { continue }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
-                    if let url = URL(string: raw) { configureBrowser(browser, url: url, resourceID: resource.id) }
+                    if let url = URL(string: raw) {
+                        let configured = configureBrowser(browser, url: browser.cloudRestoreURL(on: url), resourceID: resource.id)
+                        if configured { browser.pendingCloudRestoreURL = nil }
+                    }
                 case .unsupported(let message):
                     browser.cloudAccess.showUnavailable(message)
                 }
@@ -42,7 +45,8 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Bind the page to its machine proxy without activating a system VPN.
-    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil) {
+    @discardableResult
+    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
@@ -56,18 +60,18 @@ extension CmuxTuiSurfaceProvider {
               browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
               (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil else {
             browser.cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message)
-            return
+            return false
         }
         guard let address = info.privateAddress,
               let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
-            return
+            return false
         }
         // Check the VM origin before rewriting it to localhost. Otherwise the
         // implicit localhost allowance could bypass a private-origin deny rule.
         guard browserPolicy().allowsTrustedInternalURL(privateURL) else {
             browser.cloudAccess.showUnavailable(String(localized: "browser.error.urlAllowlist.userMessage", defaultValue: "This URL is not allowed by the embedded-browser URL policy."))
-            return
+            return false
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
@@ -79,6 +83,7 @@ extension CmuxTuiSurfaceProvider {
         model.connect()
         browser.cloudAccess.routeDidConfigure()
         materializedPanels.insert(browser.id)
+        return true
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
@@ -141,8 +146,15 @@ extension CmuxTuiSurfaceProvider {
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { continue }
-                    configureBrowser(browser, url: url, resourceID: resource.id)
-                    materializedPanels.insert(projection.panelID)
+                    let configured = configureBrowser(
+                        browser,
+                        url: browser.cloudRestoreURL(on: url),
+                        resourceID: resource.id
+                    )
+                    if configured {
+                        browser.pendingCloudRestoreURL = nil
+                        materializedPanels.insert(projection.panelID)
+                    }
                 case .unsupported:
                     // Keep the placeholder eligible for a later explicit display
                     // discovery; its target may be supplied by the guest catalog.
