@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ภาพรวม",
       "team": "ทีม",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "อุปกรณ์มือถือ"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,23 +369,25 @@
         "loading": "กำลังโหลด…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "อุปกรณ์มือถือ",
+      "description": "จัดการการเข้าถึงคอมพิวเตอร์ โทรศัพท์ และแท็บเล็ตที่เชื่อมต่อ",
+      "team": "ทีม",
+      "teamSwitchError": "เปลี่ยนทีมไม่ได้ ลองอีกครั้ง",
+      "loading": "กำลังโหลดอุปกรณ์…",
+      "empty": "ไม่มีอุปกรณ์ที่ลงทะเบียนสำหรับทีมนี้",
+      "unavailable": "โหลดอุปกรณ์ของคุณไม่ได้ รีเฟรชหน้าแล้วลองอีกครั้ง",
+      "retry": "ลองอีกครั้ง",
+      "mutationError": "ดำเนินการเปลี่ยนแปลงอุปกรณ์ไม่สำเร็จ",
+      "revoke": "เพิกถอนการเข้าถึง",
+      "deviceId": "อุปกรณ์",
+      "revision": "การแก้ไข",
+      "status": "สถานะ",
+      "active": "ใช้งานอยู่",
+      "revoked": "เพิกถอนแล้ว",
+      "relaySettings": "การตั้งค่ารีเลย์",
+      "relaySettingsDescription": "เลือกเซิร์ฟเวอร์รีเลย์ที่ทีมนี้ใช้ ป้อน URL หนึ่งรายการต่อบรรทัด",
+      "saveRelaySettings": "บันทึกการตั้งค่ารีเลย์"
     },
     "coderouterAccounts": {
       "shareWithTeam": "แชร์กับทีม",

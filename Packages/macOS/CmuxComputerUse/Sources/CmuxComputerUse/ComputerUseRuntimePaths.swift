@@ -2,36 +2,57 @@ import Darwin
 import Foundation
 
 /// Filesystem paths shared by the app-owned cmux-cua runtime and agent wrappers.
-struct ComputerUseRuntimePaths: Sendable {
-    static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
-    static let codexDaemonSocketEnvironmentKey = "CMUX_CUA_CODEX_SOCKET_PATH"
-    static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
-    static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
-    static let clientExecutableEnvironmentKey = "CMUX_CUA_CLIENT_PATH"
-    static let authenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_AUTH_TOKEN"
-    static let hostAuthenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"
-    static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
+public struct ComputerUseRuntimePaths: Sendable {
+    /// The daemon socket environment key exposed to the host application.
+    public static let daemonSocketEnvironmentKey = "CMUX_CUA_SOCKET_PATH"
+    /// The codex daemon socket environment key exposed to the host application.
+    public static let codexDaemonSocketEnvironmentKey = "CMUX_CUA_CODEX_SOCKET_PATH"
+    /// The state directory environment key exposed to the host application.
+    public static let stateDirectoryEnvironmentKey = "CMUX_CUA_STATE_DIR"
+    /// The runtime scope environment key exposed to the host application.
+    public static let runtimeScopeEnvironmentKey = "CMUX_CUA_RUNTIME_SCOPE"
+    /// The client executable environment key exposed to the host application.
+    public static let clientExecutableEnvironmentKey = "CMUX_CUA_CLIENT_PATH"
+    /// The authentication token environment key exposed to the host application.
+    public static let authenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_AUTH_TOKEN"
+    /// The host authentication token environment key exposed to the host application.
+    public static let hostAuthenticationTokenEnvironmentKey = "CMUX_CUA_SOCKET_HOST_AUTH_TOKEN"
+    /// The authentication token file environment key exposed to the host application.
+    public static let authenticationTokenFileEnvironmentKey = "CMUX_CUA_AUTH_TOKEN_FILE"
 
-    let scope: String
-    let authenticationToken: String
+    /// The scope exposed to the host application.
+    public let scope: String
+    /// The authentication token exposed to the host application.
+    public let authenticationToken: String
     /// Ephemeral capability reserved for host-only daemon operations.
     ///
     /// Unlike `authenticationToken`, this is never persisted or exposed to
     /// terminal agents. A new cmux process therefore has to replace or relaunch
     /// an orphaned helper before it can configure or stop that helper.
-    let hostAuthenticationToken: String
-    let computerUseDirectoryURL: URL
-    let runtimeDirectoryURL: URL
-    let daemonSocketURL: URL
-    let codexDaemonSocketURL: URL
-    let authenticationTokenFileURL: URL
-    let stateDirectoryURL: URL
-    let permissionDatabaseDirectoryURL: URL
-    let installedHelperDirectoryURL: URL
-    let installedHelperAppURL: URL
-    let installedHelperExecutableURL: URL
+    public let hostAuthenticationToken: String
+    /// The computer use directory url exposed to the host application.
+    public let computerUseDirectoryURL: URL
+    /// The runtime directory url exposed to the host application.
+    public let runtimeDirectoryURL: URL
+    /// The daemon socket url exposed to the host application.
+    public let daemonSocketURL: URL
+    /// The codex daemon socket url exposed to the host application.
+    public let codexDaemonSocketURL: URL
+    /// The authentication token file url exposed to the host application.
+    public let authenticationTokenFileURL: URL
+    /// The state directory url exposed to the host application.
+    public let stateDirectoryURL: URL
+    /// The permission database directory url exposed to the host application.
+    public let permissionDatabaseDirectoryURL: URL
+    /// The installed helper directory url exposed to the host application.
+    public let installedHelperDirectoryURL: URL
+    /// The installed helper app url exposed to the host application.
+    public let installedHelperAppURL: URL
+    /// The installed helper executable url exposed to the host application.
+    public let installedHelperExecutableURL: URL
 
-    init(
+    /// Creates a ComputerUseRuntimePaths with the supplied values.
+    public init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         socketRootDirectoryURL: URL = FileManager.default.temporaryDirectory,
         userIdentifier: uid_t = getuid(),
