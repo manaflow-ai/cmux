@@ -540,6 +540,7 @@ jobs:
           python3 tests/test_ci_change_areas.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -2826,8 +2827,37 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
+      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # both the reuse selector and broker require an in-repository producer.
+      # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Choose product artifact publication
+        id: publish-products
+        env:
+          PRODUCT_FULL_SUITE: ${{ needs.changes.outputs.full_suite }}
+          PRODUCT_EVENT: ${{ github.event_name }}
+          PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PRODUCT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os
+          head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
+          repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
+          unused_fork_product = (
+              os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_EVENT") == "pull_request"
+              and bool(head) and bool(repository)
+              and head.casefold() != repository.casefold()
+          )
+          publish = not unused_fork_product
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"publish={str(publish).lower()}\n")
+          if not publish:
+              print("Skipping unused compile-only fork product packaging and upload.")
+          PY
+
       - name: Package compiled app-host test product
         id: package-products
+        if: steps.publish-products.outputs.publish == 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -2838,6 +2868,7 @@ jobs:
 
       - name: Upload compiled app-host test product
         id: upload-products
+        if: steps.publish-products.outputs.publish == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
