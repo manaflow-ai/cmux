@@ -69,34 +69,12 @@ keys, Tailscale, or host access as part of this transition.
 
 ### Tagged builds outside the team fleet
 
-Before starting a cold local build, check cmux's published artifacts and warm
-caches. A new worktree is not a reason to rebuild every dependency. Reuse an
-existing owned tagged build when its inputs match; otherwise restore compatible
-inputs before compiling the changed code. Report the artifact/cache key and
-hit or miss in the build receipt.
-
-- **Compiled app/test products:** CI publishes compressed
-  `app-host-products-v1-*` artifacts. Use the existing product manifest and
-  compatibility checks before reuse; a binary for another source revision is
-  not verification of the current patch. These products currently use GitHub
-  Actions artifacts; do not assume an arbitrary app binary is published in R2.
-- **Prebuilt GhosttyKit:** run
-  `./scripts/download-prebuilt-ghosttykit.sh` in the owned checkout. It downloads
-  the pinned revision's compressed framework and verifies its checksum and
-  archive before extraction. After a successful download, pass
-  `CMUX_GHOSTTYKIT_PREPROVISIONED=1` to the tagged reload. Rebuild GhosttyKit
-  only when changing its inputs or when a compatible verified prebuilt is absent.
-- **R2 dependency seed:** cmux's public cache is `https://ci-cache.cmux.com`;
-  restores require no credentials. The existing restore implementation is
-  `scripts/ci/r2-cache.sh`, with SwiftPM keys derived from `Package.resolved`.
-  Use the CI namespace (`macOS-ARM64` on Apple silicon, not `Darwin-arm64`),
-  restore into an inactive owned directory, sanitize checkout-specific state
-  with `scripts/ci/sanitize-xcode-source-packages-cache.py`, and supply that
-  directory through `CMUX_SOURCE_PACKAGES_DIR`. Restore replaces its destination;
-  never point it at another build's active writable cache.
-- **Compiler cache:** use a matching toolchain/build fingerprint. A dependency
-  seed can avoid downloads across Xcode versions; compiled modules and Xcode CAS
-  require the compatibility checks used by CI. Preserve warm owned DerivedData.
+Reuse the tag's warm DerivedData and published dependencies before a cold
+build. For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh`,
+then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload. The download
+verifies the pinned artifact. R2 cache transport lives in
+[`scripts/ci/r2-cache.sh`](scripts/ci/r2-cache.sh); cache selection, compatibility
+checks, and fallback belong in the build tooling.
 
 Always build with a tag. **Never run bare `xcodebuild` or open an untagged
 `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID
