@@ -43,14 +43,23 @@ grep -Fq 'DERIVED_DATA="$(resolve_tagged_derived_data "$TAG_SLUG" "$DERIVED_SET"
 # cmux-debug-cli.sh must look for the tagged CLI where reload.sh built it.
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 sock="/tmp/cmux-debug-ddtest-$$.sock"
-python3 - "$sock" <<'PY' &
-import socket, sys, time
-s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(1); time.sleep(20)
+command -v python3 >/dev/null || fail "python3 is required for the test listener"
+mkfifo "$tmp/ready"
+# The listener accepts until the EXIT trap kills it, and reports readiness through the FIFO.
+python3 - "$sock" "$tmp/ready" <<'PY' &
+import socket, sys
+try:
+    s = socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(8)
+finally:
+    open(sys.argv[2], "w").close()
+while True:
+    connection, _ = s.accept()
+    connection.close()
 PY
 server=$!
 disown "$server" 2>/dev/null || true
 trap 'kill "$server" 2>/dev/null || true; rm -f "$sock"; rm -rf "$tmp"' EXIT
-for _ in $(seq 1 50); do [[ -S "$sock" ]] && break; sleep 0.1; done
+read -r _ < "$tmp/ready" || true
 [[ -S "$sock" ]] || fail "test socket was not created"
 cli_dir="$tmp/dd/Build/Products/Debug/cmux DEV ddtest-$$.app/Contents/Resources/bin"
 mkdir -p "$cli_dir"
