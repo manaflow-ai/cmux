@@ -1,7 +1,6 @@
 import CmuxCore
 import CoreFoundation
 import Foundation
-
 /// Maps a cmux-tui public session snapshot (`session current snapshot --json`) onto
 /// ``SurfaceResource`` values for one cloud machine. Pure and total: unknown keys are
 /// ignored, a malformed entry drops that entry, never the machine.
@@ -21,7 +20,6 @@ struct CloudVMStateDeltaImpact: Hashable, Sendable {
     /// rebuild path instead of risking a partial placement update.
     var requiresFullResourceRebuild = false
 }
-
 struct CloudVMStateDeltaApplication: Sendable {
     let state: CloudVMState
     let impact: CloudVMStateDeltaImpact
@@ -112,10 +110,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         } else {
             cursor = nil
         }
-        guard identityCollectionsAreUnique(in: snapshot),
-              requiredGraphCollectionsArePresent(in: snapshot),
-              snapshotRelationshipsAreConsistent(in: snapshot)
-        else { return nil }
+        guard authoritativeGraphIsValid(snapshot) else { return nil }
         let document = CloudVMStateDocument(snapshot: snapshot)
         guard let rawSnapshot = document.data() else { return nil }
 
@@ -140,18 +135,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
         let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
-            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
-            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
-            let name = nonEmptyString(raw["name"])
-            return CloudVMTabState(
-                id: id,
-                paneID: paneID,
-                name: name,
-                index: integer(raw["index"]) ?? index,
-                focused: raw["focused"] as? Bool ?? false,
-                contentKind: contentKind,
-                contentID: contentID
-            )
+            tabState(from: raw, fallbackIndex: index)
         }
         // The public daemon schema puts the relationship on `tabs[].pane_id`.
         // `panes[].tab_ids` is not part of that schema, so reading it would make
@@ -289,6 +273,13 @@ struct CmuxTuiSnapshotParser: Sendable {
         return true
     }
 
+    /// The same identity and foreign-key contract gates accepted state and mutations.
+    static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
+        identityCollectionsAreUnique(in: snapshot)
+            && requiredGraphCollectionsArePresent(in: snapshot)
+            && snapshotRelationshipsAreConsistent(in: snapshot)
+    }
+
     /// A session snapshot is an authoritative cut of the daemon graph. The
     /// protocol emits every modeled collection, including empty arrays. Missing
     /// one is different from an empty collection: it indicates truncation or a
@@ -409,7 +400,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// order remains the compatibility fallback. An explicit index wins over
     /// an omitted one, and equal explicit indexes use the stable id before the
     /// transport offset as a deterministic tie-break.
-    private static func orderedSnapshotRows(
+    static func orderedSnapshotRows(
         _ rows: [[String: Any]],
         focusedFirst: Bool = false
     ) -> [(offset: Int, element: [String: Any])] {
@@ -977,7 +968,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             index: integer(value["index"]) ?? fallbackIndex,
             focused: value["focused"] as? Bool ?? false,
             contentKind: contentKind,
-            contentID: contentID
+            contentID: contentID,
+            nameAuthority: CloudTabNameAuthority(snapshot: value)
         )
     }
 
@@ -1663,6 +1655,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     struct CreatedTerminalPath: Equatable, Sendable {
+        var attachment: CloudCreationAttachment? = nil
         let terminalID: String
         let workspaceID: String?
         let screenID: String?
@@ -1683,7 +1676,12 @@ struct CmuxTuiSnapshotParser: Sendable {
         func optionalID(_ key: String) -> String? {
             (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
+        let cursor = mutationCursor(fromResult: result)
+        let attachment = cursor.map {
+            CloudCreationAttachment(generation: $0.generation, terminalID: terminalID)
+        }
         return CreatedTerminalPath(
+            attachment: attachment,
             terminalID: terminalID,
             workspaceID: optionalID("workspace_id"),
             screenID: optionalID("screen_id"),
@@ -1728,7 +1726,9 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace a `workspace create` mutation created.
     static func createdWorkspace(fromResult result: [String: Any]) -> String? {
         let path = (result["value"] as? [String: Any]) ?? result
-        let id = (path["workspace_id"] as? String) ?? (path["id"] as? String)
+        let id = (path["workspace_id"] as? String)
+            ?? (path["workspace"] as? String)
+            ?? (path["id"] as? String)
         return id.flatMap { $0.isEmpty ? nil : $0 }
     }
 

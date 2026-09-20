@@ -51,6 +51,7 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Depot runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
@@ -580,6 +581,15 @@ jobs:
           path: /tmp/test-recording.mp4
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results
+          path: ${{ env.CMUX_DERIVED_DATA_PATH }}/Logs/Test/*.xcresult
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Publish test summary
         if: always()

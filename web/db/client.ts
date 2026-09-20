@@ -19,6 +19,8 @@ type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;
+  /** Opens one pooled connection ahead of the first query; see preconnectCloudDb. */
+  warm: () => Promise<void>;
   key: string;
 };
 
@@ -244,7 +246,15 @@ export function cloudDb(): CloudDb {
     const pool = createAwsRdsIamPool(config);
     attachDatabasePool(pool);
     const db = drizzleNodePg({ client: pool, schema }) as unknown as CloudDb;
-    globalForDb.__cmuxCloudDb = { db, close: () => pool.end(), key };
+    globalForDb.__cmuxCloudDb = {
+      db,
+      close: () => pool.end(),
+      warm: coalesceWarm(async () => {
+        const client = await pool.connect();
+        client.release();
+      }),
+      key,
+    };
     return db;
   }
 
@@ -253,8 +263,50 @@ export function cloudDb(): CloudDb {
     prepare: false,
   });
   const db = createPostgresJsDb(sql);
-  globalForDb.__cmuxCloudDb = { db, close: () => sql.end(), key };
+  globalForDb.__cmuxCloudDb = {
+    db,
+    close: () => sql.end(),
+    warm: coalesceWarm(async () => {
+      await sql`select 1`;
+    }),
+    key,
+  };
   return db;
+}
+
+/**
+ * Runs the warm-up once per process: every caller shares the first attempt's
+ * promise, and a failed attempt is forgotten so the next call can retry. A
+ * burst of requests, authenticated or not, therefore costs one connection,
+ * and a warm process never re-runs the probe query.
+ */
+function coalesceWarm(run: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null;
+  return () => {
+    inFlight ??= run().catch((error: unknown) => {
+      inFlight = null;
+      throw error;
+    });
+    return inFlight;
+  };
+}
+
+/**
+ * Open a database connection before a route needs one. A cold invocation
+ * paid ~95 ms of TCP+TLS plus an STS round trip for the RDS IAM token inside
+ * the first query (`pg-pool.connect` on the create span); a route fires this
+ * while it is still verifying the caller so that cost overlaps auth instead
+ * of following it. Best effort, never awaited for correctness, and after the
+ * first success a no-op for the life of the process, so calling it ahead of
+ * auth cannot amplify an unauthenticated burst beyond one pooled connection.
+ */
+export function preconnectCloudDb(): void {
+  try {
+    cloudDb();
+    void globalForDb.__cmuxCloudDb?.warm().catch(() => undefined);
+  } catch {
+    // No database configured (tests, offline builds): the first query reports it.
+  }
 }
 
 /**
@@ -278,9 +330,17 @@ export async function pingCloudDb(
       prepare: false,
       connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)),
       idle_timeout: 1,
-      connection: { statement_timeout: Math.max(1, Math.floor(timeoutMs)) },
     });
-    const query = sql.unsafe("select 1");
+    // The deadline is set with `set local` inside an explicit transaction
+    // rather than as a startup parameter: PgBouncer in transaction pooling
+    // mode (the production pooled URL) rejects `statement_timeout` in the
+    // startup options with "unsupported startup parameter", and a plain
+    // session-level `set` would leak onto the shared server connection.
+    // One simple-protocol query keeps `query.cancel()` available for aborts.
+    const statementTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const query = sql.unsafe(
+      `begin; set local statement_timeout = ${statementTimeoutMs}; select 1; commit`,
+    );
     const cancel = () => {
       try {
         query.cancel();

@@ -242,15 +242,6 @@ struct CloudVMPaneState: Hashable, Codable, Sendable {
     var tabIDs: [String]
 }
 
-struct CloudVMTabState: Hashable, Codable, Sendable {
-    var id: String
-    var paneID: String
-    var name: String?
-    var index: Int
-    var focused: Bool
-    var contentKind: String
-    var contentID: String
-}
 
 /// The two valid remote tab-label states. The daemon uses an empty string to
 /// clear its optional label, so keep that state explicit at the app boundary
@@ -960,6 +951,14 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard let data = Self.canonicalData(cursorObject) else { return false }
         values["cursor"] = data
         collections.removeValue(forKey: "cursor")
+        // session.revision mirrors the public cursor (resource_api.rs). Keep
+        // it aligned when a delta changes only resource rows.
+        if var session = value(forKey: "session") as? [String: Any],
+           let revision = session["revision"], CloudWireNumber.unsigned(revision) != nil {
+            session["revision"] = revision is String ? (String(cursor.revision) as Any) : NSNumber(value: cursor.revision)
+            guard let sessionData = Self.canonicalData(session) else { return false }
+            values["session"] = sessionData
+        }
         canonicalDataCache = nil
         return true
     }
@@ -1268,19 +1267,6 @@ struct CloudVMState: Hashable, Codable, Sendable {
 
     // New archives contain one canonical document. The decoder keeps a
     // one-way rawSnapshot fallback for archives written before this model.
-
-    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
-        lhs.machine == rhs.machine
-            && lhs.cursor == rhs.cursor
-            && lhs.document == rhs.document
-            && lhs.workspaces == rhs.workspaces
-            && lhs.screens == rhs.screens
-            && lhs.panes == rhs.panes
-            && lhs.tabs == rhs.tabs
-            && lhs.terminals == rhs.terminals
-            && lhs.browsers == rhs.browsers
-            && lhs.agents == rhs.agents
-    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(machine)
@@ -1627,12 +1613,19 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneIndex: Int? = nil
 }
 
+/// Stable identity from the creation receipt, checked again before attachment.
+struct CloudCreationAttachment: Hashable, Codable, Sendable {
+    let generation: String
+    let terminalID: String
+}
+
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var id: SurfaceResourceID
     var title: String
     /// cwd for terminals, URL for browsers, display name for screens.
     var detail: String?
     var lifecycle: SurfaceLifecycle
+    var creationAttachment: CloudCreationAttachment? = nil
     var agent: SurfaceAgentBadge?
     /// The workspace of the resource's first view (compat: pre-multi-view callers read
     /// one workspace). nil when the resource has zero views, or is local.
@@ -1753,29 +1746,6 @@ enum SurfaceLinkState: String, Codable, Sendable {
     case notApplicable = "n/a"
 }
 
-/// The catalog as one value: what the sidebar renders, what `surface.catalog` and
-/// `cmux vm tree --json` print. Machines are ordered local first, then by name.
-struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
-    var machines: [SurfaceMachineInfo]
-    var resources: [SurfaceResource]
-    var projections: [SurfaceProjection]
-
-    static let empty = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
-
-    func resources(on machine: SurfaceMachineID) -> [SurfaceResource] {
-        resources.filter { $0.machine == machine }
-    }
-
-    func projections(of resource: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == resource }
-    }
-
-    func isOpen(_ resource: SurfaceResourceID) -> Bool {
-        projections.contains { $0.resource == resource }
-    }
-
-}
-
 /// One atomic export for agent and socket readers. The sidebar consumes only
 /// `catalog`; the complete daemon graphs stay out of its high-frequency value.
 /// Both halves are captured in the same main-actor turn, so their cursors and
@@ -1814,9 +1784,12 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unknownResource(let id): return "Unknown surface \(id)."
-        case .noProvider(let machine): return "No provider for machine \(machine)."
-        case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
+        case .unknownResource(let id):
+            return String(format: String(localized: "surfaceCatalog.error.unknownResource", defaultValue: "Unknown surface %@."), id.rawValue)
+        case .noProvider(let machine):
+            return String(format: String(localized: "surfaceCatalog.error.noProvider", defaultValue: "This machine is not connected: %@."), machine.rawValue)
+        case .unavailable(let id, let reason):
+            return String(format: String(localized: "surfaceCatalog.error.unavailable", defaultValue: "%1$@ is unavailable: %2$@"), id.rawValue, reason)
         case .ambiguousRemotePlacement:
             // Resource and workspace identifiers are internal routing data. Do
             // not expose them in a user-facing error; callers can choose the
@@ -1825,9 +1798,12 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
                 localized: "surfaceCatalog.error.ambiguousRemotePlacement",
                 defaultValue: "This terminal has more than one remote placement. Specify the remote tab."
             )
-        case .destinationNotFound(let what): return "Destination not found: \(what)."
-        case .unsupported(let what): return "Unsupported: \(what)."
-        case .nothingToOpen(let what): return "Nothing to open: \(what)."
+        case .destinationNotFound(let what):
+            return String(format: String(localized: "surfaceCatalog.error.destinationNotFound", defaultValue: "Destination not found: %@."), what)
+        case .unsupported(let what):
+            return String(format: String(localized: "surfaceCatalog.error.unsupported", defaultValue: "Unsupported: %@."), what)
+        case .nothingToOpen(let what):
+            return String(format: String(localized: "surfaceCatalog.error.nothingToOpen", defaultValue: "Nothing to open: %@."), what)
         case .partialOperation(_, let reason): return reason
         }
     }

@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxPhonePush
 import CmuxSentryReporting
 import Foundation
 import SwiftUI
@@ -21,16 +22,9 @@ import cmuxFeature
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
-    let iroh: MobileIrohRuntimeComposition
-    /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
-    /// `.iroh` route; nil when the legacy runtime is active.
-    let irx: MobileIrxRuntimeComposition?
-    /// Settings surface routed to the same Iroh implementation that owns
-    /// connections. In IRX mode, private addresses must never mutate only the
-    /// dormant legacy runtime.
+    let irx: MobileIrxRuntimeComposition
     let irohSettingsController: any CmxIrohSettingsControlling
-    /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
-    let irxDiscovery: MobileIrxDiscoveryProvider?
+    let irxDiscovery: MobileIrxDiscoveryProvider
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -92,13 +86,13 @@ final class AppCompositionRoot {
     /// authenticated web bridge into Axiom. Held separately from product
     /// analytics so network outcomes never enter PostHog.
     private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    private let terminalTraceReporter: MobileTerminalTraceReporter
 
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        iroh: MobileIrohRuntimeComposition,
-        irx: MobileIrxRuntimeComposition? = nil,
-        irxDiscovery: MobileIrxDiscoveryProvider? = nil,
+        irx: MobileIrxRuntimeComposition,
+        irxDiscovery: MobileIrxDiscoveryProvider,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -111,16 +105,8 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
-        self.iroh = iroh
         self.irx = irx
-        if let irx {
-            self.irohSettingsController = MobileIrxSettingsController(
-                irx: irx,
-                legacy: iroh
-            )
-        } else {
-            self.irohSettingsController = iroh
-        }
+        self.irohSettingsController = MobileIrxSettingsController(irx: irx, diagnosticLog: diagnosticLog)
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
@@ -130,7 +116,8 @@ final class AppCompositionRoot {
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
                 consent: telemetryConsent,
-                revocationWatcher: crashRevocationWatcher
+                revocationWatcher: crashRevocationWatcher,
+                replayMaskedViewClasses: MobileSessionReplayMasking().maskedViewClasses
             )
             crashReportingEvent = telemetryConsent.isTelemetryEnabled
                 ? .crashReportingStarted
@@ -168,10 +155,15 @@ final class AppCompositionRoot {
         self.analytics = analytics
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
+        let initialConnectionReporter = analytics.initialConnectionReporter
+        let terminalTraceReporter = analytics.terminalTraceReporter
+        self.terminalTraceReporter = terminalTraceReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
             networkOutcomeReporter.ingest(event)
+            initialConnectionReporter.ingest(event)
+            terminalTraceReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -190,7 +182,10 @@ final class AppCompositionRoot {
         }
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
-            request: analytics.anonymousClientConfigRequest
+            request: analytics.anonymousClientConfigRequest,
+            onTerminalLatencyChanged: { [reporter = analytics.terminalLatencyReporter] enabled in
+                reporter.setEnabled(enabled)
+            }
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -230,14 +225,18 @@ final class AppCompositionRoot {
             notificationSettings: pushNotificationSettings,
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
-                accessToken: { try? await replyRelayAccessToken() }
-            )
+                accessToken: { try? await replyRelayAccessToken() },
+                keychainAccessGroup: auth.keychainAccessGroup,
+                diagnosticLog: diagnosticLog
+            ),
+            authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
-            let preparation = iroh.beginSignOutPreparation()
+            let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
+                PhonePushActiveAccountStore.clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
@@ -246,20 +245,7 @@ final class AppCompositionRoot {
                             refreshToken: refreshToken
                         )
                     }
-                    group.addTask {
-                        await iroh.completeSignOutAfterAuthClear(
-                            preparation,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
-                    if let irx {
-                        // Drop the device-list lease (memory, Keychain/file,
-                        // UI projection) with the account's other state.
-                        group.addTask {
-                            await irx.handleSignOut()
-                        }
-                    }
+                    group.addTask { await irx.handleSignOut(ifCurrent: signingOutScope) }
                 }
                 await diagnosticLog.clear()
             }
@@ -389,6 +375,7 @@ final class AppCompositionRoot {
     /// The most recent scene phase, so a `.active` transition is classified as a
     /// cold first foreground vs. a warm resume.
     private var hasForegrounded = false
+    private var wasBackgrounded = false
     /// When the current session started, for the best-effort `ios_session_ended`
     /// duration emitted on background.
     private var currentSessionStartedAt: Date?
@@ -408,14 +395,12 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            analytics.terminalLatencyReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
-            let isFullForegroundReturn = iroh.didBecomeActive()
-            if let irx {
-                // Credential freshness re-check + engine warm-up: iOS
-                // suspension pauses the autopilot's sleep loop.
-                Task { await irx.didBecomeActive() }
-            }
+            let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
+            wasBackgrounded = false
+            Task { await irx.didBecomeActive() }
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
@@ -444,13 +429,16 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            analytics.terminalLatencyReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
-            iroh.archiveDiagnostics()
+            break
         case .background:
+            analytics.terminalLatencyReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
-            iroh.didEnterBackground()
+            wasBackgrounded = true
+            Task { await irx.didEnterBackground() }
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])
@@ -466,9 +454,15 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let initialConnectionReporter = self.analytics.initialConnectionReporter
+            let terminalLatencyReporter = self.analytics.terminalLatencyReporter
+            let terminalTraceReporter = self.terminalTraceReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await initialConnectionReporter.flush()
+                await terminalLatencyReporter.flush()
+                await terminalTraceReporter.flush()
             }
         @unknown default:
             break
