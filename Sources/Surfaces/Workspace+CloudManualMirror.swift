@@ -43,7 +43,7 @@ extension Workspace {
               !workspace.isRetiredFromOwningTabManager else {
             throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
         }
-        let loading = workspace.cloudMachineLoadingPanel(at: destination, machineID: attachment?.machineID)
+        let loading = try CloudMachineLoadingReservation.current?.loadingPanel(at: destination, machineID: attachment?.machineID)
         guard let panel = workspace.makeRemoteTmuxPanePanel(
             id: loading?.id ?? UUID(),
             onInput: onInput,

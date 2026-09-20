@@ -247,8 +247,8 @@ struct CloudMachineWorkspaceAdoptionTests {
         }
     }
 
-    @Test("Cancelling a mixed-content workspace fences its delayed attachment")
-    func mixedContentCancellationRejectsLateAttachment() async throws {
+    @Test("Cancelling a mixed-content workspace fences its delayed attachment", arguments: [false, true])
+    func mixedContentCancellationRejectsLateAttachment(openAgain: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
             defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
@@ -267,13 +267,18 @@ struct CloudMachineWorkspaceAdoptionTests {
             let attachment = Task { try await open(pending, provider: provider, catalog: catalog) }
             _ = await entered.result
             NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            #expect(pending.cloudVMBinding == nil)
+            // A later explicit open has a different admission claim and must not
+            // join the cancelled adoption or be discarded with its late result.
+            provider.beforeMaterialization = nil
+            let reopened = openAgain ? try await open(pending, provider: provider, catalog: catalog) : nil
             release.resolve(true)
             await #expect(throws: (any Error).self) { try await attachment.value }
-            #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
-            #expect(pending.cloudVMBinding == nil)
+            #expect(pending.panels.count == (openAgain ? 2 : 1) && pending.panels[command.id] === command)
+            if let reopened { #expect(pending.panels[reopened.panelID] is TerminalPanel) }
             #expect(command.surface.initialCommand?.contains("first-command") == true)
             #expect(other.panels.count == 1 && other.panels.values.first is CloudVMLoadingPanel)
-            #expect(catalog.projections.isEmpty)
+            #expect(catalog.projections.count == (openAgain ? 1 : 0))
         }
     }
 
