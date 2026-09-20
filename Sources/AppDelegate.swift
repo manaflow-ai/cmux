@@ -833,7 +833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
     // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
-    private(set) var auth: MacAuthComposition?
+    var auth: MacAuthComposition?
     /// Explicit Cloud machine pins and stable fleet order, built by the composition root.
     private(set) var cloudMachinePinStore: CloudMachinePinStore?
     var cloudWorkspaceCoordinator: CloudWorkspaceCoordinator?

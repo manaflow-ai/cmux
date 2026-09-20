@@ -2324,6 +2324,7 @@
 		A1002000000000000000000F /* NativeTextSurfaceSelectionReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */; };
 		7A0CE1000000000000000041 /* NetworkExtensionTunnelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */; };
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
+		D2A1C0FF0000000000000001 /* NewCloudWorkspaceShortcutAuthFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A1C0FF0000000000000002 /* NewCloudWorkspaceShortcutAuthFixture.swift */; };
 		5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */; };
 		5CA1AFB486DF86FAF22509F2 /* NewMachineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */; };
 		D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */; };
@@ -3724,6 +3725,7 @@
 		01570D43E7D9E66A29DF0D19 /* VMResourceStatsSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */; };
 		B12438030000000000000001 /* VMSnapshotResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438030000000000000002 /* VMSnapshotResult.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
+		C12789000000000000000201 /* VMSSHTransportFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12789000000000000000202 /* VMSSHTransportFallbackTests.swift */; };
 		FA1253800000000000000003 /* VMStats+State.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1253800000000000000004 /* VMStats+State.swift */; };
 		FA1253800000000000000001 /* VMStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1253800000000000000002 /* VMStats.swift */; };
 		7A0CE1000000000000000043 /* VMTunnelEnroller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000017 /* VMTunnelEnroller.swift */; };
@@ -6286,6 +6288,7 @@
 		A10020000000000000000010 /* NativeTextSurfaceSelectionReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NativeTextSurfaceSelectionReader.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000015 /* NetworkExtensionTunnelController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NetworkExtensionTunnelController.swift; sourceTree = "<group>"; };
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
+		D2A1C0FF0000000000000002 /* NewCloudWorkspaceShortcutAuthFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCloudWorkspaceShortcutAuthFixture.swift"; sourceTree = "<group>"; };
 		C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NewCloudWorkspaceShortcutTests.swift"; sourceTree = "<group>"; };
 		751BACEC44FF7CFC02CE9A57 /* NewMachineModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModel.swift; sourceTree = "<group>"; };
 		5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NewMachineModelTests.swift; sourceTree = "<group>"; };
@@ -7669,6 +7672,7 @@
 		16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsSubscription.swift"; sourceTree = "<group>"; };
 		B12438030000000000000002 /* VMSnapshotResult.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMSnapshotResult.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
+		C12789000000000000000202 /* VMSSHTransportFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHTransportFallbackTests.swift; sourceTree = "<group>"; };
 		FA1253800000000000000004 /* VMStats+State.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMStats+State.swift"; sourceTree = "<group>"; };
 		FA1253800000000000000002 /* VMStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMStats.swift; sourceTree = "<group>"; };
 		7A0CE1000000000000000017 /* VMTunnelEnroller.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMTunnelEnroller.swift; sourceTree = "<group>"; };
@@ -11893,6 +11897,7 @@
 				C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */,
 				C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */,
 				C37800000000000000000002 /* VMSSHCommandTests.swift */,
+				C12789000000000000000202 /* VMSSHTransportFallbackTests.swift */,
 				0A0F00550000000000000002 /* OmpSupportTests.swift */,
 				0A1107110000000000000002 /* OllamaAgentDetectionTests.swift */,
 				0A0F00560000000000000004 /* CampfireHookNotificationTests.swift */,
@@ -11921,6 +11926,7 @@
 				A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */,
 				A5FB1401 /* NewWorkspaceMenuModelTests.swift */,
 				C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */,
+				D2A1C0FF0000000000000002 /* NewCloudWorkspaceShortcutAuthFixture.swift */,
 				0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */,
 				354EFE0948893997052F830F /* DelayedNewMachineSheetPresenter.swift */,
 				A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */,
@@ -16158,6 +16164,7 @@
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,
 				596100000000000000000001 /* NativeNotificationFallbackCommandTests.swift in Sources */,
+				D2A1C0FF0000000000000001 /* NewCloudWorkspaceShortcutAuthFixture.swift in Sources */,
 				5982D1310AE6439692D7E945 /* NewCloudWorkspaceShortcutTests.swift in Sources */,
 				D5EB22366F37AB2B52CD4B2A /* NewMachineModelTests.swift in Sources */,
 				EBEEFD57F5B44FD3D569C2A7 /* NewMachineModelUncappedPlanTests.swift in Sources */,
@@ -16514,6 +16521,7 @@
 				D017093861349E48BF816E02 /* VMRemoteWorkspaceResolver.swift in Sources */,
 				65C5955B618A20A4C25BE6C0 /* VMResourceStatsStoreTests.swift in Sources */,
 				C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */,
+				C12789000000000000000201 /* VMSSHTransportFallbackTests.swift in Sources */,
 				ABE558B281D671A6DDDDD066 /* VMTunnelManagerTests.swift in Sources */,
 				F6AAAA235B7F431E8D1D2E94 /* VMTunnelStalenessTests.swift in Sources */,
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
