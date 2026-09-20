@@ -140,9 +140,10 @@ extension TerminalController {
             BrowserScreenshotTimingBudget().livenessProbeAllowance
     ) -> String {
 #if DEBUG
+        let readinessState = v2MainSync { browserPanel.browserAutomationReadinessPayload() }
         cmuxDebugLog(
             "browser.automation.readinessTimeout surface=\(surfaceId.uuidString.prefix(5)) " +
-            "channel=\(channel.debugName) state=\(browserPanel.browserAutomationReadinessPayload())"
+            "channel=\(channel.debugName) state=\(readinessState)"
         )
 #endif
         var recoveryTask: Task<Void, Never>?
