@@ -3,8 +3,70 @@ import Foundation
 import Network
 import WebKit
 
-/// Browser identity and networking stay separate: a CONNECT proxy never changes the document URL.
+/// Browser identity and networking stay separate: an HTTP CONNECT proxy never changes the document URL.
 struct CloudBrowserRouting {
+    private static let probeQueue = DispatchQueue(label: "cmux.cloud.desktop-readiness")
+
+    /// Test the service through the same authenticated carrier the page will use.
+    /// A healthy desktop needs no control-plane exec. This short-lived stream is
+    /// closed after the headers; no listener or persistent connection is added.
+    static func desktopIsReachable(
+        endpoint: CloudBrowserProxyEndpoint,
+        address: String,
+        port: Int,
+        timeout: Duration = .seconds(2)
+    ) async throws -> Bool {
+        let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard endpoint.host == "127.0.0.1", endpoint.port != 0,
+              (1...65535).contains(port), IPv4Address(host) != nil || IPv6Address(host) != nil else { return false }
+        let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        let credential = Data("\(endpoint.username):\(endpoint.password)".utf8).base64EncodedString()
+        let connection = NWConnection(host: "127.0.0.1", port: .init(rawValue: endpoint.port)!, using: .tcp)
+        defer { connection.cancel() }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withThrowingTaskGroup(of: Bool.self) { group in
+                    group.addTask {
+                        try await connection.startAndWaitUntilReady(queue: probeQueue)
+                        try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
+                        guard try await responseStatus(connection) == 200 else { return false }
+                        try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
+                        return try await responseStatus(connection) == 200
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: timeout)
+                        connection.cancel()
+                        return false
+                    }
+                    defer { group.cancelAll(); connection.cancel() }
+                    return try await group.next() ?? false
+                }
+            } onCancel: {
+                connection.cancel()
+            }
+        } catch {
+            try Task.checkCancellation()
+            return false
+        }
+    }
+
+    private static func responseStatus(_ connection: NWConnection) async throws -> Int? {
+        var data = Data()
+        let terminator = Data("\r\n\r\n".utf8)
+        while data.count < 8192 {
+            let chunk = try await connection.receiveChunk(maximumLength: 8192 - data.count)
+            if let bytes = chunk.data { data.append(bytes) }
+            if let end = data.range(of: terminator) {
+                let fields = String(decoding: data[..<end.lowerBound], as: UTF8.self)
+                    .components(separatedBy: "\r\n")[0].split(separator: " ")
+                guard fields.count >= 2, fields[0].hasPrefix("HTTP/1.") else { return nil }
+                return Int(fields[1])
+            }
+            if chunk.isComplete { return nil }
+        }
+        return nil
+    }
+
     static func storeID(panelID: UUID, profileID: UUID, machineID: String) -> UUID {
         let bytes = Array(SHA256.hash(data: Data("cloud-browser:\(panelID):\(profileID):\(machineID)".utf8)).prefix(16))
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
@@ -17,6 +79,50 @@ struct CloudBrowserRouting {
         proxy.matchDomains = [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
         proxy.allowFailover = false
         return proxy
+    }
+
+    /// Installs the promptless WebSocket bridge used by WKWebView, whose page
+    /// WebSocket implementation does not consistently honor `proxyConfigurations`.
+    @MainActor
+    static func websocketBridgeScript(endpoint: CloudBrowserProxyEndpoint, address: String) -> String? {
+        guard let token = endpoint.websocketToken else { return nil }
+        let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let encodedHost = host.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        let encodedToken = token.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        return """
+        (() => {
+          if (window.__cmuxCloudWebSocketBridgeInstalled) return;
+          const targetHost = '\(encodedHost)'.toLowerCase();
+          const token = '\(encodedToken)';
+          const NativeWebSocket = window.WebSocket;
+          if (typeof NativeWebSocket !== 'function') return;
+          window.__cmuxCloudWebSocketBridgeInstalled = true;
+          const rewrite = (input) => {
+            let parsed;
+            try { parsed = new URL(input, document.baseURI); } catch (_) { return null; }
+            if (parsed.protocol !== 'ws:' || parsed.hostname.toLowerCase() !== targetHost) return null;
+            const target = `${parsed.hostname}:${parsed.port || '80'}`;
+            parsed.protocol = 'ws:';
+            parsed.hostname = '127.0.0.1';
+            parsed.port = String(\(endpoint.port));
+            parsed.pathname = '/__cmux_ws__/' + target + parsed.pathname;
+            return parsed.href;
+          };
+          window.__cmuxCloudWebSocketBridgeRewrite = rewrite;
+          const CmuxWebSocket = class extends NativeWebSocket {
+            constructor(input, protocols) {
+            const rewritten = rewrite(input);
+            if (!rewritten) { super(input, protocols); return; }
+            const values = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols.slice() : [protocols]);
+            const auth = 'cmux-proxy-' + token;
+            if (!values.includes(auth)) values.push(auth);
+            super(rewritten, values);
+            }
+          };
+          window.__cmuxCloudWebSocketBridgeConstructor = CmuxWebSocket;
+          window.WebSocket = CmuxWebSocket;
+        })();
+        """
     }
 
     /// Favicons use the page's authenticated browser route and cookies, rather than the OS network.
