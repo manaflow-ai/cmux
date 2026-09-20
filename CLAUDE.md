@@ -72,9 +72,7 @@ keys, Tailscale, or host access as part of this transition.
 Reuse the tag's warm DerivedData and published dependencies before a cold
 build. For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh`,
 then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload. The download
-verifies the pinned artifact. R2 cache transport lives in
-[`scripts/ci/r2-cache.sh`](scripts/ci/r2-cache.sh); cache selection, compatibility
-checks, and fallback belong in the build tooling.
+verifies the pinned artifact.
 
 Always build with a tag. **Never run bare `xcodebuild` or open an untagged
 `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID
