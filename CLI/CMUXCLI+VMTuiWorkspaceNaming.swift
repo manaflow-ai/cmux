@@ -48,9 +48,10 @@ extension CMUXCLI {
             for windowID in windows {
                 guard let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowID]) else { continue }
                 let items = listed["workspaces"] as? [[String: Any]] ?? []
-                if let item = items.first(where: { ($0["id"] as? String) == workspaceID }) {
+                if let item = items.first(where: { ($0["id"] as? String)?.caseInsensitiveCompare(workspaceID) == .orderedSame }) {
                     var receipt = item
                     receipt["workspace_id"] = workspaceID
+                    receipt["workspace_ref"] = item["ref"]
                     receipt["window_id"] = item["window_id"] ?? windowID
                     return receipt
                 }
