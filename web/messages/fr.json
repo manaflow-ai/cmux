@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "Vérifiez votre adresse e-mail pour continuer",
     "emailUnverifiedBody": "Connectez-vous avec la méthode utilisée à l’origine, puis vérifiez votre adresse e-mail avant d’utiliser cette méthode de connexion.",
+    "signupPendingBody": "Si vous avez déjà un compte, connectez-vous avec la méthode utilisée précédemment. Si vous venez de créer un compte, vérifiez votre adresse e-mail avant de vous connecter.",
     "genericTitle": "Connexion impossible",
     "genericBody": "Réessayez. Si le problème persiste, contactez l’assistance.",
     "backToSignIn": "Retour à la connexion"

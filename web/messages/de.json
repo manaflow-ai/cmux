@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "Bestätige deine E-Mail-Adresse, um fortzufahren",
     "emailUnverifiedBody": "Melde dich mit der ursprünglich verwendeten Methode an und bestätige deine E-Mail-Adresse, bevor du diese Anmeldemethode nutzt.",
+    "signupPendingBody": "Wenn du bereits ein Konto hast, melde dich mit der zuvor verwendeten Methode an. Wenn du gerade ein Konto erstellt hast, bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
     "backToSignIn": "Zur Anmeldung"

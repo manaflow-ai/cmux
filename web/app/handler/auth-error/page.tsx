@@ -11,6 +11,7 @@ type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
 type AuthErrorMessages = {
   emailUnverifiedTitle: string;
   emailUnverifiedBody: string;
+  signupPendingBody: string;
   genericTitle: string;
   genericBody: string;
   backToSignIn: string;
@@ -68,7 +69,7 @@ export default async function AuthErrorPage({
           {key === "emailUnverified"
             ? messages.emailUnverifiedBody
             : key === "signupPending"
-              ? messages.emailUnverifiedBody
+              ? messages.signupPendingBody
               : messages.genericBody}
         </p>
         <Link

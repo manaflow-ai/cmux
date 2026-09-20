@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "Devam etmek için e-postanızı doğrulayın",
     "emailUnverifiedBody": "Önce kullandığınız yöntemle giriş yapın, ardından bu giriş yöntemini kullanmadan önce e-postanızı doğrulayın.",
+    "signupPendingBody": "Zaten bir hesabınız varsa, daha önce kullandığınız yöntemle giriş yapın. Yeni bir hesap oluşturduysanız giriş yapmadan önce e-postanızı doğrulayın.",
     "genericTitle": "Giriş tamamlanamadı",
     "genericBody": "Lütfen tekrar deneyin. Sorun devam ederse destek ekibiyle iletişime geçin.",
     "backToSignIn": "Girişe dön"

@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "Zweryfikuj e-mail, aby kontynuować",
     "emailUnverifiedBody": "Zaloguj się metodą używaną pierwotnie, a następnie zweryfikuj e-mail przed użyciem tej metody logowania.",
+    "signupPendingBody": "Jeśli masz już konto, zaloguj się metodą używaną wcześniej. Jeśli właśnie utworzyłeś konto, potwierdź adres e-mail przed zalogowaniem.",
     "genericTitle": "Nie udało się zalogować",
     "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
     "backToSignIn": "Wróć do logowania"

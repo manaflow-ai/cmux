@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "Bekreft e-posten din for å fortsette",
     "emailUnverifiedBody": "Logg inn med metoden du brukte opprinnelig, og bekreft deretter e-posten før du bruker denne innloggingsmetoden.",
+    "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
     "backToSignIn": "Tilbake til innlogging"

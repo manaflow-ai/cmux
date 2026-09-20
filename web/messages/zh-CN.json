@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "验证邮箱后继续",
     "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"

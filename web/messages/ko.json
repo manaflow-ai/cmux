@@ -81,6 +81,7 @@
   "authError": {
     "emailUnverifiedTitle": "계속하려면 이메일을 인증하세요",
     "emailUnverifiedBody": "처음 가입할 때 사용한 방법으로 로그인한 다음, 이 로그인 방법을 사용하기 전에 이메일을 인증하세요.",
+    "signupPendingBody": "이미 계정이 있다면 이전에 사용한 방법으로 로그인하세요. 방금 계정을 만들었다면 로그인하기 전에 이메일을 인증하세요.",
     "genericTitle": "로그인을 완료할 수 없습니다",
     "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
     "backToSignIn": "로그인으로 돌아가기"
