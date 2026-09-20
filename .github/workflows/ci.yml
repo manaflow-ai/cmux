@@ -961,9 +961,6 @@ jobs:
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
-    permissions:
-      contents: read
-      actions: read
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -3070,9 +3067,6 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-    permissions:
-      contents: read
-      actions: read
     steps:
       - name: Validate display runner identity
         env:
