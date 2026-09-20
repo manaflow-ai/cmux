@@ -24,6 +24,7 @@ actor RemoteTmuxSSHTransport {
 
     private let sshExecutablePath: String
     private let controlPersistSeconds: Int
+    private let dynamicForwardCommand: RemoteTmuxDynamicForwardCommand
 
     /// In-flight shared-master warmup, if any. ``ensureMasterReady()`` funnels every
     /// concurrent caller through this single task so the master is opened at most
@@ -34,14 +35,20 @@ actor RemoteTmuxSSHTransport {
     ///   - host: the remote destination.
     ///   - sshExecutablePath: the local `ssh` binary (overridable for tests).
     ///   - controlPersistSeconds: idle lifetime of the shared master.
+    ///   - dynamicForwardCommand: argv construction and stderr classification
+    ///     for `-O forward`/`-O cancel`, injected so tests can substitute
+    ///     their own (stateless, but constructable per the repository's
+    ///     no-ambient-global-state policy rather than a static namespace).
     init(
         host: RemoteTmuxHost,
         sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),
-        controlPersistSeconds: Int = 180
+        controlPersistSeconds: Int = 180,
+        dynamicForwardCommand: RemoteTmuxDynamicForwardCommand = RemoteTmuxDynamicForwardCommand()
     ) {
         self.host = host
         self.sshExecutablePath = sshExecutablePath
         self.controlPersistSeconds = controlPersistSeconds
+        self.dynamicForwardCommand = dynamicForwardCommand
     }
 
     // MARK: - High-level tmux operations
@@ -163,14 +170,14 @@ actor RemoteTmuxSSHTransport {
         try host.ensureControlSocketDirectory()
         let result = try await Self.runProcess(
             executable: sshExecutablePath,
-            arguments: RemoteTmuxDynamicForwardCommand.openArguments(
+            arguments: dynamicForwardCommand.openArguments(
                 controlSocketPath: host.controlSocketPath,
                 destination: host.destination,
                 localPort: localPort
             )
         )
         guard result.succeeded else {
-            let failure = RemoteTmuxDynamicForwardCommand.classify(exitCode: result.exitCode, stderr: result.stderr)
+            let failure = dynamicForwardCommand.classify(exitCode: result.exitCode, stderr: result.stderr)
                 ?? .unknown(result.stderr)
             throw RemoteTmuxDynamicForwardError(failure: failure, exitCode: result.exitCode, stderr: result.stderr)
         }
@@ -182,7 +189,7 @@ actor RemoteTmuxSSHTransport {
     func cancelDynamicForward(localPort: Int) async {
         _ = try? await Self.runProcess(
             executable: sshExecutablePath,
-            arguments: RemoteTmuxDynamicForwardCommand.cancelArguments(
+            arguments: dynamicForwardCommand.cancelArguments(
                 controlSocketPath: host.controlSocketPath,
                 destination: host.destination,
                 localPort: localPort
