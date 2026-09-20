@@ -1,0 +1,58 @@
+name: Merge-group fail fast
+
+# One failed job already decides a merge group: the queue will remove it. CI's
+# ci-status reports only after every job finishes, so without this the remaining
+# macOS jobs run to the end first and every pull request queued behind waits for
+# them. This workflow cancels a merge group's CI run at its first failed job;
+# ci-status runs on cancellation and reports the failure.
+#
+# It needs actions: write, so it is triggered by workflow_run: the code below
+# always comes from the default branch, and a queued pull request cannot change
+# it. It checks out nothing and runs on a GitHub-hosted runner.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [requested]
+
+permissions: {}
+
+jobs:
+  watch:
+    name: watch merge group run
+    if: ${{ github.event.workflow_run.event == 'merge_group' }}
+    runs-on: ubuntu-24.04 # github-hosted-required
+    timeout-minutes: 360
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel the CI run when a job fails
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          errors=0
+          while :; do
+            if status="$(gh api "$RUN" --jq .status)" \
+              && failed="$(gh api "$RUN/jobs?filter=latest" --paginate \
+                --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure")] | length' \
+                | awk '{ total += $1 } END { print total + 0 }')"; then
+              errors=0
+              if [ "$status" = "completed" ]; then
+                echo "The CI run finished."
+                exit 0
+              fi
+              if [ "$failed" -gt 0 ]; then
+                echo "$failed job(s) failed; cancelling the CI run so the queue can move on."
+                gh api -X POST "$RUN/cancel"
+                exit 0
+              fi
+            else
+              errors=$((errors + 1))
+              if [ "$errors" -ge 10 ]; then
+                echo "::error::The Actions API failed $errors times in a row; giving up. The CI run continues without fail fast."
+                exit 1
+              fi
+            fi
+            sleep 20
+          done
