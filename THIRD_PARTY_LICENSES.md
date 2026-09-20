@@ -277,7 +277,7 @@ The following packages are linked into the cmux app binary.
 
 - **License:** BSD 2-Clause License
 - **Copyright:** Copyright (c) 2014, Kyle Fuller
-- **Source:** https://github.com/kylef/PathKit
+- **Source:** https://github.com/manaflow-ai/PathKit/tree/1.0.2
 
 ### iroh-ffi
 

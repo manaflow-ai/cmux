@@ -35,4 +35,5 @@ struct CloudTreeLayoutMetricsTests {
         #expect(metrics.referenceInset == 8)
         #expect(CloudSidebarDebugMetrics.default.referenceInset == Double(metrics.referenceInset))
     }
+
 }

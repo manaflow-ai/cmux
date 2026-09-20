@@ -1,14 +1,12 @@
 import CmuxFoundation
 import SwiftUI
 enum CloudTreeRowGrid {
-    /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
+    /// Width of the outline's native disclosure control; content starts
+    /// disclosureGap after it. The native caret keeps its own artwork.
     static var disclosureSlot: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureSlot) }
-    /// Small separation between a disclosure control and its row content.
-    /// Keeping this below the tree indent makes group headers read as one
-    /// shared outline rather than disconnected columns.
+    /// Keep carets and content together on the shared outline grid.
     static var disclosureGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureGap) }
-    /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
-    static var dotSlot: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.dotSlot) }
+    /// Gap between a machine name and its inline badge or status text.
     static var dotGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.dotGap) }
     /// Space between a title and its dim detail text.
     static var detailGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.detailGap) }
@@ -391,74 +389,6 @@ enum CloudTreeBrowserDetail {
     static func text(for row: CloudTreeBrowserRow) -> String? {
         if let url = row.resource.url, let host = URL(string: url)?.host, !host.isEmpty { return host }
         return row.workspaceTitle
-    }
-}
-
-/// This Mac's header row, on the same grid as the cloud machine row. Single- or
-/// two-line per the style; no status dot (the local machine needs no link).
-struct CloudTreeLocalMachineRowContent: View {
-    let row: CloudTreeLocalMachineRow
-    var style: CloudTreeStyle = CloudTreeStyleStore.current
-
-    var body: some View {
-        switch style.machineRowLayout {
-        case .singleLine:
-            CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    Image(systemName: "laptopcomputer")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(style.iconTreatment == .monochrome ? AnyShapeStyle(.secondary) : AnyShapeStyle(CloudTreeIconPalette.machine))
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    Text(row.name)
-                        .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(row.name)
-        case .twoLine:
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: "laptopcomputer")
-                    .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    Text(row.name)
-                        .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineNameLineHeight)
-                    Text(Self.summary(row))
-                        .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineSubtitleLineHeight)
-                }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            }
-            .padding(.vertical, style.machineVerticalPadding)
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(row.name)
-        }
-    }
-
-    /// "3 terminals · 1 browser"
-    static func summary(_ row: CloudTreeLocalMachineRow) -> String {
-        var parts = [CloudTreeRowContentView.count(row.terminalCount)]
-        if row.browserCount > 0 {
-            parts.append(
-                row.browserCount == 1
-                    ? String(localized: "cloudTree.local.browserCount.one", defaultValue: "1 browser")
-                    : String(format: String(localized: "cloudTree.local.browserCount.other", defaultValue: "%d browsers"), row.browserCount)
-            )
-        }
-        return parts.joined(separator: " · ")
     }
 }
 

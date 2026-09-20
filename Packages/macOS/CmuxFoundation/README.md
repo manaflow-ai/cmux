@@ -13,6 +13,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 
 ## Contents
 
+- `RemoteClientDeviceName` — a shared app/CLI label read from the kernel hostname,
+  without DNS or Local Network access. Tests can supply `hostName` directly.
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.

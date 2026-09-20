@@ -7,11 +7,9 @@ import Foundation
 /// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
-/// The periodic fleet read is the only Cloud API traffic an idle app makes, so it
-/// runs only while ``CloudActivationPolicy`` allows background Cloud work (Cloud
-/// Machines on, or this Mac used Cloud before) and follows the Beta Features
-/// toggle at runtime. Demand-driven reads (`refresh(force:)`, a `cmux vm` verb)
-/// are explicit user actions and are not gated here.
+/// Authenticated fleet discovery also prepares the shared terminal carrier, even for
+/// an empty fleet. Both follow the Cloud flag and Beta Features opt-in; disabling
+/// Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -21,7 +19,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
-    let wireGuardHub: CloudWireGuardHub?
+    nonisolated let wireGuardHub: CloudWireGuardHub?
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
     /// local port until the machine leaves the fleet or the account signs out.
@@ -115,21 +113,21 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask?.cancel()
     }
 
-    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
-    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
-    nonisolated func terminateWireGuardHubForAppQuit() {
-        wireGuardHub?.terminateForAppQuit()
-    }
-
     /// Live headless links, for the Cloud tunnel's idle policy.
     func connectedCloudLinkCount() async -> Int {
         await links.connectedMachineCount
     }
 
-    /// Registers this Mac's cloud machines with the catalog and starts polling.
+    /// Restarts discovery for the current account and registers its Cloud machines.
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return }
+        pollTask?.cancel()
+        pollTask = nil
+        refreshInFlight?.cancel()
+        refreshInFlight = nil
+        discoveryInFlight?.cancel()
+        discoveryInFlight = nil
         isRetired = false
         accessEpoch &+= 1
         refreshGeneration &+= 1
@@ -412,6 +410,8 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
         guard !isRetired, let catalog, let page = await listPage() else { return nil }
+        guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
+        if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
         // Reconcile both stores. A restored catalog can contain a machine for

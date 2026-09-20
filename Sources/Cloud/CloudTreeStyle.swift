@@ -91,7 +91,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         case .singleLine:
             let identityHeight = machineNameLineHeight
                 + 2 * (machineVerticalPadding + machineBandVerticalPadding)
-            return max(rowHeight + (machineBand ? 7 : 2), identityHeight)
+            return max(rowHeight + 2 * machineBandVerticalPadding, identityHeight)
         case .twoLine:
             let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
             let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
@@ -213,6 +213,7 @@ struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
     var referenceInset: Double = 8
     var disclosureSlot: Double = 13
     var disclosureGap: Double = 2
+    /// Retained for saved tuning data; machine glyphs now use the shared iconSlot.
     var dotSlot: Double = 11
     var dotGap: Double = 4
     var detailGap: Double = 4
@@ -274,7 +275,6 @@ enum CloudSidebarDebugSettings {
         referenceInset=\(metrics.referenceInset)
         disclosureSlot=\(metrics.disclosureSlot)
         disclosureGap=\(metrics.disclosureGap)
-        dotSlot=\(metrics.dotSlot)
         dotGap=\(metrics.dotGap)
         detailGap=\(metrics.detailGap)
         trailingGap=\(metrics.trailingGap)
@@ -300,7 +300,6 @@ enum CloudSidebarDebugSettings {
                 metrics.referenceInset,
                 metrics.disclosureSlot,
                 metrics.disclosureGap,
-                metrics.dotSlot,
                 metrics.dotGap,
                 metrics.detailGap,
                 metrics.trailingGap,
