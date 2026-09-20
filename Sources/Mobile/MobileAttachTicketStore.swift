@@ -46,7 +46,7 @@ final class MobileAttachTicketStore {
         let ticket = try CmxAttachTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            macDeviceID: MobileHostIdentity.deviceID(),
+            macDeviceID: MobileHostPublicStatusCache.currentV2DeviceID() ?? MobileHostIdentity.deviceID(),
             macDisplayName: MobileHostIdentity.instanceDisplayName(),
             macUserEmail: macUserEmail,
             macUserID: macUserID,
