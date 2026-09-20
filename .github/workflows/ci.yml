@@ -3005,15 +3005,7 @@ jobs:
           # The helper and the TUI client are prebuilt downloads, so they are
           # universal whichever architectures this check compiled.
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
-          if [[ "$RELEASE_ARCHS" == "arm64 x86_64" ]]; then
-            lipo "$APP_BINARY" -verify_arch arm64 x86_64
-            lipo "$CLI_BINARY" -verify_arch arm64 x86_64
-            lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
-          else
-            lipo "$APP_BINARY" -verify_arch arm64
-            lipo "$CLI_BINARY" -verify_arch arm64
-            lipo "$CMUX_CUA_BINARY" -verify_arch arm64
-          fi
+          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"
           codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
