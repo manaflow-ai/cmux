@@ -117,13 +117,17 @@ assert_real_file "$restored_debug/PackageFrameworks/Linked.framework/Versions/A/
 [ "$(cat "$restored_debug/PackageFrameworks/Linked.framework/Linked")" = "linked binary" ] || fail "copied framework binary missing"
 assert_real_file "$restored_debug/escaping.txt" "outside file"
 assert_real_file "$restored_debug/sibling.o" "object"
-assert_link "$restored_debug/dangling-absolute" "$WORK/missing"
+[ ! -e "$restored_debug/dangling-absolute" ] || fail "dangling unportable link should be dropped"
 
-# Every surviving link except the reported dangling one is portable.
+# Every surviving link is portable, or is a dangling framework convenience link.
 while IFS= read -r -d '' link; do
-  [ "$link" != "$restored_debug/dangling-absolute" ] || continue
   case "$(readlink "$link")" in
-    /*|..|../*|*/..|*/../*) fail "unportable link survived: $link -> $(readlink "$link")" ;;
+    /*|..|../*|*/..|*/../*)
+      case "$link" in
+        *.framework/*) ;;
+        *) fail "unportable link survived: $link -> $(readlink "$link")" ;;
+      esac
+      ;;
   esac
 done < <(find "$restored" -type l -print0)
 

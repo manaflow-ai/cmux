@@ -176,7 +176,19 @@ class ReuseProducts(TestProductHandoff):
         stalled = self.producer.parent / 'stalled.sh'
         stalled.write_text('#!/bin/sh\nexec sleep 30\n')
         stalled.chmod(0o755)
-        with mock.patch.object(reuse, 'ARCHIVER', stalled), mock.patch.object(reuse, 'ARCHIVE_TOOL_TIMEOUT', 0.2):
+        class ImmediateTimer:
+            def __init__(self, _delay, callback):
+                self.callback = callback
+
+            def start(self):
+                self.callback()
+
+            def cancel(self):
+                pass
+
+        with mock.patch.object(reuse, 'ARCHIVER', stalled), \
+             mock.patch.object(reuse, 'ARCHIVE_TOOL_TIMEOUT', 0.2), \
+             mock.patch.object(reuse.threading, 'Timer', ImmediateTimer):
             self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 

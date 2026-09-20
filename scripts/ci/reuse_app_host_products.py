@@ -12,6 +12,7 @@ import io
 import json
 import os
 import platform
+import posixpath
 import re
 import shutil
 import signal
@@ -170,18 +171,21 @@ def list_archive(archive):
 
 
 def validate_entries(entries):
-    """Accept only scoped directories, files and links that cannot leave the products.
+    """Accept only scoped directories, files and safe links.
 
     A link target that is relative and has no `..` component resolves below the
     link's own directory, so it stays inside Build/Products whatever else the
-    archive contains. scripts/ci/app-host-products-archive.sh packs only such links.
+    archive contains. The packer also preserves dangling unportable links found
+    in framework layouts; those are accepted only when their target is absent
+    from the archive, the link is inside a framework, and no archive entry is
+    nested below the link.
     """
     if not isinstance(entries, list):
         raise ValueError("unexpected archive listing")
     if len(entries) > MAX_MEMBERS:
         raise ValueError("archive member count limit exceeded")
     expanded = 0
-    paths, links = set(), set()
+    paths, links = set(), {}
     for entry in entries:
         kind, path = entry["TYP"], entry["PAT"]
         if kind not in {"D", "F", "L"}:
@@ -196,9 +200,9 @@ def validate_entries(entries):
             raise ValueError("unsupported product mode")
         if kind == "L":
             target = entry["LNK"]
-            if not isinstance(target, str) or any(part in {"", ".."} for part in target.split("/")):
+            if not isinstance(target, str) or any(part == "" for part in target.split("/")):
                 raise ValueError("unscoped product link")
-            links.add(path)
+            links[path] = target
         elif "LNK" in entry:
             raise ValueError("unexpected link target")
         size = entry.get("DAT", 0)
@@ -210,6 +214,12 @@ def validate_entries(entries):
         if size > MAX_MEMBER_BYTES or expanded + size + metadata > MAX_EXPANDED_BYTES:
             raise ValueError("archive member size limit exceeded")
         expanded += size + metadata
+    for path, target in links.items():
+        if target.startswith("/") or any(part == ".." for part in target.split("/")):
+            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
+            is_framework_link = any(part.endswith(".framework") for part in path.split("/"))
+            if resolved in paths or not is_framework_link:
+                raise ValueError("unscoped product link")
     for path in paths:
         parts = path.split("/")
         if any("/".join(parts[:depth]) in links for depth in range(1, len(parts))):
@@ -238,8 +248,20 @@ def unpack(archive, staging, digest):
     # Extraction follows the archive's own entry headers, so every limit is
     # checked against the listing before anything is written.
     validate_entries(list_archive(compressed))
-    subprocess.run([str(ARCHIVER), "unpack", str(compressed), str(staging)], check=True,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=ARCHIVE_TOOL_TIMEOUT)
+    process = subprocess.Popen([str(ARCHIVER), "unpack", str(compressed), str(staging)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
+    try:
+        status = process.wait(timeout=ARCHIVE_TOOL_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise
+    if status:
+        raise subprocess.CalledProcessError(status, process.args)
 
 
 def restore(api, value, derived, current_run, current_identity):
