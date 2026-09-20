@@ -5,7 +5,7 @@ import Foundation
 /// The decoder rejects malformed lifecycle state instead of projecting a
 /// partially valid row into Settings. It performs no I/O and can be exercised
 /// without launching the cmux app.
-public struct LocalTmuxSessionListDecoder: Sendable {
+nonisolated public struct LocalTmuxSessionListDecoder: Sendable {
     /// A malformed or internally inconsistent session-list payload.
     public enum Failure: Error, Sendable, Equatable {
         /// The response or one of its session rows violates the CLI contract.

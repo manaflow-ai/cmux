@@ -1,7 +1,7 @@
 import Foundation
 
 /// One local tmux session returned by the authoritative bundled CLI.
-public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
+nonisolated public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
     /// The complete attachment identity; display and action selectors derive from it.
     public enum Selector: Equatable, Sendable {
         /// A registry-owned session, including its display name.
