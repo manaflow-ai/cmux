@@ -32,50 +32,99 @@ check_cla_guard_runner() {
   echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
 }
 
-check_merge_group_policy_bridge() {
-  # This workflow is exempt from the product-runner policy below because it
-  # reports required control-plane contexts on the synthetic merge commit.
-  # Keep the exemption narrow: adding a candidate/product job here must fail
-  # this test until it gets an explicit runner and trust review.
-  local file="$MERGE_GROUP_POLICY_FILE"
-  if [ ! -f "$file" ]; then
-    echo "FAIL: merge-group-policy-checks.yml is missing"
-    exit 1
+merge_group_policy_bridge_violation() {
+  # Prints why FILE is not the fixed two-job bridge, or nothing when it is.
+  local file="$1" job_ids runners
+  if ! grep -Fqx '  merge_group:' "$file" || \
+     [ "$(awk '/^on:/ { on=1; next } on && /^[^[:space:]#]/ { on=0 } on && /^  [^[:space:]#]/ { n++ } END { print n+0 }' "$file")" -ne 1 ]; then
+    echo "must be merge_group-only"
+    return
   fi
-  if ! grep -Fqx '  merge_group:' "$file"; then
-    echo "FAIL: merge-group-policy-checks.yml must be merge_group-only"
-    exit 1
-  fi
-  local job_ids runners
   job_ids="$(awk '
     /^jobs:[[:space:]]*$/ { in_jobs=1; next }
     in_jobs && /^[^[:space:]#]/ { in_jobs=0 }
     in_jobs && /^  [^[:space:]#][^:]*:/ { sub(/^  /, ""); sub(/:.*/, ""); print }
   ' "$file" | sort | tr '\n' ' ')"
   if [ "$job_ids" != "cla-assistant cla-policy-guard " ]; then
-    echo "FAIL: merge-group-policy-checks.yml must define exactly the cla-assistant and cla-policy-guard jobs, found: ${job_ids:-none}"
-    exit 1
+    echo "must define exactly the cla-assistant and cla-policy-guard jobs, found: ${job_ids:-none}"
+    return
   fi
-  runners="$(grep -E '^[[:space:]]*runs-on:' "$file" | sort | uniq -c | sed 's/^ *//')"
+  runners="$(grep -E '^[[:space:]]*(-[[:space:]]+)?runs-on:' "$file" | sort | uniq -c | sed 's/^ *//')"
   if [ "$runners" != "2     runs-on: ubuntu-24.04" ]; then
-    echo "FAIL: both merge-group policy bridge jobs must run on ubuntu-24.04 and nothing else, found: $runners"
-    exit 1
+    echo "must run both jobs on ubuntu-24.04 and nothing else, found: $runners"
+    return
   fi
   if [ "$(grep -Fc '    name: CLA Assistant' "$file")" -ne 1 ] || \
      [ "$(grep -Fc '    name: CLA policy guard' "$file")" -ne 1 ] || \
-     [ "$(grep -Ec '^      - ' "$file")" -ne 2 ]; then
-    echo "FAIL: each merge-group policy bridge job must keep its required check name and a single step"
-    exit 1
+     [ "$(grep -Ec '^      - ' "$file")" -ne 2 ] || \
+     [ "$(grep -Ec '^      - name: ' "$file")" -ne 2 ] || \
+     [ "$(grep -Ec '^        run: \|$' "$file")" -ne 2 ]; then
+    echo "must keep each required check name on a job with a single named run step"
+    return
   fi
-  if grep -Eq '^[[:space:]]+(strategy|container|services|needs|environment):' "$file"; then
-    echo "FAIL: merge-group policy bridge jobs must not use a matrix, container, service, dependency or environment"
-    exit 1
+  if grep -Eq '^[[:space:]]*(-[[:space:]]+)?(strategy|container|services|needs|environment):' "$file"; then
+    echo "must not use a matrix, container, service, dependency or environment"
+    return
   fi
-  if grep -Eq '^[[:space:]]+uses:|checkout|curl|ruby|scripts/' "$file" || \
+  if grep -Eq '^[[:space:]]*(-[[:space:]]+)?uses:|checkout|curl|ruby|scripts/' "$file" || \
      grep -Eq '(^|[^[:alnum:]_])bun([^[:alnum:]_]|$)' "$file"; then
-    echo "FAIL: merge-group-policy-checks.yml must not execute candidate-controlled actions or scripts"
+    echo "must not execute actions or candidate-controlled scripts"
+    return
+  fi
+}
+
+check_merge_group_policy_bridge() {
+  # This workflow is exempt from the product-runner policy below because it
+  # reports required control-plane contexts on the synthetic merge commit.
+  # Keep the exemption narrow: anything beyond the two fixed jobs must fail
+  # this test until it gets an explicit runner and trust review.
+  local file="$MERGE_GROUP_POLICY_FILE" violation
+  if [ ! -f "$file" ]; then
+    echo "FAIL: merge-group-policy-checks.yml is missing"
     exit 1
   fi
+  violation="$(merge_group_policy_bridge_violation "$file")"
+  if [ -n "$violation" ]; then
+    echo "FAIL: merge-group-policy-checks.yml $violation"
+    exit 1
+  fi
+
+  # Each edit below must be rejected, so the checks above cannot rot silently.
+  local scratch name
+  scratch="$(mktemp -d)"
+  python3 - "$file" "$scratch" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+scratch = Path(sys.argv[2])
+extra_job = "\n  extra:\n    name: Extra\n    runs-on: {runner}\n    steps:\n      - name: Extra\n        run: |\n          true\n"
+first_step = re.compile(r"(?s)(  cla-assistant:.*?    steps:\n)      - name:.*?(?=\n  cla-policy-guard:)")
+mutations = {
+    "third-job-other-runner": source + extra_job.format(runner="ubuntu-latest"),
+    "third-job-same-runner": source + extra_job.format(runner="ubuntu-24.04"),
+    "swapped-runner": source.replace("runs-on: ubuntu-24.04", "runs-on: macos-15", 1),
+    "action-step": first_step.sub(r"\1      - uses: owner/action@ref\n", source, count=1),
+    "action-step-with-name": source.replace("        env:\n", "        uses: owner/action@ref\n        env:\n", 1),
+    "second-step": source.replace("    steps:\n", "    steps:\n      - run: true\n", 1),
+    "matrix": source.replace("    timeout-minutes: 5\n", "    timeout-minutes: 5\n    strategy:\n      matrix:\n        x: [1, 2]\n", 1),
+    "extra-trigger": source.replace("  merge_group:\n", "  merge_group:\n  pull_request_target:\n", 1),
+    "checkout-in-script": source.replace("          set -euo pipefail\n", "          set -euo pipefail\n          git checkout main\n", 1),
+}
+for name, text in mutations.items():
+    assert text != source, name
+    (scratch / f"{name}.yml").write_text(text, encoding="utf-8")
+PY
+  for mutated in "$scratch"/*.yml; do
+    name="$(basename "$mutated" .yml)"
+    if [ -z "$(merge_group_policy_bridge_violation "$mutated")" ]; then
+      echo "FAIL: the merge-group policy bridge guard accepts the '$name' edit"
+      rm -rf "$scratch"
+      exit 1
+    fi
+  done
+  rm -rf "$scratch"
   echo "PASS: merge-group policy runner exemption is limited to the two fixed bridge jobs"
 }
 
