@@ -55,7 +55,7 @@ struct CloudDisplayCatalogTests {
         response.resolve(true)
         do { _ = try await operation.value; Issue.record("Retired creation succeeded") } catch {}
         #expect(!service.canCreate)
-        #expect(service.snapshot?.displays.count == 1)
+        #expect(service.snapshot == nil)
     }
 
     @Test("Unsupported images never expose a fake creation action")

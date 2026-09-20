@@ -115,7 +115,8 @@ struct CloudDesktopAccessTests {
             wake: {}, startForward: { _ in UInt16(40_000 + port) }, stopForward: {}, route: .loopback)
         let state = CloudBrowserAccessState()
         let remote = try #require(URL(string: "http://10.0.0.7:\(port)/vnc.html"))
-        state.configure(model: model, url: remote)
+        state.configure(model: model, url: remote,
+                        resourceID: SurfaceResourceID(machine: .cloud("display-test"), kind: .display, key: "display:\(port == 6901 ? 1 : 2)"))
         model.connect()
         #expect(await wait { model.isReady })
         let url = try #require(state.nextURL())

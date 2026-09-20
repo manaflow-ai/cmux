@@ -29,12 +29,11 @@ extension CmuxTuiSurfaceProvider {
     func createDisplay() async throws -> SurfaceResource {
         guard supportsDisplayCreation else { throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
         let generation = currentLifecycleGeneration
-        let refresh = refreshGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }
         }
         let snapshot = try await displayCoordinator.create()
-        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { throw CancellationError() }
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
         guard let display = snapshot.displays.first(where: { $0.id == snapshot.created }) else {
             throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
         }

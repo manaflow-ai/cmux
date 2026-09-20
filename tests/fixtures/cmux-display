@@ -228,6 +228,8 @@ class DisplayService:
         runtime = self.runtime / str(number)
         runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
         environment = dict(os.environ, DISPLAY=f":{number}", CMUX_DESKTOP_RUNTIME_DIR=str(runtime))
+        environment["CHROME_CONFIG_HOME"] = str(runtime / "chrome-config")
+        environment["XDG_CONFIG_HOME"] = str(runtime / "xdg-config")
         for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
                     "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
             environment.pop(key, None)

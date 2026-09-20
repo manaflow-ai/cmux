@@ -134,8 +134,13 @@ extension CmuxTuiSurfaceProvider {
                 materializedPanels.insert(projection.panelID)
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
-                    if let url = URL(string: raw) { configureBrowser(browser, url: url, resourceID: resource.id) }
-                case .unsupported(let message): browser.cloudAccess.showUnavailable(message)
+                    guard let url = URL(string: raw) else { continue }
+                    configureBrowser(browser, url: url, resourceID: resource.id)
+                    materializedPanels.insert(projection.panelID)
+                case .unsupported:
+                    // Keep the placeholder eligible for a later explicit display
+                    // discovery; its target may be supplied by the guest catalog.
+                    continue
                 }
             }
         }
