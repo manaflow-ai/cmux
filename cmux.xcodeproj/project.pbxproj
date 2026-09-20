@@ -3204,6 +3204,9 @@
 		6FEEA8C6D7092073E0DE9DEC /* SurfacePortEndpointCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B78E9F9B9C233418960CB37 /* SurfacePortEndpointCache.swift */; };
 		027446BA1E1B4E69B2DCDF8A /* SurfaceProjection+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */; };
 		0F4B1E526E23283B5CA1FAAA /* SurfaceProjectionEndReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */; };
+		D01324400000000000000006 /* SurfaceProjectionIdentity+Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */; };
+		D01324400000000000000002 /* SurfaceProjectionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01324400000000000000001 /* SurfaceProjectionIdentity.swift */; };
+		D01324400000000000000004 /* SurfaceProjectionIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01324400000000000000003 /* SurfaceProjectionIdentityTests.swift */; };
 		A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */; };
 		7867A0010000000000000001 /* SurfaceProjectionRestoreStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7867A0020000000000000001 /* SurfaceProjectionRestoreStore.swift */; };
 		D84DEF61FE7641A280419E24 /* SurfaceProvider+MaterializationValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B84F249415045AF98A4730A /* SurfaceProvider+MaterializationValidation.swift */; };
@@ -7159,6 +7162,9 @@
 		3B78E9F9B9C233418960CB37 /* SurfacePortEndpointCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfacePortEndpointCache.swift; sourceTree = "<group>"; };
 		7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceProjection+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProjectionEndReason.swift"; sourceTree = "<group>"; };
+		D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentity+Workspace.swift; sourceTree = "<group>"; };
+		D01324400000000000000001 /* SurfaceProjectionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentity.swift; sourceTree = "<group>"; };
+		D01324400000000000000003 /* SurfaceProjectionIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentityTests.swift; sourceTree = "<group>"; };
 		A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionMaterialization.swift; sourceTree = "<group>"; };
 		7867A0020000000000000001 /* SurfaceProjectionRestoreStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionRestoreStore.swift; sourceTree = "<group>"; };
 		3B84F249415045AF98A4730A /* SurfaceProvider+MaterializationValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProvider+MaterializationValidation.swift"; sourceTree = "<group>"; };
@@ -8459,6 +8465,8 @@
 				7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */,
 				F18D73C012B643DBADE8B7B5 /* CloudVMState+SnapshotComparison.swift */,
 				D01100800000000000000001 /* SurfaceCatalogQueryService.swift */,
+				D01324400000000000000001 /* SurfaceProjectionIdentity.swift */,
+				D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */,
 				278BEFB3583AED9627966DFF /* SurfaceSocketCommands.swift */,
 				47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */,
 				F3C1A7B40000000000000006 /* CloudWorkspaceRenameService+Directory.swift */,
@@ -11621,6 +11629,7 @@
 				7EFB9C9E7B5D4F39873871A1 /* CloudVMStateSnapshotComparisonTests.swift */,
 				B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */,
 				D01100800000000000000003 /* SurfaceCatalogQueryServiceTests.swift */,
+				D01324400000000000000003 /* SurfaceProjectionIdentityTests.swift */,
 				D01100800000000000000005 /* CloudCatalogQueryTestProvider.swift */,
 				877BC9A2B697FEF2957397FA /* SurfaceCatalogTests.swift */,
 				F0FD4E01EAF1B2F306A96F6F /* CloudPlacementCoordinatorTests.swift */,
@@ -14659,6 +14668,8 @@
 				6FEEA8C6D7092073E0DE9DEC /* SurfacePortEndpointCache.swift in Sources */,
 				027446BA1E1B4E69B2DCDF8A /* SurfaceProjection+WorkspaceMembership.swift in Sources */,
 				0F4B1E526E23283B5CA1FAAA /* SurfaceProjectionEndReason.swift in Sources */,
+				D01324400000000000000006 /* SurfaceProjectionIdentity+Workspace.swift in Sources */,
+				D01324400000000000000002 /* SurfaceProjectionIdentity.swift in Sources */,
 				A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */,
 				7867A0010000000000000001 /* SurfaceProjectionRestoreStore.swift in Sources */,
 				D84DEF61FE7641A280419E24 /* SurfaceProvider+MaterializationValidation.swift in Sources */,
@@ -16435,6 +16446,7 @@
 				D01100800000000000000004 /* SurfaceCatalogQueryServiceTests.swift in Sources */,
 				5873A6BE37C34CC1082864E2 /* SurfaceCatalogTests.swift in Sources */,
 				560A57B0605EC30E23A20456 /* SurfacePaneFactoryFocusTests.swift in Sources */,
+				D01324400000000000000004 /* SurfaceProjectionIdentityTests.swift in Sources */,
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,
 				F6572032A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
