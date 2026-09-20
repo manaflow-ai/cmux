@@ -1026,6 +1026,20 @@ jobs:
             -only-testing:cmuxTests/BrowserViewportRuntimeTests \
             test-without-building
 
+      - name: Run Copy Mode scrollback regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The broad app-host suite tolerates ordinary assertion failures.
+          # Wheel ownership must be a strict gate against the pinned Ghostty.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/GhosttyCopyModeScrollbackTests \
+            test-without-building
+
       - name: Run five-tab renderer memory regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
