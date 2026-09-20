@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import unittest
 
@@ -18,6 +19,28 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CacheRestoreReceiptTests(unittest.TestCase):
+    def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary)
+            for name in ("tests/test_ci_pull_request_caches_are_read_only.py",
+                         ".github/workflows/ci.yml", ".github/workflows/nightly.yml",
+                         ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml"):
+                destination = fixture / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / name, destination)
+            action_path = fixture / ".github/actions/cache-restore/action.yml"
+            original = action_path.read_text()
+            for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):
+                action = yaml.safe_load(original)
+                if mutation == "receipt_command":
+                    action["runs"]["steps"][-1]["run"] += "\necho unexpected-write"
+                elif mutation == "overlapping_route":
+                    next(step for step in action["runs"]["steps"] if step.get("id") == "warp")["if"] = "always()"
+                action_path.write_text(yaml.safe_dump(action))
+                result = subprocess.run(["python3", str(fixture / "tests/test_ci_pull_request_caches_are_read_only.py")], capture_output=True, text=True)
+                with self.subTest(mutation=mutation):
+                    self.assertEqual(result.returncode == 0, valid, result.stdout + result.stderr)
+
     def test_all_routes_distinguish_exact_prefix_unavailable_and_error(self):
         for route in ("github", "warp", "r2"):
             for outcome, hit, matched, expected in (
