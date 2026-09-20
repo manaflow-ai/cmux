@@ -57,6 +57,8 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/CloudMachineDragSourceTests",
     "cmuxTests/CloudMachineOrderingTests",
     "cmuxTests/CloudNotificationDismissParityTests",
+    "cmuxTests/CloudOperationRecorderTests",
+    "cmuxTests/CloudReadRequestCoordinatorTests",
     "cmuxTests/CloudWorkspaceRenameSurfaceParityTests",
     "cmuxTests/CmuxBundledBinPathIntegrationTests",
     "cmuxTests/DockNotificationAttentionTests",
@@ -86,6 +88,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SocketACLReloadRegressionTests",
     "cmuxTests/SurfaceResumeAgentHookDowngradeTests",
+    "cmuxTests/VMClientReadCoalescingTests",
 
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
