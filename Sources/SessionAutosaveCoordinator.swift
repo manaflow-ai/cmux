@@ -7,15 +7,15 @@ import Foundation
 /// generation, and skip-state transitions live in one focused object.
 @MainActor
 final class SessionAutosaveCoordinator {
-    private typealias Fingerprint = @MainActor (
+    typealias Fingerprint = @MainActor (
         RestorableAgentSessionIndex,
         SurfaceResumeBindingIndex
     ) -> Int?
-    private typealias Save = @MainActor (
+    typealias Save = @MainActor (
         RestorableAgentSessionIndex,
         SurfaceResumeBindingIndex
     ) -> Bool
-    private typealias TTYDeviceBindings = @MainActor () -> [
+    typealias TTYDeviceBindings = @MainActor () -> [
         SurfaceResumeBindingIndex.PanelKey: Int64
     ]
 
