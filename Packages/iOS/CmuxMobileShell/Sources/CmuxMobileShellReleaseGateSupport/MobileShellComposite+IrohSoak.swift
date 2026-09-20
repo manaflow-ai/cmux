@@ -128,8 +128,16 @@ extension MobileShellComposite {
                 throw MobileIrohReleaseGateProbeFailure.soakConnectionNotReplaced
             }
             let reconnectSeconds = soakSeconds(reconnectStarted)
-            let terminalStarted = ContinuousClock.now
             _ = try await runIrohReleaseGateProbe(marker: marker + "_RECONNECTED", terminalSession: terminalSession)
+            // The nested probe supplies reconnect coverage but includes host,
+            // RPC, workspace, notification, chat, and artifact checks. Measure
+            // the terminal operation separately so this metric remains honest.
+            let terminalStarted = ContinuousClock.now
+            try await verifyTerminalRoundTrip(
+                surfaceID: target.terminalID.rawValue,
+                marker: marker + "_RECONNECTED_TERMINAL",
+                session: terminalSession
+            )
             return [
                 "forced_reconnect": reconnectSeconds,
                 "terminal_after_reconnect": soakSeconds(terminalStarted),
