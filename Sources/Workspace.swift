@@ -294,9 +294,11 @@ extension Workspace {
         let cloudProjectedPanelIDs = Set(
             (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
         )
+        let cloudProjectionRecordsByPanelID = Dictionary((snapshot.surfaceProjections ?? []).map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
             var panel = panel
-            if cloudProjectedPanelIDs.contains(panel.id), panel.directoryIsTrustedRemoteReport != true {
+            if cloudVMBinding != nil || cloudProjectedPanelIDs.contains(panel.id) {
+                panel.directoryIsTrustedRemoteReport = false
                 panel.directoryRequiresRemoteTrust = true
             }
             return (panel.id, panel)
@@ -320,7 +322,7 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                restorableAgentIndex: restorableAgentIndex,
+                restorableAgentIndex: restorableAgentIndex, cloudProjectionRecordsByPanelID: cloudProjectionRecordsByPanelID,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -935,22 +937,23 @@ extension Workspace {
         ) else {
             return nil
         }
+        let projection = SurfaceCatalog.shared.projectionRecord(forPanel: panelId)
         return ClosedPanelHistoryEntry(
             workspaceId: id,
             paneId: pane.id,
             paneAnchorPanelId: paneAnchorPanelId,
             tabIndex: tabIndex,
             snapshot: snapshot,
-            fallbackSplitPlacement: fallbackSplitPlacement
+            fallbackSplitPlacement: fallbackSplitPlacement,
+            layout: SessionSplitContainerLayoutCodec(controller: bonsplitController).snapshot { panelIdFromSurfaceId($0) },
+            projection: projection
         )
     }
-
     private func consumeCloseHistoryEligibility(tabId: TabID, panelId: UUID?) -> Bool {
         let eligibleByTab = closeHistoryEligibleTabIds.remove(tabId) != nil
         let eligibleByPanel = panelId.map { closeHistoryEligiblePanelIds.remove($0) != nil } ?? false
         return eligibleByTab || eligibleByPanel
     }
-
     private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
         closeHistoryEligibleTabIds.remove(tabId)
         let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
@@ -958,7 +961,6 @@ extension Workspace {
             closeHistoryEligiblePanelIds.remove(resolvedPanelId)
         }
     }
-
     @discardableResult
     private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         guard !suppressClosedPanelHistory else { return false }
@@ -970,9 +972,12 @@ extension Workspace {
         ClosedItemHistoryStore.shared.push(.panel(entry))
         return true
     }
-
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        // Inert nested scaffolds must not enter the user-split terminal repair path.
+        let wasProgrammaticSplit = isProgrammaticSplit
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = wasProgrammaticSplit }
         if entry.restoreInOriginalPane,
            let originalPane = bonsplitController.allPaneIds.first(where: { $0.id == entry.paneId }) {
             return restoreClosedPanel(entry, inPane: originalPane)
@@ -990,7 +995,6 @@ extension Workspace {
         }
         return restoreClosedPanel(entry, inPane: pane)
     }
-
     @discardableResult
     private func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry, inPane pane: PaneID) -> UUID? {
         guard let panelId = createPanel(
@@ -998,7 +1002,8 @@ extension Workspace {
             inPane: pane,
             snapshotWorkspaceId: nil,
             shouldRestoreSingleDefaultCloudTerminal: false,
-            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot]),
+            cloudProjectionRecord: entry.projection
         ) else { return nil }
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -1006,12 +1011,13 @@ extension Workspace {
             bonsplitController.focusPane(pane)
             bonsplitController.selectTab(tabId)
         }
+        restoreClosedPanelLayout(entry.layout, oldPanelID: entry.snapshot.id, newPanelID: panelId)
         focusPanel(panelId)
         triggerFocusFlash(panelId: panelId)
+        restoreClosedPanelProjection(entry.projection, panelId: panelId)
         terminalStartupRestoreCoordinator.commitPendingRestores(panelIDs: [panelId])
         return panelId
     }
-
     @discardableResult
     private func restoreClosedPanelInFallbackSplit(_ entry: ClosedPanelHistoryEntry) -> UUID? {
         guard let placement = entry.fallbackSplitPlacement,
@@ -1019,40 +1025,40 @@ extension Workspace {
               panels[anchorPanelId] != nil else {
             return nil
         }
-
-        guard let placeholderPanel = newTerminalSplit(
-            from: anchorPanelId,
+        guard let sourcePane = paneId(forPanelId: anchorPanelId) ?? bonsplitController.allPaneIds.first, let scaffold = SessionSplitContainerLayoutCodec(controller: bonsplitController).createRestorePlaceholderSplit(
+            inPane: sourcePane,
             orientation: placement.orientation,
-            insertFirst: placement.insertFirst,
-            focus: false
+            insertFirst: placement.insertFirst
         ) else {
             return nil
         }
-        guard let pane = paneId(forPanelId: placeholderPanel.id) else {
-            _ = closePanel(placeholderPanel.id, force: true)
-            return nil
-        }
-
+        let pane = scaffold.paneId
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
             snapshotWorkspaceId: nil,
             shouldRestoreSingleDefaultCloudTerminal: false,
-            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot]),
+            cloudProjectionRecord: entry.projection
         ) else {
-            _ = closePanel(placeholderPanel.id, force: true)
+            _ = bonsplitController.closeTab(scaffold.tabId)
             return nil
         }
-
-        _ = closePanel(placeholderPanel.id, force: true)
+        _ = bonsplitController.closeTab(scaffold.tabId)
         guard panels[panelId] != nil else {
             return nil
         }
+        restoreClosedPanelLayout(entry.layout, oldPanelID: entry.snapshot.id, newPanelID: panelId)
         focusPanel(panelId)
+        restoreClosedPanelProjection(entry.projection, panelId: panelId)
         terminalStartupRestoreCoordinator.commitPendingRestores(panelIDs: [panelId])
         return panelId
     }
 
+    private func restoreClosedPanelProjection(_ projection: SurfaceProjectionRecord?, panelId: UUID) {
+        guard let projection else { return }
+        SurfaceCatalog.shared.restore([SurfaceProjectionRecord(panelID: panelId, resource: projection.resource, remoteWorkspaceID: projection.remoteWorkspaceID, remoteTabID: projection.remoteTabID)], workspaceID: id)
+    }
     nonisolated static func resolvedSnapshotTerminalScrollback(
         capturedScrollback: String?,
         fallbackScrollback: String?,
@@ -1064,7 +1070,6 @@ extension Workspace {
             allowFallbackScrollback: allowFallbackScrollback
         )
     }
-
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
         tmuxStartCommand: String? = nil,
@@ -1076,7 +1081,6 @@ extension Workspace {
             hasResumeStartupWork: hasResumeStartupWork
         )
     }
-
     nonisolated static func shouldAutoConnectRestoredRemote(
         foregroundAuthToken: String?,
         snapshot: SessionWorkspaceSnapshot,
@@ -1088,7 +1092,6 @@ extension Workspace {
             isRunningUnderAutomatedTests: isRunningUnderAutomatedTests
         )
     }
-
     nonisolated static func surfaceResumeStartupInput(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
@@ -1104,7 +1107,6 @@ extension Workspace {
             approvalSigningSecret: approvalSigningSecret
         )
     }
-
     nonisolated static func surfaceResumeStartupLaunch(
         _ resumeBinding: SurfaceResumeBindingSnapshot?,
         autoResumeAgentSessions: Bool,
@@ -1120,7 +1122,6 @@ extension Workspace {
             approvalSigningSecret: approvalSigningSecret
         )
     }
-
     nonisolated static func resumeBindingForSessionRestore(
         _ binding: SurfaceResumeBindingSnapshot?,
         restorableAgent: SessionRestorableAgentSnapshot?
@@ -1144,7 +1145,6 @@ extension Workspace {
            )?.rawValue != restorableAgent.kind.rawValue {
             return binding
         }
-
         // Restore has no live hook cwd; use the snapshot's derived restorable cwd
         // and fall back to launch capture only for older snapshots.
         let snapshotRestorableWorkingDirectory =
@@ -1159,7 +1159,6 @@ extension Workspace {
         }
         return binding.retargetingWorkingDirectory(resolvedWorkingDirectory)
     }
-
     nonisolated static func restorableAgentForSessionRestore(
         _ restorableAgent: SessionRestorableAgentSnapshot?,
         resumeBinding: SurfaceResumeBindingSnapshot?
@@ -1168,7 +1167,6 @@ extension Workspace {
         guard let resumeBinding, resumeBinding.isAgentHookBinding else {
             return restorableAgent
         }
-
         if let checkpointId = normalizedResumeBindingValue(resumeBinding.checkpointId),
            !ManagedAgentSessionIdentity.sessionIDsMatch(
                kind: restorableAgent.kind.rawValue,
@@ -1196,11 +1194,9 @@ extension Workspace {
         }
         return trimmed
     }
-
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
         makeSessionRestorePolicyService().restorableTmuxStartCommand(rawCommand)
     }
-
     nonisolated static func shouldPersistSessionScrollback(
         shellActivityState: PanelShellActivityState?,
         fallbackNeedsConfirmClose: Bool
@@ -1212,7 +1208,6 @@ extension Workspace {
             )
         )
     }
-
     private func terminalSnapshotScrollback(
         panelId: UUID,
         capturedScrollback: String?,
@@ -1249,7 +1244,6 @@ extension Workspace {
         }
         return resolved
     }
-
 #if DEBUG
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> (terminals: Int, characters: Int) {
         for panelId in debugSessionSnapshotScrollbackFallbackPanelIds {
@@ -1353,6 +1347,7 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
+        cloudProjectionRecordsByPanelID: [UUID: SurfaceProjectionRecord] = [:],
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1369,7 +1364,8 @@ extension Workspace {
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: restorableAgentIndex,
+                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId]
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1559,13 +1555,19 @@ extension Workspace {
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        cloudProjectionRecord: SurfaceProjectionRecord? = nil
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(
-            snapshot,
-            workspaceId: snapshotWorkspaceId ?? id
-        )
+        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
+        if cloudProjectionRecord?.resource.machine.isLocal == false,
+           let cloudProjectionRecord,
+           let restoredCloudPanelID = reserveRestoredCloudTerminalPane(
+               snapshot: snapshot,
+               projection: cloudProjectionRecord,
+               inPane: paneId
+           ) {
+            return restoredCloudPanelID }
         let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||
             (snapshot.directoryIsTrustedRemoteReport != true &&
                 (snapshot.directoryRequiresRemoteTrust == true ||
@@ -5775,7 +5777,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     // MARK: - Directory Updates
-
     private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?, force: Bool = false) {
         guard force || previousDirectory != presentedCurrentDirectory else { return }
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
@@ -13887,10 +13888,8 @@ extension Workspace: BonsplitDelegate {
                     self.bonsplitController.closeTab(tabId)
                 }
             }
-
             return false
         }
-
         if !pushClosedPanelHistoryIfEligible(for: tab, inPane: pane) {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
         } else {
@@ -13899,7 +13898,6 @@ extension Workspace: BonsplitDelegate {
         recordPostCloseState()
         return true
     }
-
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
@@ -13913,7 +13911,6 @@ extension Workspace: BonsplitDelegate {
         if shouldClearSplitZoom {
             clearSplitZoom()
         }
-
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
             #if DEBUG
@@ -13925,12 +13922,14 @@ extension Workspace: BonsplitDelegate {
             }
             return
         }
-
         #if DEBUG
         NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
         #endif
-
         let panel = panels[panelId]
+        let shouldKeepEmptyPaneForCloudView = panel.map { candidate in
+            guard let machine = SurfaceCatalog.shared.machineOwningPanel(panelId), !machine.isLocal else { return false }
+            return candidate.panelType == .browser || candidate is DeferredBrowserPanel
+        } ?? false
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
@@ -14010,7 +14009,6 @@ extension Workspace: BonsplitDelegate {
                 onClosedBrowserPanel?(closedBrowserRestoreSnapshot)
             }
         }
-
         let closedRemoteCleanupConfiguration = discardClosedPanelLifecycleState(
             panelId: panelId,
             tabId: tabId,
@@ -14034,14 +14032,12 @@ extension Workspace: BonsplitDelegate {
         if !isDetaching, let cleanupConfiguration = closedRemoteCleanupConfiguration {
             requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         }
-
         if panels.isEmpty {
             if isDetaching {
                 pendingRemoteDisconnectReplacementsBySurfaceId.removeValue(forKey: panelId)
                 scheduleTerminalGeometryReconcile()
                 return
             }
-
             if remoteTmuxWorkspaceCloseButton != nil {
                 detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
                 let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
@@ -14052,7 +14048,11 @@ extension Workspace: BonsplitDelegate {
             if remoteTmuxKeepWorkspaceOpen {
                 detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded()
             }
-
+            if shouldKeepEmptyPaneForCloudView {
+                scheduleTerminalGeometryReconcile()
+                scheduleFocusReconcile()
+                return
+            }
             #if DEBUG
             dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacementsBySurfaceId[panelId]?.target ?? "nil")")
             #endif

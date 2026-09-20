@@ -23,6 +23,11 @@
       "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
       "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
     },
+    "displayName": {
+      "title": "Nom de machine non valide",
+      "message": "Le nom d’une machine doit être un texte imprimable d’au plus {maxLength} caractères.",
+      "action": "Utilisez un nom plus court sans caractères de contrôle, ou laissez-le vide pour l’effacer."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Les machines de {memory} Gio nécessitent cmux {plan}. Votre forfait prend en charge jusqu’à {max} Gio.",

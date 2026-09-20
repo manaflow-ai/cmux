@@ -51,8 +51,8 @@ enum TerminalForegroundCommandCapture {
         var commands: [Int64: String] = [:]
         for (ttyDevice, process) in bestByTTY {
             guard process.processIdentity != nil,
-                  let argv = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process),
-                  let command = commandLine(fromArgv: argv),
+                  let arguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process),
+                  let command = commandLine(fromArgv: arguments.arguments),
                   !command.isEmpty else { continue }
             commands[ttyDevice] = command
         }

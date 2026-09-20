@@ -108,6 +108,7 @@ struct ManagedPolicyCloudGateTests {
         let client = VMClient(
             session: URLSession(configuration: configuration),
             auth: coordinator,
+            resourceStats: VMResourceStatsStore(),
             checkpointRenames: CloudRenameCoordinator(),
             isDisabledByManagedPolicy: { policy.isEnforced }
         )

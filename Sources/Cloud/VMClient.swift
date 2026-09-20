@@ -714,7 +714,7 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
+        shared = VMClient(session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -756,6 +756,7 @@ actor VMClient {
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
+    nonisolated let resourceStats: VMResourceStatsStore
     private let machineCache: CloudMachineCache
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
@@ -763,6 +764,7 @@ actor VMClient {
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        resourceStats: VMResourceStatsStore,
         checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
@@ -771,6 +773,7 @@ actor VMClient {
         isCloudEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.session = session
+        self.resourceStats = resourceStats
         self.auth = auth
         self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
@@ -787,6 +790,9 @@ actor VMClient {
     }
 
     func listPage() async throws -> VMListPage {
+        let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
+            (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
+        }
         return try await withOperation(.list, foreground: false) {
             let (data, http) = try await request("GET", path: "/api/vm")
             try ensureOK(http, data: data)
@@ -845,6 +851,17 @@ actor VMClient {
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
+            // Background discovery also reads resource stats. Register its
+            // complete fleet before returning, but only when the auth account
+            // and team are still the ones that produced this response. The
+            // store token fences reset and out-of-order list responses.
+            let machineIDs = Set(vms.map(\.id))
+            await MainActor.run { [auth, resourceStats] in
+                guard !Task.isCancelled, let listIdentity,
+                      auth.authenticatedSessionIdentity == listIdentity,
+                      auth.resolvedTeamID == listTeamID else { return }
+                resourceStats.retain(machineIDs: machineIDs, token: retentionToken)
+            }
             return VMListPage(vms: vms, limits: limits)
         }
     }
@@ -1211,7 +1228,7 @@ actor VMClient {
         return result
     }
 
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1220,6 +1237,7 @@ actor VMClient {
             if persistentHome { body["persistentHome"] = true }
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
+            if let displayName { body["displayName"] = displayName }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1238,11 +1256,8 @@ actor VMClient {
             else {
                 throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
             }
-            // Prefer the server-supplied createdAt. Using the local wall clock caused two
-            // visible bugs: (1) creation time was wrong under clock skew, (2) idempotent
-            // retries that short-circuited to an existing VM on the server still stamped
-            // "now" on the mac side, so the client saw a fresh timestamp for a replayed
-            // create (Codex P2). Fall back to the local clock only if the server omits it.
+            // Preserve the server timestamp on idempotent replays and under local clock skew.
+            // Fall back to the local clock only for older servers that omit it.
             let serverCreatedAt = (obj["createdAt"] as? Int64)
                 ?? Int64((obj["createdAt"] as? Double) ?? 0)
             let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
@@ -1945,37 +1960,6 @@ actor VMClient {
         }
     }
 
-    func stats(id: String) async throws -> VMStats {
-        return try await withOperation(.stats, foreground: false) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return VMStats(json: obj)
-        }
-    }
-
-    /// Grow a machine's disk and return the provider-confirmed post-resize reading.
-    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
-        try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)
-    }
-
-    /// Grow one or more machine resources and return provider-confirmed stats.
-    func resize(id: String, cpu: Int?, memoryMb: Int?, diskMb: Int?) async throws -> VMStats {
-        return try await withOperation(.resize, foreground: true) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/resize",
-                jsonBody: ["cpu": cpu as Any, "memoryMb": memoryMb as Any, "storageMb": diskMb as Any].compactMapValues { value in value is NSNull ? nil : value },
-                timeoutSeconds: 120
-            )
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return VMStats(json: obj)
-        }
-    }
-
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         return try await withOperation(.port, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -2056,7 +2040,7 @@ actor VMClient {
     }
 
 
-    private func withOperation<T>(
+    func withOperation<T>(
         _ kind: CloudOperationKind, foreground: Bool,
         _ work: () async throws -> T
     ) async rethrows -> T {
@@ -2064,7 +2048,7 @@ actor VMClient {
         return try await operations.perform(kind, foreground: foreground, work)
     }
 
-    private func request(
+    func request(
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
@@ -2444,14 +2428,14 @@ actor VMClient {
         )
     }
 
-    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+    func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
             throw VMClientError.httpStatus(http.statusCode, body)
         }
     }
 
-    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+    func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
             throw VMClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")
@@ -2496,7 +2480,7 @@ actor VMClient {
         )
     }
 
-    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+    func pathSegment(_ value: String, fieldName: String) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
         guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
