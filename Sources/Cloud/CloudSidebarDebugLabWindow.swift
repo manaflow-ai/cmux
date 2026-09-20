@@ -29,7 +29,7 @@ final class CloudSidebarDebugLabWindowController: ReleasingWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Cloud Sidebar Spacing Lab"
+        window.title = String(localized: "debug.cloudSidebarSpacing.title", defaultValue: "Cloud Sidebar Spacing Lab")
         window.identifier = NSUserInterfaceItemIdentifier("cmux.cloudSidebarDebugLab")
         window.minSize = NSSize(width: 860, height: 560)
         window.isMovableByWindowBackground = true
@@ -87,70 +87,81 @@ private struct CloudSidebarDebugControls: View {
     @Binding var previewWidth: Double
     let selectedStyle: CloudTreeStyle
 
+    private func localizedStyleName(_ style: CloudTreeStyle) -> String {
+        switch style.id {
+        case "compact": return String(localized: "debug.cloudSidebarSpacing.preset.compact", defaultValue: "Compact")
+        case "chips": return String(localized: "debug.cloudSidebarSpacing.preset.chips", defaultValue: "Chips")
+        case "sections": return String(localized: "debug.cloudSidebarSpacing.preset.sections", defaultValue: "Sections")
+        case "ledger": return String(localized: "debug.cloudSidebarSpacing.preset.ledger", defaultValue: "Ledger")
+        case "aero": return String(localized: "debug.cloudSidebarSpacing.preset.aero", defaultValue: "Aero")
+        default: return style.name
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Cloud Sidebar Spacing Lab")
+                Text(String(localized: "debug.cloudSidebarSpacing.title", defaultValue: "Cloud Sidebar Spacing Lab"))
                     .cmuxFont(.headline)
-                Text("Tune the production outline with long machine, workspace, terminal, browser, and port names. Values apply live to the Cloud sidebar.")
+                Text(String(localized: "debug.cloudSidebarSpacing.instructions", defaultValue: "Tune the production outline with long machine, workspace, terminal, browser, and port names. Values apply live to the Cloud sidebar."))
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                GroupBox("Style") {
+                GroupBox(String(localized: "debug.cloudSidebarSpacing.style", defaultValue: "Style")) {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Picker("Preset", selection: $selectedStyleID) {
+                            Picker(String(localized: "debug.cloudSidebarSpacing.preset", defaultValue: "Preset"), selection: $selectedStyleID) {
                                 ForEach(CloudTreeStyle.presets) { style in
-                                    Text(style.name).tag(style.id)
+                                    Text(localizedStyleName(style)).tag(style.id)
                                 }
                             }
                             .labelsHidden()
                             Spacer(minLength: 0)
                             CloudSidebarDebugResetButton(
-                                title: "Preset",
+                                title: String(localized: "debug.cloudSidebarSpacing.preset", defaultValue: "Preset"),
                                 value: $selectedStyleID,
                                 defaultValue: CloudTreeStyle.defaultStyle.id,
-                                defaultLabel: CloudTreeStyle.defaultStyle.name
+                                defaultLabel: localizedStyleName(.defaultStyle)
                             )
                         }
-                        Text("Previewing \(selectedStyle.name), with spacing overrides below.")
+                        Text(String(format: String(localized: "debug.cloudSidebarSpacing.previewing", defaultValue: "Previewing %@, with spacing overrides below."), localizedStyleName(selectedStyle)))
                             .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                     .padding(.top, 2)
                 }
 
-                GroupBox("Outline") {
+                GroupBox(String(localized: "debug.cloudSidebarSpacing.outline", defaultValue: "Outline")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        CloudSidebarDebugSliderRow(title: "Preview width", value: $previewWidth, range: 240...540, defaultValue: CloudSidebarDebugLabView.defaultPreviewWidth)
-                        CloudSidebarDebugSliderRow(title: "Row height", value: $metrics.rowHeight, range: 16...44, defaultValue: CloudSidebarDebugMetrics.default.rowHeight)
-                        CloudSidebarDebugSliderRow(title: "Indent / level", value: $metrics.indentPerLevel, range: 6...24, defaultValue: CloudSidebarDebugMetrics.default.indentPerLevel)
-                        CloudSidebarDebugSliderRow(title: "Trailing inset", value: $metrics.referenceInset, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.referenceInset)
-                        CloudSidebarDebugSliderRow(title: "Disclosure slot", value: $metrics.disclosureSlot, range: 8...24, defaultValue: CloudSidebarDebugMetrics.default.disclosureSlot)
-                        CloudSidebarDebugSliderRow(title: "Disclosure gap", value: $metrics.disclosureGap, range: 0...14, defaultValue: CloudSidebarDebugMetrics.default.disclosureGap)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.previewWidth", defaultValue: "Preview width"), value: $previewWidth, range: 240...540, defaultValue: CloudSidebarDebugLabView.defaultPreviewWidth)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.rowHeight", defaultValue: "Row height"), value: $metrics.rowHeight, range: 16...44, defaultValue: CloudSidebarDebugMetrics.default.rowHeight)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.indent", defaultValue: "Indent / level"), value: $metrics.indentPerLevel, range: 6...24, defaultValue: CloudSidebarDebugMetrics.default.indentPerLevel)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.trailingInset", defaultValue: "Trailing inset"), value: $metrics.referenceInset, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.referenceInset)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.disclosureSlot", defaultValue: "Disclosure slot"), value: $metrics.disclosureSlot, range: 8...24, defaultValue: CloudSidebarDebugMetrics.default.disclosureSlot)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.disclosureGap", defaultValue: "Disclosure gap"), value: $metrics.disclosureGap, range: 0...14, defaultValue: CloudSidebarDebugMetrics.default.disclosureGap)
                     }
                     .padding(.top, 2)
                 }
 
-                GroupBox("Row content") {
+                GroupBox(String(localized: "debug.cloudSidebarSpacing.rowContent", defaultValue: "Row content")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.iconSlot)
-                        CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.iconGap)
-                        CloudSidebarDebugSliderRow(title: "Machine badge gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
-                        CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.detailGap)
-                        CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24, defaultValue: CloudSidebarDebugMetrics.default.trailingGap)
-                        CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8, defaultValue: CloudSidebarDebugMetrics.default.machineLineSpacing)
-                        CloudSidebarDebugSliderRow(title: "Machine vertical pad", value: $metrics.machineVerticalPadding, range: 0...12, defaultValue: CloudSidebarDebugMetrics.default.machineVerticalPadding)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.iconSlot", defaultValue: "Icon slot"), value: $metrics.iconSlot, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.iconSlot)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.iconGap", defaultValue: "Icon gap"), value: $metrics.iconGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.iconGap)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.badgeGap", defaultValue: "Machine badge gap"), value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.detailGap", defaultValue: "Detail gap"), value: $metrics.detailGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.detailGap)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.trailingGap", defaultValue: "Trailing gap"), value: $metrics.trailingGap, range: 0...24, defaultValue: CloudSidebarDebugMetrics.default.trailingGap)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.lineGap", defaultValue: "Machine line gap"), value: $metrics.machineLineSpacing, range: 0...8, defaultValue: CloudSidebarDebugMetrics.default.machineLineSpacing)
+                        CloudSidebarDebugSliderRow(title: String(localized: "debug.cloudSidebarSpacing.verticalPadding", defaultValue: "Machine vertical pad"), value: $metrics.machineVerticalPadding, range: 0...12, defaultValue: CloudSidebarDebugMetrics.default.machineVerticalPadding)
                     }
                     .padding(.top, 2)
                 }
 
                 HStack(spacing: 10) {
-                    Button("Reset spacing") {
+                    Button(String(localized: "debug.cloudSidebarSpacing.resetSpacing", defaultValue: "Reset spacing")) {
                         metrics = .default
                     }
-                    Button("Copy config") {
+                    Button(String(localized: "debug.cloudSidebarSpacing.copyConfig", defaultValue: "Copy config")) {
                         GhosttyApp.terminalPasteboard.writeString(
                             metrics.copyPayload(styleID: selectedStyleID),
                             to: .general
@@ -159,7 +170,7 @@ private struct CloudSidebarDebugControls: View {
                 }
                 .controlSize(.small)
 
-                Text("The fixture keeps every section expanded and uses names long enough to exercise truncation, nested rows, and the trailing edge.")
+                Text(String(localized: "debug.cloudSidebarSpacing.fixtureNotes", defaultValue: "The fixture keeps every section expanded and uses names long enough to exercise truncation, nested rows, and the trailing edge."))
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -205,9 +216,9 @@ private struct CloudSidebarDebugPreview: View {
             HStack(spacing: 8) {
                 Image(systemName: "cloud.fill")
                     .foregroundStyle(.tint)
-                Text("Production outline preview")
+                Text(String(localized: "debug.cloudSidebarSpacing.previewTitle", defaultValue: "Production outline preview"))
                     .font(.system(size: 12, weight: .semibold))
-                Text("\(Int(previewWidth)) pt")
+                Text(String(format: String(localized: "debug.cloudSidebarSpacing.widthPoints", defaultValue: "%d pt"), Int(previewWidth)))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -242,13 +253,13 @@ private struct CloudSidebarDebugPreview: View {
 private struct CloudSidebarDebugPreviewNotes: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Stress cases")
+            Text(String(localized: "debug.cloudSidebarSpacing.stressCases", defaultValue: "Stress cases"))
                 .font(.system(size: 12, weight: .semibold))
-            Label("Long machine and workspace names", systemImage: "text.alignleft")
-            Label("Long terminal titles", systemImage: "terminal")
-            Label("Browser URL and forwarded port rows", systemImage: "globe")
-            Label("Displays and resource metrics", systemImage: "rectangle.on.rectangle")
-            Text("Resize the preview width to find the first awkward breakpoint. Keep the row readable before making the sidebar wider.")
+            Label(String(localized: "debug.cloudSidebarSpacing.longNames", defaultValue: "Long machine and workspace names"), systemImage: "text.alignleft")
+            Label(String(localized: "debug.cloudSidebarSpacing.longTerminals", defaultValue: "Long terminal titles"), systemImage: "terminal")
+            Label(String(localized: "debug.cloudSidebarSpacing.browserPorts", defaultValue: "Browser URL and forwarded port rows"), systemImage: "globe")
+            Label(String(localized: "debug.cloudSidebarSpacing.displaysResources", defaultValue: "Displays and resource metrics"), systemImage: "rectangle.on.rectangle")
+            Text(String(localized: "debug.cloudSidebarSpacing.resizeNotes", defaultValue: "Resize the preview width to find the first awkward breakpoint. Keep the row readable before making the sidebar wider."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
