@@ -263,6 +263,16 @@ struct CloudDesktopAccessTests {
         #expect(state.resourceID == nil)
     }
 
+    @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
+    func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 8000), coordinator: nil,
+            wake: {}, startForward: { _ in 48000 }, stopForward: {}, route: .loopback)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:8000/vnc.html")!,
+                        resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "port:8000"))
+        #expect(!state.isDesktop)
+    }
+
     @Test("Desktop bootstrap does not paint WebKit's default white background")
     func desktopBackgroundUsesNativeBackingUntilCanvasPaints() async throws {
         let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())

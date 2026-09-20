@@ -86,7 +86,9 @@ final class CloudBrowserAccessState {
     var isPreparingDocument: Bool { model != nil && !loaded && failureMessage == nil }
 
     var isDesktop: Bool {
-        (resourceID?.kind == .display && remoteURL == nil) || (model != nil && remoteURL?.path == "/vnc.html")
+        if resourceID?.kind == .display { return true }
+        guard resourceID == nil else { return false }
+        return model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
     }
 
     var failureMessage: String? {

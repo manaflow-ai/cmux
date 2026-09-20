@@ -209,7 +209,7 @@ class DisplayService:
             ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
             ("vncconfig", ["-nowin"]),
             (websockify, ["--web", "/usr/share/novnc", "--heartbeat", "30",
-                          f"[::]:{novnc_port}", f"127.0.0.1:{rfb_port}"]),
+                          f"127.0.0.1:{novnc_port}", f"127.0.0.1:{rfb_port}"]),
         ]:
             path = executable if "/" in executable else shutil.which(executable)
             if not path:
