@@ -1734,7 +1734,8 @@ export class FreestyleProvider implements VMProvider {
    */
   private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
-    const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp' && mv -f '${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
+    const identityTemporaryPath = `${GUEST_CMUX_WELCOME_IDENTITY_PATH}.tmp-${randomBytes(12).toString("hex")}`;
+    const identityInstall = `printf '%s\\n' ${shellQuote(vmId)} > '${identityTemporaryPath}' && mv -f '${identityTemporaryPath}' '${GUEST_CMUX_WELCOME_IDENTITY_PATH}'`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
@@ -1750,6 +1751,7 @@ export class FreestyleProvider implements VMProvider {
       }
     } catch (error) {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
+      await vm.fs.remove(identityTemporaryPath).catch(() => undefined);
       throw error;
     }
     await this.ensureResourceReporter(vm, vmId);
