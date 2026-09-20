@@ -5,16 +5,16 @@ import Foundation
 @MainActor
 struct SurfaceCatalogQueryService {
     private let catalog: SurfaceCatalog
-    private let projectionIdentity: @MainActor (SurfaceProjection) -> SurfaceProjectionIdentity?
+    private let projectionIdentities: @MainActor ([SurfaceProjection]) -> [SurfaceProjection: SurfaceProjectionIdentity]
     private let discoverCloudMachine: @MainActor (String) async -> Void
 
     init(
         catalog: SurfaceCatalog,
-        projectionIdentity: @escaping @MainActor (SurfaceProjection) -> SurfaceProjectionIdentity? = { _ in nil },
+        projectionIdentities: @escaping @MainActor ([SurfaceProjection]) -> [SurfaceProjection: SurfaceProjectionIdentity] = { _ in [:] },
         discoverCloudMachine: @escaping @MainActor (String) async -> Void
     ) {
         self.catalog = catalog
-        self.projectionIdentity = projectionIdentity
+        self.projectionIdentities = projectionIdentities
         self.discoverCloudMachine = discoverCloudMachine
     }
 
@@ -41,9 +41,7 @@ struct SurfaceCatalogQueryService {
         // No suspension between the catalog export and owner-identity capture: both
         // describe the same main-actor turn, even if the pane later moves or restores.
         var export = catalog.export
-        for projection in export.catalog.projections {
-            export.projectionIdentities[projection] = projectionIdentity(projection)
-        }
+        export.projectionIdentities = projectionIdentities(export.catalog.projections)
         return export
     }
 }

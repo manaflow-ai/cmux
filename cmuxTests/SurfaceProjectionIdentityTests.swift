@@ -134,7 +134,12 @@ struct SurfaceProjectionIdentityTests {
             for owner in [nil, wrongWorkspace] as [Workspace?] {
                 let query = SurfaceCatalogQueryService(
                     catalog: catalog,
-                    projectionIdentity: { SurfaceProjectionIdentity(projection: $0, workspace: owner) },
+                    projectionIdentities: { projections in
+                        SurfaceProjectionIdentity.capture(
+                            projections: projections,
+                            workspacesByID: owner.map { [workspace.id: $0] } ?? [:]
+                        )
+                    },
                     discoverCloudMachine: { _ in Issue.record("A cached identity read must not discover Cloud") }
                 )
                 let export = await query.read(machine: nil, refresh: false)
@@ -205,6 +210,87 @@ struct SurfaceProjectionIdentityTests {
         }
     }
 
+    @Test("A read captures owner identities once after optional discovery and refresh")
+    func batchCaptureUsesOwnersAfterRefresh() async throws {
+        try await withWorkspaces(count: 2) { workspaces in
+            let catalog = await localCatalog(workspaces)
+            let machine = SurfaceMachineID.cloud("identity-capture-order")
+            let provider = try CloudCatalogQueryTestProvider(machine: machine, catalog: catalog)
+            var refreshedOwnerIndex: [UUID: Workspace] = [:]
+            var captures = 0
+            let query = SurfaceCatalogQueryService(
+                catalog: catalog,
+                projectionIdentities: { projections in
+                    captures += 1
+                    #expect(refreshedOwnerIndex.count == workspaces.count)
+                    #expect(projections.count == workspaces.count)
+                    #expect(provider.forcedRefreshes == [true])
+                    return SurfaceProjectionIdentity.capture(projections: projections, workspacesByID: refreshedOwnerIndex)
+                },
+                discoverCloudMachine: { _ in
+                    await Task.yield()
+                    refreshedOwnerIndex = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+                    catalog.register(provider)
+                }
+            )
+            let export = await query.read(machine: machine, refresh: true)
+            #expect(captures == 1)
+            #expect(export.projectionIdentities.count == workspaces.count)
+        }
+    }
+
+    @Test("The owner index preserves registered precedence over an active duplicate")
+    func ownerIndexMatchesWorkspaceLookup() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousDelegate = AppDelegate.shared
+            let app = AppDelegate()
+            let registered = TabManager()
+            let active = TabManager()
+            let registeredWorkspace = try #require(registered.tabs.first)
+            let duplicate = Workspace(id: registeredWorkspace.id)
+            active.tabs.append(duplicate)
+            let activeOnly = try #require(active.tabs.first)
+            let windowID = app.registerMainWindowContextForTesting(tabManager: registered)
+            app.tabManager = active
+            defer {
+                app.unregisterMainWindowContextForTesting(windowId: windowID)
+                app.tabManager = nil
+                for manager in [registered, active] {
+                    for workspace in Array(manager.tabs) {
+                        manager.closeWorkspace(workspace, recordHistory: false)
+                    }
+                }
+                AppDelegate.shared = previousDelegate
+            }
+            let missingID = UUID()
+            let ids: Set<UUID> = [registeredWorkspace.id, activeOnly.id, missingID]
+            let owners = app.workspacesForRead(tabIds: ids)
+            #expect(owners[registeredWorkspace.id] === registeredWorkspace)
+            #expect(owners[registeredWorkspace.id] !== duplicate)
+            #expect(owners[activeOnly.id] === activeOnly)
+            #expect(owners[missingID] == nil)
+            for id in ids {
+                #expect(owners[id] === app.workspaceFor(tabId: id))
+            }
+            // The selected registered owner lacks this active duplicate's panel.
+            // Do not search the fallback owner for a more convenient identity.
+            let duplicatePanel = try terminal(in: duplicate)
+            let projection = SurfaceProjection(
+                resource: LocalSurfaceProvider.resourceID(forTerminalPanel: duplicatePanel.id),
+                workspaceID: duplicate.id,
+                panelID: duplicatePanel.id
+            )
+            #expect(SurfaceProjectionIdentity.capture(projections: [projection], workspacesByID: owners).isEmpty)
+            // A windowless orphan cannot supply a live owner. The active
+            // manager remains the fallback, just as in workspaceFor(tabId:).
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            app.tabManager = active
+            let afterUnregister = app.workspacesForRead(tabIds: ids)
+            #expect(afterUnregister[registeredWorkspace.id] === duplicate)
+            #expect(afterUnregister[registeredWorkspace.id] === app.workspaceFor(tabId: registeredWorkspace.id))
+        }
+    }
+
     private func withWorkspaces(count: Int, body: @MainActor ([Workspace]) async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let manager = TabManager()
@@ -233,8 +319,11 @@ struct SurfaceProjectionIdentityTests {
     private func read(_ catalog: SurfaceCatalog, workspaces: [Workspace]) async -> SurfaceCatalogExport {
         let query = SurfaceCatalogQueryService(
             catalog: catalog,
-            projectionIdentity: { projection in
-                SurfaceProjectionIdentity(projection: projection, workspace: workspaces.first { $0.id == projection.workspaceID })
+            projectionIdentities: { projections in
+                SurfaceProjectionIdentity.capture(
+                    projections: projections,
+                    workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+                )
             },
             discoverCloudMachine: { _ in Issue.record("A cached identity read must not discover Cloud") }
         )

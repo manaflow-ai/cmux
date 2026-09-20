@@ -925,10 +925,11 @@ extension TerminalController {
 
     @MainActor
     private static func surfaceCatalogQuery(catalog: SurfaceCatalog) -> SurfaceCatalogQueryService {
-        SurfaceCatalogQueryService(catalog: catalog, projectionIdentity: { projection in
-            SurfaceProjectionIdentity(
-                projection: projection,
-                workspace: AppDelegate.shared?.workspaceFor(tabId: projection.workspaceID)
+        SurfaceCatalogQueryService(catalog: catalog, projectionIdentities: { projections in
+            let owners = AppDelegate.shared?.workspacesForRead(tabIds: Set(projections.map(\.workspaceID))) ?? [:]
+            return SurfaceProjectionIdentity.capture(
+                projections: projections,
+                workspacesByID: owners
             )
         }) { machineID in
             _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
