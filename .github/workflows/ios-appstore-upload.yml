@@ -12,9 +12,10 @@ on:
         default: ""
 
 concurrency:
-  # Serialize with the production App Review workflow.
+  # Serialize with the production App Review workflow. GitHub keeps one run
+  # active and one pending run for a concurrency group; a newer scheduled run
+  # replaces an older pending run, so the decide job must make retries safe.
   group: ios-app-store-production
-  queue: max
   cancel-in-progress: false
 
 permissions:

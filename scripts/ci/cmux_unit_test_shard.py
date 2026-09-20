@@ -34,23 +34,59 @@ XCTEST_METHOD_RE = re.compile(
 LARGE_SUITE_METHOD_THRESHOLD = 40
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
+# Suites a strict ci.yml step runs in full. The tolerant batch leaves them out,
+# so each runs once per pull request. A suite that a strict step runs only
+# partly stays in the batch.
 FOCUSED_GATE_SELECTORS = {
-    "cmuxTests/AgentNotificationRegressionTests",
+    "cmuxTests/AgentChatFallbackTranscriptResolutionCoordinatorTests",
+    "cmuxTests/AgentChatSessionRegistryLifecycleReviewRegressionTests",
     "cmuxTests/AgentJournalLifecycleCenterTests",
-    "cmuxTests/FeedWaiterRegistryTests",
-    "cmuxTests/ClaudeBackgroundWorkNotifyTests",
-    "cmuxTests/OpenCodeHookRegressionTests",
+    "cmuxTests/AgentNotificationRegressionTests",
     "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
+    "cmuxTests/BackgroundPrimeStartableSurfaceTests",
+    "cmuxTests/BrowserOmnibarSuggestionClickRoutingTests",
+    "cmuxTests/BrowserPanelViewIdentityTests",
     "cmuxTests/BrowserSystemProxyMirrorTests",
+    "cmuxTests/BrowserViewportRuntimeTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
+    "cmuxTests/CLISendQueuedOutputTests",
+    "cmuxTests/ClaudeBackgroundWorkNotifyTests",
+    "cmuxTests/ClaudeHookLifecycleCleanupTests",
+    "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
+    "cmuxTests/ClaudeHookPIDAuthenticationTests",
+    "cmuxTests/CloudMachineDragSourceTests",
+    "cmuxTests/CloudMachineOrderingTests",
     "cmuxTests/CloudNotificationDismissParityTests",
-    "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
-    "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/CloudWorkspaceRenameSurfaceParityTests",
+    "cmuxTests/CmuxBundledBinPathIntegrationTests",
+    "cmuxTests/DockNotificationAttentionTests",
+    "cmuxTests/FeedCoordinatorTests",
+    "cmuxTests/FeedWaiterRegistryTests",
     "cmuxTests/GhosttyNumericLocaleTests",
+    "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
+    "cmuxTests/HostSettingsShortcutNotificationTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
+    "cmuxTests/LiveAgentIndexRelevantChurnTests",
+    "cmuxTests/NotificationRowSnapshotBoundaryTests",
+    "cmuxTests/NotificationScrollRestoreLifecycleTests",
+    "cmuxTests/NotificationScrollRestoreRecoveryTests",
+    "cmuxTests/OpenCodeHookRegressionTests",
+    "cmuxTests/PhonePushPresenceGateTests",
+    "cmuxTests/PiFeedDockOwnershipTests",
+    "cmuxTests/PiFeedOwnershipTests",
+    "cmuxTests/RemoteTmuxMirrorCloseDetachTests",
+    "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests",
+    "cmuxTests/RemoteTmuxMirrorFocusPolicyTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+    "cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests",
+    "cmuxTests/RestoreAdmissionRetryPolicyTests",
+    "cmuxTests/RestoredAgentShellActivityLivenessTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
+    "cmuxTests/SocketACLReloadRegressionTests",
+    "cmuxTests/SurfaceResumeAgentHookDowngradeTests",
+
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;
@@ -273,8 +309,54 @@ def reweight_selectors(
     return reweighted, measured
 
 
+# The batch runs tests in parallel, so one second of wall time holds about this
+# many seconds of measured test time. Only balance depends on it.
+BATCH_TEST_SECONDS_PER_WALL_SECOND = 2.5
+
+
+def parse_reservations(values: list[str], physical_total: int) -> dict[int, int]:
+    """Parse SHARD=WALL_SECONDS pairs into wall seconds per physical shard."""
+    reserved: dict[int, int] = {}
+    for value in values:
+        shard_text, separator, seconds_text = value.partition("=")
+        if not separator or not shard_text.isdigit() or not seconds_text.isdigit():
+            raise SystemExit(f"--reserve expects SHARD=WALL_SECONDS, got '{value}'")
+        shard = int(shard_text)
+        if shard < 1 or shard > physical_total:
+            raise SystemExit(f"--reserve shard {shard} is outside 1..{physical_total}")
+        if shard in reserved:
+            raise SystemExit(f"--reserve names shard {shard} twice")
+        reserved[shard] = int(seconds_text)
+    return reserved
+
+
+def initial_bucket_weights(
+    shard_total: int, physical_total: int, reserved_wall_seconds: dict[int, int]
+) -> list[int]:
+    """Weight each logical shard starts with, for work its worker runs outside the batch.
+
+    Logical shard n runs on physical worker ((n - 1) % physical_total) + 1, and a
+    worker's reservation is spread over its logical shards.
+    """
+    if shard_total < 1 or physical_total < 1:
+        raise SystemExit("--shard-total and --physical-shard-total must be >= 1")
+    if shard_total % physical_total != 0:
+        raise SystemExit("--shard-total must be a multiple of --physical-shard-total")
+    batches_per_worker = shard_total // physical_total
+    weights = []
+    for index in range(shard_total):
+        wall_seconds = reserved_wall_seconds.get(index % physical_total + 1, 0)
+        weights.append(
+            int(wall_seconds * 1000 * BATCH_TEST_SECONDS_PER_WALL_SECOND / batches_per_worker)
+        )
+    return weights
+
+
 def shard_selectors(
-    selectors: list[TestSelector], shard_index: int, shard_total: int
+    selectors: list[TestSelector],
+    shard_index: int,
+    shard_total: int,
+    initial_weights: list[int] | None = None,
 ) -> list[TestSelector]:
     if shard_total < 1:
         raise SystemExit("--shard-total must be >= 1")
@@ -287,7 +369,7 @@ def shard_selectors(
             group_by_suite[suite] = group_index
 
     buckets: list[list[TestSelector]] = [[] for _ in range(shard_total)]
-    bucket_weights = [0 for _ in range(shard_total)]
+    bucket_weights = list(initial_weights) if initial_weights else [0 for _ in range(shard_total)]
     # Which separated suites each bucket already holds, as (group, suite).
     bucket_separated: list[set[tuple[int, str]]] = [set() for _ in range(shard_total)]
     ordered = sorted(
@@ -342,6 +424,18 @@ def main() -> int:
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--timings", type=Path, default=DEFAULT_TIMINGS_PATH)
+    parser.add_argument(
+        "--physical-shard-total",
+        type=int,
+        help="Workers the logical shards run on; defaults to --shard-total.",
+    )
+    parser.add_argument(
+        "--reserve",
+        action="append",
+        default=[],
+        metavar="SHARD=WALL_SECONDS",
+        help="Wall time a worker spends outside the batch, so it gets less of the batch.",
+    )
     args = parser.parse_args()
 
     selectors = discover_selectors(args.root)
@@ -367,7 +461,13 @@ def main() -> int:
     if args.shard_index is None or args.shard_total is None or args.output is None:
         parser.error("--shard-index, --shard-total, and --output are required unless --list or --validate is used")
 
-    selected = shard_selectors(selectors, args.shard_index, args.shard_total)
+    physical_total = (
+        args.shard_total if args.physical_shard_total is None else args.physical_shard_total
+    )
+    initial_weights = initial_bucket_weights(
+        args.shard_total, physical_total, parse_reservations(args.reserve, physical_total)
+    )
+    selected = shard_selectors(selectors, args.shard_index, args.shard_total, initial_weights)
     if not selected:
         raise SystemExit(f"Shard {args.shard_index}/{args.shard_total} is empty")
 
