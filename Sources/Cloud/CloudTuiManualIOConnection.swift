@@ -50,6 +50,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
     private var pendingWriteContinuations: [CheckedContinuation<Void, Error>?] = []
+    private var pendingWriteTokens: [UUID?] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -145,6 +146,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             }
             pendingWrites.append(line)
             pendingWriteContinuations.append(nil)
+            pendingWriteTokens.append(nil)
             pendingWriteBytes += line.count
             flushWritesLocked()
         }
@@ -156,22 +158,47 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     /// silently discarded.
     func sendChecked(line: Data) async throws {
         try Task.checkCancellation()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            queue.async { [self, line] in
-                guard !closed, descriptor >= 0 else {
-                    continuation.resume(throwing: CheckedSendError.notSent)
-                    return
+        let token = UUID()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queue.async { [self, line] in
+                    guard !closed, descriptor >= 0 else {
+                        continuation.resume(throwing: CheckedSendError.notSent)
+                        return
+                    }
+                    guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
+                        closeLocked()
+                        continuation.resume(throwing: CheckedSendError.bufferFull)
+                        return
+                    }
+                    pendingWrites.append(line)
+                    pendingWriteContinuations.append(continuation)
+                    pendingWriteTokens.append(token)
+                    pendingWriteBytes += line.count
+                    flushWritesLocked()
                 }
-                guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
-                    closeLocked()
-                    continuation.resume(throwing: CheckedSendError.bufferFull)
-                    return
-                }
-                pendingWrites.append(line)
-                pendingWriteContinuations.append(continuation)
-                pendingWriteBytes += line.count
-                flushWritesLocked()
             }
+        }, onCancel: { [weak self] in
+            self?.cancelCheckedWrite(token)
+        })
+    }
+
+    private func cancelCheckedWrite(_ token: UUID) {
+        queue.async { [self] in
+            guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else { return }
+            let continuation = pendingWriteContinuations[index]
+            pendingWriteContinuations[index] = nil
+            pendingWriteTokens[index] = nil
+            if index == 0, pendingWriteOffset > 0 {
+                continuation?.resume(throwing: CheckedSendError.ambiguous)
+                return
+            }
+            let bytes = pendingWrites[index].count - (index == 0 ? pendingWriteOffset : 0)
+            pendingWriteBytes = max(0, pendingWriteBytes - bytes)
+            pendingWrites.remove(at: index)
+            pendingWriteContinuations.remove(at: index)
+            pendingWriteTokens.remove(at: index)
+            continuation?.resume(throwing: CheckedSendError.notSent)
         }
     }
 
@@ -350,6 +377,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             guard remaining > 0 else {
                 pendingWrites.removeFirst()
                 pendingWriteContinuations.removeFirst()?.resume()
+                pendingWriteTokens.removeFirst()
                 pendingWriteOffset = 0
                 continue
             }
@@ -367,6 +395,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 if pendingWriteOffset == first.count {
                     pendingWrites.removeFirst()
                     pendingWriteContinuations.removeFirst()?.resume()
+                    pendingWriteTokens.removeFirst()
                     pendingWriteOffset = 0
                 }
                 continue
@@ -403,6 +432,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         pendingWrites.removeAll(keepingCapacity: false)
         let writeContinuations = pendingWriteContinuations
         pendingWriteContinuations.removeAll(keepingCapacity: false)
+        pendingWriteTokens.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
         for continuation in writeContinuations {

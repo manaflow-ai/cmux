@@ -15,6 +15,7 @@ actor CloudTuiPersistentResourceConnection {
         let request: CloudTuiRequest
         let deadline: Task<Void, Never>
         let isExpired: @Sendable () -> Bool
+        var sendTask: Task<Void, Never>?
     }
     private struct Subscription {
         let continuation: AsyncStream<Data>.Continuation
@@ -111,11 +112,12 @@ actor CloudTuiPersistentResourceConnection {
                 }
                 pending[id] = Pending(
                     continuation: continuation, request: request, deadline: deadline,
-                    isExpired: { clock.now >= expiresAt }
+                    isExpired: { clock.now >= expiresAt }, sendTask: nil
                 )
-                Task { [weak self, connection] in
+                let sendTask = Task { [weak self, connection] in
                     await self?.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
                 }
+                pending[id]?.sendTask = sendTask
             }
         }, onCancel: { [weak self] in
             Task { await self?.retire(id, error: CancellationError()) }
@@ -128,6 +130,7 @@ actor CloudTuiPersistentResourceConnection {
     private func retire(_ id: String, error: Error) {
         guard let entry = pending.removeValue(forKey: id) else { return }
         entry.deadline.cancel()
+        entry.sendTask?.cancel()
         entry.continuation.resume(throwing: error)
         // Cancellation is request-local, never close siblings' shared socket.
         // A mutation that already committed remains fenced by its original key.

@@ -179,9 +179,9 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed, .inputTooLarge:
+                    case .clientMissing, .spawnFailed:
                         requeueInput = true
-                    case .timedOut, .exited:
+                    case .inputTooLarge, .timedOut, .exited:
                         requeueInput = false
                     }
                     self.remoteInputFailed(
@@ -330,7 +330,19 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteQueue.removeFirst(state.remoteQueueHead)
             state.remoteQueueHead = 0
         }
-        state.remoteQueue.append(contentsOf: inputs)
+        for input in inputs {
+            switch input {
+            case .bytes(let bytes) where bytes.count > 64 * 1024:
+                var offset = 0
+                while offset < bytes.count {
+                    let end = min(bytes.count, offset + 64 * 1024)
+                    state.remoteQueue.append(.bytes(bytes.subdata(in: offset..<end)))
+                    offset = end
+                }
+            default:
+                state.remoteQueue.append(input)
+            }
+        }
     }
 
     private func clearRemoteQueueLocked(_ state: inout State) {
