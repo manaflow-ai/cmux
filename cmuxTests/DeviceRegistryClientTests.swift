@@ -75,4 +75,54 @@ import CMUXMobileCore
         let current = reg(team: "team-a", routes: [])
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == false)
     }
+
+    private func response(retryAfter: String?) throws -> HTTPURLResponse {
+        let url = try #require(URL(string: "https://cmux.com/api/devices"))
+        var headers: [String: String] = [:]
+        if let retryAfter { headers["Retry-After"] = retryAfter }
+        return try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 429,
+            httpVersion: "HTTP/1.1",
+            headerFields: headers
+        ))
+    }
+
+    @Test("a throttled registry response supplies its retry floor")
+    func retryAfterParsing() throws {
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: "60")) == 60)
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: " 30 ")) == 30)
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: nil)) == nil)
+        // An HTTP-date Retry-After, a zero, a negative, and anything beyond a
+        // day are all refused so a malformed header cannot silence the client.
+        #expect(try DeviceRegistryClient.retryAfterSeconds(
+            response(retryAfter: "Wed, 21 Oct 2026 07:28:00 GMT")) == nil)
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: "0")) == nil)
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: "-5")) == nil)
+        #expect(try DeviceRegistryClient.retryAfterSeconds(response(retryAfter: "90000")) == nil)
+    }
+
+    @Test("registration failures back off instead of retrying on the next status tick")
+    func failureBackoffGrows() {
+        // A failed POST leaves the registration scope unrecorded, so every
+        // connection or pairing transition used to spend another request.
+        let schedule = DeviceRegistryClient.retrySchedule
+        let first = schedule.delay(
+            failureCount: 0, retryAfterSeconds: nil, jitterUnitInterval: 0)
+        let third = schedule.delay(
+            failureCount: 2, retryAfterSeconds: nil, jitterUnitInterval: 0)
+        let saturated = schedule.delay(
+            failureCount: 99, retryAfterSeconds: nil, jitterUnitInterval: 0)
+        #expect(first == 5)
+        #expect(third == 20)
+        #expect(saturated == 600)
+    }
+
+    @Test("a server retry floor outranks the local backoff")
+    func failureBackoffHonorsRetryAfter() {
+        let schedule = DeviceRegistryClient.retrySchedule
+        let throttled = schedule.delay(
+            failureCount: 0, retryAfterSeconds: 120, jitterUnitInterval: 0)
+        #expect(throttled == 120)
+    }
 }
