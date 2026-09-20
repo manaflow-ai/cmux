@@ -209,23 +209,11 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             try? inputPipe.fileHandleForReading.close()
         }
 
-        try sendInput()
-        var lineData = Data()
-        var commands: [String] = []
-        for try await byte in inputPipe.fileHandleForReading.bytes {
-            guard byte == UInt8(ascii: "\n") else {
-                lineData.append(byte)
-                continue
-            }
-            let line = String(decoding: lineData, as: UTF8.self)
-            lineData.removeAll(keepingCapacity: true)
-            guard line.hasPrefix("send-keys -t %4 ") else { continue }
-            commands.append(line)
-            if commands.count == expectedCount { break }
-        }
-        inputWriter.close()
-        harness.connection.installStdinWriterForTesting(harness.writer)
-        return commands
+        return try await RemoteTmuxInputCommandCapture().capture(
+            from: inputPipe.fileHandleForReading,
+            expectedCount: expectedCount,
+            sendInput: sendInput
+        )
     }
 
     private func sendPhysicalKey(
