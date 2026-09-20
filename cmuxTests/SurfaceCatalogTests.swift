@@ -268,6 +268,33 @@ struct SurfaceCatalogTests {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
     }
 
+    @Test("Opening a remote pane preserves its selected tab and original tab order")
+    func layoutProjectionPreservesSelectedTabOrder() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "layout-test"))
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let workspace = SurfaceRemoteWorkspace(id: "remote", name: "remote", index: 0, focused: true)
+        let resources = ["first", "selected", "last"].enumerated().map { index, key in
+            var resource = terminal(machine, key)
+            resource.remoteWorkspace = workspace
+            resource.remoteViews = [SurfaceRemoteView(tabID: key, workspace: workspace, paneID: "pane", index: index, focused: index == 1)]
+            return resource
+        }
+        catalog.replaceResources(resources, on: machine, from: provider)
+        let placements = resources.map { SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first) }
+        let workspaceID = UUID()
+        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+            SurfaceResourceGroup(title: "remote", placements: placements, remoteWorkspaceID: workspace.id),
+            title: "remote", focus: false,
+            host: .init(create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }),
+            layout: .leaf(placements: placements)
+        )
+        #expect(provider.materialized.map { $0.0.key } == ["selected", "first", "last"])
+        #expect(provider.materialized[1].1 == .tab(workspaceID: workspaceID, paneID: "pane", index: 0))
+        #expect(provider.materialized[2].1 == .tab(workspaceID: workspaceID, paneID: "pane", index: 2))
+    }
+
     @Test("Cloud delta patch preserves unaffected capability rows")
     func cloudDeltaPatchPreservesUnaffectedRows() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")
