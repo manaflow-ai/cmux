@@ -23,6 +23,11 @@
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     },
+    "displayName": {
+      "title": "ឈ្មោះម៉ាស៊ីនមិនត្រឹមត្រូវ",
+      "message": "ឈ្មោះម៉ាស៊ីនត្រូវតែជាអត្ថបទដែលអាចបង្ហាញបាន និងមានប្រវែងមិនលើសពី {maxLength} តួអក្សរ។",
+      "action": "ប្រើឈ្មោះខ្លីជាងនេះដោយគ្មានតួអក្សរត្រួតពិនិត្យ ឬទុកវាឲ្យទទេដើម្បីលុបវាចោល។"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "ម៉ាស៊ីន {memory} GiB ត្រូវការ cmux {plan}។ គម្រោងរបស់អ្នកគាំទ្ររហូតដល់ {max} GiB។",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "ផ្ទៀងផ្ទាត់អ៊ីមែលរបស់អ្នក ដើម្បីបន្ត",
     "emailUnverifiedBody": "ចូលដោយប្រើវិធីដែលអ្នកបានប្រើដំបូង បន្ទាប់មកផ្ទៀងផ្ទាត់អ៊ីមែល មុនពេលប្រើវិធីចូលនេះ។",
+    "signupPendingBody": "ប្រសិនបើអ្នកមានគណនីរួចហើយ សូមចូលដោយប្រើវិធីដែលអ្នកបានប្រើពីមុន។ ប្រសិនបើអ្នកទើបបង្កើតគណនី សូមបញ្ជាក់អ៊ីមែលរបស់អ្នកមុនពេលចូល។",
     "genericTitle": "មិនអាចបញ្ចប់ការចូលបានទេ",
     "genericBody": "សូមព្យាយាមម្តងទៀត។ ប្រសិនបើបញ្ហានៅតែមាន សូមទាក់ទងជំនួយ។",
     "backToSignIn": "ត្រឡប់ទៅការចូល"
@@ -380,6 +386,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "ចែករំលែកជាមួយក្រុម",
+      "makePrivate": "កំណត់ជាឯកជន",
+      "privateImportHint": "គណនីថ្មីជាគណនីឯកជន។ ចែករំលែកគណនី ដើម្បីឱ្យ Cloud VM របស់ក្រុមនេះអាចប្រើបាន។",
+      "description": "គណនីដែលបានចែករំលែកអាចប្រើបានដោយ Cloud VM របស់ក្រុមនេះ។ គណនីឯកជនអាចប្រើបានតែដោយអ្នកដែលបានបន្ថែមវាប៉ុណ្ណោះ។",
+      "cancelAction": "បោះបង់"
     }
   },
   "community": {
@@ -1003,10 +1016,10 @@
       "targetTitle": "បង្អួចខុស ឬការចុចត្រូវបានរារាំង",
       "targetBody": "ពិនិត្យកម្មវិធីម្ដងទៀត និងជ្រើសធាតុពីស្ថានភាពបច្ចុប្បន្ន។ បើបង្អួចផ្សេងបាំងគោលដៅ បង្ហាញបង្អួចដែលចង់បាន ហើយពិនិត្យមុនសាកល្បង។ កុំប្រើកូអរដោនេ ឬសន្ទស្សន៍ចាស់ម្ដងទៀត។",
       "productLink": "ទិដ្ឋភាពទូទៅនៃ cmux Computer Use",
-    "copyTitle": "ចម្លង prompt Computer Use",
-    "copyPrompt": "ចម្លង prompt",
-    "copiedPrompt": "បានចម្លង",
-    "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
+      "copyTitle": "ចម្លង prompt Computer Use",
+      "copyPrompt": "ចម្លង prompt",
+      "copiedPrompt": "បានចម្លង",
+      "installPrompt": "ប្រើជំនាញ $cmux-cua។ បើគ្មាន សូមដំឡើងតាមកម្មវិធីធម្មតា។ បើខ្វះសិទ្ធិ សូមប្រាប់ខ្ញុំឱ្យបើកការកំណត់ cmux → Computer Use។ ពិនិត្យមុនធ្វើ និងពិនិត្យរាល់ការផ្លាស់ប្ដូរ។\n\nកិច្ចការ៖ [ពិពណ៌នាកិច្ចការនៅទីនេះ]"
     },
     "remoteTmux": {
       "moshContrast": "សម្រាប់ការផ្លាស់ប្តូររវាងបណ្ដាញ សូមប្រើ cmux mosh-tmux។ វាបើកស្ថានីយ Mosh ដែលបានរួមបញ្ចូលពេញលេញ និងភ្ជាប់ទៅ tmux session ដែលមានឈ្មោះ; វាមិនជំនួស native mirror នៃ workspace, tab និង split ដែលផ្ដល់ដោយ SSH tmux control mode ទេ។"
@@ -1213,6 +1226,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "នៅពេល true (លំនាំដើម) cmux ផ្តល់ក្ដារពណ៌លំនាំដើមដែលប្រែប្រួលតាមរូបរាង លុះត្រាតែបានកំណត់ស្បែក Ghostty ឬពណ៌ស្ថានីយ។ ពុម្ពអក្សរ និងការកំណត់ផ្សេងទៀតត្រូវបានរក្សាទុក។ នៅពេល false Ghostty ប្រើក្ដារពណ៌ដែលមានស្រាប់ថេររបស់វា។ ស្បែក និងពណ៌ដែលបានកំណត់ជាក់លាក់តែងតែមានអាទិភាព រួមទាំង theme = light:X,dark:Y។",
           "sessionContentMaxWidth": "ទទឹងអតិបរមាជាជម្រើស គិតជាពិន្ទុ សម្រាប់ខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ។ កំណត់ false ដើម្បីប្រើទទឹងផ្ទាំងទាំងមូល។",
           "sessionContentAlignment": "ទីតាំងផ្ដេកនៃខ្លឹមសារស្ថានីយ និងការជជែកជាមួយភ្នាក់ងារដែលភ្ជាប់មកជាមួយ នៅពេលបើក sessionContentMaxWidth។",
           "copyOnSelect": "នៅពេល true អត្ថបទ terminal ដែលបានជ្រើសនឹងត្រូវចម្លងទៅ clipboard របស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់។ នៅពេល false cmux មិនបញ្ចេញការកំណត់ជាន់លើ Ghostty copy-on-select ទេ; ការកំណត់ និងលំនាំដើមរបស់ Ghostty គ្រប់គ្រងអាកប្បកិរិយា clipboard សម្រាប់ការជ្រើស។",
@@ -1327,7 +1341,7 @@
       "plusButtonScreenshotAlt": "Right-click menu របស់ cmux plus button បង្ហាញ Worktree Agents, New Terminal និង New Browser",
       "plusButtonScreenshotCaption": "Right-click menu ធ្វើតាមលំដាប់ពី ui.newWorkspace.contextMenu។",
       "newWorkspaceButton": "Actions ផ្ទាល់ខ្លួនសម្រាប់ប៊ូតុង plus",
-      "newWorkspaceButtonDesc": "ប្រើ <action>ui.newWorkspace.action</action> ដើម្បី override អ្វីដែលប៊ូតុង plus ធ្វើ។ ប្រើ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ឬ alias <rightClick>rightClick</rightClick>) ដើម្បីកំណត់ right-click menu ដែលមានលំដាប់។ Menu entries អាចជា action IDs, action objects, ឬ <separator>{ \"type\": \"separator\" }</separator>។ ប្រសិនបើមិនបានកំណត់ ម៉ឺនុយបង្ហាញ cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) ជាមួយផ្លូវកាត់បច្ចុប្បន្ន។ ធាតុពពកបង្ហាញតែនៅពេលបើក Cloud Machines ប៉ុណ្ណោះ។",
+      "newWorkspaceButtonDesc": "ប្រើ <action>ui.newWorkspace.action</action> ដើម្បី override អ្វីដែលប៊ូតុង plus ធ្វើ។ ប្រើ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ឬ alias <rightClick>rightClick</rightClick>) ដើម្បីកំណត់ right-click menu ដែលមានលំដាប់។ Menu entries អាចជា action IDs, action objects, ឬ <separator>{ \"type\": \"separator\" }</separator>។ ប្រសិនបើមិនបានកំណត់ ម៉ឺនុយបង្ហាញ cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) ជាមួយផ្លូវកាត់បច្ចុប្បន្ន។ ធាតុពពកបង្ហាញតែនៅពេលបើក Cloud Machines ប៉ុណ្ណោះ។",
       "newWorkspaceWorktreeNote": "ឧទាហរណ៍នេះធ្វើឱ្យការចុច plus ធម្មតារត់ action <action>worktree-agents</action>។ Workspace command ពី <commands>commands</commands> ប្រើ setup terminal ដែលមើលឃើញ ដើម្បីបង្កើត Git <worktree>worktree</worktree> ជាមុន។ Codex និង Claude ចាប់ផ្តើមពេលតែមួយ រង់ចាំ state file សម្រាប់ workspace នោះ បន្ទាប់មក cd ទៅ directory ដែលបានបង្កើត មុន exec។",
       "simpleCommands": "ពាក្យបញ្ជាសាមញ្ញ",
       "simpleCommandsDesc": "ពាក្យបញ្ជាសាមញ្ញដំណើរការពាក្យបញ្ជា shell ក្នុងទែមីណាល​ដែលបានផ្ដោតបច្ចុប្បន្ន:",

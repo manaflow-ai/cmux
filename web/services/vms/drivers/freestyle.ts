@@ -13,7 +13,10 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
+import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { currentVmRequestContext } from "../requestContext";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
@@ -37,6 +40,7 @@ import {
   type VMProvider,
   type VMResizeOptions,
   type VMStats,
+  type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
@@ -49,6 +53,7 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
+import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -198,8 +203,15 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -900,6 +912,7 @@ export class FreestyleProvider implements VMProvider {
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
+  private readonly resourceStats: FreestyleResourceStatsReader;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -908,6 +921,7 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+    this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1199,9 +1213,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-          const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}'`);
-          if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
+          await this.ensureGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1239,6 +1251,11 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  /** Read guest gauges without the general exec path's CLI installation/heal. */
+  getResourceStats(vmId: string): Promise<VMResourceStatsResult | null> {
+    return this.resourceStats.read(vmId);
   }
 
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {
@@ -1444,11 +1461,15 @@ export class FreestyleProvider implements VMProvider {
             bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
-            // The healthy fast path skips the heal, so this is where a machine
-            // that predates hook installation gets its Claude Code and Codex
-            // hooks (best effort inside).
-            await this.ensureAgentHooks(vm, vmId);
-            await this.ensureResourceReporter(vm, vmId);
+            // The settled daemon's CLI files, agent hooks, and systemd reporter
+            // own separate paths. Prepare them concurrently, retaining the CLI
+            // gate and waiting for every side effect before returning an error.
+            const [cli] = await Promise.allSettled([
+              this.ensureGuestCli(vm, vmId, false),
+              this.ensureAgentHooks(vm, vmId),
+              this.ensureResourceReporter(vm, vmId),
+            ]);
+            if (cli.status === "rejected") throw cli.reason;
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1698,6 +1719,26 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
+  private async ensureGuestCli(vm: Vm, vmId: string, installReporter = true): Promise<void> {
+    const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
+    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand}`);
+    if (current?.exitCode === 0) {
+      await this.execResult(vm, guestBrowserMimeReconcileCommand);
+      return;
+    }
+    if (installReporter) await this.installGuestCli(vm, vmId);
+    else await this.installGuestCliFiles(vm);
+  }
+
+  /** Separate guest paths may initialize together; rollback waits for both to settle. */
+  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+    const [cli] = await Promise.allSettled([
+      this.installGuestCliFiles(vm, promptIdentity),
+      this.ensureResourceReporter(vm, vmId),
+    ]);
+    if (cli.status === "rejected") throw cli.reason;
+  }
+
   /**
    * Installs the in-VM `cmux` shim with an upload-then-rename. The temporary
    * path avoids following a pre-existing `/usr/local/bin/cmux` symlink and the
@@ -1705,12 +1746,12 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCliFiles(vm: Vm, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+        command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
@@ -1723,7 +1764,6 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
-    await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

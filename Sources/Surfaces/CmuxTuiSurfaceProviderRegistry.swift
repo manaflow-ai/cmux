@@ -7,11 +7,9 @@ import Foundation
 /// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
 /// cadence the Machines panel uses. Signing out tears everything down.
 ///
-/// The periodic fleet read is the only Cloud API traffic an idle app makes, so it
-/// runs only while ``CloudActivationPolicy`` allows background Cloud work (Cloud
-/// Machines on, or this Mac used Cloud before) and follows the Beta Features
-/// toggle at runtime. Demand-driven reads (`refresh(force:)`, a `cmux vm` verb)
-/// are explicit user actions and are not gated here.
+/// Authenticated fleet discovery also prepares the shared terminal carrier, even for
+/// an empty fleet. Both follow the Cloud flag and Beta Features opt-in; disabling
+/// Cloud or signing out stops the carrier without deleting persisted identities.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -21,7 +19,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
-    let wireGuardHub: CloudWireGuardHub?
+    nonisolated let wireGuardHub: CloudWireGuardHub?
     /// Loopback forwards to VM ports over the hub (Ports and Desktop rows); nil
     /// without a hub. One table for the fleet so a (machine, port) keeps its
     /// local port until the machine leaves the fleet or the account signs out.
@@ -57,7 +55,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
-    /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
@@ -100,7 +97,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
         }
     }
-
     /// True while the periodic fleet read is scheduled.
     var isPolling: Bool { pollTask != nil }
 
@@ -115,33 +111,33 @@ final class CmuxTuiSurfaceProviderRegistry {
         featureSuspensionTask?.cancel()
     }
 
-    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
-    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
-    nonisolated func terminateWireGuardHubForAppQuit() {
-        wireGuardHub?.terminateForAppQuit()
-    }
-
     /// Live headless links, for the Cloud tunnel's idle policy.
     func connectedCloudLinkCount() async -> Int {
         await links.connectedMachineCount
     }
 
-    /// Registers this Mac's cloud machines with the catalog and starts polling.
+    /// Restarts discovery for the current account and registers its Cloud machines.
     func start(catalog: SurfaceCatalog) {
         self.catalog = catalog
         guard !ManagedDevicePolicy().isEnforced(.disableCloud) else { return }
+        pollTask?.cancel()
+        pollTask = nil
+        refreshInFlight?.cancel()
+        refreshInFlight = nil
+        discoveryInFlight?.cancel()
+        discoveryInFlight = nil
         isRetired = false
         accessEpoch &+= 1
         refreshGeneration &+= 1
         let epoch = accessEpoch
-        // Block observers are retained by NotificationCenter: drop the previous
-        // tokens so a re-start never leaves stale callbacks registered.
+        // Replacing block observers prevents stale callbacks after a restart.
         if let accessObserver { notificationCenter.removeObserver(accessObserver) }
         accessObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
             Task { @MainActor in await self?.accessDidEnd(epoch: epoch) }
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
@@ -215,6 +211,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
+        Task { await wireGuardHub?.prepareForCloudUse() }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -323,14 +320,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         unregisterMachine(rawID)
     }
 
-    /// Both an explicit delete and fleet reconciliation use the same owned
-    /// teardown. Discovery must not await cleanup of an unrelated machine.
+    /// Deletion and discovery share ordered teardown without waiting for unrelated machines.
     private func unregisterMachine(_ rawID: String) {
-        // Callers may hand over a canonicalized (lowercased) id while the
-        // registry keys everything by the control plane's own `summary.id`;
-        // resolve to the registered key so no table is left behind.
+        // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
         let provider = providers.removeValue(forKey: id)
+        provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
         // Teardowns for one machine run in order: a repeated delete waits for
         // the earlier pass instead of racing it (cancellation would not stop
@@ -370,8 +365,17 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func privateRoute(machineID: String) async -> String? {
-        guard isCloudEnabled() else { return nil }
-        return await links.privateRoute(for: machineID)
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            return nil
+        }
+        let epoch = accessEpoch
+        // The persisted device marker outlives this in-memory registry. An
+        // explicit open must discover its machine before using the saved-device
+        // shortcut, even when the first background fleet read has not run.
+        guard await providerRefreshingIfMissing(machineID: machineID) != nil else { return nil }
+        let route = await links.privateRoute(for: machineID)
+        guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
+        return route
     }
 
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
@@ -403,6 +407,8 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
         guard !isRetired, let catalog, let page = await listPage() else { return nil }
+        guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
+        if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
         // Reconcile both stores. A restored catalog can contain a machine for
@@ -477,8 +483,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         let suspension = featureSuspensionTask
         featureSuspensionTask = nil
         isFeatureSuspended = false
-        for provider in providers.values { await provider.stop() }
-        for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
+        let retiringProviders = providers
+        for provider in retiringProviders.values { provider.suspendForFeatureFlag() }
+        for id in retiringProviders.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         let teardowns = Array(machineTeardowns.values)
         machineTeardowns.removeAll()
@@ -486,10 +493,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         let teardown = Task { [closeTransports] in
             await previous?.value
             await suspension?.value
+            await Self.stopRetiringProviders(Array(retiringProviders.values))
             for task in teardowns { await task.value }
             // Signing out drops the tunnel too: the next account enrolls its own.
             await closeTransports()
         }
+        // Sign-in must observe this fence before any provider drain can suspend.
         teardownInFlight = teardown
         await teardown.value
         if teardownInFlight == teardown { teardownInFlight = nil }

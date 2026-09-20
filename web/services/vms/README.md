@@ -39,7 +39,11 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 
 Public callers only use `/api/vm/*`. Each route calls Stack Auth first and returns `401` before any Postgres or provider operation when the caller is unauthenticated.
 
-Ownership checks happen inside the Effect workflow by loading the VM row with both `user_id` and `provider_vm_id`. A user cannot destroy, exec, attach, or mint SSH credentials for a VM owned by another Stack Auth user.
+Ownership checks load the VM under its immutable `owner_team_id`, validated
+against the caller's current Stack team membership. The creator's user id and
+billing attribution do not independently grant access. Personal machines use
+the user's personal scope. Model credentials are further constrained by the
+machine's coderouter pool; see `services/coderouter/README.md`.
 
 Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
 calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
@@ -346,6 +350,27 @@ Run default-provider stress before changing provider defaults or after provider 
 bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
+
+## Startup benchmarks
+
+`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
+lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
+scripts and only ever create, measure and delete their own resources:
+
+```bash
+cd web
+bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
+bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
+```
+
+The two SDK benchmarks read the provider credential the way the runtime does
+(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
+from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
+a sensitive (empty) value from the process environment, and sends its throwaway
+session only to the project's own https origin; a deployment that Vercel's API
+attributes to the project also needs `--allow-preview`, and any other https host
+`--allow-any-url`.
 
 ## Telemetry
 

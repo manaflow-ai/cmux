@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar attention layout")
 struct CloudSidebarAttentionLayoutTests {
-    @Test("Read and unread rows differ only in the leading slot, even pinned and narrow",
+    @Test("Read and unread rows differ only in the icon badge, even pinned and narrow",
           arguments: [140.0, 300.0], ["workspace", "terminal"])
     func attentionPrecedesIcon(width: Double, kind: String) throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -45,9 +45,8 @@ struct CloudSidebarAttentionLayoutTests {
         }
         let right = try #require(changedX.max(), "The unread indicator must actually render")
         let scale = Double(unread.pixelsWide) / width
-        let contentLeading = CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
-        #expect(Double(right) / scale < Double(contentLeading) + 8,
-                "The dot must be before the icon; pin, title and trailing controls cannot shift")
+        #expect(Double(right) / scale < 20,
+                "The badge stays over the leading icon; pin, title and trailing controls cannot shift")
         let cleared = try render(cell, node: readNode, fixture: fixture)
         #expect(cleared.tiffRepresentation == read.tiffRepresentation)
         #if compiler(>=6.2)

@@ -19,11 +19,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-vm-migrate-${{ inputs.target }}
+  # Production also migrates staging. One group prevents two runs from
+  # applying to the same database at once.
+  group: cloud-vm-migrate
   cancel-in-progress: false
 
 jobs:
   preflight:
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
@@ -33,6 +37,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+      - name: Pin migration source
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Install dependencies
@@ -59,7 +66,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Install dependencies
@@ -75,6 +82,8 @@ jobs:
             postgres://*|postgresql://*) ;;
             *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
           esac
+      - name: Verify staging PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- staging --check
       - name: Apply staging migration
         run: bun run cloud-vm:migrate -- staging
       - name: Clean up staging Iroh challenges
@@ -84,7 +93,7 @@ jobs:
   migrate-production:
     if: ${{ inputs.target == 'production' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    needs: migrate-staging
+    needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
       run:
@@ -97,7 +106,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/heads/main
+          ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
       - name: Install dependencies
@@ -113,6 +122,8 @@ jobs:
             postgres://*|postgresql://*) ;;
             *) echo "::error::DATABASE_URL must use the PostgreSQL URL scheme"; exit 1 ;;
           esac
+      - name: Verify production PlanetScale connection (read only)
+        run: bun run cloud-vm:migrate -- production --check
       - name: Apply production migration
         run: bun run cloud-vm:migrate -- production
       - name: Clean up production Iroh challenges
