@@ -65,6 +65,20 @@ struct CloudDisplayCatalogTests {
         #expect(!service.canCreate && service.snapshot == nil)
     }
 
+    @Test("A failed guest response cannot publish a valid-looking stale catalog")
+    func nonzeroRefreshClearsSnapshot() async {
+        var failed = false
+        let service = CloudDisplayCoordinator { command, _ in
+            if failed { return .init(exitCode: 1, stdout: initial, stderr: "guest unavailable") }
+            return .init(exitCode: 0, stdout: initial, stderr: "")
+        }
+        await service.refresh()
+        #expect(service.snapshot != nil)
+        failed = true
+        await service.refresh()
+        #expect(service.snapshot == nil && !service.canCreate)
+    }
+
     @Test("A failed refresh invalidates the cached guest catalog")
     func failedRefreshClearsSnapshot() async {
         var shouldFail = false
