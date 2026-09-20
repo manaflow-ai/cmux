@@ -16,6 +16,8 @@ extension CmuxTuiSurfaceProvider {
         relay.beginRemoteBinding()
         do {
             _ = try await links.connected(machineID: machineID)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             relay.remoteBindingFailed()
             return false
