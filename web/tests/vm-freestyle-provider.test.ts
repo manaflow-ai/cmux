@@ -124,7 +124,10 @@ describe("FreestyleProvider transport contract", () => {
         }),
       },
     } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client });
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async () => { throw new Error("unused in destroy test"); },
+    });
     await expect(provider.destroy(VM_ID)).rejects.toBeInstanceOf(ProviderError);
   });
 });
