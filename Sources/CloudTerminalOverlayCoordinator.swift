@@ -73,7 +73,10 @@ final class CloudTerminalOverlayCoordinator {
         }
         let presentation: CloudTerminalReconnectOverlayPolicy.Presentation?
         if let session {
-            presentation = session.connectionPresentation
+            // The session publishes one immutable presentation snapshot for
+            // every phase/readiness change. The native card and workspace
+            // fallback both consume that same snapshot.
+            presentation = session.attachmentStatus.presentation
         } else {
             presentation = legacyPresentation
         }

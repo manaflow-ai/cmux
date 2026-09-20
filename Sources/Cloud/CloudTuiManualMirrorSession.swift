@@ -213,6 +213,7 @@ final class CloudTuiManualMirrorSession {
         }
         surface.flushPendingManualSizeReportIfAttached()
         runtimeReady()
+        publishAttachmentPresentation()
     }
     /// Re-samples on reveal even without a frame-size delta. A valid grid in
     /// the visible, real pane makes sizing eligible; initial focus is irrelevant.
@@ -522,15 +523,15 @@ final class CloudTuiManualMirrorSession {
     }
 
     private func synchronizePresentation() {
-        surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
+        publishAttachmentPresentation()
         surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
     }
 
     private func finishDiagnostics(error: Error? = nil) {
+        defer { synchronizePresentation() }
         diagnosticDeadline?.cancel()
         diagnosticDeadline = nil
         if let error, !(error is CancellationError) { diagnosticFailure = .classify(error) }
-        surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
         let context = diagnosticContext ?? (error != nil && !(error is CancellationError) ? operations?.begin(.terminal, foreground: false) : nil)
         guard let context else { return }
         diagnosticReference = "operation=\(context.operationID.uuidString.lowercased()) trace=\(context.traceID)"
@@ -693,7 +694,20 @@ final class CloudTuiManualMirrorSession {
             attachAttempts = 0
         }
         log.phase(machineID: machineID, terminalID: terminalID, surfaceID: remoteSurfaceID, phase: next, reason: reason)
-        attachmentStatus.update(attachmentState)
+        publishAttachmentPresentation()
+    }
+
+    /// Publishes the one presentation snapshot for this pane's attachment.
+    /// Workspace-wide remote controller state is intentionally excluded.
+    private func publishAttachmentPresentation() {
+        attachmentStatus.update(
+            attachmentState,
+            presentation: connectionPresentation
+        )
+        // The status snapshot is the presentation source for both the portal
+        // card and the workspace bridge. Reconcile after publishing so a
+        // phase didSet callback cannot leave the card on the previous phase.
+        surface?.hostedView.synchronizeCloudTerminalReconnectOverlay()
     }
 
     private var attachmentState: CloudTerminalAttachmentState {
