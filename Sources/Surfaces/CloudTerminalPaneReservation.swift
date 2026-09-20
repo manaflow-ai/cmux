@@ -97,14 +97,15 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteBindingPending = false
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
+            if let existing = state.remoteSink, existing.terminalID == terminalID {
+                startRemoteWorkerLocked(&state)
+                promoteRequestedRouterIfReadyLocked(&state)
+                return true
+            }
             state.remoteWorker?.cancel()
             state.remoteWorker = nil
             state.remoteWorkerToken = nil
             state.remoteInFlight = false
-            if let existing = state.remoteSink, existing.terminalID == terminalID {
-                promoteRequestedRouterIfReadyLocked(&state)
-                return true
-            }
             state.remoteSink = RemoteSink(terminalID: terminalID, sender: sender)
             state.remoteEpoch &+= 1
             let pending = state.pending
