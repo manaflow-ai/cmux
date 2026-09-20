@@ -34,12 +34,17 @@ int main(int argc, const char *argv[]) {
         PlainPasteProvider *provider = [PlainPasteProvider new];
         provider.configuration = config;
         for (NSString *type in config[@"representations"]) {
+            if ([type isEqualToString:@"NSFilenamesPboardType"]) { continue; }
             [item setString:config[@"representations"][type] forType:type];
         }
         if (config[@"behavior"] != nil) {
             [item setDataProvider:provider forTypes:@[NSPasteboardTypeString]];
         }
         [board writeObjects:@[item]];
+        if (config[@"representations"][@"NSFilenamesPboardType"] != nil) {
+            [board addTypes:@[@"NSFilenamesPboardType"] owner:nil];
+            [board setPropertyList:@[@"/tmp/plain-paste-fixture"] forType:@"NSFilenamesPboardType"];
+        }
         NSDictionary *ready = @{ @"generation": @(board.changeCount) };
         [[NSJSONSerialization dataWithJSONObject:ready options:0 error:nil]
             writeToFile:config[@"ready"] atomically:YES];

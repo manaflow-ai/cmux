@@ -32,9 +32,11 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
             shutil.rmtree(path, ignore_errors=True)
 
     def board(self, text="hello\n日本語 🦀 e\u0301\r\n", extra=None, behavior=None):
-        config = dict(name="cmux-paste-test-" + str(uuid.uuid4()), text=text,
+        identity = str(uuid.uuid4())
+        config = dict(name="cmux-paste-test-" + identity, text=text,
                       representations={"public.utf8-plain-text": text, **(extra or {})},
-                      ready=str(self.root / "ready.json"), requested=str(self.root / "requested"))
+                      ready=str(self.root / (identity + "-ready.json")),
+                      requested=str(self.root / (identity + "-requested")))
         if behavior:
             config["behavior"] = behavior
             config["representations"].pop("public.utf8-plain-text", None)
