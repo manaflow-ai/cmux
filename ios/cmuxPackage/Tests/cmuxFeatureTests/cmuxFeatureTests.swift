@@ -1104,6 +1104,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: ticket.macDeviceID),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],

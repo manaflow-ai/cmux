@@ -514,6 +514,15 @@ jobs:
           if [ -n "${TEST_FILTER:-}" ]; then
             if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
               XCODEBUILD_ARGS+=(-testPlan cmux-ui)
+            else
+              # Keep focused package assertions bounded on virtualized iOS
+              # runners; failed sysdiagnose collection can otherwise take 10m.
+              XCODEBUILD_ARGS+=(
+                -collect-test-diagnostics never
+                -test-timeouts-enabled YES
+                -default-test-execution-time-allowance 60
+                -maximum-test-execution-time-allowance 120
+              )
             fi
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           else
