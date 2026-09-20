@@ -473,6 +473,9 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate bundled-resource incremental outputs
+        run: ./tests/test_build_app_bundled_resources.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
@@ -496,6 +499,9 @@ jobs:
 
       - name: Validate cmux-tui client installation
         run: bash ./tests/test_install_cmux_tui_client.sh
+
+      - name: Validate reload cmux-tui client identity
+        run: bash ./tests/test_reload_tui_client_identity.sh
 
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh

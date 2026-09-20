@@ -7,6 +7,7 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+source "$SCRIPT_DIR/lib/reload-incremental.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -1379,6 +1380,30 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
 
+# cmuxd is built after xcodebuild from the checkout, so its state is an input of the
+# post-build work: the committed tree, plus any uncommitted or untracked change.
+RELOAD_CMUXD_SOURCE_DIGEST="$({
+  git rev-parse HEAD:cmuxd 2>/dev/null || echo no-cmuxd-tree
+  git diff --binary HEAD -- cmuxd 2>/dev/null
+  git ls-files --others --exclude-standard -z -- cmuxd 2>/dev/null | xargs -0 shasum -a 256 2>/dev/null
+} | shasum -a 256 | awk '{print $1}')"
+RELOAD_SCRIPT_DIGEST="$(cat "$SCRIPT_DIR/reload.sh" "$SCRIPT_DIR/lib/reload-incremental.sh" | shasum -a 256 | awk '{print $1}')"
+GHOSTTY_SOURCE_DIGEST=""
+if [[ -d "$PWD/ghostty/.git" || -f "$PWD/ghostty/HEAD" ]]; then
+  GHOSTTY_SOURCE_DIGEST="$(git -C "$PWD/ghostty" rev-parse HEAD 2>/dev/null || true):$(git -C "$PWD/ghostty" status --porcelain 2>/dev/null || true)"
+fi
+RELOAD_INPUT_MANIFEST="$(printf '%s\n' \
+  "tag=$TAG_SLUG" "app=$APP_NAME" "bundle=$BUNDLE_ID" \
+  "cloud=${CMUX_DEV_CLOUD_ENABLED:-1}" "port=$CMUX_DEV_PORT" "port_end=$CMUX_DEV_PORT_END" \
+  "port_range=$CMUX_DEV_PORT_RANGE" "origin=$CMUX_DEV_ORIGIN" \
+  "api=$CMUX_DEV_API_BASE_URL_VALUE" "broker=$CMUX_IROH_BROKER_BASE_URL_VALUE" \
+  "iroh_env=$CMUX_IROH_V2_ENVIRONMENT_VALUE" "iroh_base=$CMUX_IROH_V2_BASE_URL_VALUE" \
+  "iroh_relay=$CMUX_IROH_V2_FORCE_RELAY_VALUE" "auth_origin=$CMUX_AUTH_WWW_ORIGIN_VALUE" \
+  "www_origin=$CMUX_WWW_ORIGIN_VALUE" "prod_auth=$PROD_AUTH" \
+  "auth_file=$AUTH_CREDENTIALS_FILE" "auth_profile=$AUTH_PROFILE" \
+  "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "cmuxd=$RELOAD_CMUXD_SOURCE_DIGEST" \
+  "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$RELOAD_SCRIPT_DIGEST")"
+
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
 # summary plus the App/CLI paths. On failure we dump the log.
@@ -1392,6 +1417,7 @@ XCODEBUILD_SOURCE_APP_PATH=""
 XCODEBUILD_TAG_APP_PATH=""
 TAG_APP_FINAL_PATH=""
 TAG_APP_STAGING_PATH=""
+RELOAD_TUI_CLIENT_TMP_DIR=""
 if [[ -n "$DERIVED_DATA" ]]; then
   BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
   if [[ -n "$TAG" ]]; then
@@ -1411,6 +1437,9 @@ exec >>"$RELOAD_LOG" 2>&1
 reload_finalize() {
   local rc=$?
   trap - EXIT
+  if [[ -n "$RELOAD_TUI_CLIENT_TMP_DIR" ]]; then
+    rm -rf "$RELOAD_TUI_CLIENT_TMP_DIR" || true
+  fi
   exec 1>&3 2>&4
   local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
   if [[ "$rc" -ne 0 ]]; then
@@ -1429,6 +1458,7 @@ reload_finalize() {
     echo "==> log: $RELOAD_LOG" >&2
     exit "$rc"
   fi
+  reload_phase_finished tag_handoff
   echo "==> reload succeeded in ${elapsed}s"
   echo "==> log: $RELOAD_LOG"
   if [[ -n "${APP_PATH:-}" ]]; then
@@ -1478,6 +1508,17 @@ reload_finalize() {
   fi
 }
 trap reload_finalize EXIT
+# Optional wall-clock phase diagnostics do not change compiler settings.
+RELOAD_PHASE_START=$SECONDS
+reload_phase_finished() {
+  if [[ "${CMUX_BUILD_TIMING:-0}" == 1 ]]; then
+    echo "CMUX_RELOAD_PHASE name=$1 seconds=$((SECONDS-RELOAD_PHASE_START))"
+  fi
+  RELOAD_PHASE_START=$SECONDS
+}
+RELOAD_PHASE_START=$SECONDS
+RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "$RELOAD_INPUT_MANIFEST")"
+reload_phase_finished input_fingerprint
 
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
@@ -1497,6 +1538,7 @@ fi
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
+reload_phase_finished input_fingerprint
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
@@ -1549,11 +1591,15 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
 fi
+if [[ "${CMUX_BUILD_TIMING:-0}" == 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
+fi
 XCODEBUILD_ARGS+=(build)
 
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
-  cleanup_incomplete_xcodebuild_outputs
+  # Keep completed outputs for Xcode dependency analysis. A failed or
+  # interrupted invocation still removes partial outputs in reload_finalize.
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
@@ -1571,6 +1617,7 @@ fi
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
+reload_phase_finished build_arguments
 XCODEBUILD_STARTED=1
 python3 -c '
 import array
@@ -1711,6 +1758,7 @@ try:
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+reload_phase_finished xcode
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
@@ -1761,6 +1809,28 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
 fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
+# The app xcodebuild just produced is the main input of the post-build work. Its
+# fingerprint covers every compiled source and resource, whether the change was
+# uncommitted, committed, or came from switching branches.
+# The bundled cmux-tui client comes from outside the checkout, and a rolling manifest
+# URL or a local path can serve a new client under the same name. Key on the client
+# itself; when it cannot be resolved, redo the post-build work. The manifest behind
+# the identity is kept so the install below bundles exactly the client it describes.
+RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
+# Receipts are shared by tag, but a manifest belongs to this invocation until
+# installation completes. Another reload must not replace or delete it.
+RELOAD_TUI_CLIENT_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-reload-manifest.XXXXXX")"
+RELOAD_TUI_CLIENT_MANIFEST="$RELOAD_TUI_CLIENT_TMP_DIR/manifest.json"
+RELOAD_TUI_CLIENT_RESOLVED=1
+RELOAD_TUI_CLIENT_IDENTITY="$(reload_incremental_tui_client_identity \
+  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH" "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
+  "$RELOAD_TUI_CLIENT_MANIFEST")" \
+  || { RELOAD_TUI_CLIENT_RESOLVED=0; RELOAD_TUI_CLIENT_IDENTITY="unresolved"; }
+RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "${RELOAD_INPUT_MANIFEST}
+tui_client=${RELOAD_TUI_CLIENT_IDENTITY}
+built_app=$(reload_incremental_app_digest "$APP_PATH")")"
+reload_phase_finished built_app_fingerprint
+RELOAD_POSTBUILD_NOOP=0
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
@@ -1774,8 +1844,16 @@ fi
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
-  rm -rf "$TAG_APP_STAGING_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  if [[ "$RELOAD_TUI_CLIENT_RESOLVED" -eq 1 && -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" \
+      && /usr/bin/codesign --verify --deep --strict "$TAG_APP_FINAL_PATH" >/dev/null 2>&1 \
+      && ! reload_incremental_needs_update "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$TAG_APP_FINAL_PATH"; then
+    APP_PATH="$TAG_APP_FINAL_PATH"; TAG_APP_STAGING_PATH=""; RELOAD_POSTBUILD_NOOP=1
+    echo "Reusing unchanged tagged app output at $APP_PATH"
+  else
+    rm -rf "$TAG_APP_STAGING_PATH"
+    cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  fi
+  if [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
@@ -1850,11 +1928,14 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     fi
   fi
   APP_PATH="$TAG_APP_STAGING_PATH"
+  fi
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
+reload_phase_finished tagged_staging
 
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
+if [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
@@ -1902,6 +1983,9 @@ else
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
     )
   fi
+  if [[ "$RELOAD_TUI_CLIENT_RESOLVED" -eq 1 && -f "$RELOAD_TUI_CLIENT_MANIFEST" ]]; then
+    cmux_tui_install_args+=(--manifest-file "$RELOAD_TUI_CLIENT_MANIFEST")
+  fi
   # The installer verifies the published manifest's build-provenance attestation
   # through gh. A dev Mac without an authenticated gh is the one explicit
   # exception; the installer prints the unattested warning in that case.
@@ -1910,6 +1994,7 @@ else
   fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
+reload_phase_finished install_helpers
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
@@ -1926,6 +2011,9 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
+reload_incremental_record "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$APP_PATH"
+fi
+reload_phase_finished signing
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 
 TAG_LAUNCHD_LABEL=""
@@ -1939,7 +2027,7 @@ fi
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" ]]; then
+if [[ -n "$TAG" && "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
@@ -1985,7 +2073,7 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; the
   fi
 fi
 
-if [[ "$LAUNCH" -eq 1 ]]; then
+if [[ "$LAUNCH" -eq 1 ]] && { [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]] || ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; }; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
     /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
