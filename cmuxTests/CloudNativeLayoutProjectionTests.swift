@@ -216,17 +216,20 @@ struct CloudNativeLayoutProjectionTests {
         let id = UUID()
         let layout = DeviceWorkspaceLayoutNode.pane(id: "pane", surfaceIDs: ["first", "second"], selectedSurfaceID: "second")
         var reads: [UUID] = []
-        let rpc = DeviceWorkspaceLayoutRPC(snapshot: { requested in
+        let rpc = DeviceWorkspaceLayoutHost(capture: { requested in
             reads.append(requested)
             return requested == id ? layout : nil
-        })
+        }, apply: { _, _ in Issue.record("A read must not mutate layout") }, createTerminal: { _, _, _ in nil },
+            publish: { _ in }, notificationCenter: NotificationCenter())
         let request = MobileHostRPCRequest(id: "layout", method: "device.workspace.layout", params: ["workspace_id": id.uuidString], auth: nil)
         guard case .ok(let payload) = rpc.handle(request) else {
             Issue.record("Expected a Mac layout snapshot"); return
         }
         let data = try JSONSerialization.data(withJSONObject: payload)
-        #expect(try JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: data) ==
-            DeviceWorkspaceLayoutSnapshot(workspaceID: id.uuidString, layout: layout))
+        let snapshot = try JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: data)
+        #expect(snapshot.workspaceID == id.uuidString)
+        #expect(snapshot.layout == layout)
+        #expect(!snapshot.revision.isEmpty)
         #expect(reads == [id])
         #expect(rpc.handle(MobileHostRPCRequest(id: nil, method: "mobile.sync.fetch", params: [:], auth: nil)) == nil)
         #expect(reads == [id], "Mobile sync does not enter the Mac layout handler")

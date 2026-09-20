@@ -236,6 +236,7 @@
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
 		D77690000000000000000001 /* AppDelegate+MultiWindowNotificationUITestFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */; };
 		E688474283CE6DF3742B2682 /* AppDelegate+NewCloudWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */; };
+				BFB8D15A7FDBAFD8B9A4DB49 /* AppDelegate+NewDeviceWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657986DE696F4EFA73B3FAF6 /* AppDelegate+NewDeviceWorkspace.swift */; };
 		A5FB1301 /* AppDelegate+NewWorkspaceContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */; };
 		C0DE77060000000000000001 /* AppDelegate+NewWorkspaceMenuRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */; };
 		737100000000000000000003 /* AppDelegate+NonInteractiveWindowClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */; };
@@ -1680,13 +1681,16 @@
 				DEC1CE00000000000000004C /* DevicesSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */; };
 				2CA890B9EF5C412A91FB8B78 /* DeviceSurfaceProvider+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */; };
 				DEC1CE000000000000000024 /* DeviceSurfaceProvider+Mutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000023 /* DeviceSurfaceProvider+Mutations.swift */; };
+				C2D37F696E64608D28CBB4BF /* DeviceSurfaceProvider+TerminalLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E3043806F1E99B63080A81 /* DeviceSurfaceProvider+TerminalLayout.swift */; };
 				DEC1CE000000000000000022 /* DeviceSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */; };
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */; };
 				E04616B1BE0A4C27889B11FA /* DeviceTerminalAttachmentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */; };
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */; };
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */; };
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */; };
-				A0D5BC9F193C40288ABB4F9F /* DeviceWorkspaceLayoutRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */; };
+				7F3B63556D5661AB1682A514 /* DeviceWorkspaceCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283165BD31DF96F756C7E0ED /* DeviceWorkspaceCreationCoordinator.swift */; };
+				B20626E586CFD623356E6E9C /* DeviceWorkspaceLayoutCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB8C0CE9BCAADFE859771A3 /* DeviceWorkspaceLayoutCoordinator.swift */; };
+				DA7083F0C8F6764B2AF8FE59 /* DeviceWorkspaceLayoutHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0BA2600E6A1047B2750B088 /* DeviceWorkspaceLayoutHost.swift */; };
 				572E9A30BC51409DAF8C0FBA /* DeviceWorkspaceProjection+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */; };
 				DEC1CE00000000000000001C /* DeviceWorkspaceProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */; };
 				DEC1CE000000000000000048 /* DeviceWorkspaceProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */; };
@@ -3235,6 +3239,7 @@
 		027446BA1E1B4E69B2DCDF8A /* SurfaceProjection+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */; };
 		0F4B1E526E23283B5CA1FAAA /* SurfaceProjectionEndReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */; };
 		A9C10D000000000000000002 /* SurfaceProjectionMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */; };
+				932123D0170AF0015A0D5B11 /* SurfaceProjectionMutationObserving.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A569CFE4F332963728511AD /* SurfaceProjectionMutationObserving.swift */; };
 		7867A0010000000000000001 /* SurfaceProjectionRestoreStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7867A0020000000000000001 /* SurfaceProjectionRestoreStore.swift */; };
 		D84DEF61FE7641A280419E24 /* SurfaceProvider+MaterializationValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B84F249415045AF98A4730A /* SurfaceProvider+MaterializationValidation.swift */; };
 		EE1DE3F7E67DF1366F214AC7 /* SurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAED489C1C23533995AF55EA /* SurfaceProvider.swift */; };
@@ -3822,6 +3827,7 @@
 		C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */; };
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */; };
+				621C8004A55D9FBCAC886925 /* Workspace+DeviceMachineContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4633F977C21AEB58F2FB5785 /* Workspace+DeviceMachineContext.swift */; };
 		DCDC1000000000000000B013 /* Workspace+DockBrowserLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */; };
 		D86840000000000000000013 /* Workspace+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000014 /* Workspace+DockSessionRestore.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -4358,6 +4364,7 @@
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		D77690000000000000000002 /* AppDelegate+MultiWindowNotificationUITestFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AppDelegate+MultiWindowNotificationUITestFixture.swift"; sourceTree = "<group>"; };
 		AF1BEBC423EC7DEEBD3530A5 /* AppDelegate+NewCloudWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewCloudWorkspace.swift"; sourceTree = "<group>"; };
+				657986DE696F4EFA73B3FAF6 /* AppDelegate+NewDeviceWorkspace.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/AppDelegate+NewDeviceWorkspace.swift"; sourceTree = "<group>"; };
 		A5FB1302 /* AppDelegate+NewWorkspaceContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceContextMenu.swift"; sourceTree = "<group>"; };
 		C0DE77060000000000000002 /* AppDelegate+NewWorkspaceMenuRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NewWorkspaceMenuRendering.swift"; sourceTree = "<group>"; };
 		737100000000000000000004 /* AppDelegate+NonInteractiveWindowClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NonInteractiveWindowClose.swift"; sourceTree = "<group>"; };
@@ -5685,13 +5692,16 @@
 				DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesSidebarModeTests.swift; sourceTree = "<group>"; };
 				05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider+Layout.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000023 /* DeviceSurfaceProvider+Mutations.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider+Mutations.swift"; sourceTree = "<group>"; };
+				A9E3043806F1E99B63080A81 /* DeviceSurfaceProvider+TerminalLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider+TerminalLayout.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProviderRegistry.swift"; sourceTree = "<group>"; };
 				DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalAttachmentStatus.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalInputRouter.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalMirrorSession.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceTerminalMirrorTests.swift; sourceTree = "<group>"; };
-				7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceLayoutRPC.swift"; sourceTree = "<group>"; };
+				283165BD31DF96F756C7E0ED /* DeviceWorkspaceCreationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceCreationCoordinator.swift"; sourceTree = "<group>"; };
+				4DB8C0CE9BCAADFE859771A3 /* DeviceWorkspaceLayoutCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceLayoutCoordinator.swift"; sourceTree = "<group>"; };
+				D0BA2600E6A1047B2750B088 /* DeviceWorkspaceLayoutHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceLayoutHost.swift"; sourceTree = "<group>"; };
 				A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceProjection+Layout.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceProjection.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceWorkspaceProjectionTests.swift; sourceTree = "<group>"; };
@@ -7217,6 +7227,7 @@
 		7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceProjection+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProjectionEndReason.swift"; sourceTree = "<group>"; };
 		A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionMaterialization.swift; sourceTree = "<group>"; };
+				3A569CFE4F332963728511AD /* SurfaceProjectionMutationObserving.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Surfaces/SurfaceProjectionMutationObserving.swift"; sourceTree = "<group>"; };
 		7867A0020000000000000001 /* SurfaceProjectionRestoreStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionRestoreStore.swift; sourceTree = "<group>"; };
 		3B84F249415045AF98A4730A /* SurfaceProvider+MaterializationValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProvider+MaterializationValidation.swift"; sourceTree = "<group>"; };
 		AAED489C1C23533995AF55EA /* SurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProvider.swift; sourceTree = "<group>"; };
@@ -7800,6 +7811,7 @@
 		C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarSnapshot.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/Workspace+DeviceLayout.swift"; sourceTree = "<group>"; };
+				4633F977C21AEB58F2FB5785 /* Workspace+DeviceMachineContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/Workspace+DeviceMachineContext.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockBrowserLookup.swift"; sourceTree = "<group>"; };
 		D86840000000000000000014 /* Workspace+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
@@ -10824,7 +10836,13 @@
 				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */,
 				A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */,
 				05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */,
-				7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */,
+				D0BA2600E6A1047B2750B088 /* DeviceWorkspaceLayoutHost.swift */,
+				4DB8C0CE9BCAADFE859771A3 /* DeviceWorkspaceLayoutCoordinator.swift */,
+				4633F977C21AEB58F2FB5785 /* Workspace+DeviceMachineContext.swift */,
+				283165BD31DF96F756C7E0ED /* DeviceWorkspaceCreationCoordinator.swift */,
+				657986DE696F4EFA73B3FAF6 /* AppDelegate+NewDeviceWorkspace.swift */,
+				A9E3043806F1E99B63080A81 /* DeviceSurfaceProvider+TerminalLayout.swift */,
+				3A569CFE4F332963728511AD /* SurfaceProjectionMutationObserving.swift */,
 				AC22F46F54864FEDADD1EEE5 /* SurfaceCatalog+DeviceNames.swift */,
 				DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */,
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */,
@@ -13381,7 +13399,13 @@
 				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */,
 				572E9A30BC51409DAF8C0FBA /* DeviceWorkspaceProjection+Layout.swift in Sources */,
 				2CA890B9EF5C412A91FB8B78 /* DeviceSurfaceProvider+Layout.swift in Sources */,
-				A0D5BC9F193C40288ABB4F9F /* DeviceWorkspaceLayoutRPC.swift in Sources */,
+				DA7083F0C8F6764B2AF8FE59 /* DeviceWorkspaceLayoutHost.swift in Sources */,
+				B20626E586CFD623356E6E9C /* DeviceWorkspaceLayoutCoordinator.swift in Sources */,
+				621C8004A55D9FBCAC886925 /* Workspace+DeviceMachineContext.swift in Sources */,
+				7F3B63556D5661AB1682A514 /* DeviceWorkspaceCreationCoordinator.swift in Sources */,
+				BFB8D15A7FDBAFD8B9A4DB49 /* AppDelegate+NewDeviceWorkspace.swift in Sources */,
+				C2D37F696E64608D28CBB4BF /* DeviceSurfaceProvider+TerminalLayout.swift in Sources */,
+				932123D0170AF0015A0D5B11 /* SurfaceProjectionMutationObserving.swift in Sources */,
 				53EE90B8E6654AD1BAC3ACE2 /* SurfaceCatalog+DeviceNames.swift in Sources */,
 				E04616B1BE0A4C27889B11FA /* DeviceTerminalAttachmentStatus.swift in Sources */,
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */,

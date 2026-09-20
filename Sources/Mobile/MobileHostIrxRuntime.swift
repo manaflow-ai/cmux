@@ -57,6 +57,22 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private let publishesPublicHostStatus: Bool
     private(set) weak var auth: AuthCoordinator?
     weak var outgoingDeviceClient: DeviceIrxClient?
+    /// Native layout synchronization is instantiated only for admitted Mac peers.
+    private lazy var deviceWorkspaceLayouts = DeviceWorkspaceLayoutHost(
+        capture: { Workspace.liveWorkspace(id: $0)?.deviceWorkspaceLayoutSnapshot() },
+        apply: { id, layout in
+            guard let workspace = Workspace.liveWorkspace(id: id) else { throw DeviceLinkError.notConnected }
+            try workspace.applyDeviceWorkspaceLayout(layout)
+        },
+        createTerminal: { id, source, direction in
+            Workspace.liveWorkspace(id: id)?.createDeviceWorkspaceTerminal(near: source, direction: direction)
+        },
+        publish: { snapshot in
+            guard let data = try? JSONEncoder().encode(snapshot),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            MobileHostService.emitEvent(topic: DeviceWorkspaceLayoutHost.eventTopic, payload: payload)
+        }
+    )
     private var activePairingEnabled: Bool?
     private var activeDeviceCapabilities: [String] = []
     private var deviceMetadataTask: Task<Void, Never>?
@@ -899,10 +915,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             connection: irx, control: control, closeCode: .hostShutdown)
         let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
         if isMac {
+            let layouts = deviceWorkspaceLayouts
             peerRequestHandler = { request in
-                await DeviceWorkspaceLayoutRPC(snapshot: { workspaceID in
-                    Workspace.liveWorkspace(id: workspaceID)?.deviceWorkspaceLayoutSnapshot()
-                }).handle(request)
+                await layouts.handle(request)
             }
         } else {
             peerRequestHandler = nil

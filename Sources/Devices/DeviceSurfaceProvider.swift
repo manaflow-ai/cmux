@@ -17,7 +17,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
-    var workspaceLayouts: [String: DeviceWorkspaceLayoutNode] = [:]
+    lazy var layoutSync = DeviceWorkspaceLayoutCoordinator(
+        machine: machine, catalog: catalog,
+        workspace: { Workspace.liveWorkspace(id: $0) },
+        request: { [weak link] method, params in
+            guard let link else { throw DeviceLinkError.notConnected }
+            return try await link.requestData(method, params: params)
+        },
+        refresh: { [weak link] in await link?.fetchNow() },
+        isConnected: { [weak link] in link?.isConnected == true },
+        didAccept: { [weak self] in self?.publish() }
+    )
     private var restoreTasks: [UUID: Task<Void, Never>] = [:]
 
     var machine: SurfaceMachineID { .device(instance) }
@@ -29,6 +39,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         self.link = link
         self.catalog = catalog
         link.onChange = { [weak self] in self?.publish() }
+        link.onLayoutChange = { [weak self] snapshot in self?.layoutSync.accept(snapshot) }
     }
 
     func update(record: DeviceDirectoryRecord) {
@@ -49,7 +60,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         restoreTasks.removeAll()
         for session in sessions.values { session.stop() }
         sessions.removeAll()
-        workspaceLayouts.removeAll()
+        layoutSync.stop()
         link.stop()
     }
 
@@ -129,11 +140,10 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     }
 
     func publish() {
+        layoutSync.connectionChanged()
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let records = link.mirror.workspaces.orderedRecords
-        let workspaceIDs = Set(records.map(\.id))
-        workspaceLayouts = workspaceLayouts.filter { workspaceIDs.contains($0.key) }
-        let resources = projection.resources(records, layouts: workspaceLayouts)
+        let resources = projection.resources(records, layouts: layoutSync.snapshots.mapValues(\.layout))
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }
     }
@@ -177,6 +187,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     }
 
     func refresh(force: Bool) async {
+        if force { layoutSync.refreshRequested() }
         link.refresh()
         await link.fetchNow()
         publish()
@@ -209,15 +220,17 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         let router = session.inputRouter
         let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
         do {
-            created = try SurfacePaneFactory.makeCloudManualMirrorPane(
-                at: destination,
-                focus: focus,
-                onInput: { input in router.enqueue(input) },
-                keyNameResolver: nil,
-                onResize: { _ in },
-                onRuntimeReady: {},
-                onFocus: {}
-            )
+            guard let workspace = Workspace.liveWorkspace(id: destination.workspaceID) else {
+                throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
+            }
+            created = try workspace.performRemoteTmuxMirrorMutation {
+                try SurfacePaneFactory.makeCloudManualMirrorPane(
+                    at: destination, focus: false,
+                    onInput: { input in router.enqueue(input) }, keyNameResolver: nil,
+                    onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+                )
+            }
+            if focus { SurfacePaneFactory.focus(panelID: created.panelID, in: created.workspaceID) }
         } catch {
             session.stop()
             throw error

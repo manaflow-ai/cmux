@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -51,7 +52,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
 final class DeviceLink {
     typealias Phase = DeviceLinkReconnectPolicy.Phase
 
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated"]
+    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceWorkspaceLayoutHost.eventTopic]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
@@ -67,6 +68,7 @@ final class DeviceLink {
     let clientID = "mac-" + UUID().uuidString.lowercased()
     /// Fires after any change a provider should publish (phase, mirror, record).
     var onChange: (@MainActor () -> Void)?
+    var onLayoutChange: (@MainActor (DeviceWorkspaceLayoutSnapshot) -> Void)?
 
     private let runtime: DeviceLinkRuntime
     private let authorization: any DeviceLinkAuthorizationSource
@@ -425,6 +427,11 @@ final class DeviceLink {
 
     private func handle(_ envelope: MobileEventEnvelope) {
         switch envelope.topic {
+        case DeviceWorkspaceLayoutHost.eventTopic:
+            guard let payload = envelope.payloadJSON,
+                  let snapshot = try? JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: payload),
+                  (try? snapshot.layout.validatedSurfaceIDs()) != nil else { return }
+            onLayoutChange?(snapshot)
         case "mobile.sync.delta":
             applyDelta(envelope.payloadJSON)
         case "terminal.bytes", "terminal.updated":

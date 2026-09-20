@@ -32,6 +32,7 @@ extension CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         name: String?,
         focus: Bool,
+        host: SurfaceCatalog.NewWorkspaceHost? = nil,
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
@@ -69,7 +70,7 @@ extension CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .appOptimistic
+            host: host ?? .appOptimistic
         )
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,

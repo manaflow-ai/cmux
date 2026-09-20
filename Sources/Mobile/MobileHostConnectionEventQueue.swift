@@ -37,6 +37,9 @@ enum MobileHostEventTopicPolicy {
             // Simulator frames are whole-screen snapshots; a later frame fully
             // supersedes an earlier one for the same panel.
             return coalesceKey != nil
+        case DeviceWorkspaceLayoutHost.eventTopic:
+            // Each Mac layout event is a complete, workspace-scoped snapshot.
+            return coalesceKey != nil
         case "terminal.bytes", "terminal.updated", "workspace.updated":
             return true
         default:

@@ -43,7 +43,7 @@ extension DeviceWorkspaceProjection {
         return translate(layout, placements: placements)
     }
 
-    private func translate(_ node: DeviceWorkspaceLayoutNode, placements: [String: SurfaceResourcePlacement]) -> SurfaceProjectionLayout? {
+    func translate(_ node: DeviceWorkspaceLayoutNode, placements: [String: SurfaceResourcePlacement]) -> SurfaceProjectionLayout? {
         switch node {
         case .pane(_, let surfaces, _):
             let members = surfaces.compactMap { placements[$0] }
@@ -55,7 +55,7 @@ extension DeviceWorkspaceProjection {
             case (let first?, let second?):
                 return .split(
                     direction: direction == .horizontal ? .right : .down,
-                    ratio: CloudWorkspaceLayoutTranslator.clampedRatio(ratio),
+                    ratio: ratio,
                     first: first, second: second
                 )
             case (let first?, nil): return first

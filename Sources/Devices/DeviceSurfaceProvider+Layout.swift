@@ -11,8 +11,13 @@ extension DeviceSurfaceProvider: SurfaceProjectionLayoutProviding {
         guard snapshot.workspaceID == workspaceID else {
             throw DeviceLinkError.malformedResponse("device.workspace.layout")
         }
-        workspaceLayouts[workspaceID] = snapshot.layout
+        layoutSync.accept(snapshot)
         publish()
         return DeviceWorkspaceProjection(machine: machine, isLive: true).projectionLayout(record, layout: snapshot.layout)
     }
+}
+
+extension DeviceSurfaceProvider: SurfaceProjectionMutationObserving {
+    func beginProjectionMutation(_ token: UUID) { layoutSync.beginMutation(token) }
+    func endProjectionMutation(_ token: UUID) { layoutSync.endMutation(token) }
 }

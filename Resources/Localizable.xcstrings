@@ -532063,6 +532063,65 @@
           }
         }
       }
+    },
+    "devices.layoutSyncFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The layout change could not be saved on the other Mac. Try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Layoutänderung konnte auf dem anderen Mac nicht gespeichert werden. Versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La modification de la disposition n’a pas pu être enregistrée sur l’autre Mac. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر حفظ تغيير التخطيط على جهاز Mac الآخر. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar el cambio de disposición en el otro Mac. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在另一部 Mac 上儲存版面配置變更。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在另一台 Mac 上保存布局更改。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에 레이아웃 변경 사항을 저장하지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方のMacにレイアウトの変更を保存できませんでした。もう一度お試しください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

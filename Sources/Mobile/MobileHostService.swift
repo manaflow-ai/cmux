@@ -594,6 +594,8 @@ final class MobileHostService {
             return payload["surface_id"] as? String
         case MobileHostEventTopicPolicy.simulatorFrameTopic:
             return payload["panel_id"] as? String
+        case DeviceWorkspaceLayoutHost.eventTopic:
+            return payload["workspace_id"] as? String
         default:
             return nil
         }
