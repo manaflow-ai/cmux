@@ -17,7 +17,16 @@ function fixture(cliFails = false) {
     fs: { writeTextFile: async () => {}, remove: async () => {} },
     delete: async () => { deleted.push(vmId); },
   };
-  const client = { vms: { create: async () => ({ vm, vmId, data }), get: async () => data } } as unknown as Freestyle;
+  const client = {
+    vms: {
+      create: async () => ({ vm, vmId, data }),
+      get: async () => data,
+      ref: (id: string) => {
+        if (id !== vmId) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
+    },
+  } as unknown as Freestyle;
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("No daemon install expected"); } });
   return { provider, deleted, commands };
 }

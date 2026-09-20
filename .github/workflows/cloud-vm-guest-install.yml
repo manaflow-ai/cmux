@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   guest-install:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
       run:
