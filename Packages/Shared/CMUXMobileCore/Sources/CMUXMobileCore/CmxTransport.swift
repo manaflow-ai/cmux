@@ -422,6 +422,24 @@ public protocol CmxByteTransportContinuityIdentifying: CmxByteTransport {
     func transportContinuityID() async -> UInt64?
 }
 
+/// An immutable observation of one native connection. The process-local
+/// identity must never be persisted; only the redacted path kind may be reported.
+public struct CmxTransportConnectionObservation: Equatable, Sendable {
+    public let continuityID: UInt64
+    public let pathKind: DiagnosticPathKind
+
+    public init(continuityID: UInt64, pathKind: DiagnosticPathKind) {
+        self.continuityID = continuityID
+        self.pathKind = pathKind
+    }
+}
+
+/// Reads identity and path from the exact installed transport, without dialing
+/// or consulting a separately maintained Settings snapshot.
+public protocol CmxByteTransportConnectionInspecting: CmxByteTransport {
+    func transportConnectionObservation() async -> CmxTransportConnectionObservation?
+}
+
 /// Optional privacy-safe link from a byte dial to the admitted transport
 /// session that backs it. The value is process-local and never leaves the
 /// diagnostic ring.
