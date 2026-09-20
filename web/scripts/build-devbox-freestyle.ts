@@ -100,7 +100,6 @@ import {
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
-  devboxCoderouterVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -321,16 +320,6 @@ try {
     // its HOME leaves root-owned state dirs behind that break
     // ble.sh for every later login.
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
-  );
-
-  // The unified cmux-tui front door delegates CodeRouter to the official
-  // native binary from the exact npm release. Keep it outside PATH because
-  // /usr/local/bin/coderouter and /usr/local/bin/cr are reserved for the Rust
-  // front door symlinks installed with cmux-tui.
-  const coderouterVersion = devboxCoderouterVersion();
-  await step(
-    "coderouter",
-    `rm -rf /opt/coderouter && npm install --prefix /opt/coderouter --ignore-scripts --omit=dev coderouter@${coderouterVersion} && install -d -m 0755 /usr/local/libexec && install -m 0755 /opt/coderouter/node_modules/coderouter/vendor/linux-x64/coderouter /usr/local/libexec/cmux-coderouter && /usr/local/libexec/cmux-coderouter --version && mkdir -p /etc/cmux && printf 'coderouter %s\\n' '${coderouterVersion}' >> /etc/cmux/tool-versions && echo coderouter-pinned`,
   );
 
   // Claude Code machine policy. The first-run answers themselves are seeded

@@ -45,8 +45,7 @@ export type CodeRouterRequestContext = {
 export type CodeRouterControlContext = {
   readonly user: Pick<AuthedUser, "id">;
   readonly team: CodeRouterRequestContext["team"];
-  /** Optional for older route-test fakes; production resolvers always set it. */
-  readonly access?: CoderouterAccountAccess;
+  readonly access: CoderouterAccountAccess;
 };
 
 export async function resolveCoderouterControlContext(
