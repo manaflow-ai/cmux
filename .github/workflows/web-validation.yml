@@ -5,8 +5,9 @@ on:
   # The changes job owns routing; no separate fallback may report success.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # The merge queue waits for this required status on the merge group commit.
-  # The router has no diff for this event, so the full validation runs.
+  # Both web-validation and ci-status are required. CI owns tests and database
+  # checks on PRs/merge groups, where its Linux preflight gates the Mac workers.
+  # This workflow owns the production build and runs all checks standalone.
   merge_group:
   push:
     branches: [main]
@@ -73,7 +74,7 @@ jobs:
   tests:
     name: web-tests
     needs: changes
-    if: needs.changes.outputs.required == 'true'
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     defaults:
@@ -95,7 +96,7 @@ jobs:
   database:
     name: web-database-tests
     needs: changes
-    if: needs.changes.outputs.required == 'true'
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
