@@ -37,7 +37,7 @@ extension TerminalController {
                 resource.id,
                 into: destination,
                 focus: focus,
-                reuseExisting: false,
+                reuseExisting: loadingReservation != nil,
                 remoteView: remoteView,
                 loadingReservation: resolvedLoadingReservation
             )
