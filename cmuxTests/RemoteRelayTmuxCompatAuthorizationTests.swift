@@ -24,7 +24,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
         let manager = try #require(fixture.appDelegate.tabManager)
-        let unrelated = manager.addWorkspace(title: "PRIVATE LOCAL WORKSPACE", select: true)
+        let unrelated = try #require(manager.addWorkspaceIfActive(title: "PRIVATE LOCAL WORKSPACE", select: true))
         defer { _ = manager.closeWorkspaceNonInteractively(unrelated) }
         let admitted = try fixture.authorize(method: "workspace.list", params: [:])
         try #require(admitted.errorResponse == nil)
