@@ -2353,7 +2353,7 @@ extension Workspace {
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
-        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+        if let title = snapshot.automaticTitleForRestore?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
 
@@ -4025,12 +4025,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
-        self.processTitle = title
-        self.title = title
+        let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
+        self.processTitle = admittedAutomaticTitle
+        self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
-
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
         let initialDirectory = hasWorkingDirectory
@@ -4183,7 +4183,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
-                title: title,
+                title: admittedAutomaticTitle,
                 icon: "terminal.fill",
                 kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,

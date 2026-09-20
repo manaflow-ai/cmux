@@ -35,8 +35,6 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - depot-macos-latest
-          - depot-macos-14
           - tart-canary
           - tart-dual
           - tart-small
@@ -51,28 +49,8 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
-      SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
-      - name: Validate Depot runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
-            depot-*)
-              echo "Resolved runner matches depot-*? yes"
-              ;;
-            *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
-              exit 1
-              ;;
-          esac
-
       - name: Validate Tart canary identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
         env:
@@ -414,7 +392,6 @@ jobs:
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
             "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-$PWD}"
-            "SWIFTPM_MIRROR_CONFIG=${SWIFTPM_MIRROR_CONFIG:-}"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
