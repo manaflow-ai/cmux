@@ -16,11 +16,12 @@ class MachineSocket:
     workspace = "11111111-1111-4111-8111-111111111111"
     machine = "vm-create-adoption"
 
-    def __init__(self, fail_at=None):
+    def __init__(self, fail_at=None, bound_workspace=None):
         self.fail_at = fail_at
         self.requests = []
         self.errors = []
         self.stopping = threading.Event()
+        self.bound_workspace = bound_workspace
 
     def __enter__(self):
         self.root = tempfile.TemporaryDirectory(prefix="cmux-adopt-", dir="/tmp")
@@ -42,6 +43,8 @@ class MachineSocket:
                         request = json.loads(line)
                         self.requests.append(request)
                         method = request["method"]
+                        if method == "workspace.cloud_vm_bind":
+                            self.bound_workspace = request["params"].get("remote_workspace_id", self.bound_workspace)
                         result = self.response(method)
                         response = {"id": request["id"], "ok": method != self.fail_at, "result": result}
                         if method == self.fail_at:
@@ -59,12 +62,16 @@ class MachineSocket:
             return {"route": "ws://10.0.0.1:1337/v1/link", "session": "cloud", "trusted_carrier": True}
         if method == "surface.catalog":
             return {"machines": [{"id": self.machine, "name": "brave-sapphire-lobster", "link_state": "connected",
-                                  "remote_workspaces": [{"id": "ws-first", "name": "workspace-1", "focused": True}]}],
+                                  "remote_workspaces": [{"id": "ws-first", "name": "workspace-1", "focused": False},
+                                                        {"id": "ws-later", "name": "workspace-2", "focused": True}]
+                                  if self.bound_workspace else [{"id": "ws-first", "name": "workspace-1", "focused": True}]}],
                     "resources": [{"id": self.machine + "/terminal/term-first", "machine": self.machine,
                                    "key": "term-first", "kind": "terminal", "lifecycle": "running",
                                    "remote_views": [{"workspace": {"id": "ws-first"}, "tab_id": "tab-first", "focused": True}]}]}
         if method == "surface.project":
             return {"workspace_id": self.workspace, "surface_id": "22222222-2222-4222-8222-222222222222"}
+        if method == "workspace.cloud_vm_bind":
+            return {"workspace_id": self.workspace, "remote_workspace_id": self.bound_workspace}
         if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.current", "workspace.select"}:
             return {"workspace_id": self.workspace}
         raise AssertionError("Unexpected mutation: " + method)
@@ -101,6 +108,14 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual([r["method"] for r in server.requests], ["vm.create"])
 
+    def test_retry_honors_the_first_workspace_binding(self):
+        with MachineSocket(bound_workspace="ws-first") as server:
+            result = self.run_open(server, "open")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            project = next(r["params"] for r in server.requests if r["method"] == "surface.project")
+            self.assertEqual(project["remote_workspace_id"], "ws-first")
+            self.assertEqual(project["resource"], server.machine + "/terminal/term-first")
+
     def test_create_and_retry_preserve_the_reserved_workspace_and_first_terminal(self):
         for verb in ["new", "open"]:
             with self.subTest(verb=verb), MachineSocket() as server:
@@ -119,6 +134,9 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
                 self.assertIs(project["focus"], False)
                 self.assertIs(project["reuse"], True)
                 self.assertIs(project["reuse_in_workspace"], True)
+                before_project = server.requests[:methods.index("surface.project")]
+                self.assertTrue(any(r["method"] == "workspace.cloud_vm_bind" and
+                                    r["params"].get("remote_workspace_id") == "ws-first" for r in before_project))
                 self.assertIn("OK workspace=" + server.workspace, result.stdout)
 
     def test_failures_leave_the_owning_card_for_retry(self):

@@ -19,6 +19,18 @@ extension CMUXCLI.VMTuiOpenOptions {
 }
 
 extension CMUXCLI {
+    /// Retain the exact first workspace before attachment can fail. The next
+    /// open reuses this binding even when another workspace gained daemon focus.
+    func bindVMTuiInitialWorkspace(
+        _ workspaceID: String, machine: String, remoteWorkspaceID: String,
+        base: Bool, client: SocketClient
+    ) throws {
+        _ = try client.sendV2(method: "workspace.cloud_vm_bind", params: Self.cloudWorkspaceBindingParameters(
+            workspaceID: workspaceID, vmID: machine, base: base,
+            remoteWorkspaceID: remoteWorkspaceID, generatedTitle: nil
+        ))
+    }
+
     /// Plain Cloud opens leave a creating card intact until its real terminal
     /// adopts it. Only the full TUI client needs a local command process.
     func prepareVMTuiTargetWorkspace(

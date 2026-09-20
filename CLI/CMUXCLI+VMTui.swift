@@ -422,13 +422,15 @@ extension CMUXCLI {
             terminalSurfaceId = created["surface_id"] as? String
             didCreateWorkspace = true
         }
+        var boundRemoteWorkspaceID: String?
         do {
             // The binding is how the app finds this machine's workspace again (Machines
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
-            _ = try client.sendV2(
+            let binding = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
                 params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )
+            boundRemoteWorkspaceID = binding["remote_workspace_id"] as? String
             if options.pinAsBase {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
             }
@@ -447,9 +449,12 @@ extension CMUXCLI {
             let terminalStartedAt = Date()
             do {
                 let opened: [String: Any]
-                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog ?? [:]) {
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog ?? [:], workspaceID: boundRemoteWorkspaceID) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
                     let reusesTarget = requestedTarget?.isEmpty == false
+                    if reusesTarget, boundRemoteWorkspaceID == nil {
+                        try bindVMTuiInitialWorkspace(workspaceId, machine: vmId, remoteWorkspaceID: remoteWorkspaceID, base: options.pinAsBase, client: client)
+                    }
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": reusesTarget, "reuse_in_workspace": reusesTarget]
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
