@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
@@ -14,6 +17,9 @@ on:
     branches: [main]
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
@@ -43,3 +49,6 @@ jobs:
 
       - name: Exercise browser skill regression guard
         run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise settings skill path validation
+        run: python3 tests/test_cmux_settings_supported_paths.py
