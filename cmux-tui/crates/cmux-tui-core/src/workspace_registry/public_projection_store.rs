@@ -67,7 +67,9 @@ impl RegistryAgentProjection {
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
         });
-        if let Some(agent) = self.agent { value["extra"] = json!({"agent": agent}); }
+        if let Some(agent) = self.agent {
+            value["extra"] = json!({"agent": agent});
+        }
         value
     }
 }
@@ -324,6 +326,7 @@ impl WorkspaceRegistry {
             );
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
+            let _ = stored.extra;
             notifications.push(RegistryNotificationProjection {
                 id: stored.id,
                 title: stored.title,
@@ -421,7 +424,12 @@ impl WorkspaceRegistry {
                 stored.terminal_id
             );
             agents.push(RegistryAgentProjection {
-                agent: stored.extra.as_ref().and_then(|extra| extra.get("agent")).and_then(Value::as_str).map(str::to_string),
+                agent: stored
+                    .extra
+                    .as_ref()
+                    .and_then(|extra| extra.get("agent"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 id: stored.id,
                 terminal_id: stored.terminal_id,
                 state: stored.state.as_str().to_string(),

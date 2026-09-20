@@ -1412,12 +1412,14 @@ mod tests {
         // with an exact captured argv rather than requiring Codex in CI.
         let result = process_command_name(b"node\0/usr/local/bin/codex\0--yolo\0");
         assert_eq!(result.as_deref(), Some("/usr/local/bin/codex"));
-        assert_eq!(process_command_name(b"node\0--require\0codex\0/app/server.js\0").as_deref(), Some("/app/server.js"));
+        assert_eq!(
+            process_command_name(b"node\0--require\0codex\0/app/server.js\0").as_deref(),
+            Some("/app/server.js")
+        );
         assert_eq!(process_command_name(b"node\0-e\0codex\0").as_deref(), Some("node"));
         assert_eq!(process_command_name(b"bash\0codex\0").as_deref(), Some("bash"));
         assert_eq!(process_command_name(b"pi\0").as_deref(), Some("pi"));
     }
-
 
     #[cfg(windows)]
     use std::ffi::OsString;

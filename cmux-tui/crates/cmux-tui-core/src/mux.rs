@@ -5918,7 +5918,13 @@ impl Mux {
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
         let identity = (emission.state != AgentState::Done).then(|| emission.agent.clone());
         let _ = self.report_agent_with_sequence_lock(
-            surface, emission.state, AgentSource::Detected, None, false, None, Some(identity),
+            surface,
+            emission.state,
+            AgentSource::Detected,
+            None,
+            false,
+            None,
+            Some(identity),
         );
     }
 
@@ -9936,7 +9942,9 @@ impl Mux {
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             _ => TerminalAgentRecord {
-                agent: provider_update.unwrap_or_else(|| records.get(&terminal_id).and_then(|record| record.agent.clone())),
+                agent: provider_update.unwrap_or_else(|| {
+                    records.get(&terminal_id).and_then(|record| record.agent.clone())
+                }),
                 state: agent_state,
                 source,
                 session: source_session,
@@ -9963,7 +9971,9 @@ impl Mux {
             "source_session":persisted_source_session.or(record.session.clone()),
         });
         let mut value = value;
-        if let Some(provider) = &record.agent { value["extra"] = serde_json::json!({"agent": provider}); }
+        if let Some(provider) = &record.agent {
+            value["extra"] = serde_json::json!({"agent": provider});
+        }
         let mut public_value = value.clone();
         public_value["source_session"] = serde_json::json!(record.session);
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
@@ -18974,16 +18984,23 @@ mod tests {
         crate::resource_router::validate_operation_outcome(
             ResourceOperation::SessionSnapshot,
             Ok(snapshot.clone()),
-        ).expect("detected agent identity is part of the public schema");
+        )
+        .expect("detected agent identity is part of the public schema");
         let agent = &snapshot["agents"][0];
         assert_eq!(agent["extra"]["agent"], "codex");
         let batches = mux.resource_events_after(before).unwrap().batches;
-        let delta = batches.iter().flat_map(|batch| batch.changes.as_array().unwrap())
-            .find(|change| change["resource"] == "agent").unwrap();
+        let delta = batches
+            .iter()
+            .flat_map(|batch| batch.changes.as_array().unwrap())
+            .find(|change| change["resource"] == "agent")
+            .unwrap();
         assert_eq!(&delta["value"], agent, "incremental clients see the same identity");
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).unwrap();
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
-        assert_eq!(snapshot["agents"][0]["extra"]["agent"], "codex", "hooks preserve provider identity");
+        assert_eq!(
+            snapshot["agents"][0]["extra"]["agent"], "codex",
+            "hooks preserve provider identity"
+        );
     }
 
     #[test]
