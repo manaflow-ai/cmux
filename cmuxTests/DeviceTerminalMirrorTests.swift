@@ -18,6 +18,26 @@ import Testing
 struct DeviceTerminalMirrorTests {
     private let surfaceID = UUID()
 
+    @Test func deviceNoticeDismissesWithoutClosingAndResetsAfterRecovery() {
+        var retries = 0
+        let status = DeviceTerminalAttachmentStatus()
+        status.onRetry = { retries += 1 }
+        status.update(connected: false, connecting: false)
+        #expect(status.presentation?.showsReconnectButton == true)
+        status.dismiss()
+        #expect(status.presentation == nil)
+        status.update(connected: false, connecting: true)
+        status.update(connected: false, connecting: false)
+        #expect(status.presentation == nil, "Background retries cannot resurrect a dismissed notice")
+        status.retry()
+        #expect(retries == 1)
+        #expect(status.presentation != nil)
+        status.update(connected: true, connecting: false)
+        #expect(status.presentation == nil)
+        status.update(connected: false, connecting: false)
+        #expect(status.presentation != nil, "A later disconnection gets its own notice")
+    }
+
     private func envelope(_ topic: String, _ object: [String: Any]) throws -> MobileEventEnvelope {
         MobileEventEnvelope(topic: topic, payloadJSON: try JSONSerialization.data(withJSONObject: object), streamID: nil)
     }

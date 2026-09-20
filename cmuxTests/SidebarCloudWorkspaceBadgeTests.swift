@@ -7,6 +7,24 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()), showsAgentActivity: false)
+        let before = factory.makeSnapshot()
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Studio Mac"]
+        )
+        let snapshot = factory.makeSnapshot()
+        #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+        #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("Studio Mac") == true)
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        let shown = SidebarWorkspaceSnapshotRefreshPolicy().decision(current: before, next: snapshot, force: false, contextMenuVisible: true)
+        #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)

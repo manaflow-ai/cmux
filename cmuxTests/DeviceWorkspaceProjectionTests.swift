@@ -51,6 +51,7 @@ struct DeviceWorkspaceProjectionTests {
                 first: .pane(id: "top", surfaceIDs: ["t3"], selectedSurfaceID: "t3"),
                 second: .pane(id: "bottom", surfaceIDs: ["t4"], selectedSurfaceID: "t4")))
         let resources = projection.resources([workspace], layouts: [workspace.id: nativeLayout])
+        #expect(resources.map { $0.remoteViews?.first?.name } == ["first", "selected", "top", "bottom"])
         #expect(resources.map { $0.remoteViews?.first?.paneID } == ["left", "left", "top", "bottom"])
         #expect(resources.map { $0.remoteViews?.first?.paneIndex } == [0, 0, 1, 2])
         #expect(resources.map { $0.remoteViews?.first?.focused } == [false, true, true, true])
