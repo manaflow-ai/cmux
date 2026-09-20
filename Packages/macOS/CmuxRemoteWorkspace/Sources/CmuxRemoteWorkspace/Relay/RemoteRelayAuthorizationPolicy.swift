@@ -285,6 +285,15 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         let message: String
     }
 
+    /// Malformed selectors keep their scope code regardless of their JSON type.
+    private func invalidSelector(_ key: String) -> SelectorFailure {
+        SelectorFailure(
+            code: Self.workspaceSelectorKeys.contains(key)
+                ? "remote_relay_workspace_denied" : "remote_relay_surface_denied",
+            message: "Relay selector is invalid"
+        )
+    }
+
     private func containsTopLevelSelector(
         _ parameters: [String: Any],
         keys: Set<String>
@@ -315,8 +324,8 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
         if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
-           !(value is NSNull), !(value is String) {
-            return SelectorFailure(code: "remote_relay_surface_denied", message: "Relay selector is invalid")
+           !(value is String) {
+            return invalidSelector(key)
         }
         if let dictionary = value as? [String: Any] {
             for (childKey, childValue) in dictionary {
@@ -357,15 +366,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
               Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key) else {
             return nil
         }
-        if value is NSNull { return nil }
         guard let raw = value as? String,
               let id = UUID(uuidString: raw) else {
-            return SelectorFailure(
-                code: key.contains("workspace") || key == "tab_id"
-                    ? "remote_relay_workspace_denied"
-                    : "remote_relay_surface_denied",
-                message: "Relay selector is invalid"
-            )
+            return invalidSelector(key)
         }
         if Self.workspaceSelectorKeys.contains(key), id != ownerWorkspaceID {
             return SelectorFailure(

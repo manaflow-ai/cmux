@@ -7,6 +7,41 @@ struct RemoteCLIRelayPolicyTests {
     private let tokenHex = "00112233445566778899aabbccddeeff"
     private let relayID = "relay-policy"
 
+    @Test("core discovery uses canonical RPC names and the authenticated relay", arguments: [
+        "system.ping", "system.capabilities", "workspace.list"
+    ])
+    func forwardsCoreDiscovery(method: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                tokenHex: tokenHex, commandLine: "{\"id\":\"core\",\"method\":\"\(method)\",\"params\":{}}")
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+        }
+    }
+
+    @Test("unsupported core aliases and malformed discovery never reach the Mac")
+    func deniesUnsafeCoreDiscovery() throws {
+        try withServer { port, unixServer in
+            for request in [
+                #"{"method":"ping","params":{}}"#,
+                #"{"method":"capabilities","params":{}}"#,
+                #"{"method":"workspace.list.extra","params":{}}"#,
+                #"{"method":"workspace.list","params":{"window_id":"window:1"}}"#,
+                #"{"method":"workspace.list","params":{"workspace_id":null}}"#,
+                #"{"method":"workspace.list","params":{"workspace_ids":[]}}"#,
+                #"{"method":"workspace.list","params":{"metadata":[{"command":"id"}]}}"#,
+                #"{"method":"workspace.list","params":[]}"#,
+                #"{"method":"workspace.list","params":"invalid"}"#,
+                #"{"method":"workspace.list""#,
+                "list_workspaces"
+            ] {
+                let exchange = try runPolicyRelayExchange(port: port, relayID: relayID,
+                    tokenHex: tokenHex, commandLine: request)
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     private func withServer(
         workspaceAliases: [UUID: UUID] = [:],
         surfaceAliases: [UUID: UUID] = [:],
