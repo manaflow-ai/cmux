@@ -297,15 +297,18 @@ struct CloudReadRequestCoordinatorTests {
         }
         #expect(store.retainedCount == 9)
         for index in 0..<1000 {
-            let cached = try #require(store.response(for: key("vm-\(index)"), now: 59))
+            let cachedResponse = store.response(for: key("vm-\(index)"), now: 59)
+            let cached = try #require(cachedResponse)
             #expect(cached.http.statusCode == 429)
             #expect(cached.data == Data(#"{"error":"rate_limited"}"#.utf8))
             #expect(cached.http.allHeaderFields.isEmpty)
         }
         // Overflow deliberately delays unknown paths in this session rather
         // than forgetting an evicted path's minimum and retrying too early.
-        #expect(store.response(for: key("unseen"), now: 59)?.http.statusCode == 429)
-        #expect(store.response(for: key("vm-999"), now: 60) == nil)
+        let overflowResponse = store.response(for: key("unseen"), now: 59)
+        #expect(overflowResponse?.http.statusCode == 429)
+        let expiredResponse = store.response(for: key("vm-999"), now: 60)
+        #expect(expiredResponse == nil)
         #expect(store.retainedCount == 0)
     }
 
@@ -316,9 +319,11 @@ struct CloudReadRequestCoordinatorTests {
         store.record(key("first"), until: 10, now: 0, response: response(429))
         store.record(key("second"), until: 100, now: 0, response: response(429))
         store.record(key("third"), until: 20, now: 0, response: response(429))
-        #expect(store.response(for: key("second"), now: 99)?.http.statusCode == 429)
+        let throttledResponse = store.response(for: key("second"), now: 99)
+        #expect(throttledResponse?.http.statusCode == 429)
         #expect(store.retainedCount == 1)
-        #expect(store.response(for: key("second"), now: 100) == nil)
+        let expiredResponse = store.response(for: key("second"), now: 100)
+        #expect(expiredResponse == nil)
     }
 
     @Test("Session replacement discards old cooldowns and late completions cannot revive them")
@@ -334,13 +339,16 @@ struct CloudReadRequestCoordinatorTests {
         let current = key(account: "account-1000", generation: 1000)
         store.activateSession(for: old)
         store.record(old, until: .infinity, now: 0, response: response(429))
-        #expect(store.response(for: old, now: 0) == nil)
-        #expect(store.response(for: current, now: 0)?.http.statusCode == 429)
+        let oldResponse = store.response(for: old, now: 0)
+        #expect(oldResponse == nil)
+        let currentResponse = store.response(for: current, now: 0)
+        #expect(currentResponse?.http.statusCode == 429)
         #expect(store.retainedCount == 1)
         let replacement = key(account: "replacement", generation: 1001)
         store.activateSession(for: replacement)
         store.record(current, until: .infinity, now: 0, response: response(429))
-        #expect(store.response(for: replacement, now: 0) == nil)
+        let replacementResponse = store.response(for: replacement, now: 0)
+        #expect(replacementResponse == nil)
         #expect(store.retainedCount == 0)
     }
 
