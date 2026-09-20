@@ -27,6 +27,6 @@ extension Workspace {
 
     private func deviceLayoutPanelID(_ tabID: String) -> String? {
         guard let id = UUID(uuidString: tabID) else { return nil }
-        return panelIdFromSurfaceId(TabID(id: id))?.uuidString
+        return panelIdFromSurfaceId(TabID(uuid: id))?.uuidString
     }
 }
