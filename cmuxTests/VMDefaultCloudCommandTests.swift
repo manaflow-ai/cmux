@@ -206,7 +206,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["HOME"] = homeURL.path
         environment["CFFIXED_USER_HOME"] = homeURL.path
-        // The ready line is localized; the assertion reads its English form.
         environment["AppleLanguages"] = "(en)"
 
         let result = runProcess(
@@ -230,6 +229,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(devices[vmID]?["deviceFingerprint"] as? String, "carrier", "vm new records the trusted-carrier marker")
         let requests = state.commands.compactMap { self.jsonObject($0) }
         let methods = requests.compactMap { $0["method"] as? String }
+        XCTAssertFalse(methods.contains("vm.status"), "cmux_remote_info must not issue a redundant status read")
         XCTAssertEqual(methods.filter { $0 == "workspace.create" }.count, 1)
         XCTAssertEqual(methods.filter { $0 == "surface.project" }.count, 1)
         XCTAssertFalse(methods.contains("surface.new_terminal"), "Opening a new machine must reuse its seeded terminal")
