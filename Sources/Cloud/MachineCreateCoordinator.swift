@@ -29,7 +29,7 @@ final class MachineCreateCoordinator {
     static let shared = MachineCreateCoordinator(
         notifier: MachineCreateNotifier().post,
         selectWorkspace: { workspaceID, request in
-            Self.selectCreatedWorkspace(workspaceID, for: request)
+            MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
         },
         cancelCreatedMachine: { CloudVMActionLauncher.shared.destroyMachineBestEffort($0) },
         cancelOperation: { operation in
