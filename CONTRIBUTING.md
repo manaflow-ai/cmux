@@ -1,5 +1,9 @@
 # Contributing to cmux
 
+Start with the [verification ladder](docs/contributor-verification.md) to choose the
+smallest useful check for your change. It includes a local path that does not require
+maintainer runner access or shared backend credentials.
+
 ## Prerequisites
 
 These prerequisites are for native app development. For documentation or portable
@@ -135,15 +139,13 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 
 ## Running Tests
 
-Choose the checks that establish your change's behavior using the
-[validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
-Portable contributor tooling needs its focused tests; Swift app/test changes need
-native compilation and execution; UI/socket changes need the correct tagged app.
-A static preflight pass is not a substitute for those checks.
+Use the [contributor verification ladder](docs/contributor-verification.md): source checks,
+focused package tests, app and test compilation, then isolated socket/UI checks and
+physical dogfood where the change needs them. Record which layers actually ran in
+your PR; a successful parse or build does not mean tests executed.
 
-The guide links the existing test commands and explains build-only versus
-executed-test evidence. Follow [current build routing](AGENTS.md) for native
-capacity; do not revive old SSH/VM recipes or launch an untagged app.
+The guide covers local contributors first. Maintainer-only focused CI dispatch and
+fleet access are optional paths, not prerequisites for contributing.
 
 ## Ghostty Submodule
 
