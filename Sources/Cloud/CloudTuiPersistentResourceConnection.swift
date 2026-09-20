@@ -1,6 +1,11 @@
 import CoreFoundation
 import Foundation
 
+enum CloudTuiSendError: Error {
+    case notSent(Error)
+    case ambiguous(Error)
+}
+
 /// One machine-owned control connection. Only this actor owns request IDs,
 /// continuations, deadlines and event subscriptions. Never retries a mutation:
 /// a caller retains its idempotency key when an outcome is uncertain.
