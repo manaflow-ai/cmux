@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 /// Durable, bounded owner and settlement state for Codex hooks.
 ///
