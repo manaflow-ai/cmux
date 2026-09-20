@@ -328,4 +328,8 @@ private actor RecordingUntrackedSender: CloudTuiUntrackedCommandSending {
     func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
         requests.append(arguments)
     }
+
+    func sendTuiCommandAndAwaitAck(arguments: CloudTuiRequest) async throws {
+        requests.append(arguments)
+    }
 }

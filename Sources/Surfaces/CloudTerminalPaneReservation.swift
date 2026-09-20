@@ -25,6 +25,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteEpoch: UInt64 = 0
         var requestedRouter: CloudTuiManualIOInputRouter?
         var remoteBindingPending = false
+        var remoteRebind: (@Sendable () async -> Bool)?
+        var remoteRebindInFlight = false
         var discarded = false
     }
 
@@ -51,6 +53,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 startRemoteWorkerLocked(&state)
             } else {
                 state.pending.append(input)
+                startRemoteRebindLocked(&state)
             }
             return nil
         }
@@ -66,6 +69,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         }
     }
 
+    /// Stores the reconnect operation used after an acknowledged remote send
+    /// fails. The retry is triggered by a later input, attach, or worker failure.
+    func setRemoteRebinder(_ rebinder: @escaping @Sendable () async -> Bool) {
+        state.withLock { state in
+            state.remoteRebind = rebinder
+        }
+    }
+
     /// Ends a binding attempt before any remote input was handed to the PTY.
     /// The native mirror is the safe fallback for this pre-send failure.
     func remoteBindingFailed() {
@@ -73,6 +84,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             guard !state.discarded else { return }
             state.remoteBindingPending = false
             state.remoteSink = nil
+            state.remoteRebindInFlight = false
             promoteRequestedRouterIfReadyLocked(&state)
         }
     }
@@ -86,6 +98,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         state.withLock { state in
             guard !state.discarded, state.router == nil else { return false }
             state.remoteBindingPending = false
+            state.remoteRebindInFlight = false
             if let existing = state.remoteSink, existing.terminalID == terminalID {
                 promoteRequestedRouterIfReadyLocked(&state)
                 return true
@@ -124,6 +137,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteWorker?.cancel()
             state.remoteWorker = nil
             state.remoteInFlight = false
+            state.remoteRebind = nil
+            state.remoteRebindInFlight = false
             state.router = nil
             state.discarded = true
         }
@@ -142,7 +157,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                         self.remoteInputFinished(epoch: epoch)
                         continue
                     }
-                    try await sink.sender.sendUntrackedTuiCommand(arguments: request)
+                    try await sink.sender.sendTuiCommandAndAwaitAck(arguments: request)
                     self.remoteInputFinished(epoch: epoch)
                 } catch {
                     self.remoteInputFailed(epoch: epoch, input: item)
@@ -150,6 +165,24 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 }
             }
             self?.remoteWorkerFinished(epoch: epoch)
+        }
+    }
+
+    private func startRemoteRebindLocked(_ state: inout State) {
+        guard state.remoteBindingPending,
+              !state.remoteRebindInFlight,
+              let rebinder = state.remoteRebind else { return }
+        state.remoteRebindInFlight = true
+        Task { [weak self] in
+            let bound = await rebinder()
+            self?.remoteRebindFinished(bound)
+        }
+    }
+
+    private func remoteRebindFinished(_ bound: Bool) {
+        state.withLock { state in
+            state.remoteRebindInFlight = false
+            if !bound { state.remoteBindingPending = true }
         }
     }
 
@@ -201,6 +234,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteSink = nil
             state.remoteBindingPending = true
             state.remoteInFlight = false
+            startRemoteRebindLocked(&state)
         }
     }
 
@@ -210,6 +244,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteWorker = nil
             state.remoteInFlight = false
             startRemoteWorkerLocked(&state)
+            startRemoteRebindLocked(&state)
             promoteRequestedRouterIfReadyLocked(&state)
         }
     }

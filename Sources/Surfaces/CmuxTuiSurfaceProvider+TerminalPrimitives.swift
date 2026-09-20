@@ -9,6 +9,10 @@ extension CmuxTuiSurfaceProvider {
         _ relay: CloudOptimisticInputRelay,
         terminalID: String
     ) async -> Bool {
+        relay.setRemoteRebinder { [weak self, relay] in
+            guard let self else { return false }
+            return await self.bindOptimisticTerminalInput(relay, terminalID: terminalID)
+        }
         relay.beginRemoteBinding()
         do {
             _ = try await links.connected(machineID: machineID)
