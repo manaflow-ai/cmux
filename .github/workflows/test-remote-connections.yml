@@ -5,8 +5,9 @@ on:
     paths:
       - "Packages/Shared/CmuxRemoteConnections/**"
       - "ios/RemoteConnectionsTests/**"
-      - "ios/RemoteConnectionsTests/project.yml"
       - "scripts/test-remote-connections-ios.sh"
+      - "scripts/verify-remote-native-tests.py"
+      - "tests/test_remote_native_results.py"
       - ".github/workflows/test-remote-connections.yml"
   workflow_dispatch:
 
@@ -32,6 +33,8 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Test macOS package behavior
         run: swift test --package-path Packages/Shared/CmuxRemoteConnections
+      - name: Test native result verification
+        run: python3 -m unittest discover -s tests -p test_remote_native_results.py
       - name: Test iOS package and native Keychain
         run: /bin/bash scripts/test-remote-connections-ios.sh
       - name: Upload exact-source test evidence

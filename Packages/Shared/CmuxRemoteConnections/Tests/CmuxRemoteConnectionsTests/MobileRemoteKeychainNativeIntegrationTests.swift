@@ -60,25 +60,12 @@ import Testing
     }
 
     private func signedAccessGroup() -> String? {
-        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
-        if let groups = SecTaskCopyValueForEntitlement(
-            task, "keychain-access-groups" as CFString, nil
-        ) as? [String],
-           let group = groups.first,
-           !group.isEmpty,
-           !group.contains("*") {
-            return group
-        }
-        // Every signed app receives this exact namespace. It is a signed
-        // entitlement, not a guessed bundle ID or an environment fallback.
-        if let applicationID = SecTaskCopyValueForEntitlement(
-            task, "application-identifier" as CFString, nil
-        ) as? String,
-           !applicationID.isEmpty,
-           !applicationID.contains("*") {
-            return applicationID
-        }
-        return nil
+        // The hosted script checks the signed entitlement against this value
+        // before launching. SecTask is not public iOS API. The native CRUD
+        // tests must still prove real access, with no alternate group fallback.
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "CMUXRemoteTestKeychainGroup") as? String,
+              !group.isEmpty, !group.contains("*"), !group.contains("$") else { return nil }
+        return group
     }
 
     private func makeScope() throws -> MobileRemoteSecretScope {

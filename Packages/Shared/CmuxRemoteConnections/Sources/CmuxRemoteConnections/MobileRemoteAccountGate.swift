@@ -12,13 +12,15 @@ public actor MobileRemoteAccountGate {
 
     private let validate: @Sendable (MobileRemoteAuthenticatedAccount) async throws -> Void
 
-    /// Creates a signed-out gate with optional live authority validation.
-    /// - Parameter validate: App composition checks the auth owner directly.
-    ///   Standalone fixtures may omit it; a cached observer is insufficient for
-    ///   production sign-out invalidation.
-    public init(validate: @escaping @Sendable (MobileRemoteAuthenticatedAccount) async throws -> Void = { _ in }) {
+    /// Creates a signed-out gate requiring live authority validation.
+    /// - Parameter validate: Checks the auth owner directly; a cached observer
+    ///   is insufficient for production sign-out invalidation.
+    public init(validate: @escaping @Sendable (MobileRemoteAuthenticatedAccount) async throws -> Void) {
         self.validate = validate
     }
+
+    /// Package-test fixture only; app consumers must inject the auth owner.
+    init() { validate = { _ in } }
 
     /// Publishes the current authenticated account from the app auth owner.
     ///

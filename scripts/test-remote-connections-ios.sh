@@ -39,15 +39,36 @@ trap cleanup EXIT
 xcrun simctl boot "$simulator_id"
 xcrun simctl bootstatus "$simulator_id" -b
 cd "$root"
-xcodebuild test \
+xcodebuild build-for-testing \
+  -project ios/RemoteConnectionsTests/RemoteConnectionsTests.xcodeproj \
+  -scheme RemoteConnectionsTests \
+  -destination "platform=iOS Simulator,id=$simulator_id" \
+  -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+  -parallel-testing-enabled NO \
+  CODE_SIGN_IDENTITY="-" \
+  | tee "$evidence/ios-tests.log"
+
+test_host="$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/Build/Products/Debug-iphonesimulator/RemoteConnectionsTestHost.app"
+codesign --display --entitlements :- "$test_host" > "$evidence/test-host-entitlements.plist"
+python3 - "$test_host/Info.plist" "$evidence/test-host-entitlements.plist" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], 'rb') as file: info = plistlib.load(file)
+with open(sys.argv[2], 'rb') as file: entitlements = plistlib.load(file)
+group = info.get('CMUXRemoteTestKeychainGroup')
+if not isinstance(group, str) or not group or any(char in group for char in '*$'):
+    sys.exit('Test host has no exact configured Keychain access group.')
+if group not in entitlements.get('keychain-access-groups', []):
+    sys.exit('Signed host Keychain entitlement does not match test configuration.')
+print('Test host signed Keychain group verified.')
+PY
+xcodebuild test-without-building \
   -project ios/RemoteConnectionsTests/RemoteConnectionsTests.xcodeproj \
   -scheme RemoteConnectionsTests \
   -destination "platform=iOS Simulator,id=$simulator_id" \
   -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
   -resultBundlePath "$evidence/RemoteConnections.xcresult" \
   -parallel-testing-enabled NO \
-  CODE_SIGN_ENTITLEMENTS="$root/ios/RemoteConnectionsTests/RemoteConnectionsTests.entitlements" \
-  | tee "$evidence/ios-tests.log"
+  | tee "$evidence/ios-execution.log"
 
 xcrun xcresulttool get test-results summary   --path "$evidence/RemoteConnections.xcresult" > "$evidence/test-summary.json"
 xcrun xcresulttool get test-results tests \
@@ -62,29 +83,4 @@ if not isinstance(total, int) or total <= 0 or failed != 0 or passed <= 0:
     sys.exit("iOS test result does not prove a nonempty passing test run.")
 print(f"iOS package: {passed}/{total} passed; native UI/product E2E remains separate.")
 PY
-python3 - "$evidence/test-identifiers.json" <<'PY'
-import json, sys
-
-expected = {
-    "MobileRemoteKeychainNativeIntegrationTests.signedDataProtectionKeychainSupportsCrudWithoutPrompt",
-    "MobileRemoteKeychainNativeIntegrationTests.signedDataProtectionKeychainKeepsScopesIsolated",
-}
-payload = json.load(open(sys.argv[1]))
-observed = []
-
-def walk(value):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in {"identifier", "testIdentifier", "name", "testName"} and isinstance(child, str):
-                observed.append(child)
-            walk(child)
-    elif isinstance(value, list):
-        for child in value:
-            walk(child)
-
-walk(payload)
-missing = sorted(item for item in expected if not any(item in value for value in observed))
-if missing:
-    sys.exit("iOS result omitted required native Keychain tests: " + ", ".join(missing))
-print("iOS native Keychain tests: both signed integration identifiers executed.")
-PY
+python3 "$root/scripts/verify-remote-native-tests.py" "$evidence/test-identifiers.json"

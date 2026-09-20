@@ -83,8 +83,8 @@ certificates, agent forwarding, SFTP, and forwarding. A Swift API may wrap a
 maintained C SSH library; a Swift package does not require rewriting SSH crypto.
 
 The shared SSH boundary makes account identity, host-key challenge, and lazy
-credential loading explicit. A connector must complete host-key negotiation and
-receive the trust decision before it calls the credential source. The same gate
+credential loading explicit. The connector returns a credential-free handshake;
+the coordinator owns approval and credential loading for that connection. The same gate
 will bootstrap Mosh and ET, while their post-bootstrap transport state machines
 remain separate.
 
@@ -197,9 +197,10 @@ roles under verify-implementation. Never call package tests iPhone E2E evidence.
 
 ## Tooling constraints
 
-No maclease or retired fleet allocation is allowed. Locate controller-job
-support before allocating builds or simulator verification. The current
-`scripts/cmux-job.sh mac` still invokes maclease and is not a valid replacement.
+No maclease or retired fleet allocation is allowed. `cmux-ci` is the supported
+developer-build client; hosted signed iOS tests run on Blacksmith. The initial
+package-only workspace lacked a test action. Verification now uses an explicit
+signed host with artifact-level entitlement checking.
 The worktree initially lacked GhosttyKit; app tests have not passed.
 The local dogfood doctor now passes after reinstalling the stable queue tooling
 with system Bash. Homebrew Bash deadlocked in heredoc_write; a process sample

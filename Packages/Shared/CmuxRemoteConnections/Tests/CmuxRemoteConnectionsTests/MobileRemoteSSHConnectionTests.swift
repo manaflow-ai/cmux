@@ -133,6 +133,63 @@ import Testing
         #expect(await connector.connectCount == 0)
     }
 
+    @Test func signOutWhileCredentialLoadsPreventsAuthentication() async throws {
+        let gate = try await authenticatedGate()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: profileID, algorithm: "ssh-ed25519", fingerprint: "SHA256:test"
+        ))
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: connector, hostKeyApprover: { _, _ in .accept }
+        )
+        await #expect(throws: MobileRemoteAccountGateError.authenticationRequired) {
+            _ = try await coordinator.connect(profile: profile(), credential: .init {
+                await gate.clear()
+                return .password("synthetic-secret")
+            })
+        }
+        #expect(await connector.credentialWasLoaded == false)
+        #expect(await connector.closed)
+    }
+
+    @Test func signOutDuringAuthenticationClosesTheProducedSession() async throws {
+        let gate = try await authenticatedGate()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: profileID, algorithm: "ssh-ed25519", fingerprint: "SHA256:test"
+        ), onAuthenticate: { await gate.clear() })
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: connector, hostKeyApprover: { _, _ in .accept }
+        )
+        await #expect(throws: MobileRemoteAccountGateError.authenticationRequired) {
+            _ = try await coordinator.connect(profile: profile(), credential: .init {
+                .password("synthetic-secret")
+            })
+        }
+        #expect(await connector.closed)
+        #expect(await connector.sessionClosed)
+    }
+
+    @Test func differentProfileHostKeyCannotReachApprovalOrCredential() async throws {
+        let recorder = LoadRecorder()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: UUID(), algorithm: "ssh-ed25519", fingerprint: "SHA256:test"
+        ))
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: try await authenticatedGate(), connector: connector,
+            hostKeyApprover: { _, _ in
+                Issue.record("Wrong-profile key must not be presented for approval")
+                return .accept
+            }
+        )
+        await #expect(throws: MobileRemoteSSHError.invalidHostKeyChallenge) {
+            _ = try await coordinator.connect(profile: profile(), credential: .init {
+                await recorder.mark()
+                return .password("synthetic-secret")
+            })
+        }
+        #expect(await recorder.loaded == false)
+        #expect(await connector.closed)
+    }
+
     private func authenticatedGate() async throws -> MobileRemoteAccountGate {
         let gate = MobileRemoteAccountGate()
         try await gate.setAuthenticatedAccount(
@@ -156,9 +213,13 @@ private actor FakeConnector: MobileRemoteSSHConnecting {
     private(set) var connectCount = 0
     private(set) var credentialWasLoaded = false
     private(set) var accountID: String?
+    private(set) var closed = false
+    private(set) var sessionClosed = false
+    let onAuthenticate: @Sendable () async -> Void
 
-    init(challenge: MobileRemoteSSHHostKeyChallenge?) {
+    init(challenge: MobileRemoteSSHHostKeyChallenge?, onAuthenticate: @escaping @Sendable () async -> Void = {}) {
         self.challenge = challenge
+        self.onAuthenticate = onAuthenticate
     }
 
     func handshake(_ request: MobileRemoteSSHConnectionRequest) async throws -> any MobileRemoteSSHHandshake {
@@ -167,7 +228,12 @@ private actor FakeConnector: MobileRemoteSSHConnecting {
         return FakeHandshake(challenge: challenge, owner: self)
     }
 
-    func didAuthenticate() { credentialWasLoaded = true }
+    func didAuthenticate() async {
+        credentialWasLoaded = true
+        await onAuthenticate()
+    }
+    func didClose() { closed = true }
+    func didCloseSession() { sessionClosed = true }
 }
 
 private actor FakeHandshake: MobileRemoteSSHHandshake {
@@ -183,18 +249,19 @@ private actor FakeHandshake: MobileRemoteSSHHandshake {
     }
     func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession {
         await owner.didAuthenticate()
-        return FakeSession()
+        return FakeSession(owner: owner)
     }
-    func close() {}
+    func close() async { await owner.didClose() }
 }
 
 private struct FakeSession: MobileRemoteSSHSession {
+    let owner: FakeConnector
     func output() -> AsyncThrowingStream<Data, any Error> {
         AsyncThrowingStream { continuation in continuation.finish() }
     }
     func sendInput(_ data: Data) async throws {}
     func resize(columns: Int, rows: Int) async throws {}
-    func close() async {}
+    func close() async { await owner.didCloseSession() }
 }
 
 private actor LoadRecorder {

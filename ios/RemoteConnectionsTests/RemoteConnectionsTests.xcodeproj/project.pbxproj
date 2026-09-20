@@ -7,21 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		16A4D8C5061FF6493D1B8D5A /* MobileRemoteKeychainNamespaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CDAC3C34DEFE6F5484A40B4 /* MobileRemoteKeychainNamespaceTests.swift */; };
-		353F2211AB01146406B5F8E4 /* MobileRemoteProfileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6BD6F129C3338665C4D6929 /* MobileRemoteProfileStoreTests.swift */; };
 		45B6837082FAB3D6F5D9579B /* CmuxRemoteConnections in Frameworks */ = {isa = PBXBuildFile; productRef = B2DB1D73F88EBB7033D0A518 /* CmuxRemoteConnections */; };
-		4F87B4906378348CC5C8A8F2 /* MobileRemoteVaultKeyEnvelopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02F12AEB63979A68C20505C9 /* MobileRemoteVaultKeyEnvelopeTests.swift */; };
-		67566CA6BFDA5580E8E66E51 /* MobileRemoteVaultMergeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA75D7D32C2ECD7C2DCC4DC3 /* MobileRemoteVaultMergeTests.swift */; };
-		705A79020FFFDE626250D3C4 /* MobileRemoteKeychainBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1BAF2705537CCCC9F3F327E /* MobileRemoteKeychainBehaviorTests.swift */; };
-		73CD2E3EE0F20AAE671488B7 /* MobileRemoteCredentialTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F3F2AFCB1D763C33869235 /* MobileRemoteCredentialTests.swift */; };
-		9B41771BEF0AE844FAB2E159 /* ProfileStoreFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EFA3335EBF4B8F19424E6B8 /* ProfileStoreFixture.swift */; };
-		ACCDDE9757CBB485AD4C8A87 /* MobileRemoteAccountGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA4F470544D4542C8815B3C7 /* MobileRemoteAccountGateTests.swift */; };
 		B50F56A5BC61E0591FB71890 /* RemoteConnectionsTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0FE379E1397EA80B10912C /* RemoteConnectionsTestHost.swift */; };
-		BF0698E3DAA6ED2FEB340934 /* MobileRemoteVaultSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03AC2E68E3D725B94324949 /* MobileRemoteVaultSyncTests.swift */; };
-		C2909498391AC626F56A8547 /* MobileRemoteVaultTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73E651441E6F62E63BD65859 /* MobileRemoteVaultTests.swift */; };
-		CAD188FED5D90D690085A746 /* MobileRemoteProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC023A40472CFCE1935531A /* MobileRemoteProfileTests.swift */; };
-		E8FA4E1846F0F718A5AF21E0 /* MobileRemoteSSHConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243CF0F85D863ABAB68D55A3 /* MobileRemoteSSHConnectionTests.swift */; };
-		EACE3EBF4B8691CBE2D7D5F4 /* MobileRemoteKeychainNativeIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C465399FE137E253D2C85D53 /* MobileRemoteKeychainNativeIntegrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,24 +22,23 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		02F12AEB63979A68C20505C9 /* MobileRemoteVaultKeyEnvelopeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteVaultKeyEnvelopeTests.swift; sourceTree = "<group>"; };
-		07F3F2AFCB1D763C33869235 /* MobileRemoteCredentialTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteCredentialTests.swift; sourceTree = "<group>"; };
-		1CDAC3C34DEFE6F5484A40B4 /* MobileRemoteKeychainNamespaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteKeychainNamespaceTests.swift; sourceTree = "<group>"; };
-		243CF0F85D863ABAB68D55A3 /* MobileRemoteSSHConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteSSHConnectionTests.swift; sourceTree = "<group>"; };
 		64DFF888E170E05CAEA82C1C /* RemoteConnectionsTestHost.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemoteConnectionsTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		73E651441E6F62E63BD65859 /* MobileRemoteVaultTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteVaultTests.swift; sourceTree = "<group>"; };
-		7EFA3335EBF4B8F19424E6B8 /* ProfileStoreFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStoreFixture.swift; sourceTree = "<group>"; };
-		8EC023A40472CFCE1935531A /* MobileRemoteProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteProfileTests.swift; sourceTree = "<group>"; };
-		A03AC2E68E3D725B94324949 /* MobileRemoteVaultSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteVaultSyncTests.swift; sourceTree = "<group>"; };
 		AC29E7518264B5F9DEBFA362 /* CmuxRemoteConnections */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxRemoteConnections; path = ../../Packages/Shared/CmuxRemoteConnections; sourceTree = SOURCE_ROOT; };
-		BA4F470544D4542C8815B3C7 /* MobileRemoteAccountGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteAccountGateTests.swift; sourceTree = "<group>"; };
-		C1BAF2705537CCCC9F3F327E /* MobileRemoteKeychainBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteKeychainBehaviorTests.swift; sourceTree = "<group>"; };
-		C465399FE137E253D2C85D53 /* MobileRemoteKeychainNativeIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteKeychainNativeIntegrationTests.swift; sourceTree = "<group>"; };
 		CE0FE379E1397EA80B10912C /* RemoteConnectionsTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionsTestHost.swift; sourceTree = "<group>"; };
-		DA75D7D32C2ECD7C2DCC4DC3 /* MobileRemoteVaultMergeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteVaultMergeTests.swift; sourceTree = "<group>"; };
 		E55E12C2C3527D5D3EFDDE9C /* RemoteConnectionsTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = RemoteConnectionsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F6BD6F129C3338665C4D6929 /* MobileRemoteProfileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileRemoteProfileStoreTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		6D7BB7A03840DBB0B1309588 /* ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		6CA69347270CFE0CAD454827 /* Frameworks */ = {
@@ -94,32 +80,11 @@
 		F1C561DEB8214E0914DFCA17 = {
 			isa = PBXGroup;
 			children = (
-				F36F7F0E7E128D22395EC148 /* CmuxRemoteConnectionsTests */,
+				6D7BB7A03840DBB0B1309588 /* ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests */,
 				57D6196029C51A23351DA6B4 /* Host */,
 				31CA6E658D246D63FCE308A9 /* Packages */,
 				97DBC7E1E3480BE272CE4249 /* Products */,
 			);
-			sourceTree = "<group>";
-		};
-		F36F7F0E7E128D22395EC148 /* CmuxRemoteConnectionsTests */ = {
-			isa = PBXGroup;
-			children = (
-				BA4F470544D4542C8815B3C7 /* MobileRemoteAccountGateTests.swift */,
-				07F3F2AFCB1D763C33869235 /* MobileRemoteCredentialTests.swift */,
-				C1BAF2705537CCCC9F3F327E /* MobileRemoteKeychainBehaviorTests.swift */,
-				1CDAC3C34DEFE6F5484A40B4 /* MobileRemoteKeychainNamespaceTests.swift */,
-				C465399FE137E253D2C85D53 /* MobileRemoteKeychainNativeIntegrationTests.swift */,
-				F6BD6F129C3338665C4D6929 /* MobileRemoteProfileStoreTests.swift */,
-				8EC023A40472CFCE1935531A /* MobileRemoteProfileTests.swift */,
-				243CF0F85D863ABAB68D55A3 /* MobileRemoteSSHConnectionTests.swift */,
-				02F12AEB63979A68C20505C9 /* MobileRemoteVaultKeyEnvelopeTests.swift */,
-				DA75D7D32C2ECD7C2DCC4DC3 /* MobileRemoteVaultMergeTests.swift */,
-				A03AC2E68E3D725B94324949 /* MobileRemoteVaultSyncTests.swift */,
-				73E651441E6F62E63BD65859 /* MobileRemoteVaultTests.swift */,
-				7EFA3335EBF4B8F19424E6B8 /* ProfileStoreFixture.swift */,
-			);
-			name = CmuxRemoteConnectionsTests;
-			path = ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -130,12 +95,16 @@
 			buildConfigurationList = 20746AA2A5260998A7C9C0AF /* Build configuration list for PBXNativeTarget "RemoteConnectionsTests" */;
 			buildPhases = (
 				7A6B66612767E73E81E41B75 /* Sources */,
+				DCDFA8A396EF8CF23CD4B442 /* Resources */,
 				6CA69347270CFE0CAD454827 /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				5B25A99352C9E9752F3925B9 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				6D7BB7A03840DBB0B1309588 /* ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests */,
 			);
 			name = RemoteConnectionsTests;
 			packageProductDependencies = (
@@ -204,24 +173,21 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		DCDFA8A396EF8CF23CD4B442 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		7A6B66612767E73E81E41B75 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				ACCDDE9757CBB485AD4C8A87 /* MobileRemoteAccountGateTests.swift in Sources */,
-				73CD2E3EE0F20AAE671488B7 /* MobileRemoteCredentialTests.swift in Sources */,
-				705A79020FFFDE626250D3C4 /* MobileRemoteKeychainBehaviorTests.swift in Sources */,
-				16A4D8C5061FF6493D1B8D5A /* MobileRemoteKeychainNamespaceTests.swift in Sources */,
-				EACE3EBF4B8691CBE2D7D5F4 /* MobileRemoteKeychainNativeIntegrationTests.swift in Sources */,
-				353F2211AB01146406B5F8E4 /* MobileRemoteProfileStoreTests.swift in Sources */,
-				CAD188FED5D90D690085A746 /* MobileRemoteProfileTests.swift in Sources */,
-				E8FA4E1846F0F718A5AF21E0 /* MobileRemoteSSHConnectionTests.swift in Sources */,
-				4F87B4906378348CC5C8A8F2 /* MobileRemoteVaultKeyEnvelopeTests.swift in Sources */,
-				67566CA6BFDA5580E8E66E51 /* MobileRemoteVaultMergeTests.swift in Sources */,
-				BF0698E3DAA6ED2FEB340934 /* MobileRemoteVaultSyncTests.swift in Sources */,
-				C2909498391AC626F56A8547 /* MobileRemoteVaultTests.swift in Sources */,
-				9B41771BEF0AE844FAB2E159 /* ProfileStoreFixture.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +215,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
+				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -394,6 +361,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
+				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -412,7 +380,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CMUXRemoteTestKeychainGroup = "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -431,7 +399,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CMUXRemoteTestKeychainGroup = "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

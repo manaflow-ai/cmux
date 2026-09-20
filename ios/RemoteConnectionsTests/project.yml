@@ -1,5 +1,6 @@
 name: RemoteConnectionsTests
 options:
+  projectFormat: xcode16_0
   minimumXcodeGenVersion: 2.45.3
   deploymentTarget:
     iOS: "17.0"
@@ -20,6 +21,7 @@ targets:
     sources: [Host]
     settings:
       base:
+        CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.testhost
         CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
         GENERATE_INFOPLIST_FILE: YES
@@ -29,12 +31,14 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests
+      - path: ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests
+        type: syncedFolder
     dependencies:
       - target: RemoteConnectionsTestHost
       - package: CmuxRemoteConnections
     settings:
       base:
+        CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.tests
         CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
         GENERATE_INFOPLIST_FILE: YES

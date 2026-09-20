@@ -31,4 +31,35 @@ import Testing
             try await gate.requireAccount()
         }
     }
+    @Test func staleObserverCannotOverrideTheLiveAuthAuthority() async throws {
+        let gate = MobileRemoteAccountGate { _ in
+            throw MobileRemoteAccountGateError.authenticationRequired
+        }
+        try await gate.setAuthenticatedAccount(accountID: "account-a", sessionGeneration: 4)
+        await #expect(throws: MobileRemoteAccountGateError.authenticationRequired) {
+            try await gate.requireAccount()
+        }
+    }
+
+    @Test func clearAndReenrollCannotReviveAnOldCapability() async throws {
+        let gate = MobileRemoteAccountGate()
+        try await gate.setAuthenticatedAccount(accountID: "account-a", sessionGeneration: 4)
+        let old = try await gate.requireAccount()
+        await gate.clear()
+        try await gate.setAuthenticatedAccount(accountID: "account-a", sessionGeneration: 4)
+        await #expect(throws: MobileRemoteAccountGateError.authenticationRequired) {
+            try await gate.requireCurrent(old)
+        }
+    }
+
+    @Test func malformedReplacementLeavesNoPreviousAccountActive() async throws {
+        let gate = MobileRemoteAccountGate()
+        try await gate.setAuthenticatedAccount(accountID: "account-a", sessionGeneration: 4)
+        await #expect(throws: MobileRemoteAccountGateError.invalidAccount) {
+            try await gate.setAuthenticatedAccount(accountID: "", sessionGeneration: 5)
+        }
+        await #expect(throws: MobileRemoteAccountGateError.authenticationRequired) {
+            try await gate.requireAccount()
+        }
+    }
 }

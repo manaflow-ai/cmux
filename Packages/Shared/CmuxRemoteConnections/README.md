@@ -28,8 +28,8 @@ Current behavior:
 - Signed X25519 key envelopes transfer one vault epoch key from an approved
   device to an exact device or organization recovery recipient. The server can
   relay ciphertext but cannot substitute the recipient or decrypt the key.
-- The SSH boundary requires account authentication and host-key approval before
-  it invokes a lazy credential source. Mosh and ET adapters must reuse this
+- The SSH coordinator approves a credential-free handshake and revalidates the
+  live account before loading credentials. Mosh and ET adapters must reuse this
   bootstrap ordering while implementing their own session protocols.
 
 This is not a complete encrypted vault. Signing, device enrollment, recovery,
@@ -92,7 +92,7 @@ Persistence tests use fresh temporary SQLite files and exercise reopen,
 concurrent repository owners, cancellation, write rollback, wrong-key writes,
 scope isolation, altered ciphertext/deletion flags, and schema rejection.
 The hosted `Remote connection package tests` workflow runs the package in a
-unique iOS Simulator through `ios/RemoteConnectionsTests.xcworkspace`. This is
+unique iOS Simulator using the signed host in `ios/RemoteConnectionsTests`. This is
 package-level iOS evidence, not the complete terminal-app verification.
 
 The known-answer test opens an independently generated Python cryptography

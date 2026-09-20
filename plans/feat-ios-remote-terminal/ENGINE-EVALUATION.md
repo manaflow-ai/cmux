@@ -43,12 +43,20 @@ the source archives and output hashes are recorded here:
 - Mbed TLS source SHA-256: `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`
 - iOS-simulator libssh archive SHA-256: `473c4c9001d58ec26b13897b12a8a65a240dcf29c56aef277071bacc581e4599`
 
-The Apple SDK probe incorrectly reported `memset_explicit` and
-`explicit_bzero` as available during CMake configuration. The cross-build
-must clear those generated `HAVE_*` values so libssh selects its existing
-volatile-memory fallback. This is a build-system portability patch, not a
-relaxation of secret-clearing behavior, and must be made reproducible in the
-vendored recipe rather than edited in a build directory.
+The initial experiment incorrectly used static-only CMake function probes,
+which report nonexistent functions as present because they never link. The
+recipe now uses executable linking probes, selects the SDK's `memset_s`, and
+does not edit generated `config.h`. The earlier manually modified archive is
+not an accepted artifact.
+
+The final recipe builds arm64 iOS Simulator and iPhoneOS archives for iOS 17,
+then force-loads every libssh object in a target-platform executable link.
+Mach-O metadata reports IOSSIMULATOR and IOS respectively. This proves symbol
+resolution, not protocol correctness or device execution. Mbed TLS pthread
+support is enabled. `WITH_EXEC=OFF` disables local shell execution from config
+directives while preserving remote SSH exec channels. Native jump channels
+must work without spawning a local command. License notices, link evidence,
+and archive hashes accompany the experimental outputs.
 
 1. Build a reproducible arm64 iOS static library from pinned source releases,
    with the Mbed TLS backend and unused server features disabled. The checked-in
@@ -66,6 +74,15 @@ vendored recipe rather than edited in a build directory.
    versions in the evidence packet.
 5. Verify Network.framework integration and App Store packaging on a signed
    iOS build before the engine can become the product default.
+
+Runtime evidence on 2026-09-20: libssh 0.12.2 with Mbed TLS 3.6.7 passed eleven
+loopback cases with AddressSanitizer and UndefinedBehaviorSanitizer enabled in
+both libraries and the C harness. Cases cover host-key acceptance/rejection,
+password acceptance/rejection, two-round keyboard-interactive acceptance and
+rejection, Ed25519 and RSA key authentication, remote exec, PTY input/resize,
+and SFTP read. This is host-runtime evidence for the same crypto backend as the
+iOS artifacts. It does not prove simulator execution, hardware signing,
+forwarding, certificates, jump hosts, lifecycle handling, or the Swift wrapper.
 
 No SSH engine is selected until all five gates pass. SwiftNIO SSH remains
 insufficient for the full feature target because its authentication API does
