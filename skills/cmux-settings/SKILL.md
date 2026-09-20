@@ -11,7 +11,7 @@ Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.s
 
 ## Helper script
 
-Use the bundled helper for every read/write. It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically only after semantic validation passes.
+Use the bundled helper for every read/write. It preserves JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically only after semantic validation passes.
 
 ```bash
 skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux checkout
@@ -48,7 +48,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
    cmux-settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
    ```
 3. Read back and `cmux-settings validate`.
-4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
+4. Report disk persistence separately from runtime application. The helper does not observe runtime acknowledgement. For reversible apply, use `set <key> <value> --receipt <new-private-file>` and later `undo <receipt-file>`; undo conflicts if the installed value or target changed. `unset` restores inheritance and is not conditional preset undo.
 
 ## Quick reference
 
@@ -65,7 +65,8 @@ Full list of settings, defaults, and descriptions: `cmux-settings list-supported
 ## Rules
 
 - Only edit `cmux.json`. Never `settings.json` unless the user explicitly asks; it is legacy and read only when a key is absent from `cmux.json`.
-- Never tell the user to restart cmux. The file watcher reloads on save.
+- Do not infer runtime application or restart requirements from a successful disk write. Watcher reload is asynchronous.
+- Participating writers use a stable sidecar lock and return explicit busy conflicts. Arbitrary editors can still race the final preflight/rename. Use `--preview` then `--expect-revision <revision>` when approval depends on a specific source. Keep preview values and receipts local.
 - Always `cmux-settings validate` after a bulk edit. Validation errors include the exact config path and violated constraint.
 - Do not blindly overwrite `actions`, `ui`, `commands`, `vault`, or `rightSidebar`; they share the file and hold hand-tuned non-settings config.
 - Shortcut action ids must match the schema enum. Look them up before binding.

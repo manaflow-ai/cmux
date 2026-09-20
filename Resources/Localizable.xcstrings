@@ -1,6 +1,238 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.configMutation.busy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another config edit is in progress. Retry your change."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の設定編集が進行中です。変更を再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere Konfigurationsänderung läuft. Versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre modification de la configuration est en cours. Réessayez."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay otra edición de la configuración en curso. Vuelve a intentarlo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري تعديل آخر للإعدادات. أعد محاولة التغيير."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一项配置编辑正在进行。请重试更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一項設定編輯正在進行。請重試變更。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 설정 편집이 진행 중입니다. 변경을 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "settings.configMutation.sourceChanged": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The config changed while this edit was prepared. Review it and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集の準備中に設定が変更されました。確認して再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Konfiguration wurde während der Vorbereitung geändert. Prüfen Sie sie und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration a changé pendant la préparation. Vérifiez-la et réessayez."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración cambió mientras se preparaba esta edición. Revísala y vuelve a intentarlo."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيرت الإعدادات أثناء تحضير هذا التعديل. راجعها وأعد المحاولة."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准备此次编辑期间配置已更改。请检查后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備此次編輯期間設定已變更。請檢查後重試。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집을 준비하는 동안 설정이 변경되었습니다. 검토 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "settings.configMutation.undoConflict": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo preserved a newer choice. Review this setting before changing it:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消しでは新しい選択を保持しました。変更する前にこの設定を確認してください："
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die neuere Auswahl wurde beim Rückgängigmachen beibehalten. Prüfen Sie diese Einstellung vor einer Änderung:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’annulation a conservé un choix plus récent. Vérifiez ce réglage avant de le modifier :"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se conservó una elección más reciente al deshacer. Revisa este ajuste antes de cambiarlo:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ التراجع باختيار أحدث. راجع هذا الإعداد قبل تغييره:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销操作保留了较新的选择。更改前请检查此设置："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原操作保留了較新的選擇。變更前請檢查此設定："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 취소 시 더 최근의 선택을 유지했습니다. 변경하기 전에 이 설정을 검토하세요:"
+          }
+        }
+      }
+    },
+    "settings.configMutation.invalidCandidate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proposed config is invalid. No changes were saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更後の設定が無効です。変更は保存されませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die vorgeschlagene Konfiguration ist ungültig. Es wurden keine Änderungen gespeichert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration proposée est invalide. Aucune modification n’a été enregistrée."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración propuesta no es válida. No se guardó ningún cambio."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات المقترحة غير صالحة. لم تُحفظ أي تغييرات."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议的配置无效。未保存任何更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議的設定無效。未儲存任何變更。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안된 설정이 유효하지 않습니다. 변경 사항이 저장되지 않았습니다."
+          }
+        }
+      }
+    },
     "cloud.portAccess.desktopDisconnected": {
       "extractionState": "manual",
       "localizations": {

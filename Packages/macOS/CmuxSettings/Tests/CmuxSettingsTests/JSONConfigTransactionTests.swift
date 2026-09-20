@@ -72,14 +72,18 @@ raise SystemExit(m.cmd_set(argparse.Namespace(file=sys.argv[2], key='app.appeara
         defer { if process.isRunning { process.terminate() } }
         // Read exactly the readiness line; no scheduler delays or polling.
         var line = Data()
-        while !line.contains(10) { line.append(output.fileHandleForReading.readData(ofLength: 1)) }
+        while !line.contains(10) {
+            let byte = output.fileHandleForReading.readData(ofLength: 1)
+            try #require(!byte.isEmpty, "helper exited before reaching the barrier")
+            line.append(byte)
+        }
         #expect(String(decoding: line, as: UTF8.self) == "prepared\n")
         let gui = JSONConfigStore(fileURL: file)
         var refused = false
         do {
             if sameKey { try await gui.set("light", for: appearance) }
             else { try await gui.set(false, for: badge) }
-        } catch { refused = true }
+        } catch JSONConfigMutationError.busy { refused = true }
         try input.fileHandleForWriting.write(contentsOf: Data("commit\n".utf8))
         try input.fileHandleForWriting.close()
         process.waitUntilExit()
@@ -89,4 +93,89 @@ raise SystemExit(m.cmd_set(argparse.Namespace(file=sys.argv[2], key='app.appeara
             else { #expect(gui.snapshotValue(for: badge) == false) }
         }
     }
+    @Test func undoPreservesNewerGUIChoiceAndUnrelatedEdits() async throws {
+        let file = try fixture()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let key = SettingCatalog().computerUse.showInMenuBar
+        let preset = JSONConfigStore(fileURL: file)
+        let receipt = try await preset.setWithReceipt(false, for: key)
+        let gui = JSONConfigStore(fileURL: file)
+        _ = try await gui.setWithReceipt(true, for: key)
+        try await gui.set(false, for: badge)
+        let beforeUndo = try Data(contentsOf: file)
+        do {
+            _ = try await preset.undo(receipt)
+            Issue.record("stale undo accepted")
+        } catch JSONConfigMutationError.undoConflict(let path, let expected, let current, let restore) {
+            #expect(path == key.id)
+            #expect(expected == Data("false".utf8))
+            #expect(current == Data("true".utf8))
+            #expect(restore == nil)
+        }
+        #expect(try Data(contentsOf: file) == beforeUndo)
+        #expect(gui.snapshotValue(for: key))
+        #expect(gui.snapshotValue(for: badge) == false)
+    }
+
+    @Test func undoRestoresAbsenceAndExplicitPinAcrossDefaultChanges() async throws {
+        let file = try fixture()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+        let key = SettingCatalog().computerUse.showInMenuBar
+        let install = try await store.setWithReceipt(false, for: key)
+        try await store.set(false, for: badge)
+        _ = try await store.undo(install)
+        let changedDefault = JSONKey<Bool>(id: key.id, defaultValue: false)
+        #expect(store.snapshotValue(for: changedDefault) == false) // absent inherits
+        let pin = try await store.setWithReceipt(true, for: key)
+        #expect(pin.before == nil)
+        let reset = try await store.resetWithReceipt(key)
+        _ = try await store.undo(reset)
+        #expect(store.snapshotValue(for: changedDefault) == true) // explicit pin remains
+        #expect(store.snapshotValue(for: badge) == false)
+        #expect(try String(contentsOf: file, encoding: .utf8).contains("// retain me"))
+    }
+
+    @Test func validatedMutationRejectsCandidateAndRetainsLegacyContract() async throws {
+        let file = try fixture()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = JSONConfigStore(fileURL: file)
+        let before = try Data(contentsOf: file)
+        do {
+            _ = try await store.setWithReceipt("invalid", for: appearance)
+            Issue.record("invalid semantic candidate accepted")
+        } catch JSONConfigMutationError.invalidCandidate(let issues) {
+            #expect(issues.contains { $0.path == "$.app.appearance" })
+        }
+        #expect(try Data(contentsOf: file) == before)
+        // Q's schema currently omits this real legacy key. Do not silently break it.
+        let legacy = SettingCatalog().app.devWindowDisplay
+        try await store.set("Fixture Display", for: legacy)
+        #expect(store.snapshotValue(for: legacy) == "Fixture Display")
+        let legacyBytes = try Data(contentsOf: file)
+        do {
+            _ = try await store.setWithReceipt(false, for: SettingCatalog().computerUse.showInMenuBar)
+            Issue.record("invalid full candidate accepted")
+        } catch JSONConfigMutationError.invalidCandidate { }
+        #expect(try Data(contentsOf: file) == legacyBytes)
+    }
+
+    @Test func undoRejectsRetargetedSymlink() async throws {
+        let file = try fixture()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let link = file.deletingLastPathComponent().appendingPathComponent("link.json")
+        let other = file.deletingLastPathComponent().appendingPathComponent("other.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        let store = JSONConfigStore(fileURL: link)
+        let receipt = try await store.setWithReceipt("dark", for: appearance)
+        try Data(contentsOf: file).write(to: other)
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: other)
+        let before = try Data(contentsOf: other)
+        do { _ = try await store.undo(receipt); Issue.record("retargeted undo accepted") }
+        catch JSONConfigMutationError.undoConflict { }
+        #expect(try Data(contentsOf: other) == before)
+        #expect(try link.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true)
+    }
+
 }

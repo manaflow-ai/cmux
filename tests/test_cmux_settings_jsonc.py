@@ -16,6 +16,17 @@ HELPER = ROOT / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
 
 
 class CmuxSettingsJSONCTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        # These editor fixtures intentionally contain invented/unknown keys.
+        # Isolate authoring behavior from Q's schema gate; semantic coverage
+        # lives in test_cli_config_doctor.py with a built production CLI.
+        cls.validator_fixture = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.validator_fixture.cleanup)
+        cls.validator = Path(cls.validator_fixture.name) / "validator"
+        cls.validator.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        cls.validator.chmod(0o700)
+
     def run_helper(
         self,
         config: Path,
@@ -25,6 +36,7 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(HELPER), "--file", str(config), *args],
             text=True,
+            env={**os.environ, "CMUX_CLI_BIN": str(self.validator)},
             capture_output=True,
             check=False,
         )

@@ -11,6 +11,7 @@ on:
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
       - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
   push:
     branches: [main]
@@ -23,6 +24,7 @@ on:
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
       - "tests/test_cmux_settings_jsonc.py"
+      - "tests/test_cmux_settings_transactions.py"
       - ".github/workflows/cmux-skill-contract.yml"
 
 permissions:
@@ -50,3 +52,6 @@ jobs:
 
       - name: Exercise settings JSONC mutation regressions
         run: python3 tests/test_cmux_settings_jsonc.py
+
+      - name: Exercise settings transaction regressions
+        run: python3 tests/test_cmux_settings_transactions.py
