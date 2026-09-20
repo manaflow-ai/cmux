@@ -164,8 +164,13 @@ actor CloudWireGuardHub {
         preparationTask = Task { [weak self] in
             guard let self else { return }
             _ = try? await self.prewarm()
-            if self.generation == preparationGeneration { self.preparationTask = nil }
+            await self.preparationDidFinish(generation: preparationGeneration)
         }
+    }
+
+    private func preparationDidFinish(generation completedGeneration: UInt64) {
+        guard generation == completedGeneration else { return }
+        preparationTask = nil
     }
 
     /// Starts the shared hub before individual machine links race to acquire it.
