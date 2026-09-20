@@ -33,19 +33,23 @@ struct CloudReadRequestCoordinatorTests {
         print("cloud-read-scale machines=\(machines) owners=4 requests=\(await gate.requests) requests_per_machine=1")
     }
 
-    @Test("Cancelling one waiter preserves another; the last cancels and holds the draining slot")
-    func independentCancellation() async throws {
+    @Test("The final waiter cancels and holds the draining slot after another caller leaves", arguments: [false, true])
+    func independentCancellation(expireFirst: Bool) async throws {
         let gate = CloudReadResponseGate()
-        let owner = Owner()
-        let first = Task { try await owner.read(key()) { await gate.read(response()) } }
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let first = Task { try await owner.read(key(), deadline: .seconds(5)) { await gate.read(response()) } }
+        try await eventually { await gate.requests == 1 }
         let second = Task { try await owner.read(key()) { await gate.read(response()) } }
         try await eventually { await owner.entries.values.first?.waiters.count == 2 }
-        try await eventually { await gate.requests == 1 }
-        first.cancel()
-        do { _ = try await first.value; Issue.record("cancelled waiter returned a value") } catch is CancellationError {} catch { Issue.record("\(error)") }
+        if expireFirst { clock.advance(by: .seconds(6)) } else { first.cancel() }
+        do { _ = try await first.value; Issue.record("retired waiter returned a value") }
+        catch is CancellationError { #expect(!expireFirst) }
+        catch { #expect(expireFirst && (error as? URLError)?.code == .timedOut) }
         #expect(await owner.entries.values.first?.waiters.count == 1)
         second.cancel()
-        _ = await second.result
+        do { _ = try await second.value; Issue.record("final cancelled waiter returned a value") }
+        catch is CancellationError {} catch { Issue.record("\(error)") }
         let replacement = Task { try await owner.read(key()) { await gate.read(response()) } }
         try await eventually { await owner.entries.values.first?.pending?.waiters.count == 1 }
         #expect(await gate.requests == 1)
@@ -135,6 +139,86 @@ struct CloudReadRequestCoordinatorTests {
         #expect(try await long.value.http.statusCode == 200)
         #expect(await gate.requests == (queued ? 2 : 1))
         #expect(await owner.entries.isEmpty)
+    }
+
+    @Test("An elapsed first caller cannot shorten a later caller's budget", arguments: [false, true], [false, true])
+    func shortFirstDeadline(queued: Bool, deliverTimers: Bool) async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let gate = CloudReadResponseGate()
+        if queued {
+            let retired = Task { try await owner.read(key()) { await gate.read(response()) } }
+            try await eventually { await gate.requests == 1 }
+            retired.cancel()
+            _ = await retired.result
+        }
+        let shortDeadline = owner.makeDeadline(elapsed: .seconds(25))
+        let short = Task { try await owner.read(key(), deadline: shortDeadline) { await gate.read(response()) } }
+        try await eventually {
+            let entry = await owner.entries.values.first
+            return queued ? entry?.pending?.waiters.count == 1 : entry?.waiters.count == 1
+        }
+        clock.advance(by: .seconds(1))
+        let longDeadline = owner.makeDeadline()
+        let long = Task { try await owner.read(key(), deadline: longDeadline) { await gate.read(response()) } }
+        try await eventually {
+            let entry = await owner.entries.values.first
+            return queued ? entry?.pending?.waiters.count == 2 : entry?.waiters.count == 2
+        }
+        clock.advance(by: .seconds(5), deliverTimers: deliverTimers)
+        if deliverTimers { _ = await short.result }
+        await gate.release()
+        do { _ = try await short.value; Issue.record("elapsed caller exceeded its deadline") }
+        catch { #expect((error as? URLError)?.code == .timedOut) }
+        #expect(try await long.value.http.statusCode == 200)
+        #expect(await gate.requests == (queued ? 2 : 1))
+        #expect(await owner.entries.isEmpty)
+    }
+
+    @Test("Later callers cannot rejuvenate the transport beyond its fixed budget")
+    func transportLifetimeCap() async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let gate = CloudReadResponseGate()
+        let first = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await gate.requests == 1 }
+        clock.advance(by: .seconds(29))
+        let late = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await owner.entries.values.first?.waiters.count == 2 }
+        #expect(await owner.noteRetryAfter(key(), seconds: 2, response: response(429)) == false)
+        clock.advance(by: .seconds(2))
+        for request in [first, late] {
+            do { _ = try await request.value; Issue.record("shared transport exceeded its cap") }
+            catch { #expect((error as? URLError)?.code == .timedOut) }
+        }
+        #expect(await owner.entries.values.first?.waiters.isEmpty == true)
+        let replacement = Task { try await owner.read(key()) { await gate.read(response()) } }
+        try await eventually { await owner.entries.values.first?.pending?.waiters.count == 1 }
+        #expect(await gate.requests == 1)
+        await gate.release()
+        #expect(try await replacement.value.http.statusCode == 200)
+        #expect(await gate.requests == 2)
+    }
+
+    @Test("Retry admission uses the latest live caller within the transport cap")
+    func retryUsesRemainingCallerBudgets() async throws {
+        let clock = CloudReadManualClock()
+        let owner = Owner(clock: CloudRequestClock(clock))
+        let gate = CloudReadResponseGate()
+        let short = Task { try await owner.read(key(), deadline: .seconds(5)) { await gate.read(response(429)) } }
+        try await eventually { await gate.requests == 1 }
+        clock.advance(by: .seconds(1))
+        let long = Task { try await owner.read(key(), deadline: .seconds(20)) { await gate.read(response(429)) } }
+        try await eventually { await owner.entries.values.first?.waiters.count == 2 }
+        #expect(await owner.noteRetryAfter(key(), seconds: 8, response: response(429)))
+        long.cancel()
+        _ = await long.result
+        #expect(await owner.noteRetryAfter(key(), seconds: 8, response: response(429)) == false)
+        await gate.release()
+        #expect(try await short.value.http.statusCode == 429)
+        #expect(try await owner.read(key()) { Issue.record("retried before the server minimum"); return response() }.http.statusCode == 429)
+        clock.advance(by: .seconds(8))
+        #expect(try await owner.read(key()) { response() }.http.statusCode == 200)
     }
 
     @Test("Response-first delivery after a simulated wake still expires")
