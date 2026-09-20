@@ -18974,6 +18974,33 @@ mod tests {
     }
 
     #[test]
+    fn detected_agent_identity_matches_snapshot_and_delta_contract() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("agent-detection".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().to_string();
+        let before = mux.with_state(|state| state.resource_revision);
+        mux.append_screen_detect_event(&crate::screen_detect::ScreenDetectEmission {
+            terminal_id,
+            agent: "codex".into(),
+            state: AgentState::Idle,
+        });
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        crate::resource_router::validate_operation_outcome(
+            crate::resource::ResourceOperation::SessionSnapshot,
+            Ok(snapshot.clone()),
+        ).expect("detected agent identity is part of the public schema");
+        let agent = &snapshot["agents"][0];
+        assert_eq!(agent["agent"], "codex");
+        let batches = mux.resource_events_after(before).unwrap().batches;
+        let delta = batches.iter().flat_map(|batch| batch.changes.as_array().unwrap())
+            .find(|change| change["resource"] == "agent").unwrap();
+        assert_eq!(&delta["value"], agent, "incremental clients see the same identity");
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).unwrap();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(snapshot["agents"][0]["agent"], "codex", "hooks preserve provider identity");
+    }
+
+    #[test]
     fn terminal_projection_event_matches_every_changed_public_snapshot() {
         let mux = test_mux();
         let source = mux.new_workspace(Some("source".into()), None).unwrap();
