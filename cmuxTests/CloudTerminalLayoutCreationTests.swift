@@ -67,6 +67,28 @@ struct CloudTerminalLayoutCreationTests {
         #expect(commands[3].idempotencyKey == "one-intent" && commands[3].params["expected_revision"] as? String == "11")
     }
 
+    @Test("A burst of rejected revisions preserves one intent until it commits")
+    func repeatedRevisionConflictsRefreshPlacementBeforeCommitting() async throws {
+        var responses: [Result<Data, CloudMachineLink.LinkError>] = []
+        for revision in 10..<18 {
+            responses.append(.success(try Self.snapshot(revision: String(revision))))
+            responses.append(.failure(.exited(status: 1, output: #"{"code":"revision.conflict"}"#)))
+        }
+        responses += [.success(try Self.snapshot(revision: "18")), .success(try Self.created())]
+        let runner = LayoutCreationRunner(responses: responses)
+        let result = try await operation(runner).run(
+            nearTabID: "tab_source", splitDirection: .right,
+            idempotencyKey: "burst-intent", expectedWorkspaceID: "ws_target"
+        )
+        #expect(result.workspaceID == "ws_target")
+        let commands = await runner.commands
+        let mutations = commands.filter { $0.operation == "pane.split" }
+        #expect(mutations.count == 9)
+        #expect(mutations.allSatisfy { $0.idempotencyKey == "burst-intent" })
+        #expect(mutations.map { $0.params["expected_revision"] as? String } == (10...18).map { String($0) })
+        #expect(commands.filter { $0.operation == "session.snapshot" }.count == 9)
+    }
+
     @Test
     func uncertainCreateFailureDoesNotIssueAnotherMutation() async throws {
         let runner = LayoutCreationRunner(responses: [
