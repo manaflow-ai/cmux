@@ -96,6 +96,11 @@ extension MobileShellComposite {
             }
             let closeSeconds = soakSeconds(closeStarted)
             await openWorkspace(original.id)
+            selectTerminalFromChrome(target.terminalID)
+            guard selectedWorkspaceID == original.id,
+                  selectedTerminalID == target.terminalID else {
+                throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+            }
             let terminalStarted = ContinuousClock.now
             try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_RESTORED", session: terminalSession)
             return [

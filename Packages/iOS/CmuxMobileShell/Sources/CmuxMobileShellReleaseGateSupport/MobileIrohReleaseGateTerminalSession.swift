@@ -8,6 +8,7 @@ public import CmuxMobileShellModel
 /// surfaces and the soak's explicit reconnect still create a fresh consumer.
 @MainActor
 public final class MobileIrohReleaseGateTerminalSession {
+    private static let verificationTimeout: Duration = .seconds(15)
     private enum State: Sendable {
         case idle
         case reading(surface: String, owner: UUID, task: Task<Void, Never>)
@@ -55,23 +56,28 @@ public final class MobileIrohReleaseGateTerminalSession {
             else if pending?.id == id { pending = nil }
             completion.finish()
         }
-        try await withTaskCancellationHandler {
-            await client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
-            try Task.checkCancellation()
-            for try await _ in proof {
-                try Task.checkCancellation()
-                return
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    await client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+                    try Task.checkCancellation()
+                    for try await _ in proof {
+                        try Task.checkCancellation()
+                        return
+                    }
+                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+                }
+                group.addTask {
+                    try await ContinuousClock().sleep(for: Self.verificationTimeout)
+                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+                }
+                try await group.next()
+                group.cancelAll()
             }
-            try Task.checkCancellation()
-            throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.cancelVerification(id) }
+        } catch {
+            reset()
+            throw error
         }
-    }
-
-    private func cancelVerification(_ id: UUID) {
-        guard pending?.id == id else { return }
-        reset()
     }
 
     private func ensureReader(surfaceID: String) throws {
