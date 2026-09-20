@@ -195,7 +195,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
 
 fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show_system: bool, toggled: &std::collections::HashSet<Toggle>, c: &Chrome, range: std::ops::Range<usize>, footer: bool, mut markdown: Option<&mut std::collections::HashMap<usize, Vec<Row>>>) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
-    let w = width.saturating_sub(GUTTER.len());
+    let w = width;
     let running = t.status == "running";
     let last = t.items.len().saturating_sub(1);
     let is_open = |tg: Toggle, default_open: bool| default_open ^ toggled.contains(&tg);
@@ -327,34 +327,30 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                 turn_open = true;
                 reopen_at = None;
                 spacer(&mut rows, i, false);
-                // Codex app: a centered muted timestamp before each message.
+                // Timestamps share the transcript content margin.
                 if let Some(at) = t.user_at.get(&i) {
                     let label = when_label(*at);
-                    let pad = width.saturating_sub(label.width()) / 2;
-                    let text = format!("{}{label}", " ".repeat(pad));
+                    let text = format!("{GUTTER}{label}");
                     rows.push(Row { line: Line::from(Span::styled(text.clone(), c.dim())), text, item: i, toggle: None });
                     plain("", Style::default(), i, &mut rows);
                 }
-                // Codex app: your message is a tinted bubble on the right,
-                // at most seven tenths of the width, with a padded row above
-                // and below. `❯` marks it; the foreground is explicit so a
-                // light terminal reads it too.
+                // Keep user text on the same left margin as assistant text,
+                // with its role marker in the gutter and a tinted background.
                 let bg = Style::default().bg(c.user_bg);
                 let style = if *queued { c.dim().bg(c.user_bg) } else { bg.fg(c.status_fg) };
                 let marker = if *steer { "» " } else if *queued { "⋯ " } else { "❯ " };
                 let marker_style = bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD);
                 let bubble_w = if width < 50 { width } else { (width * 7 / 10).max(40).min(width) };
                 let inner_w = bubble_w.saturating_sub(4);
-                let left = " ".repeat(width.saturating_sub(bubble_w));
                 let mut body: Vec<Row> = Vec::new();
                 wrap(text, inner_w, style, "", i, &mut body);
                 if *queued {
                     plain("queued · sends when the running turn ends · Ctrl-x cancels it", c.dim().bg(c.user_bg), i, &mut body);
                 }
                 let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
-                    let mut spans = vec![Span::raw(left.clone()), Span::styled(" ".to_owned(), bg)];
+                    let mut spans = Vec::new();
                     spans.extend(content);
-                    spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(2 + used)), bg));
+                    spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(used)), bg));
                     Row { line: Line::from(spans), text, item: i, toggle: None }
                 };
                 rows.push(bubble_row(vec![], 0, String::new()));
@@ -363,7 +359,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                     let content = r.text.clone();
                     let used = 2 + content.width();
                     let spans = vec![Span::styled(m.to_owned(), if n == 0 { marker_style } else { bg }), Span::styled(content.clone(), if r.line.spans.len() > 1 { r.line.spans[1].style.bg(c.user_bg) } else { style })];
-                    rows.push(bubble_row(spans, used, format!("{left} {m}{content}")));
+                    rows.push(bubble_row(spans, used, format!("{m}{content}")));
                 }
                 rows.push(bubble_row(vec![], 0, String::new()));
                 let _ = after_user_block;
@@ -379,13 +375,16 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                 let work: Vec<usize> = vis[k..].iter().copied().take_while(|&j| j < work_end).collect();
                 let mut blocks = 0usize;
                 let mut tools = 0usize;
+                let mut commands = 0usize;
+                let mut failed_tools = 0usize;
                 let mut thoughts = 0usize;
-                let mut replies = 0usize;
                 let mut prev_group = false;
                 for &j in &work {
                     match &t.items[j] {
-                        Item::Tool { .. } => {
+                        Item::Tool { title, kind, status, .. } => {
                             tools += 1;
+                            if matches!(kind.as_str(), "execute" | "terminal" | "shell") || title.to_ascii_lowercase().contains("command") || title.to_ascii_lowercase().contains("bash") || title.to_ascii_lowercase().contains("shell") { commands += 1; }
+                            if status == "failed" { failed_tools += 1; }
                             if !prev_group {
                                 blocks += 1;
                             }
@@ -398,25 +397,35 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                             prev_group = true;
                         }
                         Item::Thought { .. } => { thoughts += 1; blocks += 1; prev_group = false; }
-                        Item::Assistant { .. } => { replies += 1; blocks += 1; prev_group = false; }
+                        Item::Assistant { .. } => { blocks += 1; prev_group = false; }
+                        // Keep a failed turn's notice visible after the work
+                        // summary folds; the error is the useful result.
+                        Item::Error { .. } => {}
                         _ => { blocks += 1; prev_group = false; }
                     }
                 }
-                if blocks >= 2 {
-                    let open = is_open(Toggle::Turn(i), true);
-                    let _ = (tools, thoughts, replies);
+                if blocks >= 1 {
+                    // Finished work starts folded; a live turn stays open so
+                    // its activity is visible while the agent is working.
+                    let open = is_open(Toggle::Turn(i), turn_live);
                     // Codex app: "Worked for 1m 7s ›" (collapsed) or "Worked for 1m 7s ▾".
                     let span = t.turn_span(i);
-                    let label = match span {
+                    let edited_files = work.iter().filter_map(|&j| match &t.items[j] { Item::Tool { detail, .. } => Some(detail), _ => None }).flat_map(|detail| detail.lines().filter_map(|line| line.strip_prefix("@@ ")).map(|path| path.to_owned())).collect::<std::collections::HashSet<_>>().len();
+                    let mut label = match span {
                         Some((start, Some(end))) => format!("Worked for {}", duration_label(end.saturating_sub(start))),
                         Some((start, None)) if t.turn_times.last().map(|x| x.0 == i).unwrap_or(false) && t.status != "ready" && t.status != "idle" => format!("Working for {}", duration_label(now_ms().saturating_sub(start))),
                         _ => "Worked".to_owned(),
                     };
+                    if tools > 0 { label.push_str(&format!(" · {tools} step{}", if tools == 1 { "" } else { "s" })); }
+                    if commands > 0 { label.push_str(&format!(" · {commands} command{}", if commands == 1 { "" } else { "s" })); }
+                    if thoughts > 0 { label.push_str(&format!(" · {thoughts} thought{}", if thoughts == 1 { "" } else { "s" })); }
+                    if edited_files > 0 { label.push_str(&format!(" · {edited_files} file{} edited", if edited_files == 1 { "" } else { "s" })); }
+                    if failed_tools > 0 { label.push_str(&format!(" · {failed_tools} failed")); }
                     spacer(&mut rows, i, false);
                     let text = format!("{label}  {}", if open { "▾" } else { "›" });
-                    rows.push(Row { line: Line::from(vec![Span::styled(label, c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
+                    rows.push(Row { line: Line::from(vec![Span::styled(format!("{label}"), c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
                     // Codex app: a hairline under the handle.
-                    rows.push(Row { line: Line::from(Span::styled("─".repeat(width), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
+                    rows.push(Row { line: Line::from(Span::styled(format!("{}", "─".repeat(w)), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
                     // "Edited 2 files  +21 -2": the turn's file edits, summed, visible even when folded.
                     let mut files: Vec<String> = Vec::new();
                     let (mut plus, mut minus) = (0usize, 0usize);
@@ -434,7 +443,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                         }
                     }
                     if !files.is_empty() {
-                        let label = format!("{GUTTER}✎ Edited {} file{}  ", files.len(), if files.len() == 1 { "" } else { "s" });
+                        let label = format!("✎ Edited {} file{}  ", files.len(), if files.len() == 1 { "" } else { "s" });
                         let names = truncate(&files.join(", "), w.saturating_sub(label.width() + 14));
                         let text = format!("{label}{names}  +{plus} -{minus}");
                         rows.push(Row {
@@ -483,7 +492,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                     }
                 } else {
                     for &m in members {
-                        tool_rows(&mut rows, m, GUTTER);
+                        tool_rows(&mut rows, m, "");
                     }
                 }
             }
@@ -498,12 +507,12 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                         if let Some(cache) = markdown.as_deref_mut() {
                             let rendered = cache.entry(i).or_insert_with(|| {
                                 let mut rows = Vec::new();
-                                super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                                super::markdown::render(text, width, "", Style::default(), c, i, &mut rows);
                                 rows
                             });
                             rows.extend(rendered.iter().cloned());
                         } else {
-                            super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                            super::markdown::render(text, width, "", Style::default(), c, i, &mut rows);
                         }
                     }
                     Item::Thought { text } => {
@@ -517,23 +526,23 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                             // Codex app: one shimmering line with the latest
                             // sentence while it streams; a click opens the rest.
                             let latest = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().trim_matches('*').trim();
-                            let mut spans = vec![Span::raw(GUTTER)];
+                            let mut spans = vec![Span::raw("")];
                             spans.extend(super::shimmer::spans("Thinking", c.shimmer_base, c.shimmer_bright));
                             if !latest.is_empty() {
                                 spans.push(Span::styled(format!("  {}", truncate(latest, w.saturating_sub(12))), c.dim().add_modifier(Modifier::ITALIC)));
                             }
-                            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}Thinking  {latest}"), item: i, toggle: Some(Toggle::Item(i)) });
+                            rows.push(Row { line: Line::from(spans), text: format!("Thinking  {latest}"), item: i, toggle: Some(Toggle::Item(i)) });
                             if is_open(Toggle::Item(i), false) {
-                                wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                                wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), "", i, &mut rows);
                             }
                         } else if open {
-                            header_row(&format!("{GUTTER}Thought  ▾"), c.muted_fg, i, Toggle::Item(i), &mut rows);
-                            wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                            header_row(&format!("Thought  ▾"), c.muted_fg, i, Toggle::Item(i), &mut rows);
+                            wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), "", i, &mut rows);
                         } else {
                             let shown = truncate(summary, w.saturating_sub(14));
-                            let text_row = format!("{GUTTER}Thought  {shown}  ›");
+                            let text_row = format!("Thought  {shown}  ›");
                             rows.push(Row {
-                                line: Line::from(vec![Span::raw(GUTTER), Span::styled("Thought  ", c.muted()), Span::styled(shown, c.dim().add_modifier(Modifier::ITALIC)), Span::styled("  ›", c.dim())]),
+                                line: Line::from(vec![Span::raw(""), Span::styled("Thought  ", c.muted()), Span::styled(shown, c.dim().add_modifier(Modifier::ITALIC)), Span::styled("  ›", c.dim())]),
                                 text: text_row,
                                 item: i,
                                 toggle: Some(Toggle::Item(i)),
@@ -541,18 +550,18 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                         }
                     }
                     Item::Plan { entries } => {
-                        plain(&format!("{GUTTER}plan"), Style::default().fg(c.attention_fg), i, &mut rows);
+                        plain(&format!("plan"), Style::default().fg(c.attention_fg), i, &mut rows);
                         for (s, content) in entries {
                             let glyph = match s.as_str() {
                                 "completed" => "✓",
                                 "in_progress" => "▶",
                                 _ => "○",
                             };
-                            wrap(content, w.saturating_sub(2), Style::default().fg(c.attention_fg), &format!("{GUTTER}{glyph} "), i, &mut rows);
+                            wrap(content, w.saturating_sub(2), Style::default().fg(c.attention_fg), &format!("{glyph} "), i, &mut rows);
                         }
                     }
-                    Item::Status { text } => plain(&format!("{GUTTER}-- {text}"), c.dim(), i, &mut rows),
-                    Item::TurnEnd { stop } => plain(&format!("{GUTTER}-- {stop}"), c.dim(), i, &mut rows),
+                    Item::Status { text } => plain(&format!("-- {text}"), c.dim(), i, &mut rows),
+                    Item::TurnEnd { stop } => plain(&format!("-- {stop}"), c.dim(), i, &mut rows),
                     Item::Error { text } => {
                         // Codex app: a rounded notice card with an icon.
                         let border = Style::default().fg(c.composer_border_fg);
@@ -574,7 +583,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                         }
                         rows.push(Row { line: Line::from(Span::styled(format!("╰{}╯", "─".repeat(cw - 2)), border)), text: String::new(), item: i, toggle: None });
                     }
-                    Item::Stderr { text } => plain(&format!("{GUTTER}stderr: {}", truncate(text, w.saturating_sub(8))), c.dim(), i, &mut rows),
+                    Item::Stderr { text } => plain(&format!("stderr: {}", truncate(text, w.saturating_sub(8))), c.dim(), i, &mut rows),
                     _ => {}
                 }
             }
@@ -587,14 +596,13 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
             let style = c.dim().bg(c.user_bg);
             let bubble_w = if width < 50 { width } else { (width * 7 / 10).max(40).min(width) };
             let inner_w = bubble_w.saturating_sub(4);
-            let left = " ".repeat(width.saturating_sub(bubble_w));
             let mut body: Vec<Row> = Vec::new();
             wrap(text, inner_w, style, "", i, &mut body);
             plain("queued · sends when the running turn ends · Ctrl-x cancels it", c.dim().bg(c.user_bg), i, &mut body);
             let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
-                let mut spans = vec![Span::raw(left.clone()), Span::styled(" ".to_owned(), bg)];
+                let mut spans = Vec::new();
                 spans.extend(content);
-                spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(2 + used)), bg));
+                spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(used)), bg));
                 Row { line: Line::from(spans), text, item: i, toggle: None }
             };
             rows.push(bubble_row(vec![], 0, String::new()));
@@ -602,7 +610,7 @@ fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show
                 let m = if n == 0 { "⋯ " } else { "  " };
                 let content = r.text.clone();
                 let used = 2 + content.width();
-                rows.push(bubble_row(vec![Span::styled(m.to_owned(), bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD)), Span::styled(content.clone(), style)], used, format!("{left} {m}{content}")));
+                rows.push(bubble_row(vec![Span::styled(m.to_owned(), bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD)), Span::styled(content.clone(), style)], used, format!("{m}{content}")));
             }
             rows.push(bubble_row(vec![], 0, String::new()));
         }
@@ -633,13 +641,17 @@ fn working_row(t: &Transcript, c: &Chrome) -> Row {
     } else if t.active_tools > 0 {
         label.push_str(&format!(" · {} active tool{}", t.active_tools, if t.active_tools == 1 { "" } else { "s" }));
     }
-    let mut spans = vec![Span::raw(GUTTER)];
+    let queued = t.items.iter().filter(|item| matches!(item, Item::User { queued: true, .. })).count();
+    if queued > 0 {
+        label.push_str(&format!(" · {} queued", queued));
+    }
+    let mut spans = vec![Span::raw("")];
     spans.extend(super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
     let note = t.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
     if !note.is_empty() {
         spans.push(Span::styled(note.clone(), c.dim()));
     }
-    Row { line: Line::from(spans), text: format!("{GUTTER}{label}{note}"), item: usize::MAX, toggle: None }
+    Row { line: Line::from(spans), text: format!("{label}{note}"), item: usize::MAX, toggle: None }
 }
 
 /// The project label for a directory: its last segment, or `~` for a home
@@ -814,7 +826,7 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // Top rule, the text (1-6 rows), bottom rule, controls row.
     let max_rows = app.composer_max_rows.min(main.height / 2).max(1);
     // Top rule, the text, bottom rule, controls row.
-    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3;
+    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3 + u16::from(!app.prompt_images().is_empty());
     let composer = Rect { x: col_x, y: main.y + main.height - input_h, width: col_w, height: input_h };
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
@@ -1117,6 +1129,38 @@ mod hierarchy_tests {
     }
 
     #[test]
+    fn transcript_blocks_share_a_left_margin() {
+        let c = Chrome::dark();
+        let mut t = sample();
+        t.items.truncate(6);
+        t.items.push(Item::User { text: "queued followup".into(), steer: false, queued: true });
+        t.status = "running".into();
+        let at = now_ms();
+        t.user_at.insert(0, at);
+        t.turn_times.push((0, at, None));
+        for width in [40, 80, 120] {
+            let rows = transcript_rows(&t, width, false, false, &std::collections::HashSet::new(), &c);
+            for label in ["Use your Bash", "queued followup", "Thought", "Working for", "2 steps", "done", "Working ("] {
+                let row = rows.iter().find(|r| r.text.trim_start_matches([' ', '❯', '⋯']).starts_with(label)).unwrap_or_else(|| panic!("missing {label}"));
+                let shown = row.line.to_string();
+                if !matches!(label, "Use your Bash" | "queued followup") {
+                    assert_eq!(shown.find(label).map(|i| shown[..i].width()).unwrap_or(0), 0, "width={width}: {shown:?}");
+                    assert_eq!(row.text.find(label).map(|i| row.text[..i].width()).unwrap_or(0), 0, "copy and hit-test columns");
+                }
+                if let Some(animated) = cache::animated_line(&t, row, &c) {
+                    if !matches!(label, "Use your Bash" | "queued followup") { assert_eq!(animated.to_string().find(label), Some(0)); }
+                    if label == "Working for" { assert!(animated.to_string().contains("2 steps")); }
+                }
+            }
+            let timestamp = rows.iter().find(|r| r.text.contains(&when_label(at))).unwrap();
+            assert!(timestamp.text.starts_with(GUTTER));
+            assert_eq!(timestamp.text.trim_start(), when_label(at));
+            let tool = rows.iter().find(|r| r.text.contains("hostname") && r.toggle == Some(Toggle::Item(2))).unwrap();
+            assert!(tool.text.starts_with("    "), "nested tools keep their indentation");
+        }
+    }
+
+    #[test]
     fn errors_render_as_a_notice_card() {
         let c = Chrome::dark();
         let mut t = Transcript::default();
@@ -1139,32 +1183,25 @@ mod hierarchy_tests {
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash")), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("▾")), "{text:?}");
-        assert!(text.iter().any(|l| l.contains("Allowed  date")), "{text:?}");
-        // Collapse the group and the first turn.
+        assert!(text.iter().any(|l| l.trim_start().starts_with("Worked") && l.ends_with("›")), "{text:?}");
+        assert!(!text.iter().any(|l| l.contains("Allowed  date")), "{text:?}");
+        // Explicitly expand the first turn.
         let mut flipped = std::collections::HashSet::new();
-        flipped.insert(Toggle::Group(2));
-        let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
-        let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("›")), "{text:?}");
-        assert!(!text.iter().any(|l| l.contains("permission: date")), "{text:?}");
-        // The first turn's work (a thought and a tool group) has a handle.
-        let rows = transcript_rows(&t, 80, false, false, &none, &c);
-        let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("▾")), "{text:?}");
-        assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash")), "{text:?}");
-        assert!(!rows.iter().any(|r| r.text.trim_start().starts_with("❯") && r.toggle.is_some()), "user rows never toggle");
-        // Collapsing the work keeps the message and the final reply.
         flipped.insert(Toggle::Turn(0));
         let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("›")), "{text:?}");
+        assert!(text.iter().any(|l| l.trim_start().starts_with("Worked") && l.ends_with("▾")), "{text:?}");
+        assert!(text.iter().any(|l| l.contains("Allowed  date")), "{text:?}");
+        // Collapsing the work keeps the message and the final reply.
+        let rows = transcript_rows(&t, 80, false, false, &none, &c);
+        let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        assert!(text.iter().any(|l| l.trim_start().starts_with("Worked") && l.ends_with("›")), "{text:?}");
         assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash tool twice")), "{text:?}");
-        assert!(text.iter().any(|l| l == &"  done"), "{text:?}");
+        assert!(text.iter().any(|l| l == &"done"), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("thinking") || l.contains("hostname")), "{text:?}");
         assert!(text.iter().any(|l| l.trim_start().starts_with("❯ again")), "{text:?}");
-        // The second turn has one block only: no handle.
-        assert_eq!(text.iter().filter(|l| l.starts_with("Worked")).count(), 1, "{text:?}");
+        // The second turn has only a final reply, with no work to fold.
+        assert_eq!(text.iter().filter(|l| l.trim_start().starts_with("Worked")).count(), 1, "{text:?}");
     }
 }
 

@@ -171,13 +171,8 @@ impl App {
         if self.rows_cache.is_empty() {
             return None;
         }
-        let inner = self.transcript_inner();
-        let id = self.selected_id()?;
-        let vp = self.viewport.get(&id)?;
-        let yy = y.clamp(inner.y, inner.y + inner.height.saturating_sub(1));
-        let row = (vp.offset + (yy - inner.y) as usize).min(self.rows_cache.len() - 1);
-        let xx = x.clamp(inner.x, inner.x + inner.width.saturating_sub(1));
-        let col = ((xx - inner.x) as usize).min(self.rows_cache[row].chars().count());
+        let (rect, row) = self.transcript_hitboxes.iter().find(|(rect, _)| x >= rect.x && x < rect.x + rect.width && y == rect.y).copied()?;
+        let col = ((x - rect.x) as usize).min(self.rows_cache[row].chars().count());
         Some((row, col))
     }
 
@@ -185,7 +180,7 @@ impl App {
         let (x, y) = (m.column, m.row);
         self.hover = Some((x, y));
         let hit = |r: Rect| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
-        let mut over = self.sidebar_rows.iter().any(|(r, _)| hit(*r)) || self.buttons.iter().any(|(r, _)| hit(*r)) || self.perm_rows.iter().any(|(r, _)| hit(*r)) || hit(self.areas.sidebar_rule);
+        let mut over = self.sidebar_rows.iter().any(|(r, _)| hit(*r)) || self.buttons.iter().any(|(r, _)| hit(*r)) || self.perm_rows.iter().any(|(r, _)| hit(*r)) || self.transcript_hitboxes.iter().any(|(r, _)| hit(*r)) || hit(self.areas.sidebar_rule);
         // Hover moves the picker cursor, except while the scrollbar is dragged.
         let dragging = self.dialog.viewport.drag.is_some() || self.sidebar_drag.is_some();
         if let (Overlay::Picker(p), false) = (&mut self.overlay, dragging) {

@@ -20,7 +20,12 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let bx = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: area.height };
     let border = Style::default().fg(if focused { c.composer_border_focus_fg } else { c.composer_border_fg });
     rounded_border(buf, bx, border);
-    let text_area = Rect { x: bx.x + 2, y: bx.y + 1, width: bx.width.saturating_sub(4), height: bx.height.saturating_sub(3) };
+    let attachment_rows = u16::from(!app.prompt_images().is_empty());
+    if attachment_rows > 0 {
+        let label = app.prompt_images().iter().map(|i| format!("📎 {}", i.name)).collect::<Vec<_>>().join("  ");
+        buf.set_stringn(bx.x + 2, bx.y + 1, &label, bx.width.saturating_sub(4) as usize, c.muted());
+    }
+    let text_area = Rect { x: bx.x + 2, y: bx.y + 1 + attachment_rows, width: bx.width.saturating_sub(4), height: bx.height.saturating_sub(3 + attachment_rows) };
     if app.focus == Focus::Command {
         let content = format!("{}{}", app.palette_prefix, app.command.text());
         buf.set_stringn(text_area.x, text_area.y, &content, text_area.width as usize, Style::default().fg(c.warn_fg));
@@ -129,7 +134,7 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
     } else {
         let s = app.selected_session();
         let a = s.and_then(|s| s.get("harness").and_then(Value::as_str)).unwrap_or("").to_owned();
-        let policy = s.and_then(|s| s.get("policy").and_then(Value::as_str)).unwrap_or("ask").to_owned();
+        let policy = s.and_then(|s| s.get("policy").and_then(Value::as_str)).unwrap_or("approve-all").to_owned();
         let thinking = app
             .selected_id()
             .and_then(|id| app.details.get(&id))
@@ -160,9 +165,8 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
         }
         *x += w;
     };
-    let (policy_label, warm) = policy_label(&policy);
-    let policy_style = if warm { Style::default().fg(c.accent_warm_fg) } else { c.muted() };
-    put(buf, &mut x, &policy_label, policy_style, Some(ButtonAction::PickPolicy), &mut chips);
+    let (policy_text, policy_style) = policy_visual(&policy, c);
+    put(buf, &mut x, &policy_text, policy_style, Some(ButtonAction::PickPolicy), &mut chips);
     // Harness modes that are the plain default carry no information.
     if !on_draft && !mode.is_empty() && !matches!(mode.as_str(), "default" | "normal" | "agent" | "build") {
         put(buf, &mut x, "   ", Style::default(), None, &mut chips);
@@ -214,6 +218,16 @@ pub(crate) fn policy_label(policy: &str) -> (String, bool) {
         "approve-reads" => ("Reads allowed".into(), false),
         "deny-all" => ("Read-only".into(), false),
         _ => ("Ask before acting".into(), false),
+    }
+}
+
+fn policy_visual(policy: &str, c: Chrome) -> (String, Style) {
+    match policy {
+        "approve-all" => ("✓ Full access".into(), Style::default().fg(c.accent_warm_fg).add_modifier(Modifier::BOLD)),
+        "approve-edits" => ("✎ Edits allowed".into(), Style::default().fg(c.ok_fg)),
+        "approve-reads" => ("◉ Reads allowed".into(), Style::default().fg(c.prompt_button_accent_fg)),
+        "deny-all" => ("⊘ Read-only".into(), Style::default().fg(c.error_fg)),
+        _ => ("? Ask before acting".into(), Style::default().fg(c.attention_fg)),
     }
 }
 

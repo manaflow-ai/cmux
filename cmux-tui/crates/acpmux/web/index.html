@@ -101,7 +101,7 @@
   .bar .acts { display: flex; gap: 2px; }
   .bar .acts button { color: var(--muted); padding: 4px 8px; font-size: 13px; }
   .log { overflow-y: auto; padding: 8px 24px 24px; }
-  .col { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  .col { max-width: 860px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: stretch; gap: 10px; text-align: left; }
   .when { text-align: center; color: var(--dim); font-size: 12.5px; margin: 8px 0 2px; }
   .msg { position: relative; }
   /* ChatGPT: a small action row appears under a message on hover. */
@@ -114,8 +114,14 @@
   .msg.user.steer { border: 1px solid var(--warm); }
   .msg.user.local { opacity: .6; }
   .msg.user.queued { opacity: .7; border: 1px dashed var(--rule); }
+  .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .msg-images img { max-width: 220px; max-height: 160px; border-radius: 8px; object-fit: contain; background: var(--raised); }
   .qtag { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
-  .msg.assistant { line-height: 1.6; word-break: break-word; }
+  /* Transcript hitboxes follow the painted content. The old stretch rule
+     made a short tool/message line clickable across the whole conversation. */
+  .msg.assistant, .work, .working, .act, .thought, .plan, .card, .edits { align-self: flex-start; width: fit-content; max-width: 100%; text-align: left; }
+  .col > [data-idx] { align-self: flex-start; width: fit-content; max-width: 100%; }
+  .msg.assistant { line-height: 1.6; word-break: break-word; margin-left: 0; padding-left: 0; }
   .msg.assistant > :first-child { margin-top: 0; } .msg.assistant > :last-child { margin-bottom: 0; }
   .msg.assistant p { margin: 0 0 10px; } .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
   .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { font-size: 15px; margin: 14px 0 6px; }
@@ -131,7 +137,7 @@
   .msg.assistant blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 3px solid var(--rule); color: var(--muted); }
   .msg.assistant hr { border: 0; border-top: 1px solid var(--rule); margin: 12px 0; }
   .work { margin: 2px 0; }
-  .work > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 6px; }
+  .work > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--rule); display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
   .work > summary::-webkit-details-marker { display: none; }
   .work > summary .chev { color: var(--dim); transition: transform .12s; }
   .work[open] > summary .chev { transform: rotate(90deg); }
@@ -143,7 +149,7 @@
   .act.failed, .act.failed .ic { color: var(--bad); }
   .act .cnt { font-size: 12.5px; } .act .cnt .a { color: var(--add); } .act .cnt .d { color: var(--del); margin-left: 4px; }
   .act .chev { color: var(--dim); font-size: 12px; }
-  .act-detail { margin: -2px 0 4px 25px; padding: 8px 12px; background: var(--code); border: 1px solid var(--rule); border-radius: 8px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
+  .act-detail { margin: -2px 0 4px 0; padding: 8px 12px; background: var(--code); border: 1px solid var(--rule); border-radius: 8px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
   .act-detail .a { color: var(--add); } .act-detail .d { color: var(--del); } .act-detail .h { color: var(--muted); }
   .thought { color: var(--muted); font-size: 13.5px; }
   .thought summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
@@ -151,7 +157,7 @@
   .thought summary .lbl { color: var(--muted); flex: none; } .thought summary .sum { font-style: italic; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .thought summary:hover .sum { color: var(--muted); }
   .thought .body { font-style: italic; color: var(--dim); white-space: pre-wrap; padding: 6px 0 2px 0; }
-  .plan { font-size: 13.5px; color: var(--muted); padding-left: 25px; }
+  .plan { font-size: 13.5px; color: var(--muted); padding-left: 0; }
   .plan div::before { content: "○ "; color: var(--dim); } .plan div.completed::before { content: "✓ "; color: var(--ok); } .plan div.in_progress::before { content: "▶ "; color: var(--warm); }
   .note { font-size: 12.5px; color: var(--dim); }
   .card { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; }
@@ -173,16 +179,27 @@
   .perm .box { border: 1px solid var(--attn); border-radius: 14px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   .perm .t { color: var(--attn); font-weight: 600; } .perm .t span { color: var(--ink); font-weight: 500; }
   .perm .opts { display: flex; gap: 8px; margin-left: auto; }
+  .perm .opts button.allow { color: var(--ok); }
   .perm kbd { font-size: 11px; color: var(--dim); }
   .composer { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 24px 18px; }
   .composer .box { border: 1px solid var(--rule); background: var(--panel); border-radius: 18px; padding: 12px 14px 8px; display: grid; gap: 6px; }
   .composer .box:focus-within { border-color: var(--dim); }
   .composer textarea { width: 100%; min-height: 24px; max-height: 240px; resize: none; border: 0; background: transparent; padding: 0 2px; line-height: 1.5; }
   .composer textarea:focus { outline: none; }
+  .composer.drop-target .box { border-color: var(--link); background: var(--hover); }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+  .attachment { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 8px; background: var(--raised); color: var(--muted); font-size: 12px; }
+  .attachment img { width: 28px; height: 28px; border-radius: 5px; object-fit: cover; }
+  .attachment button { padding: 0 2px; color: var(--dim); }
   .composer .row { display: flex; align-items: center; gap: 4px; }
   .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
   .chip:hover { background: var(--hover); color: var(--ink); }
   .chip.warm { color: var(--warm); }
+  .chip.policy-ask { color: var(--attn); }
+  .chip.policy-approve-reads { color: var(--link); }
+  .chip.policy-approve-edits { color: var(--ok); }
+  .chip.policy-approve-all { color: var(--warm); }
+  .chip.policy-deny-all { color: var(--bad); }
   button.chip { border: 0; text-align: left; }
   .draft-config { max-width: min(100%, 420px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .draft-config .chev { color: var(--dim); }
@@ -251,6 +268,7 @@
   <div class="perm" id="perm" hidden></div>
   <div class="composer">
     <div class="box">
+      <div class="attachments" id="attachments" hidden></div>
       <textarea id="input" placeholder="Ask anything" rows="1"></textarea>
       <div class="row">
         <button id="chip-draft-harness" class="chip draft-config" hidden type="button" title="Change harness"><span id="draft-harness-label"></span></button>
@@ -380,6 +398,46 @@
   // Codex app: "New session" is an empty conversation with the composer
   // ready; the session is created on the first message.
   let draft = null;
+  // Files dropped onto the composer stay attached until the next prompt is
+  // sent. They are encoded once and sent as ACP image content blocks.
+  let promptImages = [];
+
+  function renderAttachments() {
+    const el = $('#attachments'); if (!el) return;
+    el.replaceChildren(); el.hidden = !promptImages.length;
+    promptImages.forEach((image, i) => {
+      const chip = document.createElement('span'); chip.className = 'attachment';
+      const img = document.createElement('img'); img.src = image.url; img.alt = image.name;
+      const label = document.createElement('span'); label.textContent = image.name;
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove image';
+      remove.onclick = () => { promptImages.splice(i, 1); renderAttachments(); autosize(); };
+      chip.append(img, label, remove); el.appendChild(chip);
+    });
+  }
+
+  function readImage(file) {
+    if (!file || !file.type || !file.type.startsWith('image/')) return Promise.resolve(null);
+    if (file.size > 8 * 1024 * 1024) { toast('Image is larger than 8 MB'); return Promise.resolve(null); }
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () => {
+        const url = String(reader.result || '');
+        const comma = url.indexOf(',');
+        resolve(comma < 0 ? null : { name: file.name || 'image', mimeType: file.type, data: url.slice(comma + 1), url });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files) {
+    const images = [];
+    for (const file of Array.from(files || [])) {
+      const image = await readImage(file); if (image) images.push(image);
+    }
+    if (!images.length) return;
+    promptImages.push(...images); renderAttachments(); autosize(); $('#input').focus();
+  }
   function startDraft(preferredCwd) {
     const cur = state.sessions.find((x) => x.sessionId === selected && !x.peer);
     const harness = (cur && cur.harness) || (draft && draft.harness) || defaultHarness || Object.keys(agents)[0] || '';
@@ -390,11 +448,11 @@
       harness,
       model: (cur && cur.model) || defaults.model || defaultModelFor(harness),
       effort: effort || defaults.effort || 'default',
-      policy: (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'ask',
+      policy: (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'approve-all',
       cwd: preferredCwd !== undefined ? preferredCwd : (cur && !cur.peer && cur.cwd) || (draft && draft.cwd) || ''
     };
-    selected = null; document.title = 'acpmux';
-    renderList(); renderBar(); renderLog(true); $('#input').focus(); $('#side').classList.remove('open');
+    promptImages = []; selected = null; document.title = 'acpmux';
+    renderAttachments(); renderList(); renderBar(); renderLog(true); $('#input').focus(); $('#side').classList.remove('open');
   }
 
   function setSessions(list) { state.sessions = list; sortSessions(); renderList(); renderProjects(); }
@@ -427,7 +485,7 @@
   }
   const diffCounts = (d) => { if (!d || (!d.startsWith('@@ ') && !/^[+-] /m.test(d))) return null; const p = (d.match(/^\+ /mg) || []).length, m = (d.match(/^- /mg) || []).length; return p + m ? [p, m] : null; };
   // ---------- transcript model (mirror of src/transcript.rs)
-  function newTranscript() { return { items: [], status: '', mode: null, model: null, usage: null, pendingUserChunk: false, lastSeq: 0, dirty: new Set(), runningSince: 0 }; }
+  function newTranscript() { return { items: [], status: '', mode: null, model: null, usage: null, pendingUserChunk: false, lastSeq: 0, dirty: new Set(), runningSince: 0, activity: '', activeTools: 0, activeTerminals: 0 }; }
   const touch = (t, i) => t.dirty.add(i);
   // Sequence guard: an attach snapshot can race a live notification; drop anything already applied.
   const fresh = (t, seq) => { if (typeof seq !== 'number') return true; if (seq <= t.lastSeq) return false; t.lastSeq = seq; return true; };
@@ -441,8 +499,8 @@
     const k = u.sessionUpdate; const last = t.items[t.items.length - 1];
     if (k === 'user_message_chunk') { const s = textOf(u.content); if (last && last.type === 'user' && t.pendingUserChunk) last.text += s; else t.items.push({ type: 'user', text: s, steer: false }); t.pendingUserChunk = true; return; }
     t.pendingUserChunk = false;
-    if (k === 'agent_message_chunk') { const s = textOf(u.content); if (last && last.type === 'assistant') last.text += s; else t.items.push({ type: 'assistant', text: s }); }
-    else if (k === 'agent_thought_chunk') { const s = textOf(u.content); if (last && last.type === 'thought') last.text += s; else t.items.push({ type: 'thought', text: s }); }
+    if (k === 'agent_message_chunk') { const s = textOf(u.content); if (last && last.type === 'assistant') last.text += s; else t.items.push({ type: 'assistant', text: s }); t.activity = 'Writing response'; }
+    else if (k === 'agent_thought_chunk') { const s = textOf(u.content); if (last && last.type === 'thought') last.text += s; else t.items.push({ type: 'thought', text: s }); const line = s.split(/\r?\n/).find((x) => x.trim()); t.activity = line ? line.trim().slice(0, 120) : 'Thinking'; }
     else if (k === 'tool_call' || k === 'tool_call_update') {
       let detail = (u.content || []).map((b) => b && b.type === 'diff' ? diffText(b.path || '', b.oldText || '', b.newText || '') : textOf(b)).filter(Boolean).join('\n');
       if (!detail && u.rawOutput !== undefined) detail = typeof u.rawOutput === 'string' ? u.rawOutput : JSON.stringify(u.rawOutput, null, 1);
@@ -450,11 +508,22 @@
       let it = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'tool' && t.items[i].id === u.toolCallId) { it = t.items[i]; touch(t, i); break; }
       if (it) { if (u.title) it.title = u.title; if (u.kind) it.kind = u.kind; if (u.status) it.status = u.status; if (detail) it.detail = detail; }
       else t.items.push({ type: 'tool', id: u.toolCallId || '', title: u.title || 'tool', kind: u.kind || '', status: u.status || 'pending', detail });
+      refreshActivity(t);
     }
-    else if (k === 'plan') { const entries = (u.entries || []).map((e) => ({ status: e.status || '', content: e.content || '' })); let p = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'plan') { p = t.items[i]; touch(t, i); break; } if (p) p.entries = entries; else t.items.push({ type: 'plan', entries }); }
+    else if (k === 'plan') { const entries = (u.entries || []).map((e) => ({ status: e.status || '', content: e.content || '' })); let p = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'plan') { p = t.items[i]; touch(t, i); break; } if (p) p.entries = entries; else t.items.push({ type: 'plan', entries }); refreshActivity(t); }
     else if (k === 'usage_update') t.usage = { used: u.used || 0, size: u.size || 0 };
     else if (k === 'current_mode_update') t.mode = u.currentModeId;
     else if (k === 'config_option_update') { for (const o of u.configOptions || []) if (o.id === 'model') t.model = o.currentValue; }
+  }
+  function refreshActivity(t) {
+    const active = t.items.filter((x) => x.type === 'tool' && (x.status === 'pending' || x.status === 'in_progress'));
+    t.activeTools = active.length;
+    t.activeTerminals = active.filter((x) => ['execute', 'terminal', 'shell'].includes(x.kind)).length;
+    const tool = active[active.length - 1];
+    if (tool) { t.activity = (tool.title || 'Working').slice(0, 120); return; }
+    const plan = [...t.items].reverse().find((x) => x.type === 'plan' && x.entries.some((e) => e.status === 'in_progress'));
+    if (plan) { const step = plan.entries.find((e) => e.status === 'in_progress'); if (step) { t.activity = (step.content || 'Working').slice(0, 120); return; } }
+    if (t.status === 'running') t.activity = 'Thinking';
   }
   function applyEvent(t, ev) {
     const before = t.items.length;
@@ -470,7 +539,8 @@
     switch (kind) {
       case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
       case 'user_message': {
-        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || ''));
+        const incomingText = msg.text || '';
+        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
         if (local >= 0 && t.items[local].queued) { t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); t.reorder = true; }
         else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
         else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at });
@@ -478,8 +548,8 @@
       }
       case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
       case 'turn_result': push({ type: 'turn_result', status: msg.status || '', at: ev.at, startAt: t.turnStartAt }); break;
-      case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); } else t.runningSince = 0; break;
-      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at, startAt: t.turnStartAt }); break;
+      case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); refreshActivity(t); } else { t.runningSince = 0; t.activity = ''; t.activeTools = 0; t.activeTerminals = 0; } break;
+      case 'turn_end': t.activity = ''; t.activeTools = 0; t.activeTerminals = 0; push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at, startAt: t.turnStartAt }); break;
       case 'turn_error': push({ type: 'error', text: msg.error || 'turn failed' }); break;
       case 'permission_request': { const r = msg.request || {}; push({ type: 'permission', id: msg.permissionId, title: (r.toolCall && r.toolCall.title) || 'permission', options: (r.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })), decided: null }); break; }
       case 'permission_decision': case 'permission_auto': { const d = (msg.outcome && (msg.outcome.optionId || msg.outcome.outcome)) || msg.optionId || 'cancelled'; let found = false; for (let i = t.items.length - 1; i >= 0; i--) { const it = t.items[i]; if (it.type === 'permission' && it.id === msg.permissionId) { it.decided = d; found = true; touch(t, i); break; } } if (!found && kind === 'permission_auto') push({ type: 'permission', id: msg.permissionId, title: (msg.request && msg.request.toolCall && msg.request.toolCall.title) || 'permission', options: [], decided: d + ' (policy)' }); break; }
@@ -519,9 +589,9 @@
       if (id === selected) { renderLog(true); renderBar(); }
     } catch (e) { attached.delete(id); console.warn('attach', e); }
   }
-  function select(id) { selected = id; draft = null; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
+  function select(id) { selected = id; draft = null; promptImages = []; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderAttachments(); renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
   async function send(steer) {
-    const text = $('#input').value.trim(); if (!text) return;
+    const text = $('#input').value.trim(); const images = promptImages.slice(); if (!text && !images.length) return;
     if (!steer && (text === 'cd' || /^cd\s+[^\n\r;|&`]*$/.test(text) && !text.includes('$('))) {
       openDirectory(text === 'cd' ? '' : text.slice(2).trim()); return;
     }
@@ -529,26 +599,26 @@
       const meta = draftMeta(draft);
       const params = { mcpServers: [], _meta: { acpmux: meta } };
       if (draft.cwd) params.cwd = draft.cwd;
-      $('#input').value = ''; autosize();
+      $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
       try {
         const r = await call('session/new', params);
         const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns);
         select(r.sessionId);
         const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
-        t.items.push({ type: 'user', text, steer: false, local: true, at: Date.now() }); touch(t, t.items.length - 1);
+        t.items.push({ type: 'user', text, images, steer: false, local: true, at: Date.now() }); touch(t, t.items.length - 1);
         t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); scheduleRender(true);
-        call('session/prompt', { sessionId: selected, prompt: [{ type: 'text', text }] }).catch((e) => toast('error: ' + e.message));
-      } catch (err) { toast('error: ' + err.message); $('#input').value = text; autosize(); }
+        call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))) }).catch((e) => toast('error: ' + e.message));
+      } catch (err) { toast('error: ' + err.message); $('#input').value = text; promptImages = images; renderAttachments(); autosize(); }
       return;
     }
     if (!selected) return;
-    $('#input').value = ''; autosize();
+    $('#input').value = ''; promptImages = []; renderAttachments(); autosize();
     const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
     const busy = t.status === 'running' || t.status === 'waiting';
-    t.items.push({ type: 'user', text, steer, local: true, queued: busy && !steer, at: Date.now() }); touch(t, t.items.length - 1);
+    t.items.push({ type: 'user', text, images, steer, local: true, queued: busy && !steer, at: Date.now() }); touch(t, t.items.length - 1);
     if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
     scheduleRender(true);
-    call('session/prompt', { sessionId: selected, prompt: [{ type: 'text', text }], _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
+    call('session/prompt', { sessionId: selected, prompt: (text ? [{ type: 'text', text }] : []).concat(images.map((x) => ({ type: 'image', mimeType: x.mimeType, data: x.data, name: x.name }))), _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
   }
   let toastEl = null;
   const toast = (msg) => { if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'toast'; document.body.appendChild(toastEl); } toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastEl._t); toastEl._t = setTimeout(() => { toastEl.hidden = true; }, 4000); };
@@ -564,6 +634,7 @@
   const shortTitle = (title) => title.split(' ').map((w) => { const t = w.replace(/^['"`]|['"`,]$/g, ''); return (t.startsWith('/') || t.startsWith('~/')) && (t.match(/\//g) || []).length >= 2 ? t.split('/').pop() : t; }).join(' ').replace(/^Read file /, 'Read ').replace(/^Write file /, 'Write ').replace(/^Edit file /, 'Edit ');
   const glyphOf = (kind) => ({ read: '≡', edit: '✎', execute: '$', search: '⌕', fetch: '↓', think: '…', delete: '⇄', move: '⇄' }[kind] || '•');
   const policyLabel = (p) => ({ 'approve-all': 'Full access', 'approve-edits': 'Edits allowed', 'approve-reads': 'Reads allowed', 'deny-all': 'Read-only' }[p] || 'Ask before acting');
+  const policyIcon = (p) => ({ 'approve-all': '✓', 'approve-edits': '✎', 'approve-reads': '◉', 'deny-all': '⊘' }[p] || '?');
 
   function loadProjectPrefs() {
     try {
@@ -740,7 +811,7 @@
     $('#btn-steer').hidden = !(st === 'running');
     for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = !s;
     // Policy chip.
-    const policy = (s && s.policy) || 'ask'; $('#policy').value = policy; $('#policy-label').textContent = policyLabel(policy); $('#chip-policy').classList.toggle('warm', policy === 'approve-all');
+    const policy = (s && s.policy) || 'approve-all'; $('#policy').value = policy; $('#policy-label').textContent = policyIcon(policy) + ' ' + policyLabel(policy); $('#chip-policy').className = 'chip policy-' + policy;
     // Mode chip: only when the harness has more than one mode and it is not the plain default.
     const modeSel = $('#mode'); modeSel.innerHTML = '';
     const modes = (d.modes && d.modes.availableModes) || [];
@@ -772,7 +843,7 @@
     for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = true;
     $('#chip-draft-harness').hidden = false; $('#draft-harness-label').textContent = draft.harness || 'harness';
     $('#chip-draft-model').hidden = false; $('#draft-model-label').textContent = modelDisplay(draft.harness, draft.model);
-    $('#chip-draft-policy').hidden = false; $('#draft-policy-label').textContent = policyLabel(draft.policy);
+    $('#chip-draft-policy').hidden = false; $('#chip-draft-policy').className = 'chip draft-config policy-' + draft.policy; $('#draft-policy-label').textContent = policyIcon(draft.policy) + ' ' + policyLabel(draft.policy);
     $('#chip-policy').hidden = true; $('#chip-model').hidden = true;
     $('#chip-mode').hidden = true; $('#chip-effort').hidden = true;
     $('#perm').hidden = true; $('#perm').innerHTML = '';
@@ -781,7 +852,8 @@
     const el = $('#perm'); const perm = t && pendingPermission(t);
     if (!perm) { el.hidden = true; el.innerHTML = ''; return; }
     el.hidden = false;
-    el.innerHTML = '<div class="box"><span class="t">Needs permission · <span>' + esc(shortTitle(perm.title)) + '</span></span><span class="opts">' + perm.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="pill ' + (o.kind.startsWith('allow') ? '' : 'bad') + '">' + esc(o.name) + '</button>').join('') + '</span><kbd>y allow · n reject</kbd></div>';
+    const permissionIcon = (kind) => kind === 'allow_always' ? '✓✓' : kind.startsWith('allow') ? '✓' : kind === 'reject_always' ? '⊘⊘' : '✕';
+    el.innerHTML = '<div class="box"><span class="t">? Needs permission · <span>' + esc(shortTitle(perm.title)) + '</span></span><span class="opts">' + perm.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="pill ' + (o.kind.startsWith('allow') ? 'allow' : 'bad') + '">' + permissionIcon(o.kind) + ' ' + esc(o.name) + '</button>').join('') + '</span><kbd>y allow · n reject</kbd></div>';
     for (const b of el.querySelectorAll('button')) b.onclick = () => call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: b.dataset.opt }).catch((e) => toast(e.message));
   }
 
@@ -851,17 +923,17 @@
     if (userIdx < 0) return;
     const nodes = [];
     for (const n of Array.from(col.children)) { const i = Number(n.dataset.idx); if (!Number.isFinite(i)) continue; if (i > userIdx && i < endIdx && i !== finalIdx && !n.classList.contains('work')) nodes.push(n); }
-    if (nodes.length < 2) return;
+    if (!nodes.length) return;
     const d = document.createElement('details'); d.className = 'work'; d.open = openAll;
     const start = marker.startAt || t.turnStartAt;
     const ms = start && marker.at ? Math.max(0, marker.at - start) : (t.runningSince ? Date.now() - t.runningSince : 0);
-    d.innerHTML = '<summary><span>Worked' + (ms ? ' for ' + dur(ms) : '') + '</span><span class="chev">›</span></summary><div class="inner"></div>';
-    nodes[0].before(d);
-    const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
-    // "Edited 2 files +21 -2", listed per file, outside the fold (Codex app).
-    const files = new Map(); let plus = 0, minus = 0;
+    const files = new Map(); let plus = 0, minus = 0, commands = 0, reads = 0, toolCalls = 0, failures = 0;
     for (let i = userIdx + 1; i < endIdx; i++) {
       const x = t.items[i]; if (x.type !== 'tool') continue;
+      toolCalls++;
+      if (x.status === 'failed') failures++;
+      if (x.kind === 'execute' || x.kind === 'terminal' || x.kind === 'shell' || /\b(run|exec|bash|shell|command)\b/i.test(x.title)) commands++;
+      if (x.kind === 'read' || x.kind === 'search' || x.kind === 'fetch') reads++;
       const c = diffCounts(x.detail); if (!c) continue;
       plus += c[0]; minus += c[1];
       for (const l of x.detail.split('\n')) if (l.startsWith('@@ ')) { const p = l.slice(3); const cur = files.get(p) || [0, 0]; files.set(p, cur); }
@@ -869,6 +941,17 @@
       const own = x.detail.split(/^@@ /m).slice(1);
       for (const chunk of own) { const nl = chunk.indexOf('\n'); const p = chunk.slice(0, nl < 0 ? undefined : nl).trim(); const body = nl < 0 ? '' : chunk.slice(nl + 1); const cur = files.get(p) || [0, 0]; cur[0] += (body.match(/^\+ /mg) || []).length; cur[1] += (body.match(/^- /mg) || []).length; files.set(p, cur); }
     }
+    const stats = [];
+    if (ms) stats.push('Worked for ' + dur(ms)); else stats.push('Worked');
+    if (files.size) stats.push(files.size + ' file' + (files.size === 1 ? '' : 's') + ' edited');
+    if (commands) stats.push(commands + ' command' + (commands === 1 ? '' : 's'));
+    if (reads) stats.push(reads + ' read' + (reads === 1 ? '' : 's'));
+    if (toolCalls && !commands && !reads) stats.push(toolCalls + ' tool call' + (toolCalls === 1 ? '' : 's'));
+    if (failures) stats.push(failures + ' failed');
+    d.innerHTML = '<summary><span>' + esc(stats.join(' · ')) + '</span><span class="chev">›</span></summary><div class="inner"></div>';
+    nodes[0].before(d);
+    const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
+    // "Edited 2 files +21 -2", listed per file, outside the fold (Codex app).
     if (files.size) {
       const card = document.createElement('div'); card.className = 'edits';
       const rows = Array.from(files.entries()).map(([p, [a, b]]) => { const parts = p.split('/'); const base = parts.pop(); const dir = parts.length ? parts.slice(-2).join('/') + '/' : ''; return '<div class="file"><span><span class="dir">' + esc(dir) + '</span>' + esc(base) + '</span><span class="cnt"><span class="a">+' + a + '</span><span class="d">-' + b + '</span></span></div>'; });
@@ -879,23 +962,30 @@
   let workingEl = null, workingTimer = null;
   function renderWorking(t) {
     if (!col) return;
-    let last = t.items[t.items.length - 1];
-    for (let i = t.items.length - 1; i >= 0 && t.items[i].type === 'user' && t.items[i].queued; i--) last = t.items[i - 1];
-    const streaming = last && (last.type === 'assistant' || (last.type === 'tool' && last.status === 'in_progress'));
-    const show = t.status === 'running' && !streaming;
+    const show = t.status === 'running';
     if (show) {
       if (!workingEl) { workingEl = document.createElement('div'); workingEl.className = 'working'; col.appendChild(workingEl); }
       else if (col.lastElementChild !== workingEl) col.appendChild(workingEl);
       const since = t.turnStartAt || t.runningSince;
       const queued = t.items.filter((x) => x.type === 'user' && x.queued).length;
-      workingEl.innerHTML = '<span class="shimmer">' + (since ? 'Working for ' + dur(Date.now() - since) : 'Working…') + '</span>' + (queued ? '<span>· ' + queued + ' queued</span>' : '');
+      let label = since ? 'Working (' + dur(Date.now() - since) + ' · Esc to interrupt)' : 'Working…';
+      if (t.activity) label += ' · ' + t.activity;
+      if (t.activeTerminals) label += ' · ' + t.activeTerminals + ' background terminal' + (t.activeTerminals === 1 ? '' : 's');
+      else if (t.activeTools) label += ' · ' + t.activeTools + ' active tool' + (t.activeTools === 1 ? '' : 's');
+      workingEl.innerHTML = '<span class="shimmer">' + esc(label) + '</span>' + (queued ? '<span>· ' + queued + ' queued</span>' : '');
       if (!workingTimer) workingTimer = setInterval(() => { const cur = state.transcripts.get(selected); if (cur) renderWorking(cur); }, 1000);
     } else if (workingEl) { workingEl.remove(); workingEl = null; if (workingTimer) { clearInterval(workingTimer); workingTimer = null; } }
   }
   function renderItem(it, idx) {
     const el = document.createElement('div'); el.dataset.idx = idx;
     switch (it.type) {
-      case 'user': el.className = 'msg user' + (it.steer ? ' steer' : '') + (it.local ? ' local' : '') + (it.queued ? ' queued' : ''); el.textContent = it.text; if (!it.queued) el.appendChild(actions(it.text)); if (it.queued) { const q = document.createElement('div'); q.className = 'qtag'; q.textContent = 'queued · sends when the running turn ends'; el.appendChild(q); } break;
+      case 'user': {
+        el.className = 'msg user' + (it.steer ? ' steer' : '') + (it.local ? ' local' : '') + (it.queued ? ' queued' : '');
+        if (it.text) el.appendChild(document.createTextNode(it.text));
+        if (it.images && it.images.length) { const imgs = document.createElement('div'); imgs.className = 'msg-images'; for (const image of it.images) { const img = document.createElement('img'); img.src = image.url || ('data:' + image.mimeType + ';base64,' + image.data); img.alt = image.name || 'attached image'; imgs.appendChild(img); } el.appendChild(imgs); }
+        if (!it.queued) el.appendChild(actions(it.text || '')); if (it.queued) { const q = document.createElement('div'); q.className = 'qtag'; q.textContent = 'queued · sends when the running turn ends'; el.appendChild(q); }
+        break;
+      }
       case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); if (it.text.trim()) el.appendChild(actions(it.text)); for (const b of el.querySelectorAll('button.copy')) b.onclick = () => navigator.clipboard.writeText(b.closest('pre').querySelector('code').textContent).then(() => toast('Copied')); break;
       case 'thought': { el.className = 'thought'; const first = (it.text.split('\n').find((l) => l.trim()) || '').trim().replace(/^\*+|\*+$/g, ''); el.innerHTML = '<details><summary><span class="lbl">Thought</span><span class="sum">' + esc(first) + '</span></summary><div class="body">' + esc(it.text) + '</div></details>'; break; }
       case 'tool': {
@@ -1059,7 +1149,8 @@
     draft.harness = $('#draft-agent').value;
     draft.model = $('#draft-model').value || 'default';
     draft.effort = $('#draft-effort').value || 'default';
-    draft.policy = $('#draft-policy').value || 'ask';
+    draft.policy = $('#draft-policy').value || 'approve-all';
+    call('_acpmux/set_default_policy', { policy: draft.policy }).catch(() => {});
     $('#dlg-draft-config').close(); renderBar();
   };
 
@@ -1111,7 +1202,7 @@
     sel.value = harness;
     const defaults = defaultsForHarness(harness);
     if (draft) { $('#new-policy').value = draft.policy; fillModelSelect($('#new-model'), harness, draft.model); fillNewEffort(draft.effort); }
-    else { $('#new-policy').value = (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'ask'; fillModelSelect($('#new-model'), harness, (cur && cur.model) || defaults.model); fillNewEffort(defaults.effort); }
+    else { $('#new-policy').value = (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'approve-all'; fillModelSelect($('#new-model'), harness, (cur && cur.model) || defaults.model); fillNewEffort(defaults.effort); }
     $('#new-cwd').value = (draft && draft.cwd) || (cur && cur.cwd) || $('#new-cwd').value || '';
     $('#new-name').value = ''; $('#new-prompt').value = '';
     $('#dlg-new').showModal(); $('#new-name').focus();
@@ -1149,15 +1240,32 @@
   $('#btn-kill').onclick = async () => { if (!selected) return; if (!confirm('Stop the agent for this session? The log stays and it can resume later.')) return; try { await call('_acpmux/kill', { sessionId: selected, purge: false }); } catch (e) { toast('error: ' + e.message); } };
   $('#mode').onchange = () => call('session/set_mode', { sessionId: selected, modeId: $('#mode').value }).catch((e) => toast(e.message));
   $('#model').onchange = () => { if (draft && !selected) { draft.harness = $('#model').value; renderBar(); return; } call('session/set_model', { sessionId: selected, modelId: $('#model').value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); };
-  $('#policy').onchange = () => { if (draft && !selected) { draft.policy = $('#policy').value; renderBar(); return; } call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message)); };
+  $('#policy').onchange = () => { if (draft && !selected) { draft.policy = $('#policy').value; call('_acpmux/set_default_policy', { policy: draft.policy }).catch(() => {}); renderBar(); return; } call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message)); };
   const input = $('#input');
-  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 240) + 'px'; $('#btn-send').disabled = !input.value.trim(); };
+  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 240) + 'px'; $('#btn-send').disabled = !input.value.trim() && !promptImages.length; };
   input.addEventListener('input', autosize);
+  input.addEventListener('paste', (e) => {
+    const files = Array.from(e.clipboardData && e.clipboardData.files || []).filter((file) => file.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); addImageFiles(files); }
+  });
+  const composer = document.querySelector('.composer');
+  let dragDepth = 0;
+  composer.addEventListener('dragenter', (e) => { if (Array.from(e.dataTransfer.items || []).some((item) => item.kind === 'file' && item.type.startsWith('image/'))) { e.preventDefault(); dragDepth++; composer.classList.add('drop-target'); } });
+  composer.addEventListener('dragover', (e) => { if (e.dataTransfer && Array.from(e.dataTransfer.items || []).some((item) => item.kind === 'file' && item.type.startsWith('image/'))) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  composer.addEventListener('dragleave', (e) => { if (!composer.contains(e.relatedTarget)) { dragDepth = 0; composer.classList.remove('drop-target'); } });
+  composer.addEventListener('drop', (e) => { e.preventDefault(); dragDepth = 0; composer.classList.remove('drop-target'); addImageFiles(Array.from(e.dataTransfer.files || []).filter((file) => file.type.startsWith('image/'))); });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(false); }
     else if (e.key === 'Escape') { notify('session/cancel', { sessionId: selected }); }
   });
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && e.shiftKey && document.activeElement === input && !$('#dlg-new').open && !$('#dlg-draft-config').open && !$('#dlg-directory').open) {
+      e.preventDefault();
+      const options = Array.from($('#policy').options); const at = Math.max(0, options.findIndex((o) => o.value === $('#policy').value));
+      $('#policy').value = options[(at + options.length - 1) % options.length].value;
+      $('#policy').dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
     if (!document.querySelector('dialog[open]') && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
     // Alt-↑/↓ (or Alt-j/k) walk the rail, as j/k do in the TUI; the rows
     // are read in their shown order so groups and "Show more" are honored.

@@ -8,6 +8,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     if empty {
         app.rows_cache.clear();
         app.row_meta.clear();
+        app.transcript_hitboxes.clear();
         app.transcript_cache = TranscriptCache::default();
     }
     let c = app.chrome;
@@ -196,14 +197,19 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
+    app.transcript_hitboxes.clear();
     for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
         let y = inner.y + (i - offset) as u16;
+        let row_width = row.line.width().min(inner.width as usize) as u16;
+        if row_width > 0 {
+            app.transcript_hitboxes.push((Rect { x: inner.x, y, width: row_width, height: 1 }, i));
+        }
         let p = Paragraph::new(super::cache::animated_line(t, row, &c).unwrap_or_else(|| row.line.clone()));
         f_render(buf, p, Rect { x: inner.x, y, width: inner.width, height: 1 });
         // Codex app: a collapsible row lights up under the pointer.
-        if row.toggle.is_some() && hover.map(|(_, hy)| hy == y).unwrap_or(false) {
+        if row.toggle.is_some() && hover.map(|(hx, hy)| hy == y && hx >= inner.x && hx < inner.x.saturating_add(row_width)).unwrap_or(false) {
             let (lo, hi) = content_bounds(&row.text);
-            for x in lo..hi.min(inner.width as usize) {
+            for x in lo..hi.min(inner.width as usize).min(row_width as usize) {
                 if let Some(cell) = buf.cell_mut((inner.x + x as u16, y)) {
                     cell.set_style(cell.style().bg(c.prompt_button_hover_bg));
                 }

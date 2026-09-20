@@ -29,11 +29,11 @@ impl App {
         let policy = self
             .selected_session()
             .and_then(|s| s.get("policy").and_then(Value::as_str))
-            .unwrap_or("ask")
+            .unwrap_or("approve-all")
             .to_owned();
         let id = self.next_draft_id;
         self.next_draft_id += 1;
-        self.drafts.insert(0, Draft { id, peer, harness: agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new(), effort: None });
+        self.drafts.insert(0, Draft { id, peer, harness: agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new(), effort: None, images: Vec::new() });
         self.selected = 0;
         self.selection = None;
         self.focus = Focus::Input;
@@ -48,7 +48,7 @@ impl App {
         if let Some(d) = self.draft_mut() {
             d.cwd = cwd; d.peer = None;
             if let Some(h) = harness { d.harness = h; }
-            if let Some(s) = source { d.policy = s.get("policy").and_then(Value::as_str).unwrap_or("ask").into(); }
+            if let Some(s) = source { d.policy = s.get("policy").and_then(Value::as_str).unwrap_or("approve-all").into(); }
         }
         self.status = "new session · project selected · Enter starts it · Esc discards".into();
     }
@@ -87,7 +87,7 @@ impl App {
     }
 
     /// Create the draft's session and send `text` as its first message.
-    pub(super) fn create_from_draft(&mut self, text: String) {
+    pub(super) fn create_from_draft(&mut self, text: String, images: Vec<PromptImage>) {
         let Some(d) = self.draft_mut() else { return };
         if d.creating {
             return;
@@ -116,7 +116,7 @@ impl App {
                         let id = id.to_owned();
                         let c = client.clone();
                         tokio::spawn(async move {
-                            let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]})).await;
+                            let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": App::prompt_blocks(&text, &images)})).await;
                         });
                     }
                 }
@@ -144,7 +144,7 @@ impl App {
             agent,
             name: Editor::default(),
             cwd: { let mut e = Editor::default(); e.set_text(&cwd); e },
-            policy: 0,
+            policy: POLICIES.iter().position(|p| *p == "approve-all").unwrap_or(0),
             prompt: Editor::default(),
             field: 1,
         });
@@ -336,7 +336,8 @@ impl App {
                     "approve-all" => "nothing asks",
                     _ => "everything denied",
                 };
-                PickRow { value: p.to_string(), label: format!("{p:<14} {note}"), header: false, group: String::new(), note: String::new() }
+                let icon = match *p { "ask" => "?", "approve-reads" => "◉", "approve-edits" => "✎", "approve-all" => "✓", _ => "⊘" };
+                PickRow { value: p.to_string(), label: format!("{icon} {p:<14} {note}"), header: false, group: String::new(), note: String::new() }
             })
             .collect();
         self.overlay = Overlay::Picker(Picker::new("Permissions", rows, Some(&current), PickTarget::Policy(live), "↑↓ · Enter or click picks · Esc"));
@@ -507,6 +508,7 @@ impl App {
                     if let Some(d) = self.draft_mut() {
                         d.policy = value.clone();
                     }
+                    self.persist_default_policy(&value);
                     self.status = format!("draft policy: {value}");
                 }
             },

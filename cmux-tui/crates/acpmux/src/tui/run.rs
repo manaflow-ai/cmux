@@ -74,7 +74,10 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                     Some(Ok(Event::Resize(..))) | Some(Ok(Event::FocusGained)) => frames.request(),
                     Some(Ok(Event::Paste(s))) => {
                         frames.request();
-                        match &mut app.overlay {
+                        if matches!(app.overlay, Overlay::None) && app.paste_images(&s) {
+                            // The terminal pasted an image path from a file
+                            // drag; it is an attachment, not editor text.
+                        } else { match &mut app.overlay {
                             Overlay::NewSession(f) => match f.field {
                                 2 => f.cwd.insert_str(s.trim()),
                                 4 => f.prompt.insert_str(&s),
@@ -87,7 +90,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                             }
                             Overlay::AddHost { text } | Overlay::Directory { text } => text.insert_str(s.trim()),
                             _ => app.editor_mut().insert_str(&s),
-                        }
+                        }}
                     }
                     Some(Err(e)) => break Err(e.into()),
                     None => break Ok(()),
@@ -214,6 +217,7 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         details: HashMap::new(),
         attached: HashSet::new(),
         input: Editor::default(),
+        input_images: Vec::new(),
         command: Editor::default(),
         drafts: Vec::new(),
         next_draft_id: 1,
@@ -256,6 +260,7 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         rows_cache: Vec::new(),
         transcript_cache: render::TranscriptCache::default(),
         row_meta: Vec::new(),
+        transcript_hitboxes: Vec::new(),
         toggled: HashMap::new(),
         composer_sel: None,
         link_cells: Vec::new(),
@@ -265,6 +270,8 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         sidebar_rows: Vec::new(),
         expanded_groups: std::collections::HashSet::new(),
         sidebar_order: Vec::new(),
+        sidebar_nav: Vec::new(),
+        sidebar_nav_pos: 0,
         sidebar_offset: 0,
         toast: None,
         last_click: None,

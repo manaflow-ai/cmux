@@ -69,6 +69,7 @@ pub struct App {
     pub(super) details: HashMap<String, Value>,
     pub(super) attached: HashSet<String>,
     pub input: Editor,
+    pub input_images: Vec<PromptImage>,
     pub command: Editor,
     /// Not-yet-created sessions shown as the top sidebar rows, newest first.
     /// Each is created on its first Enter, with that message.
@@ -131,6 +132,7 @@ pub struct App {
     pub(crate) transcript_cache: render::TranscriptCache,
     /// Per row: (item index, is a collapsible header). Parallel to `rows_cache`.
     pub row_meta: Vec<(usize, Option<Toggle>)>,
+    pub transcript_hitboxes: Vec<(Rect, usize)>,
     /// Collapsibles flipped from their default, per session id.
     pub toggled: HashMap<String, std::collections::HashSet<Toggle>>,
     /// Composer mouse selection as (anchor, head) char offsets.
@@ -150,6 +152,8 @@ pub struct App {
     /// Sidebar rows in the order drawn (absolute indexes), so stepping the
     /// selection follows the grouped list, not recency.
     pub sidebar_order: Vec<usize>,
+    pub sidebar_nav: Vec<SidebarNav>,
+    pub sidebar_nav_pos: usize,
     pub sidebar_offset: usize,
     pub toast: Option<(String, Instant)>,
     pub(super) last_click: Option<(Instant, u16, u16, u8)>,
@@ -197,15 +201,21 @@ impl App {
     /// Number of sidebar rows: drafts plus sessions.
     /// Move the selection by `delta` rows of the drawn sidebar order.
     pub(super) fn select_step(&mut self, delta: isize) {
-        if self.sidebar_order.is_empty() {
+        if self.sidebar_nav.is_empty() {
             let next = if delta > 0 { self.selected + 1 } else { self.selected.saturating_sub(1) };
             self.select(next);
             return;
         }
-        let pos = self.sidebar_order.iter().position(|&i| i == self.selected).unwrap_or(0) as isize;
-        let next = (pos + delta).clamp(0, self.sidebar_order.len() as isize - 1) as usize;
-        let idx = self.sidebar_order[next];
-        self.select(idx);
+        let current = self.sidebar_nav.iter().position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected)).unwrap_or(self.sidebar_nav_pos);
+        let next = (current as isize + delta).clamp(0, self.sidebar_nav.len() as isize - 1) as usize;
+        self.sidebar_nav_pos = next;
+        match self.sidebar_nav[next].clone() {
+            SidebarNav::Session(idx) => self.select(idx),
+            SidebarNav::ShowMore(group) => {
+                self.expanded_groups.insert(group);
+                self.status = "expanded project sessions".into();
+            }
+        }
     }
 
     pub(super) fn row_count(&self) -> usize {
@@ -253,6 +263,56 @@ impl App {
             &mut self.input
         }
     }
+
+    pub fn prompt_images(&self) -> &[PromptImage] {
+        self.draft().map(|d| d.images.as_slice()).unwrap_or(&self.input_images)
+    }
+
+    fn take_prompt_images(&mut self) -> Vec<PromptImage> {
+        if self.on_draft() { std::mem::take(&mut self.drafts[self.selected].images) } else { std::mem::take(&mut self.input_images) }
+    }
+
+    fn prompt_blocks(text: &str, images: &[PromptImage]) -> Vec<Value> {
+        let mut blocks = Vec::with_capacity(images.len() + usize::from(!text.is_empty()));
+        if !text.is_empty() { blocks.push(json!({"type": "text", "text": text})); }
+        blocks.extend(images.iter().map(|image| json!({"type": "image", "mimeType": image.mime_type, "data": image.data, "name": image.name})));
+        blocks
+    }
+
+    pub(super) fn paste_images(&mut self, pasted: &str) -> bool {
+        let mut found = Vec::new();
+        let mut tokens = Vec::new();
+        for line in pasted.lines() {
+            let whole = line.trim().trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+            let whole_path = whole.strip_prefix("file://").unwrap_or(whole);
+            if std::path::Path::new(whole_path).is_file() {
+                tokens.push(whole.to_owned());
+            } else {
+                tokens.extend(line.split_whitespace().map(str::to_owned));
+            }
+        }
+        for token in tokens {
+            let token = token.trim_matches(|c| matches!(c, '"' | '\'' | '`'));
+            let path = token.strip_prefix("file://").unwrap_or(token);
+            let path = if path.starts_with("localhost/") { &path[9..] } else { path };
+            let path = std::path::Path::new(path);
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let mime = match ext.as_str() {
+                "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif",
+                "webp" => "image/webp", "bmp" => "image/bmp", "tif" | "tiff" => "image/tiff", "svg" => "image/svg+xml", _ => continue,
+            };
+            let Ok(meta) = std::fs::metadata(path) else { continue };
+            if !meta.is_file() || meta.len() > 8 * 1024 * 1024 { continue; }
+            let Ok(bytes) = std::fs::read(path) else { continue };
+            use base64::Engine;
+            found.push(PromptImage { name: path.file_name().and_then(|n| n.to_str()).unwrap_or("image").to_owned(), mime_type: mime.to_owned(), data: base64::engine::general_purpose::STANDARD.encode(bytes) });
+        }
+        if found.is_empty() { return false; }
+        if self.on_draft() { self.drafts[self.selected].images.extend(found); } else { self.input_images.extend(found); }
+        let count = self.prompt_images().len();
+        self.status = format!("{count} image{} attached", if count == 1 { "" } else { "s" });
+        true
+    }
     pub(super) fn selected_id(&self) -> Option<String> {
         self.selected_session()
             .and_then(|s| s.get("sessionId").and_then(Value::as_str))
@@ -276,6 +336,9 @@ impl App {
             return;
         }
         self.selected = idx.min(self.row_count() - 1);
+        if let Some(pos) = self.sidebar_nav.iter().position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected)) {
+            self.sidebar_nav_pos = pos;
+        }
         self.selection = None;
         if let Some(id) = self.selected_id() {
             self.attention.remove(&id);
@@ -364,7 +427,7 @@ impl App {
     }
 
     pub(super) fn send_prompt(&mut self, steer: bool) {
-        if self.editor().text().trim().is_empty() {
+        if self.editor().text().trim().is_empty() && self.prompt_images().is_empty() {
             return;
         }
         let raw = self.editor().text().trim().to_owned();
@@ -379,8 +442,9 @@ impl App {
             match skills::expand(&raw, &self.skills, &self.skill_prefix) { Ok(text) => text, Err(e) => { self.report_error(format!("Skill: {e}")); return; } }
         } else { raw };
 
+        let images = self.take_prompt_images();
         if self.on_draft() {
-            self.create_from_draft(text);
+            self.create_from_draft(text, images);
             return;
         }
         let Some(id) = self.selected_id() else {
@@ -394,13 +458,18 @@ impl App {
         // Show the message at once; the daemon's echo is matched, not added.
         if let Some(t) = self.transcripts.get_mut(&id) {
             let queued = t.status == "running" && !steer;
-            t.items.push(crate::transcript::Item::User { text: text.clone(), steer, queued });
+            let shown = if images.is_empty() { text.clone() } else if text.is_empty() {
+                format!("[image: {}]", images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "))
+            } else {
+                format!("{text}\n[image: {}]", images.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(", "))
+            };
+            t.items.push(crate::transcript::Item::User { text: shown, steer, queued });
             t.optimistic.push(text.clone());
             if !steer && !queued {
                 t.status = "running".into();
             }
         }
-        let params = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"steer": steer}}});
+        let params = json!({"sessionId": id, "prompt": Self::prompt_blocks(&text, &images), "_meta": {"acpmux": {"steer": steer}}});
         self.request_bg(method::SESSION_PROMPT, params, None);
     }
 
@@ -453,7 +522,7 @@ mod interaction_tests {
     use super::*;
     async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", std::process::id()));
+        let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", uuid::Uuid::now_v7()));
         let _ = std::fs::remove_file(&socket);
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         let (sent, requests) = mpsc::unbounded_channel();
@@ -538,5 +607,20 @@ mod interaction_tests {
         let msg=tokio::time::timeout(std::time::Duration::from_secs(5),requests.recv()).await.unwrap().unwrap();
         assert_eq!(msg["method"],"session/prompt"); assert_eq!(msg["params"]["prompt"][0]["text"],"/compact");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dropped_image_becomes_an_acp_image_block() {
+        let (mut app, _) = app().await;
+        let path = std::env::temp_dir().join(format!("acpmux-ui-image-{}.png", uuid::Uuid::now_v7()));
+        std::fs::write(&path, [137, 80, 78, 71]).unwrap();
+        assert!(app.paste_images(&path.to_string_lossy()));
+        assert_eq!(app.prompt_images().len(), 1);
+        let blocks = App::prompt_blocks("look", app.prompt_images());
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[1]["type"], "image");
+        assert_eq!(blocks[1]["mimeType"], "image/png");
+        assert!(!blocks[1]["data"].as_str().unwrap().is_empty());
+        std::fs::remove_file(path).unwrap();
     }
 }

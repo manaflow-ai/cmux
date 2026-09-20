@@ -19,6 +19,13 @@ pub struct Areas {
 pub(super) const WHEEL_ROWS: isize = 3;
 pub(super) const MULTI_CLICK_MS: u128 = 500;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptImage {
+    pub name: String,
+    pub mime_type: String,
+    pub data: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Input,
@@ -36,6 +43,12 @@ pub enum Toggle {
     Turn(usize),
     Group(usize),
     Item(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidebarNav {
+    Session(usize),
+    ShowMore(String),
 }
 
 pub enum Overlay {
@@ -86,6 +99,7 @@ pub struct Draft {
     pub errors: Vec<String>,
     /// Thinking effort to apply right after the session is created.
     pub effort: Option<String>,
+    pub images: Vec<PromptImage>,
 }
 
 pub const POLICIES: [&str; 5] = ["ask", "approve-reads", "approve-edits", "approve-all", "deny-all"];
