@@ -28,7 +28,7 @@ class ClassifyRunTests(unittest.TestCase):
         self.assertIsNone(MODULE.classify_run(self.run_data, prs, now=self.now, min_age_seconds=3600))
 
     def test_no_pr_is_preserved(self):
-        self.assertIsNone(MODULE.classify_run(self.run, [], now=self.now, min_age_seconds=3600))
+        self.assertIsNone(MODULE.classify_run(self.run_data, [], now=self.now, min_age_seconds=3600))
 
     def test_recent_terminal_run_is_preserved(self):
         recent = {"created_at": "2026-09-19T00:00:00Z", "status": "queued"}

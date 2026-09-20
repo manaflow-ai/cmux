@@ -54,7 +54,7 @@ class GitHub:
             "User-Agent": "cmux-stale-run-janitor",
         }
 
-    def request(self, method: str, path: str) -> Any:
+    def request(self, method: str, path: str, *, missing_is_empty: bool = False) -> Any:
         request = urllib.request.Request(API + path, headers=self.headers, method=method)
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
@@ -62,7 +62,7 @@ class GitHub:
                     return {}
                 return json.load(response)
         except urllib.error.HTTPError as error:
-            if error.code in (404, 409):
+            if error.code == 404 and missing_is_empty:
                 return []
             raise RuntimeError(f"GitHub API request failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -81,7 +81,7 @@ class GitHub:
 
     def pull_requests_for_commit(self, sha: str) -> list[dict[str, Any]]:
         path = f"/repos/{self.repo}/commits/{urllib.parse.quote(sha, safe='')}/pulls"
-        return self.request("GET", path)
+        return self.request("GET", path, missing_is_empty=True)
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -103,6 +103,9 @@ def main() -> int:
         return 2
     if min_age_minutes < 1 or max_actions < 1:
         print("stale-run-janitor: age and action limits must be positive", file=sys.stderr)
+        return 2
+    if max_actions > 25:
+        print("stale-run-janitor: MAX_ACTIONS must not exceed 25", file=sys.stderr)
         return 2
 
     cleanup_requested = env_bool("CLEANUP") and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
