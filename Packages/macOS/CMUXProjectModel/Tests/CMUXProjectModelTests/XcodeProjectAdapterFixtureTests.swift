@@ -210,4 +210,14 @@ struct XcodeProjectAdapterFixtureTests {
             _ = try XcodeProjectAdapter().load(at: fixture.projectURL)
         }
     }
+
+    @Test
+    func joinMatchesXcodeGroupRelativeResolution() {
+        #expect(PBXProjDocument.join("/a/b", "c") == "/a/b/c")
+        #expect(PBXProjDocument.join("/a/b", "../c") == "/a/c")
+        #expect(PBXProjDocument.join("/a/b/", "./c") == "/a/b/c")
+        #expect(PBXProjDocument.join("/a", "../../c") == "/c")
+        #expect(PBXProjDocument.join("/a/b", "/etc/hosts") == "/etc/hosts")
+        #expect(PBXProjDocument.join("/a/b", "") == "/a/b")
+    }
 }
