@@ -28,15 +28,12 @@ public struct CmuxConfigSemanticValidator {
     private let rootSchema: [String: Any]
 
     public init(scope: CmuxConfigSemanticScope) {
-        guard let object = try? JSONSerialization.jsonObject(
-            with: CmuxEmbeddedConfigSchema.data,
-            options: [.fragmentsAllowed]
-        ),
-        let rootSchema = object as? [String: Any] else {
-            preconditionFailure("embedded cmux.json schema is not a JSON object")
-        }
+        self.init(scope: scope, schema: .embedded)
+    }
+
+    init(scope: CmuxConfigSemanticScope, schema: CmuxParsedConfigSchema) {
         self.scope = scope
-        self.rootSchema = rootSchema
+        self.rootSchema = schema.root
     }
 
     public func validate(jsonData data: Data) throws -> [CmuxConfigSemanticIssue] {
