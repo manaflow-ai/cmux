@@ -28,6 +28,10 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
+  if [ -n "${CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV:-}" ]; then
+    printf '%s|%s\n' "${TEST_RUNNER_PATH-<unset>}" "${TEST_RUNNER_BUN_INSTALL-<unset>}" \
+      >> "$CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV"
+  fi
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   config_category=default
   config_message="reading configuration file"
@@ -250,12 +254,15 @@ CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
 CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/test-runner-home-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV="$TMP_DIR/test-runner-tool-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
 CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+TEST_RUNNER_PATH="/ci/node/bin:/usr/bin" \
+TEST_RUNNER_BUN_INSTALL="/ci/bun" \
 CFFIXED_USER_HOME="$XCODE_PARENT_FIXED_HOME" \
 XDG_CONFIG_HOME="$XCODE_PARENT_XDG_CONFIG_HOME" \
   bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/output.log" 2>&1
@@ -286,6 +293,12 @@ runner_marker_count="$(grep -cx '1' "$TMP_DIR/test-runner-env.log" || true)"
 if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-env.log"
   echo "FAIL: expected every app-host launch to receive TEST_RUNNER_CMUX_TEST_PROCESS=1"
+  exit 1
+fi
+
+if [ "$(grep -Fxc '/ci/node/bin:/usr/bin|/ci/bun' "$TMP_DIR/test-runner-tool-env.log" || true)" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/test-runner-tool-env.log"
+  echo "FAIL: focused test-runner tool paths must reach every app-host launch"
   exit 1
 fi
 
