@@ -8625,16 +8625,13 @@
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				C97160000000000000000002 /* AppHostProcessReceipt.swift */,
 				A5001011 /* cmuxApp.swift */,
-<<<<<<< ours
 				D0B103050000000000000001 /* AboutVisualEffectBackground.swift */,
 				D0B103040000000000000001 /* AboutPropertyRow.swift */,
 				D0B103030000000000000001 /* AboutPanelView.swift */,
 				D0B103020000000000000001 /* AcknowledgmentsView.swift */,
 				D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */,
 				D0B103000000000000000001 /* AboutWindowController.swift */,
-=======
 				257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */,
->>>>>>> theirs
 				C12289000000000000000002 /* CmuxMain.swift */,
 				875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */,
 				C51A73000000000000000014 /* CmuxWorkerEntrypoint.swift */,
