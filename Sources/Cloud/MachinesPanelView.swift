@@ -26,6 +26,9 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
+#if DEBUG
+    @Environment(\.cloudSidebarDebugSettings) private var cloudSidebarDebugSettings
+#endif
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
@@ -82,7 +85,7 @@ struct MachinesPanelView: View {
         }
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
-        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+        .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
@@ -467,6 +470,15 @@ struct MachinesPanelView: View {
             coordinator: viewModel.createCoordinator
         )
     }
+    private var resolvedTreeStyle: CloudTreeStyle {
+        let base = CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
+#if DEBUG
+        return cloudSidebarDebugSettings?.metrics.resolvedStyle(base) ?? base
+#else
+        return base
+#endif
+    }
+
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
@@ -485,9 +497,7 @@ struct MachinesPanelView: View {
         machineActions.setDefault = { [weak viewModel] id in
             viewModel?.setDefaultMachine(id: id)
         }
-        machineActions.setPinned = { [weak viewModel] id, pinned in
-            viewModel?.setMachinePinned(pinned, id: id)
-        }
+        viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -509,7 +519,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
+            style: resolvedTreeStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")

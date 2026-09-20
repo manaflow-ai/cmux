@@ -2349,7 +2349,7 @@ extension Workspace {
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
-        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+        if let title = snapshot.automaticTitleForRestore?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
 
@@ -4021,12 +4021,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
-        self.processTitle = title
-        self.title = title
+        let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
+        self.processTitle = admittedAutomaticTitle
+        self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
-
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
         let initialDirectory = hasWorkingDirectory
@@ -4179,7 +4179,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
-                title: title,
+                title: admittedAutomaticTitle,
                 icon: "terminal.fill",
                 kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,
@@ -8813,15 +8813,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             ) ?? false
             return routed ? .routedToRemote : .failed
         }
-        // A split next to a pane projecting a cloud resource creates the terminal ON
-        // that machine and projects it back (Workspace+CloudPaneRouting). Only plain
-        // requests route: an explicit command or input, cwd, PTY session, or restore
-        // scaffold is local-terminal by construction (including attach panes whose
-        // initialCommand is the attach argv).
-        if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
-           remotePTYSessionID == nil, workingDirectory == nil,
-           !suppressWorkspaceRemoteStartupCommand,
-           SurfaceCatalog.shared.hasCloudProjection(panelID: panelId, workspaceID: id) {
+        // Cloud ownership precedes option dispatch, including pending panes.
+        // Unsupported launch overrides fail closed instead of spawning a local PTY.
+        if let source = cloudTerminalSourcePlacement(forPanel: panelId) {
+            guard initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
+                  remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty,
+                  initialDividerPosition == nil, !suppressWorkspaceRemoteStartupCommand else {
+                return rejectCloudTerminalCreation(source: source, panelID: panelId)
+            }
             return routeCloudPaneTerminalSplit(
                 from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus
             ) ? .routedToRemote : .failed
@@ -9139,17 +9138,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 ) ?? false
             return routed ? .routedToRemote : .failed
         }
-        // A new tab in a pane whose selected tab projects a cloud resource creates the
-        // terminal ON that machine (Workspace+CloudPaneRouting). Only plain requests
-        // route; an explicit command, cwd, input, restore payload, or PTY session is a
-        // local-terminal request by construction (including the attach panes the routed
-        // create itself materializes, whose initialCommand is the attach argv).
-        if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
-           workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
-           restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
+        // Restore scaffolding has its own persisted identity. Interactive creates
+        // inherit the selected source, even before its remote receipt arrives.
+        if restoredSurfaceId == nil, startupRestoreAgent == nil,
            let selectedTab = bonsplitController.selectedTab(inPane: paneId),
            let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
-           SurfaceCatalog.shared.hasCloudProjection(panelID: selectedPanelID, workspaceID: id) {
+           let source = cloudTerminalSourcePlacement(forPanel: selectedPanelID) {
+            guard initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
+                  remotePTYSessionID == nil, workingDirectory == nil, startupEnvironment.isEmpty,
+                  !suppressWorkspaceRemoteStartupCommand else {
+                return rejectCloudTerminalCreation(source: source, panelID: selectedPanelID)
+            }
             return routeCloudPaneTerminalTab(
                 inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)
             ) ? .routedToRemote : .failed
