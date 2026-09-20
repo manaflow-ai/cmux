@@ -988,9 +988,12 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "name: macOS compile admission" in admission
     assert "      - changes" in admission
     assert "      - linux-preflight" in admission
-    assert "build-for-testing" in admission
-    assert "cmux-unit" in admission
-    assert "cmux-numeric-locale" in admission
+    # The compile lives in one script so the nightly cache seeder runs the same
+    # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
+    assert "scripts/ci/compile-app-host-test-product.sh build" in admission
+    compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
+    assert "build-for-testing" in compile_script
+    assert "for scheme in cmux-unit cmux-numeric-locale; do" in compile_script
     assert "actions/cache@27d5ce7" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "app_host_test_products.py stamp" in admission
