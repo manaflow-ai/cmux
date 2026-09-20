@@ -190,6 +190,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:shortcut-chords",
         "setting:keyboardShortcuts:reset-defaults",
         "setting:terminal:memory-guardrail",
+        "setting:terminal:session-persistence",
         "setting:terminal:memory-guardrail-threshold",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
