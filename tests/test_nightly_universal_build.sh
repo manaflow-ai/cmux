@@ -94,7 +94,7 @@ if ! awk '
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
   in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
   in_refresh && /^      - name: Restore Xcode compilation cache/ { saw_lookup=1 }
-  in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
+  in_refresh && /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_restore_action=1 }
   in_refresh && /id: compilation-cache-restore/ { saw_restore_id=1 }
   in_refresh && /^      - name: Save Xcode compilation cache/ { saw_cache=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
@@ -155,8 +155,7 @@ CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 if ! awk '
   /^  release-build:/ { in_release=1; next }
   in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
-  in_release && /uses: actions\/cache/ { uses=$0 }
-  in_release && /uses: actions\/cache/ && !/uses: actions\/cache\/restore@/ { saw_save=1 }
+  in_release && /uses: (actions\/cache|\.\/\.github\/actions\/cache-)/ && !/uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_save=1 }
   in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
   in_release && /!build-universal\/CompilationCache\.noindex/ { saw_parent_exclusion=1 }
   in_release && /key: xcode-compilation-release-/ { saw_key=1 }
@@ -413,7 +412,7 @@ if ! awk '
   step == "bound" && prune[job] && NR == prune[job] + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { prune_nonfatal[job]=1 }
   step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
   step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
-  step == "save" && /uses: actions\/cache\/save@/ { save_action[job]=1 }
+  step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { save_action[job]=1 }
   step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {

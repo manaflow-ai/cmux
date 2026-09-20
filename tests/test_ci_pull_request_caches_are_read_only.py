@@ -4,7 +4,8 @@
 A cache saved from a pull request can be read only by that pull request, and
 every save pushes the entries seeded from main out of a size-capped store.
 ci.yml therefore restores only, and each Swift package cache it restores must
-be one a main-branch job in nightly.yml saves under the same key and path.
+be one a main-branch job in nightly.yml saves under the same key and path. The
+local cache-restore and cache-save actions choose the store.
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-RESTORE = "actions/cache/restore@"
+RESTORE = ("actions/cache/restore@", "./.github/actions/cache-restore")
+CACHE = ("actions/cache", "./.github/actions/cache-")
 
 
 def cache_steps(workflow: str) -> list[tuple[str, dict]]:
@@ -23,7 +25,7 @@ def cache_steps(workflow: str) -> list[tuple[str, dict]]:
     found = []
     for job_name, job in document["jobs"].items():
         for step in job.get("steps", []):
-            if str(step.get("uses", "")).startswith("actions/cache"):
+            if str(step.get("uses", "")).startswith(CACHE):
                 found.append((job_name, step))
     return found
 
@@ -47,6 +49,23 @@ def main() -> int:
         key, path = step["with"]["key"], step["with"]["path"]
         if key.startswith("spm-") and (key, path) not in seeded:
             failures.append(f"ci.yml {job_name}: no nightly.yml job saves key '{key}' with path '{path}', so this restore can never hit")
+
+    # The wrappers pick one store per call. Exactly one branch may run, the
+    # provider branch only on its own runners, and both actions stay pinned.
+    warp = "inputs.backend == 'warp' && startsWith(runner.name, 'warp-')"
+    for kind in ("restore", "save"):
+        action = yaml.safe_load((ROOT / ".github/actions" / f"cache-{kind}" / "action.yml").read_text(encoding="utf-8"))
+        steps = action["runs"]["steps"]
+        conditions = [step.get("if") for step in steps]
+        if conditions != ["${{ !(" + warp + ") }}", "${{ " + warp + " }}"]:
+            failures.append(f"cache-{kind}: the two store branches must be exact complements, got {conditions}")
+        owners = [step["uses"].split("@")[0] for step in steps]
+        if owners != [f"actions/cache/{kind}", f"WarpBuilds/cache/{kind}"]:
+            failures.append(f"cache-{kind}: unexpected actions {owners}")
+        for step in steps:
+            revision = step["uses"].split("@")[1]
+            if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+                failures.append(f"cache-{kind}: {step['uses']} is not pinned to a commit")
 
     for failure in failures:
         print(f"FAIL: {failure}")

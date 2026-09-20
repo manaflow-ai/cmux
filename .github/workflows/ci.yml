@@ -824,8 +824,9 @@ jobs:
           ./scripts/install-rust-ci.sh
 
       - name: Cache Swift packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2314,8 +2315,9 @@ jobs:
         run: ./scripts/install-rust-ci.sh
 
       - name: Cache Swift packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2340,8 +2342,9 @@ jobs:
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -2507,8 +2510,9 @@ jobs:
           key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -2823,16 +2827,18 @@ jobs:
           key: deriveddata-release-v2-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Xcode compilation results
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Cache Swift packages
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
