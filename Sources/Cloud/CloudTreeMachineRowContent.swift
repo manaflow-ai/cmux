@@ -12,7 +12,7 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(
                     style: style,
                     systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",

@@ -13,7 +13,7 @@ struct CloudTreeLocalMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: style.iconGap) {
+                HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
@@ -26,7 +26,7 @@ struct CloudTreeLocalMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(row.name)
         case .twoLine:
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
                     .frame(height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {

@@ -16,7 +16,7 @@ struct CloudTreePendingMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: style.iconGap) {
+                HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     leadingGlyph
                         .frame(width: scaled(style.iconSlot), alignment: .center)
                     HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
@@ -29,7 +29,7 @@ struct CloudTreePendingMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 leadingGlyph
                     .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {

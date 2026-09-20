@@ -1,11 +1,14 @@
+import CmuxFoundation
 import SwiftUI
 
 struct CloudTreePlaceholderContent: View {
     let placeholder: CloudTreePlaceholder
     let style: CloudTreeStyle
 
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
+
     var body: some View {
-        HStack(alignment: .center, spacing: style.iconGap) {
+        HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             Group {
                 switch placeholder.style {
                 case .connecting:

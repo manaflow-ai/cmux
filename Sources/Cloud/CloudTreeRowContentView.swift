@@ -167,6 +167,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     /// navigates, so it reads as a link rather than a label.
     var titleIsLink: Bool = false
     var detail: String?
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @ViewBuilder var accessories: () -> Accessories
 
     init(
@@ -192,7 +193,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: style.iconGap) {
+        HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             if style.iconSlot > 0 {
                 CloudTreeRowIcon(style: style, systemName: icon, tint: tint, dimmed: titleDimmed)
             }
