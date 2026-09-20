@@ -133,6 +133,53 @@ enum UITestLaunchManifest {
     }
 }
 
+/// The "Agent" submenu: one item per roster entry plus the template's own
+/// agent, with a checkmark on the workspace's current pick. Lives here rather
+/// than in a file of its own because both menus that need it — the View menu's
+/// workspace section and the sidebar's context menu — are in different files,
+/// and the roster is configuration, so the list is built at menu time.
+struct WorkspaceAgentMenu: View {
+    /// The workspace's remembered agent, or nil when it follows its template.
+    let current: WorkspaceAgent?
+    /// nil means "follow the workspace-set template again".
+    let select: (WorkspaceAgent?) -> Void
+
+    var body: some View {
+        Menu(String(localized: "contextMenu.workspaceAgent", defaultValue: "Agent")) {
+            item(
+                title: String(
+                    localized: "contextMenu.workspaceAgent.template",
+                    defaultValue: "From Workspace Set"
+                ),
+                isCurrent: current == nil
+            ) {
+                select(nil)
+            }
+            Divider()
+            ForEach(WorkspaceAgent.roster) { agent in
+                item(title: agent.panelTitle, isCurrent: current?.id == agent.id) {
+                    select(agent)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func item(title: String, isCurrent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if isCurrent {
+                Label {
+                    Text(verbatim: title)
+                } icon: {
+                    Image(systemName: "checkmark")
+                }
+            } else {
+                Text(verbatim: title)
+            }
+        }
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -366,29 +413,20 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
-                // Picking an agent re-points every agent pane the import touches, so
-                // the submenu is not a no-op — but a structure-only reload wants
-                // `agent: nil`, which leaves each workspace's existing preference
-                // alone. `primaryAction` is that plain reload; the submenu keeps the
-                // deliberate per-agent pick.
-                Menu(String(localized: "menu.app.reloadWorkspaceSet", defaultValue: "Reload Workspace Set")) {
-                    ForEach(WorkspaceAgent.roster) { agent in
-                        Button(agent.panelTitle) {
-                            AppDelegate.shared?.reloadWorkspaceSet(agent: agent)
-                        }
-                    }
-                } primaryAction: {
+                // Reloading the workspace set is the sidebar's cascade and nothing
+                // more: it reconciles rows, sections and panels against the file and
+                // leaves every workspace's own agent alone. Which agent a workspace
+                // runs is that workspace's choice, made on its own context menu.
+                Button(String(localized: "menu.app.reloadWorkspaceSet", defaultValue: "Reload Workspace Set")) {
                     AppDelegate.shared?.reloadWorkspaceSet()
                 }
                 Button(String(localized: "menu.app.reloadWindowSet", defaultValue: "Reload Window Set")) {
                     AppDelegate.shared?.reloadWindowSet()
                 }
-                Menu(String(localized: "menu.app.rebuildWorkspaceLayout", defaultValue: "Rebuild Workspace Layout")) {
-                    ForEach(WorkspaceAgent.roster) { agent in
-                        Button(agent.panelTitle) {
-                            AppDelegate.shared?.rebuildCurrentWorkspaceFromTemplate(agent: agent)
-                        }
-                    }
+                // Structure only, like the reload above: the workspace keeps the
+                // agent it is set to, which "Agent" on its own context menu owns.
+                Button(String(localized: "menu.app.rebuildWorkspaceLayout", defaultValue: "Rebuild Workspace Layout")) {
+                    AppDelegate.shared?.rebuildCurrentWorkspaceFromTemplate()
                 }
                 Button(
                     String(
@@ -1066,7 +1104,20 @@ struct cmuxApp: App {
             }
         }
 
+        WorkspaceAgentMenu(current: workspace?.preferredAgent) { agent in
+            if let workspace {
+                AppDelegate.shared?.setWorkspaceAgent(tabId: workspace.id, in: manager, agent: agent)
+            }
+        }
+        .disabled(workspace == nil)
+
         Menu(String(localized: "contextMenu.duplicateWorkspace", defaultValue: "Duplicate Workspace")) {
+            Button(String(localized: "contextMenu.duplicateWorkspace.sameAgent", defaultValue: "Same Agent")) {
+                if let workspace {
+                    AppDelegate.shared?.duplicateWorkspace(tabId: workspace.id, in: manager)
+                }
+            }
+            Divider()
             ForEach(WorkspaceAgent.roster) { agent in
                 Button(agent.panelTitle) {
                     if let workspace {

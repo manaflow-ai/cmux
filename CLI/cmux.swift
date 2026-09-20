@@ -7442,7 +7442,8 @@ struct CMUXCLI {
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
               --description <text>         Description for set-description
               --instance-index <n>         Instance index for duplicate (>= 2, must be free)
-              --agent <claude|codex>       Agent the duplicate's agent pane runs (default: the template's)
+              --agent <id>                 Agent the duplicate's agent pane runs, by id from the
+                               workspace-set `agents:` roster (default: the template's)
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -7803,7 +7804,7 @@ struct CMUXCLI {
             """
         case "rebuild-workspace":
             return """
-            Usage: cmux rebuild-workspace [--workspace <id|ref|index>] [--mode <rebuild|reconcile>] [--agent <claude|codex>]
+            Usage: cmux rebuild-workspace [--workspace <id|ref|index>] [--mode <rebuild|reconcile>] [--agent <id>]
 
             Apply the workspace-set template to a workspace — the scriptable form of
             the "Rebuild Workspace Layout" menu item.
@@ -7819,7 +7820,8 @@ struct CMUXCLI {
               --mode <rebuild|reconcile>   rebuild (default) closes every panel and recreates
                                            the template, tearing down anything running in it;
                                            reconcile only fills in missing template panels
-              --agent <claude|codex>       Retarget the agent pane to this agent
+              --agent <id>                 Retarget the agent pane to this agent, by id from the
+                               workspace-set `agents:` roster (e.g. claude-remote, codex)
 
             Example:
               cmux rebuild-workspace --workspace workspace:6
@@ -14934,7 +14936,7 @@ struct CMUXCLI {
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
-          rebuild-workspace [--workspace <id|ref>] [--mode <rebuild|reconcile>] [--agent <claude|codex>]
+          rebuild-workspace [--workspace <id|ref>] [--mode <rebuild|reconcile>] [--agent <id>]
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
           current-workspace

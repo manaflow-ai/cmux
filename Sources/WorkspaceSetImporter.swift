@@ -90,11 +90,13 @@ struct WorkspaceSetAgent: Codable {
 /// file has no `agents:` block the built-in Claude/Codex pair applies, which is
 /// what every workspace-set named before this.
 ///
-/// Wrapper scripts share a naming shape — `<family>` or `<family>-<variant>`
-/// (`claude`, `claude-remote`, `codex-remote`) — and `id` is that family name.
-/// It is what the CLI accepts and what a workspace persists as its remembered
-/// agent, so renaming an agent's `title` is safe but changing its `command`'s
-/// family silently orphans workspaces that remembered the old one.
+/// `id` defaults to the command's own name (`claude-remote`), not its family
+/// (`claude`), so `claude` and `claude-remote` can both sit in one roster and
+/// be picked separately per workspace. It is what the CLI accepts and what a
+/// workspace persists as its remembered agent, so renaming an agent's `title`
+/// is safe while changing its `command` — or spelling a different `id` — makes
+/// workspaces that remembered the old one fall back to the family match, and
+/// then to the template's own agent.
 struct WorkspaceAgent: Hashable, Sendable, Identifiable {
     let id: String
     /// Panel title the workspace-set templates use for this agent's pane.
@@ -120,13 +122,15 @@ struct WorkspaceAgent: Hashable, Sendable, Identifiable {
         self.sessionPrefix = sessionPrefix
     }
 
-    /// Roster entries with no explicit `id` take the command's family name, and
-    /// no explicit `sessionPrefix` means the unprefixed one.
+    /// Roster entries with no explicit `id` take the command's own name —
+    /// `claude-remote`, not `claude` — so a roster may list a wrapper and the
+    /// bare CLI side by side and keep them two separately addressable agents.
+    /// No explicit `sessionPrefix` means the unprefixed one.
     init(_ declared: WorkspaceSetAgent) {
         self.init(
             id: (declared.id?.trimmingCharacters(in: .whitespaces).lowercased())
                 .flatMap { $0.isEmpty ? nil : $0 }
-                ?? WorkspaceAgent.family(ofCommand: declared.command),
+                ?? ((declared.command as NSString).lastPathComponent).lowercased(),
             panelTitle: declared.title,
             command: declared.command,
             sessionPrefix: declared.sessionPrefix ?? ""
@@ -162,9 +166,14 @@ extension WorkspaceAgent {
     /// the built-in pair, so deleting the block from the file is a real undo
     /// rather than leaving the app with no agents at all.
     static func publishRoster(_ declared: [WorkspaceSetAgent]?) {
+        var seen: Set<String> = []
         let resolved = (declared ?? [])
             .map(WorkspaceAgent.init)
             .filter { !$0.command.trimmingCharacters(in: .whitespaces).isEmpty }
+            // Two entries claiming one id would make the second unreachable
+            // from the CLI and from a workspace's remembered choice; the first
+            // declaration wins, and the file is the place to fix it.
+            .filter { seen.insert($0.id).inserted }
         rosterLock.lock()
         defer { rosterLock.unlock() }
         publishedRoster = resolved.isEmpty ? nil : resolved
@@ -198,8 +207,13 @@ extension WorkspaceAgent {
             ?? WorkspaceAgent.fallback
     }
 
-    /// Parse a CLI/socket argument (`claude`, `Codex`, `codex-remote`), by id
-    /// first and then by the family name of a full command.
+    /// Parse a CLI/socket argument (`claude-remote`, `Codex`, `claude`), by id
+    /// first and then by family name. The family fallback is what keeps a
+    /// workspace that remembered the old enum's `claude` — or a script that
+    /// types the short name — landing on the roster's Claude entry even when
+    /// its id is now `claude-remote`. Where a roster lists several agents of one
+    /// family, the family name resolves to the first of them; the exact id is
+    /// how the others are addressed.
     init?(argument: String) {
         let normalized = argument.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalized.isEmpty else { return nil }
@@ -209,18 +223,47 @@ extension WorkspaceAgent {
             return
         }
         let head = WorkspaceAgent.family(ofCommand: normalized)
-        guard let match = roster.first(where: { $0.id == head }) else { return nil }
+        let match = roster.first {
+            WorkspaceAgent.family(ofCommand: $0.id) == head
+                || WorkspaceAgent.family(ofCommand: $0.command) == head
+        }
+        guard let match else { return nil }
         self = match
     }
 
-    /// True when `executable` launches this agent: its own command, its id, or
-    /// an `<id>-<variant>` sibling of either. Matching the id as well as the
-    /// configured command keeps a template running bare `claude` recognisable
-    /// on a roster whose Claude entry runs `claude-remote`.
-    func matches(executable: String) -> Bool {
+    /// How well `executable` identifies this agent, or nil for not at all.
+    /// Higher is more specific: an exact hit on the configured command or the
+    /// id beats an `<id>-<variant>` sibling, which beats a bare family match.
+    /// A roster carrying both `claude` and `claude-remote` needs the ranking —
+    /// `claude-remote` is an exact hit for one entry and a mere relative of the
+    /// other, and the exact one must win. The family rung at the bottom is what
+    /// still recognises a template running plain `claude` as an agent pane on a
+    /// roster whose only Claude runs `claude-remote`.
+    func matchScore(executable: String) -> Int? {
         let exe = ((executable as NSString).lastPathComponent).lowercased()
-        let candidates = [id, ((command as NSString).lastPathComponent).lowercased()]
-        return candidates.contains { exe == $0 || exe.hasPrefix($0 + "-") }
+        let commandName = ((command as NSString).lastPathComponent).lowercased()
+        if exe == commandName { return 3 }
+        if exe == id { return 2 }
+        if exe.hasPrefix(commandName + "-") { return 1 }
+        if exe.hasPrefix(id + "-") { return 0 }
+        let family = WorkspaceAgent.family(ofCommand: exe)
+        if family == WorkspaceAgent.family(ofCommand: commandName)
+            || family == WorkspaceAgent.family(ofCommand: id) { return -1 }
+        return nil
+    }
+
+    /// True when `executable` launches this agent at all, at any specificity.
+    func matches(executable: String) -> Bool {
+        matchScore(executable: executable) != nil
+    }
+
+    /// The roster entry an agent pane's executable belongs to — the best match,
+    /// not merely the first one declared.
+    static func matching(executable: String) -> WorkspaceAgent? {
+        roster
+            .compactMap { agent in agent.matchScore(executable: executable).map { (agent, $0) } }
+            .max { $0.1 < $1.1 }?
+            .0
     }
 }
 
@@ -624,19 +667,17 @@ enum WorkspaceSetImporter {
         return (rewritten, layout.map { retitled($0, renames: renames) })
     }
 
-    /// Swap the launched executable for `agent`'s equivalent, preserving any
-    /// leading `VAR=value` env assignments, the wrapper's variant suffix and
-    /// its directory: `CLAUDE_REMOTE_HOST=win-desktop claude-remote -n win`
-    /// becomes `CLAUDE_REMOTE_HOST=win-desktop codex-remote -n win`.
+    /// Swap the launched executable for `agent`'s command, preserving any
+    /// leading `VAR=value` env assignments and the arguments after it:
+    /// `CLAUDE_REMOTE_HOST=win-desktop claude-remote -n win` becomes
+    /// `CLAUDE_REMOTE_HOST=win-desktop codex-remote -n win`.
     /// Returns nil when the command isn't an agent pane, or already runs `agent`.
     ///
-    /// The suffix carries over rather than the roster's command being used
-    /// wholesale, because the suffix is the *variant* and the roster only names
-    /// the default one. A pane deliberately running `claude-remote-worktree`
-    /// swaps to `codex-remote-worktree`, not to plain `codex-remote`, and a
-    /// template running bare `claude` swaps to bare `codex`. Only when the
-    /// previous token is exactly its agent's id does the roster's command win,
-    /// so a roster entry that runs something unrelated is still honored.
+    /// The roster's command is used exactly as written rather than the previous
+    /// token's shape being carried over. The roster is the place where "what
+    /// this agent runs" is decided, so picking `claude` really does run bare
+    /// `claude` on a pane that ran `claude-remote`, which is the whole point of
+    /// listing both.
     nonisolated private static func agentSwappedCommand(
         _ command: String,
         to agent: WorkspaceAgent
@@ -645,26 +686,9 @@ enum WorkspaceSetImporter {
         guard let index = tokens.firstIndex(where: { !$0.isEmpty && !isEnvAssignment($0) }) else { return nil }
         let token = tokens[index]
         let base = (token as NSString).lastPathComponent
-        let lowered = base.lowercased()
-        guard let previous = WorkspaceAgent.roster.first(where: { $0.matches(executable: base) }),
+        guard let previous = WorkspaceAgent.matching(executable: base),
               previous.id != agent.id else { return nil }
-
-        let previousBase = ((previous.command as NSString).lastPathComponent).lowercased()
-        let swappedBase: String
-        if lowered == previous.id {
-            // Bare family name — the template deliberately runs the agent
-            // itself, not a wrapper. Stay bare.
-            swappedBase = agent.id
-        } else if lowered == previousBase {
-            // Exactly this agent's configured command; hand over the new
-            // agent's, as the roster spells it.
-            swappedBase = agent.command
-        } else {
-            // A variant: keep everything past the family name.
-            swappedBase = agent.id + base.dropFirst(previous.id.count)
-        }
-        let directory = (token as NSString).deletingLastPathComponent
-        tokens[index] = directory.isEmpty ? swappedBase : (directory as NSString).appendingPathComponent(swappedBase)
+        tokens[index] = agent.command
         return (tokens.joined(separator: " "), previous)
     }
 
