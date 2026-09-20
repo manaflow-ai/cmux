@@ -41,6 +41,7 @@ export type VmUnsupportedOperationKey =
   | "restore"
   | "fork"
   | "openPort"
+  | "getStats"
   | "sizing"
   | "persistentHome"
   | "pause"
@@ -51,6 +52,7 @@ export type VmUnsupportedOperationKey =
 export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOperationKey {
   const normalized = operation.toLowerCase();
   if (normalized.includes("openport") || normalized.includes("open_port")) return "openPort";
+  if (normalized.includes("getstats") || normalized.includes("get_stats")) return "getStats";
   if (normalized.includes("restore")) return "restore";
   if (normalized.includes("fork")) return "fork";
   if (normalized.includes("snapshot")) return "snapshot";
@@ -70,7 +72,7 @@ export async function vmUnsupportedCopy(
     messages: await loadMessages(locale),
     namespace: "vmErrors.unsupported",
   }) as unknown as (key: string) => string;
-  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort", "sizing", "persistentHome", "pause", "resume"].includes(phase)
+  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort", "getStats", "sizing", "persistentHome", "pause", "resume"].includes(phase)
     ? phase
     : "default";
   return {

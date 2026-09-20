@@ -989,6 +989,11 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
         XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
         XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
+        // Providers that cannot mint port URLs or report stats
+        // say so; an older control plane that omits the flags reads as supported.
+        XCTAssertEqual(VMCapabilities(json: ["ports": false, "stats": false]), VMCapabilities(snapshot: true, restore: true, fork: true, stats: false, ports: false))
+        XCTAssertTrue(VMCapabilities(json: ["snapshot": true]).ports)
+        XCTAssertTrue(VMCapabilities(json: ["snapshot": true]).stats)
         XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
                        VMCapabilities(snapshot: false, restore: true, fork: true))
         let summary = VMSummary(id: "m", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil)
