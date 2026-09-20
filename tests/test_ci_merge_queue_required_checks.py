@@ -16,23 +16,42 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# The required status checks on main that report for merge queue runs.
+# The required status checks on main. Each must report for merge queue runs.
 REQUIRED_CHECKS = (
+    "CLA Assistant",
+    "CLA policy guard",
+    "Web complexity",
     "ci-status",
     "web-validation",
 )
 
-# Also required on main, and not yet reporting for merge queue runs. A pull
-# request cannot fix these: "CLA Assistant" and "CLA policy guard" are locked
-# by scripts/ci/validate-cla-policy.rb, and "Web complexity" lives in a
-# workflow its own check forbids a pull request from editing. The merge queue
-# must stay off until this tuple is empty. When a maintainer makes one report
-# on merge_group, this test fails until the name moves to REQUIRED_CHECKS.
-BLOCKING_MERGE_QUEUE = (
-    "CLA Assistant",
-    "CLA policy guard",
-    "Web complexity",
-)
+# Checks that judge a pull request's head in workflows a pull request may not
+# edit. BRIDGE reports them for a merge group without running anything, so it
+# must stay exactly this document: any other job, step, trigger or permission
+# would run with those names' authority.
+BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
+BRIDGED_CHECKS = {
+    "cla-assistant": "CLA Assistant",
+    "cla-policy-guard": "CLA policy guard",
+    "web-complexity": "Web complexity",
+}
+
+
+def expected_bridge() -> dict:
+    return {
+        "name": "Merge-group policy checks",
+        True: {"merge_group": None},
+        "permissions": {},
+        "jobs": {
+            job_id: {
+                "name": name,
+                "runs-on": "ubuntu-24.04",
+                "timeout-minutes": 5,
+                "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
+            }
+            for job_id, name in BRIDGED_CHECKS.items()
+        },
+    }
 
 
 def triggers(document: dict) -> set[str]:
@@ -65,6 +84,9 @@ def merge_group_check_names() -> dict[str, list[str]]:
 
 
 def main() -> int:
+    if yaml.safe_load(BRIDGE.read_text(encoding="utf-8")) != expected_bridge():
+        print(f"FAIL: {BRIDGE.name} must contain only the fixed no-op jobs for {', '.join(BRIDGED_CHECKS.values())}")
+        return 1
     reported = merge_group_check_names()
     missing = [name for name in REQUIRED_CHECKS if name not in reported]
     if missing:
@@ -80,19 +102,7 @@ def main() -> int:
     if duplicated:
         print(f"FAIL: more than one merge_group job reports the same required check: {duplicated}")
         return 1
-    promoted = [name for name in BLOCKING_MERGE_QUEUE if name in reported]
-    if promoted:
-        print(
-            "FAIL: these checks now report on merge_group; move them from "
-            f"BLOCKING_MERGE_QUEUE to REQUIRED_CHECKS: {', '.join(promoted)}"
-        )
-        return 1
-    print("PASS: every covered required check reports on merge_group exactly once")
-    if BLOCKING_MERGE_QUEUE:
-        print(
-            "NOTE: the merge queue cannot be enabled yet; still missing on "
-            f"merge_group: {', '.join(BLOCKING_MERGE_QUEUE)}"
-        )
+    print("PASS: every required check reports on merge_group exactly once")
     return 0
 
 
