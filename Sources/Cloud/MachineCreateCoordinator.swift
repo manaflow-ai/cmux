@@ -265,7 +265,6 @@ final class MachineCreateCoordinator {
                 notifier(MachineCreateNotice(finished: finished))
             }
         }
-        }
         if transition.changed { postDidChange(finished: finished) }
     }
 
