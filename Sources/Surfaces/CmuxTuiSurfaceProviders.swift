@@ -146,6 +146,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var supportsPortPreviews: Bool {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
+
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -249,11 +250,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // refresh must never use provider exec or the web control plane.
             scannedPorts = portsCache?.scan.ports
         }
-        if force, supportsPortPreviews {
-            portState = .loading
-            info.portDiscoveryState = .loading
-            catalog.updateMachine(info, from: self)
-        }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         let previousPorts = previousResources.compactMap(\.id.forwardedPort).sorted()
         var currentPorts = scannedPorts ?? portsCache?.scan.ports ?? previousPorts
@@ -326,22 +322,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // Start both after the link is ready, so refresh latency is the slower
             // request rather than their sum. Each result remains guarded by the
             // same generation fence before it publishes.
-            async let refreshedPorts = ports(
-                link: link,
-                socketPath: connected.socketPath,
-                force: force,
-                generation: generation,
-                privateAddress: privateAddress
-            )
+            let shouldScanPorts = supportsPortPreviews && info.portDiscoveryState != .notRequested
+            async let refreshedPorts: CloudPortScanResult? = shouldScanPorts
+                ? ports(
+                    link: link,
+                    socketPath: connected.socketPath,
+                    force: force,
+                    generation: generation,
+                    privateAddress: privateAddress
+                )
+                : nil
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
-            if let refreshedPorts = await refreshedPorts {
+            if shouldScanPorts, let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 scannedPorts = refreshedPorts.ports
                 currentPorts = refreshedPorts.ports
                 portState = Self.portDiscoveryState(for: refreshedPorts, privateAddress: privateAddress)
-            } else if portsCache == nil {
+            } else if shouldScanPorts, portsCache == nil {
                 portState = .unavailable(.transport)
-            } else {
+            } else if shouldScanPorts {
                 portState = .stale
             }
             watchChanges(link: link, generation: lifecycle)

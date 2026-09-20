@@ -1,6 +1,12 @@
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    func requestPortDiscovery() {
+        guard supportsPortPreviews else { return }
+        info.portDiscoveryState = .loading
+        catalog.updateMachine(info, from: self)
+    }
+
     static func info(
         from summary: VMSummary,
         linkState: SurfaceLinkState,
