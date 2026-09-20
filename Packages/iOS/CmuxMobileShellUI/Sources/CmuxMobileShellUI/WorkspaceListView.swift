@@ -10,6 +10,9 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
 #if os(iOS)
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 #endif
@@ -637,9 +640,6 @@ struct WorkspaceListView: View {
             cancelMacTitlePickerSwitch()
         }
         .onAppear {
-            #if os(iOS) && DEBUG
-            MobileReleaseGateUIProbe.record(.workspaceListVisible)
-            #endif
             syncOptimisticWorkspaceOrder()
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)

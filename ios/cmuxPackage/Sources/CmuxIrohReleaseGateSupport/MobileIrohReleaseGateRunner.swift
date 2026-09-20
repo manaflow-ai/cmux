@@ -177,6 +177,7 @@ final class MobileIrohReleaseGateRunner {
         }
     }
 
+    private let uiProbe: MobileReleaseGateUIProbe?
     private let configuration: Configuration
     private let fileManager: FileManager
     private let dependencies: Dependencies
@@ -188,11 +189,13 @@ final class MobileIrohReleaseGateRunner {
 
     init(
         configuration: Configuration,
+        uiProbe: MobileReleaseGateUIProbe,
         settingsController: any CmxIrohSettingsControlling,
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity? = { nil },
         relayCredentialExpiry: @escaping @Sendable () async -> Date? = { nil },
         fileManager: FileManager = .default
     ) {
+        self.uiProbe = uiProbe
         self.configuration = configuration
         self.fileManager = fileManager
         let soakRunner = configuration.soakProfile.map {
@@ -206,7 +209,7 @@ final class MobileIrohReleaseGateRunner {
                     guard let identity = store.irohSoakUIIdentity() else {
                         throw MobileReleaseGateUIProbe.Failure.unavailable
                     }
-                    try await MobileReleaseGateUIProbe.exercise(
+                    try await uiProbe.exercise(
                         workspaceID: identity.workspace, surfaceID: identity.surface
                     )
                     return try await soakRunner.run(
@@ -252,6 +255,7 @@ final class MobileIrohReleaseGateRunner {
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
+        self.uiProbe = nil
         self.dependencies = dependencies
         self.soakRunner = nil
     }
@@ -274,7 +278,7 @@ final class MobileIrohReleaseGateRunner {
         try? fileManager.removeItem(at: configuration.reportURL)
         var report = await boundedReport(store: store)
         report.soak = soakRunner?.evidence
-        report.uiLatencies = MobileReleaseGateUIProbe.latencies()
+        report.uiLatencies = uiProbe?.latencies()
         do {
             try dependencies.writeReport(report, configuration.reportURL)
             dependencies.postReportReady()

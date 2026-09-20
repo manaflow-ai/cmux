@@ -18,6 +18,9 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     /// A connected session may still have stale output. Offer manual repair
     /// unless an active reconnect or reauthentication already owns recovery.
     static func canReconnectFromTitleMenu(
@@ -268,7 +271,7 @@ struct WorkspaceDetailView: View {
             }
             .onAppear {
                 #if os(iOS) && DEBUG
-                MobileReleaseGateUIProbe.record(.workspaceDetailVisible)
+                releaseGateUIProbe?.record(.workspaceDetailVisible)
                 #endif
                 refreshWorkspaceChangesHint()
             }

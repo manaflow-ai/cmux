@@ -6,41 +6,58 @@ import Testing
 @Suite(.serialized)
 struct MobileReleaseGateUIProbeTests {
     @Test func requiresAVisibleSelectionAndPresentedTextOnTheSelectedSurface() async throws {
-        MobileReleaseGateUIProbe.reset()
+        let probe = MobileReleaseGateUIProbe()
         var selections = 0
-        MobileReleaseGateUIProbe.closeWorkspace = {
-            MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: "terminal")
+        probe.closeWorkspace = {
+            probe.terminalDidUnmount(surfaceID: "terminal")
         }
-        MobileReleaseGateUIProbe.registerVisibleWorkspace("workspace") {
+        probe.registerVisibleWorkspace("workspace") {
             selections += 1
-            MobileReleaseGateUIProbe.record(.workspaceSelectionTapped)
-            MobileReleaseGateUIProbe.record(.workspaceDetailVisible)
-            MobileReleaseGateUIProbe.recordTerminalFrame(surfaceID: "other", containsText: true)
-            #expect(MobileReleaseGateUIProbe.latencies()["workspace_tap_to_terminal_text_visible"] == nil)
-            MobileReleaseGateUIProbe.recordTerminalFrame(surfaceID: "terminal", containsText: false)
-            #expect(MobileReleaseGateUIProbe.latencies()["workspace_tap_to_terminal_text_visible"] == nil)
-            MobileReleaseGateUIProbe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+            probe.record(.workspaceSelectionTapped)
+            probe.record(.workspaceDetailVisible)
+            probe.recordTerminalFrame(surfaceID: "other", containsText: true)
+            #expect(probe.latencies()["workspace_tap_to_terminal_text_visible"] == nil)
+            probe.recordTerminalFrame(surfaceID: "terminal", containsText: false)
+            #expect(probe.latencies()["workspace_tap_to_terminal_text_visible"] == nil)
+            probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
             return true
         }
-        try await MobileReleaseGateUIProbe.exercise(workspaceID: "workspace", surfaceID: "terminal")
+        try await probe.exercise(workspaceID: "workspace", surfaceID: "terminal")
         #expect(selections == 1)
-        let measured = MobileReleaseGateUIProbe.latencies()
+        let measured = probe.latencies()
         #expect(measured["app_launch_to_workspace_rows_visible"] != nil)
         #expect(measured["workspace_tap_to_terminal_text_visible"] != nil)
         for _ in 0..<100 {
-            MobileReleaseGateUIProbe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+            probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
         }
-        MobileReleaseGateUIProbe.beginLaunch(enabled: true)
-        #expect(MobileReleaseGateUIProbe.latencies() == measured)
+        #expect(probe.latencies() == measured)
+    }
+
+    @Test func revealsRequestedRowsAndDoesNotInspectTextAfterCompletion() async throws {
+        let probe = MobileReleaseGateUIProbe()
+        probe.closeWorkspace = { probe.terminalDidUnmount(surfaceID: "terminal") }
+        probe.revealWorkspace = { id in
+            probe.registerVisibleWorkspace(id) {
+                probe.record(.workspaceSelectionTapped)
+                probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+                return true
+            }
+        }
+        try await probe.exercise(workspaceID: "offscreen", surfaceID: "terminal")
+        var inspections = 0
+        func inspect() -> Bool { inspections += 1; return true }
+        probe.recordTerminalFrame(surfaceID: "terminal", containsText: inspect())
+        #expect(inspections == 0)
+        #expect(MobileReleaseGateUIProbe().latencies().isEmpty)
     }
 
     @Test func aMissingRenderedRowTimesOutInsteadOfInventingTimings() async {
-        MobileReleaseGateUIProbe.reset()
-        MobileReleaseGateUIProbe.record(.workspaceListVisible)
+        let probe = MobileReleaseGateUIProbe()
+        probe.record(.workspaceListVisible)
         await #expect(throws: MobileReleaseGateUIProbe.Failure.self) {
-            try await MobileReleaseGateUIProbe.exercise(workspaceID: "absent", surfaceID: "terminal", timeout: .milliseconds(1))
+            try await probe.exercise(workspaceID: "absent", surfaceID: "terminal", timeout: .milliseconds(1))
         }
-        #expect(MobileReleaseGateUIProbe.latencies().isEmpty)
+        #expect(probe.latencies().isEmpty)
     }
 }
 #endif

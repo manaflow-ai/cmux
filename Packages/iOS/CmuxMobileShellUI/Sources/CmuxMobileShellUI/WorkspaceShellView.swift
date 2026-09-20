@@ -201,6 +201,9 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
@@ -842,8 +845,8 @@ struct WorkspaceShellView: View {
         .onAppear {
             workspacesStackIsOnScreen = true
             #if DEBUG
-            if MobileReleaseGateUIProbe.awaitsVisibleRows {
-                MobileReleaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = { popCompactStack() }
             }
             #endif
             autoOpenSelectedWorkspaceForSoakIfNeeded()

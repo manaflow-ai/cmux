@@ -9,10 +9,12 @@ import SwiftUI
 struct MobileIrohReleaseGateHostView: View {
     @State private var store: CMUXMobileShellStore
     @State private var runner: MobileIrohReleaseGateRunner
+    private let uiProbe: MobileReleaseGateUIProbe
     private let onboardingStore: MobileOnboardingStore
     private let signOutHook: MobileSignOutHook
 
     init(
+        uiProbe: MobileReleaseGateUIProbe,
         store: CMUXMobileShellStore,
         configuration: MobileIrohReleaseGateRunner.Configuration,
         onboardingStore: MobileOnboardingStore,
@@ -21,9 +23,11 @@ struct MobileIrohReleaseGateHostView: View {
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity?,
         relayCredentialExpiry: @escaping @Sendable () async -> Date?
     ) {
+        self.uiProbe = uiProbe
         _store = State(initialValue: store)
         _runner = State(initialValue: MobileIrohReleaseGateRunner(
             configuration: configuration,
+            uiProbe: uiProbe,
             settingsController: settingsController,
             endpointIdentity: endpointIdentity,
             relayCredentialExpiry: relayCredentialExpiry
@@ -38,7 +42,9 @@ struct MobileIrohReleaseGateHostView: View {
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
+        .environment(\.releaseGateUIProbe, uiProbe)
         .task {
+            uiProbe.captureTerminalEvidence = { try await MobileReleaseGateUISnapshot.captureTerminal() }
             await runner.run(store: store)
         }
     }

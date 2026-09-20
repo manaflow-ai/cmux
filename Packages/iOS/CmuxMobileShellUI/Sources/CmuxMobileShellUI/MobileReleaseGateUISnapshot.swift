@@ -1,8 +1,40 @@
 #if os(iOS) && DEBUG
+import CMUXMobileCore
 import UIKit
+import notify
 
 @MainActor
-enum MobileReleaseGateUISnapshot {
+public enum MobileReleaseGateUISnapshot {
+    /// UIKit hierarchy snapshots omit Ghostty's IOSurface pixels. Ask the
+    /// simulator driver for a composited screen capture, then allow navigation
+    /// back. The latency was already recorded at the presentation boundary.
+    public static func captureTerminal() async throws {
+        let ready = "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"
+        let captured = "dev.cmux.ios.iroh-release-gate.ui-terminal-captured"
+        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        var token: Int32 = 0
+        guard notify_register_dispatch(captured, &token, .main, { _ in continuation.yield(()) }) == 0 else {
+            throw MobileReleaseGateUIProbe.Failure.unavailable
+        }
+        defer {
+            notify_cancel(token)
+            continuation.finish()
+        }
+        notify_post(ready)
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await _ in stream { return }
+                throw CancellationError()
+            }
+            group.addTask {
+                try await ContinuousClock().sleep(for: .seconds(15))
+                throw MobileReleaseGateUIProbe.Failure.timedOut
+            }
+            defer { group.cancelAll() }
+            try await group.next()
+        }
+    }
+
     /// Supporting evidence from the actual isolated app window, captured after
     /// the measured boundary. Each name is overwritten, so storage is bounded.
     static func capture(_ window: UIWindow?, name: String) {

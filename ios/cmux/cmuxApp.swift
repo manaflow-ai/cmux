@@ -110,9 +110,13 @@ struct cmuxApp: App {
         )
     }()
 
+    #if DEBUG
+    private let releaseGateUIProbe: MobileReleaseGateUIProbe
+    #endif
+
     init() {
         #if DEBUG
-        MobileReleaseGateUIProbe.beginLaunch(
+        releaseGateUIProbe = MobileReleaseGateUIProbe(
             enabled: ProcessInfo.processInfo.environment["CMUX_IROH_SOAK_PROFILE"] != nil
         )
         #endif
@@ -140,6 +144,7 @@ struct cmuxApp: App {
         Group {
             #if DEBUG
             MobileIrohReleaseGateScene(
+                uiProbe: releaseGateUIProbe,
                 root: mobileRootScene,
                 irx: Self.root.irx,
                 settingsController: Self.root.irohSettingsController

@@ -268,6 +268,8 @@ SIMULATOR_ID=""
 REPORT_FILENAME="cmux-iroh-release-gate.json"
 REPORT_READY_NOTIFICATION="dev.cmux.ios.iroh-release-gate.report-ready"
 REPORT_WAITER_PID=""
+UI_CAPTURE_WAITER_PID=""
+UI_CAPTURE_DIR=""
 STATE_DIR=""
 PROD_ENV_FILE=""
 PROD_CREDENTIALS_FILE=""
@@ -311,6 +313,14 @@ cleanup() {
   set +e
   if [[ -n "$REPORT_WAITER_PID" ]]; then
     kill "$REPORT_WAITER_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$UI_CAPTURE_WAITER_PID" ]]; then
+    kill "$UI_CAPTURE_WAITER_PID" >/dev/null 2>&1 || true
+    wait "$UI_CAPTURE_WAITER_PID" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$UI_CAPTURE_DIR" ]]; then
+    rm -f "$UI_CAPTURE_DIR/terminal.png"
+    rmdir "$UI_CAPTURE_DIR" >/dev/null 2>&1 || true
   fi
   # The helper commits protected recovery state immediately after Stack creates
   # the user. Retry cleanup whenever that state exists, including a partial
@@ -705,6 +715,40 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
 elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$DOGFOOD_CREDENTIALS_FILE")
 fi
+# Capture the simulator's composited terminal pixels at the presentation
+# boundary. UIKit drawHierarchy omits the renderer's IOSurface. The app waits
+# for this acknowledgement before navigating back; capture time is excluded
+# from the already-recorded latency.
+if [[ -n "$SOAK_PROFILE" ]]; then
+  UI_CAPTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-iroh-ui-${TAG}.XXXXXX")"
+  SIMULATOR_ID="$SIMULATOR_ID" UI_CAPTURE_DIR="$UI_CAPTURE_DIR" /usr/bin/python3 <<'PY_CAPTURE' &
+import os
+import signal
+import subprocess
+
+def interrupted(*_):
+    raise SystemExit(143)
+
+signal.signal(signal.SIGTERM, interrupted)
+base = ["xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"], "notifyutil"]
+waiter = subprocess.Popen(base + ["-1", "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"],
+                          stdout=subprocess.DEVNULL)
+try:
+    if waiter.wait(timeout=240) != 0:
+        raise SystemExit("terminal evidence listener failed")
+    subprocess.run(["xcrun", "simctl", "io", os.environ["SIMULATOR_ID"], "screenshot",
+                    os.path.join(os.environ["UI_CAPTURE_DIR"], "terminal.png")],
+                   check=True, timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(base + ["-p", "dev.cmux.ios.iroh-release-gate.ui-terminal-captured"],
+                   check=True, timeout=5)
+finally:
+    if waiter.poll() is None:
+        waiter.terminate()
+        waiter.wait(timeout=5)
+PY_CAPTURE
+  UI_CAPTURE_WAITER_PID=$!
+fi
+
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
@@ -730,12 +774,15 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
-  for ui_step in workspaces terminal; do
+  for ui_step in workspaces; do
     ui_snapshot="$DATA_CONTAINER/Library/Caches/cmux-iroh-ui-$ui_step.png"
     if [[ -f "$ui_snapshot" ]]; then
       cp "$ui_snapshot" "${REPORT_OUTPUT%.json}-ui-$ui_step.png"
     fi
   done
+  if [[ -n "$UI_CAPTURE_DIR" && -f "$UI_CAPTURE_DIR/terminal.png" ]]; then
+    cp "$UI_CAPTURE_DIR/terminal.png" "${REPORT_OUTPUT%.json}-ui-terminal.png"
+  fi
   xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.

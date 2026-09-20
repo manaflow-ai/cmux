@@ -30,7 +30,7 @@ extension WorkspaceListView {
     @MainActor
     func selectWorkspaceFromList(_ id: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Task<Void, Never>? {
         #if os(iOS) && DEBUG
-        MobileReleaseGateUIProbe.record(.workspaceSelectionTapped)
+        releaseGateUIProbe?.record(.workspaceSelectionTapped)
         #endif
         invalidateDeferredWorkspaceSelection()
         let selectionGeneration = deferredWorkspaceSelectionGeneration

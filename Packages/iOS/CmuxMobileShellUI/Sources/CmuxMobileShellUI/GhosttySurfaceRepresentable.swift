@@ -13,6 +13,9 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -56,7 +59,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
@@ -72,6 +75,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
             onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
+        #if DEBUG
+        coordinator.releaseGateUIProbe = releaseGateUIProbe
+        #endif
+        return coordinator
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -197,11 +204,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.tearDownComposer()
         coordinator.detach()
         #if DEBUG
-        MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: coordinator.surfaceID)
+        coordinator.releaseGateUIProbe?.terminalDidUnmount(surfaceID: coordinator.surfaceID)
         #endif
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        #if DEBUG
+        var releaseGateUIProbe: MobileReleaseGateUIProbe?
+        #endif
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -617,12 +627,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
-                            if MobileReleaseGateUIProbe.recordTerminalFrame(
+                            self.releaseGateUIProbe?.recordTerminalFrame(
                                 surfaceID: surfaceID,
                                 containsText: frame.plainRows().contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-                            ) {
-                                MobileReleaseGateUISnapshot.capture(surfaceView.window, name: "terminal")
-                            }
+                            )
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
@@ -1016,7 +1024,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
                 #if DEBUG
-                MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: surfaceID)
+                releaseGateUIProbe?.terminalDidUnmount(surfaceID: surfaceID)
                 #endif
             }
         }
