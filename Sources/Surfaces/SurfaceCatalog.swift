@@ -12,13 +12,7 @@ import Observation
 @MainActor
 @Observable
 final class SurfaceCatalog {
-    /// Exact remote tabs get separate materialization lanes; nil retains resource-wide reuse.
-    private struct MaterializationKey: Hashable {
-        let resource: SurfaceResourceID
-        let remoteTabID: String?
-
-        var machine: SurfaceMachineID { resource.machine }
-    }
+    private typealias MaterializationKey = SurfaceProjectionMaterialization.Key
 
     static let shared = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: .standard))
 
@@ -600,6 +594,7 @@ final class SurfaceCatalog {
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         if isDeletingCloudResource(id, remoteWorkspaceID: remoteView?.workspace.id) { throw CancellationError() }
         try validateOwnership(of: [id], at: destination)
+        let loadingReservation = CloudMachineLoadingReservation(id, at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
@@ -624,7 +619,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
-        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID)
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
             // An explicit remote view is a placement identity. Reusing a pane
@@ -649,10 +644,9 @@ final class SurfaceCatalog {
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
-        // Workspace-scoped reuse missed: an in-flight materialization bound elsewhere
-        // must not be adopted either (it would land — and focus — in that other
-        // workspace), so scoped calls go straight to a fresh materialization.
-        if reuseExisting, reuseInWorkspace == nil {
+        // Scoped opens share only their destination's in-flight attachment. Retry
+        // or a repeated open cannot create two panes or adopt another workspace.
+        if reuseExisting {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(
@@ -664,7 +658,7 @@ final class SurfaceCatalog {
                     destination: destination,
                     focus: focus,
                     waiterID: waiterID,
-                    adopting: reservation
+                    adopting: reservation, loadingReservation: loadingReservation
                 )
             } onCancel: { [weak self] in
                 guard let self else { return }
@@ -681,7 +675,7 @@ final class SurfaceCatalog {
             )
         }
 
-        let projection = try await provider.materializeValidated(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
+        let projection = try await provider.materializeValidated(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation, loadingReservation: loadingReservation)
         guard !Task.isCancelled, providers[id.machine] === provider,
               !isDeletingCloudResource(id, remoteWorkspaceID: resolvedRemoteView?.workspace.id) else {
             provider.discardMaterialization(projection)
@@ -701,7 +695,8 @@ final class SurfaceCatalog {
         destination: SurfaceDestination,
         focus: Bool,
         waiterID: UUID,
-        adopting reservation: CloudTerminalPaneReservation? = nil
+        adopting reservation: CloudTerminalPaneReservation? = nil,
+        loadingReservation: CloudMachineLoadingReservation?
     ) async throws -> SurfaceProjectionMaterialization.Result {
         try await withCheckedThrowingContinuation { continuation in
             guard !Task.isCancelled else {
@@ -738,7 +733,7 @@ final class SurfaceCatalog {
             let task = Task { @MainActor [weak self] in
                 do {
                     try self?.validateOwnership(of: [id], at: destination)
-                    let projection = try await provider.materializeValidated(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
+                    let projection = try await provider.materializeValidated(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation, loadingReservation: loadingReservation)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))
@@ -802,6 +797,7 @@ final class SurfaceCatalog {
             if let existing = projections.first(where: {
                 $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
+                    && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)
