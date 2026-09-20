@@ -21,6 +21,20 @@ authentication methods, PTY and exec channels, SFTP, forwarding, nonblocking
 event integration, and security-key callbacks. It is the current candidate for
 an iOS C shim, subject to these gates:
 
+The signed `libssh-0.12.2.tar.xz` source was verified against libssh's published
+release key `88A228D89B07C2C77D0C780903D5DF8CFDD3E8E7`. A host arm64 static
+configuration completed with `WITH_SERVER=OFF`, `WITH_GSSAPI=OFF`,
+`WITH_FIDO2=OFF`, `WITH_PKCS11_URI=OFF`, `WITH_PCAP=OFF`, `WITH_EXAMPLES=OFF`,
+`BUILD_SHARED_LIBS=OFF`, and `WITH_SFTP=ON`. That proves the client-only source
+configuration, not iOS compatibility. The produced host archive links against
+Homebrew OpenSSL and cannot be shipped in the app.
+
+The iOS build therefore needs a separately pinned, audited OpenSSL or mbedTLS
+static dependency. Apple SDK crypto and CryptoKit cannot satisfy libssh's C
+backend ABI. FIDO2 and PKCS#11 remain callback or external-provider work and
+must not be represented as supported merely because the libssh headers expose
+those APIs.
+
 1. Build a reproducible arm64 iOS static library from a pinned source release,
    with OpenSSL/libgcrypt dependencies and unused server features disabled.
 2. Expose a small Swift-owned wrapper that keeps all libssh objects on one
