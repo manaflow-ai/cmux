@@ -3,6 +3,7 @@ import concurrent.futures
 import importlib.machinery
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 import tempfile
@@ -104,7 +105,7 @@ class CloudDisplayCatalogTests(unittest.TestCase):
             return Process()
 
         def launch(_command, **_options):
-            return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'; export DBUS_SESSION_BUS_ADDRESS;\nDBUS_SESSION_BUS_PID=999999; export DBUS_SESSION_BUS_PID;\n")
+            return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'; export DBUS_SESSION_BUS_ADDRESS;\nDBUS_SESSION_BUS_PID={os.getpid()}; export DBUS_SESSION_BUS_PID;\n")
 
         readiness_calls = {}
         def readiness(number):
@@ -163,6 +164,43 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertFalse(x_server.terminated)
         self.assertTrue(old_websockify.terminated)
         self.assertIs(service.websockify_processes[number], new_websockify)
+        service.shutdown.set()
+
+    def test_crashed_session_component_restarts_without_restarting_x(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        number = 2
+
+        class Process:
+            def __init__(self, exit_code=None):
+                self.exit_code = exit_code
+                self.terminated = False
+
+            def terminate(self):
+                self.terminated = True
+
+            def poll(self):
+                return self.exit_code
+
+        x_server = Process()
+        dbus = Process()
+        crashed_openbox = Process(1)
+        replacement = Process()
+        service.processes[number] = [x_server, dbus, crashed_openbox]
+        service.named_processes[number] = {"xvnc": x_server, "dbus": dbus, "openbox": crashed_openbox}
+        service.websockify_processes[number] = Process()
+        environment = {"DISPLAY": ":2"}
+        runtime = self.root / "runtime" / "2"
+        runtime.mkdir(parents=True)
+
+        with mock.patch.object(display, "ready", return_value=False), \
+             mock.patch.object(display, "rfb_ready", return_value=True), \
+             mock.patch.object(display, "novnc_ready", return_value=True), \
+             mock.patch.object(display.shutil, "which", side_effect=lambda name: name), \
+             mock.patch.object(display.subprocess, "Popen", return_value=replacement):
+            service.start_components(number, environment, runtime)
+
+        self.assertFalse(x_server.terminated)
+        self.assertIs(service.named_processes[number]["openbox"], replacement)
         service.shutdown.set()
 
     def test_additional_desktop_clients_use_display_scoped_process_names(self):
