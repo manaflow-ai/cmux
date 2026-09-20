@@ -1,11 +1,12 @@
 import Foundation
 @preconcurrency import Network
 
-/// One path observer for the VM client. A Network.framework delivery queue
-/// feeds an AsyncStream; it never protects domain state or runs UI work.
-final class CloudReadNetworkMonitor: Sendable {
+/// One path observer for the VM client. The actor owns the mutable
+/// Network.framework monitor; only its sendable stream crosses the actor
+/// boundary, and it never protects domain state or runs UI work.
+actor CloudReadNetworkMonitor {
     private let monitor: NWPathMonitor
-    let updates: AsyncStream<Bool>
+    nonisolated let updates: AsyncStream<Bool>
 
     init() {
         let monitor = NWPathMonitor()
