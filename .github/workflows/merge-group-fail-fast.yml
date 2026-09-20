@@ -21,10 +21,10 @@ permissions: {}
 
 concurrency:
   # A requested and an in-progress notification can describe the same run.
-  # Keep one watcher for that run without cancelling watchers for other queue
-  # entries.
+  # Replace the early watcher with the scheduled one, without cancelling
+  # watchers for other queue entries because the group includes the run ID.
   group: merge-group-fail-fast-${{ github.event.workflow_run.id }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   watch:

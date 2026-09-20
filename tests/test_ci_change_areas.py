@@ -1302,7 +1302,7 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
     assert "  workflow_run:\n    workflows: [CI]\n    types: [requested, in_progress]" in watcher
     assert "  group: merge-group-fail-fast-${{ github.event.workflow_run.id }}" in watcher
-    assert "  cancel-in-progress: false" in watcher
+    assert "  cancel-in-progress: true" in watcher
     assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
