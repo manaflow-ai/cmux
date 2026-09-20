@@ -904,7 +904,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Quit-time save revalidates a cached Hermes process against the current snapshot")
-    func quitTimeSaveRevalidatesCachedHermesProcess() throws {
+    func quitTimeSaveRevalidatesCachedHermesProcess() async throws {
         let fixture = try makeFixture { [StateRow("cached-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_530
@@ -931,7 +931,7 @@ struct HermesFirstClassSupportTests {
         )
         #expect(cached.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)?.processLiveness == .running)
 
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let resumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
             cachedRestorableAgentIndex: cached
@@ -989,7 +989,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Fresh synchronous lifecycle load discovers a Hermes hook session missing from the cache")
-    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() throws {
+    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() async throws {
         let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_531
@@ -1003,7 +1003,7 @@ struct HermesFirstClassSupportTests {
             arguments: [fixture.hermesExecutable, "--resume", "new-hook-session"]
         )
 
-        let staleResumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let staleResumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
             cachedRestorableAgentIndex: .empty
@@ -1015,7 +1015,7 @@ struct HermesFirstClassSupportTests {
             ) == nil
         )
 
-        let freshResumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously(
+        let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFreshOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default
         )
