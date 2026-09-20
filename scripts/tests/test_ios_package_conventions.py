@@ -60,6 +60,15 @@ public struct Value {
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_nested_literals_inside_interpolation_preserve_type_boundaries(self):
+        result = self.lint(r'''public struct Resolver {
+    public static let marker = "\(String(describing: "}"))"
+    public let root: String
+    public init(root: String) { self.root = root }
+}
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == '__main__':
     unittest.main()
