@@ -43,9 +43,15 @@ extension CmuxTuiSurfaceProvider {
 
     /// Bind the page to its machine proxy without activating a system VPN.
     func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil) {
+        let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+        let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
+            SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
+        } else {
+            SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(requestedPort)")
+        }
         let resourceID = resourceID ?? browser.cloudAccess.resourceID
             ?? catalog.projectionRecord(forPanel: browser.id).flatMap { $0.resource.machine.isLocal ? nil : $0.resource }
-            ?? SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(url.port ?? 80)")
+            ?? fallbackID
         guard resourceID.machine == machine,
               browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
               (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil else {
