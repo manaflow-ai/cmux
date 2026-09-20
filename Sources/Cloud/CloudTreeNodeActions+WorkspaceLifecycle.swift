@@ -33,6 +33,8 @@ extension CloudTreeNodeActions {
         name: String?,
         focus: Bool,
         openLocally: Bool = true,
+        host: SurfaceCatalog.NewWorkspaceHost? = nil,
+        validateOperation: @MainActor () throws -> Void = { try Task.checkCancellation() },
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
         onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in }
@@ -41,9 +43,12 @@ extension CloudTreeNodeActions {
         terminal: SurfaceResource,
         opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
+        try validateOperation()
         let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
         onReceipt(workspace, nil)
+        try validateOperation()
         await provider.refresh()
+        try validateOperation()
         let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
         }
@@ -54,6 +59,7 @@ extension CloudTreeNodeActions {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
         onReceipt(workspace, terminal)
+        try validateOperation()
         guard openLocally else { return (workspace, terminal, nil) }
         let placement = SurfaceResourcePlacement(
             resource: terminal.id,
@@ -69,8 +75,9 @@ extension CloudTreeNodeActions {
             group,
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
-            host: .appOptimistic
+            host: host ?? .appOptimistic
         )
+        try validateOperation()
         catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,
             machine: machine,

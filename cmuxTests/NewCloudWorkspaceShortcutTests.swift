@@ -10,7 +10,7 @@ import CmuxCloudMachines
 @testable import cmux
 #endif
 
-/// New Cloud Workspace (Cmd+Y): the shortcut catalog entry, the plus-menu
+/// New Cloud Workspace (Cmd+Shift+Y): the shortcut catalog entry, the plus-menu
 /// rows with their live shortcut hints, and the shared action every
 /// entrypoint routes through.
 @MainActor
@@ -25,19 +25,21 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
     }
 
+    private var preferenceSuites: [String] = []
+    private func pinStore(signedIn: Bool = true) -> CloudMachinePinStore {
+        let suite = "cloud-shortcut-\(UUID().uuidString)"
+        preferenceSuites.append(suite)
+        return CloudMachinePinStore(defaults: UserDefaults(suiteName: suite)!, scopeProvider: { signedIn ? "scope" : nil })
+    }
+
     private func installDependencies(on appDelegate: AppDelegate, presenter: RecordingSheetPresenter, signedIn: Bool = true) {
-        let defaults = UserDefaults(suiteName: "CloudShortcutTests.\(UUID().uuidString)")!
-        let store = DefaultCloudMachineStore(defaults: defaults)
         appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-            defaultMachineStore: store,
+            machinePinStore: pinStore(signedIn: signedIn),
             allowsOperation: { CloudMachinesFeature.isEnabled && signedIn },
-            loadMachines: { [CloudMachineDescriptor(id: "starred", isDesktop: true)] },
-            createWorkspace: { _, _ in UUID() }
+            loadMachines: { ["machine-a"] }, createWorkspace: { _ in UUID() }
         )
         appDelegate.newMachineSheetPresenter = presenter
-        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(
-            isAvailable: { CloudMachinesFeature.isEnabled && signedIn }
-        )
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { CloudMachinesFeature.isEnabled && signedIn })
     }
 
     private var originalFileStore: KeyboardShortcutSettingsFileStore?
@@ -59,6 +61,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     }
 
     override func tearDown() {
+        for suite in preferenceSuites { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        preferenceSuites = []
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
         if let originalFileStore {
             KeyboardShortcutSettings.settingsFileStore = originalFileStore
@@ -311,7 +315,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter)
-        XCTAssertFalse(appDelegate.performNewCloudWorkspaceAction(debugSource: "test.featureOff"))
+        XCTAssertFalse(appDelegate.performNewCloudMachineAction(debugSource: "test.featureOff"))
         XCTAssertEqual(presenter.presentCount, 0)
     }
 
@@ -320,7 +324,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let presenter = RecordingSheetPresenter()
         let appDelegate = AppDelegate()
         installDependencies(on: appDelegate, presenter: presenter, signedIn: false)
-        XCTAssertFalse(appDelegate.performNewCloudWorkspaceAction(debugSource: "test.signedOut"))
+        XCTAssertFalse(appDelegate.performNewCloudMachineAction(debugSource: "test.signedOut"))
         XCTAssertEqual(presenter.presentCount, 0)
     }
 
@@ -353,20 +357,18 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
 #endif
     }
 
-    func testDefaultMachineWorkspaceCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
+    func testResolvedCloudWorkspaceCoalescesOneCreateAndOpenIntentUntilItFinishes() async throws {
 #if DEBUG
         let appDelegate = AppDelegate()
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
-        let defaults = UserDefaults(suiteName: "CloudShortcutCoalescingTests.\(UUID().uuidString)")!
-        let store = DefaultCloudMachineStore(defaults: defaults)
         var createCount = 0
         var releaseCreate: CheckedContinuation<Void, Never>?
         appDelegate.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-            defaultMachineStore: store,
+            machinePinStore: pinStore(),
             allowsOperation: { true },
-            loadMachines: { [CloudMachineDescriptor(id: "starred", isDesktop: true)] },
-            createWorkspace: { _, _ in
+            loadMachines: { ["machine-a"] },
+            createWorkspace: { _ in
                 createCount += 1
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     releaseCreate = continuation
@@ -376,11 +378,14 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         )
         appDelegate.newMachineSheetPresenter = presenter
         appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
 
-        XCTAssertTrue(appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.first"))
+        XCTAssertTrue(appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager, debugSource: "test.first"))
         XCTAssertFalse(
-            appDelegate.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "test.duplicate"),
-            "a second Cmd+Y must not create another remote workspace while the first is attaching"
+            appDelegate.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager, debugSource: "test.duplicate"),
+            "a second Cmd+Shift+Y must not create another remote workspace while the first is attaching"
         )
         for _ in 0..<20 where releaseCreate == nil {
             await Task.yield()
@@ -405,6 +410,12 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
+        let manager = TabManager()
+        let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
+        appDelegate.mainWindowContexts.values.first { $0.windowId == windowID }?.window = window
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID); withExtendedLifetime(window) {} }
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "k", command: true, shift: true, option: false, control: false),
             for: .newCloudWorkspace
@@ -417,7 +428,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
                 location: .zero,
                 modifierFlags: modifiers,
                 timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+                windowNumber: window.windowNumber,
                 context: nil,
                 characters: characters,
                 charactersIgnoringModifiers: characters,
@@ -427,7 +438,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         }
 
         XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: try keyEvent("y", [.command, .shift], 16)))
-        XCTAssertEqual(presenter.presentCount, 0, "the old ⌘Y binding must not fire after a rebind")
+        XCTAssertEqual(presenter.presentCount, 0, "the old ⇧⌘Y binding must not fire after a rebind")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: try keyEvent("K", [.command, .shift], 40)))
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
@@ -452,25 +463,23 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
         var targets: [String] = []
-        let store = DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!)
-        store.machineID = "different-default"
         app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-            defaultMachineStore: store,
+            machinePinStore: pinStore(),
             allowsOperation: { true },
-            loadMachines: { XCTFail("Cmd-N must not resolve the default VM"); return [] },
-            createWorkspace: { id, focus in
-                XCTAssertTrue(focus)
-                targets.append(id)
+            loadMachines: { XCTFail("Cmd-N must not resolve a fleet target"); return [] },
+            createWorkspace: { request in
+                targets.append(request.machineID)
                 return UUID()
             }
         )
         app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
         XCTAssertTrue(app.performNewWorkspaceAction(tabManager: manager))
         XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
         await app.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(targets, ["selected-machine"])
         XCTAssertEqual(manager.tabs.map(\.id), originalIDs)
-        XCTAssertEqual(store.machineID, "different-default")
     }
 
     func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
