@@ -42,9 +42,12 @@ def contract():
         "os": read("sw_vers", "-buildVersion"),
         "architecture": platform.machine(),
         "tools": versions,
-        "environment": {k: v for k, v in sorted(os.environ.items()) if
-            k.startswith(("CMUX_", "MACOSX_", "SWIFT_", "OTHER_", "Image"))
-            and k not in {"CMUX_COMPILE_ADMISSION_DERIVED_DATA", "CMUX_COMPILE_ADMISSION_CAS"}},
+        # Only non-secret build controls belong in the public artifact receipt.
+        "environment": {k: os.environ.get(k, "") for k in (
+            "CMUX_CI_XCODE_APP", "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR", "CMUX_SKIP_ZIG_BUILD",
+            "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+            "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
+            "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion")},
         "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
     }
 
@@ -190,11 +193,18 @@ def restore(api, value, derived, current_run, current_identity):
 def main():
     mode, derived_raw = sys.argv[1:]
     derived = Path(derived_raw)
-    value = contract()
+    try:
+        value = contract()
+    except (OSError, subprocess.SubprocessError):
+        value = None
+        print("Build environment cannot be fingerprinted; compiling normally.")
     if mode == "key":
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
-            out.write(f"key={key(value)}\n")
+            fingerprint = key(value) if value is not None else "unavailable-" + os.environ["GITHUB_RUN_ID"]
+            out.write(f"key={fingerprint}\n")
     elif mode == "seal":
+        if value is None:
+            return
         root = derived / "Build/Products"
         (root / RECEIPT).write_text(json.dumps({"contract": value,
             "revision": read("git", "rev-parse", "HEAD"),
@@ -202,7 +212,7 @@ def main():
     elif mode == "restore":
         hit = False
         try:
-            if os.environ.get("GITHUB_EVENT_NAME") == "merge_group":
+            if value is not None and os.environ.get("GITHUB_EVENT_NAME") == "merge_group":
                 hit = restore(GitHub(os.environ["GITHUB_REPOSITORY"]), value, derived,
                               os.environ["GITHUB_RUN_ID"], products.identity())
         except (ValueError, KeyError, OSError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile) as error:
