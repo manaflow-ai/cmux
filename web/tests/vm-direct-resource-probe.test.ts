@@ -1,4 +1,5 @@
 import { expect, setSystemTime, test } from "bun:test";
+import { Effect, Fiber, TestClock, TestContext } from "effect";
 import { Freestyle } from "freestyle";
 import { FreestyleResourceStatsReader } from "../services/vms/drivers/freestyleResourceStatsReader";
 
@@ -44,19 +45,27 @@ test("the timestamp is recorded after the sample completes", async () => {
 test("the deadline aborts a stalled request and caches failure without launching more work", async () => {
   let calls = 0;
   let aborted = false;
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
   const client = new Freestyle({ apiKey: "test-only", fetch: (async (_input, init) => {
     calls++;
     return new Promise<Response>((_resolve, reject) => {
       init!.signal!.addEventListener("abort", () => { aborted = true; reject(new Error("aborted")); }, { once: true });
+      started();
     });
   }) as typeof fetch });
-  const reader = new FreestyleResourceStatsReader(() => client);
-  const results = await Promise.all([reader.read("vm-hung"), reader.read("vm-hung")]);
-  expect(results).toEqual([null, null]);
-  expect(aborted).toBe(true);
-  expect(await reader.read("vm-hung")).toBeNull();
-  expect(calls).toBe(1);
-}, 15_000);
+  await Effect.runPromise(Effect.gen(function* () {
+    const clock = yield* TestClock.testClock();
+    const reader = new FreestyleResourceStatsReader(() => client, clock);
+    const pending = yield* Effect.promise(() => Promise.all([reader.read("vm-hung"), reader.read("vm-hung")])).pipe(Effect.fork);
+    yield* Effect.promise(() => ready);
+    yield* TestClock.adjust(5_000);
+    expect(yield* Fiber.join(pending)).toEqual([null, null]);
+    expect(aborted).toBe(true);
+    expect(yield* Effect.promise(() => reader.read("vm-hung"))).toBeNull();
+    expect(calls).toBe(1);
+  }).pipe(Effect.provide(TestContext.TestContext)));
+});
 
 test.each([202, 409, 503])("HTTP %s is unavailable without background polling or a resume", async status => {
   const calls: string[] = [];

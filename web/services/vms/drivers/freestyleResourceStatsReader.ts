@@ -1,4 +1,4 @@
-import { Cache, Effect } from "effect";
+import { Cache, Clock, Effect } from "effect";
 import type { Freestyle } from "freestyle";
 import { guestResourceSampleCommand } from "../guestResourceReporter";
 import { parseVmResourceUsage, VM_RESOURCE_USAGE_MIN_INTERVAL_MS } from "../resourceUsage";
@@ -19,17 +19,20 @@ export class FreestyleResourceStatsNotFoundError extends Error {
 export class FreestyleResourceStatsReader {
   private readonly cache: Cache.Cache<string, VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError>;
 
-  constructor(private readonly client: (timeoutMs?: number) => Freestyle) {
+  constructor(
+    private readonly client: (timeoutMs?: number) => Freestyle,
+    private readonly clock: Clock.Clock = Clock.make(),
+  ) {
     this.cache = Effect.runSync(Cache.make({
       capacity: 128,
       timeToLive: VM_RESOURCE_USAGE_MIN_INTERVAL_MS,
       lookup: (vmId: string) => this.sample(vmId),
-    }));
+    }).pipe(Effect.withClock(clock)));
   }
 
   /** Reuses both successful samples and failures for the minimum reporting interval. */
   read(vmId: string): Promise<VMResourceStatsResult | null> {
-    return Effect.runPromise(this.cache.get(vmId));
+    return Effect.runPromise(this.cache.get(vmId).pipe(Effect.withClock(this.clock)));
   }
 
   private sample(vmId: string): Effect.Effect<VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError> {
@@ -50,7 +53,7 @@ export class FreestyleResourceStatsReader {
       if (!result || typeof result !== "object" || !("statusCode" in result)
         || result.statusCode !== 0 || !("stdout" in result) || typeof result.stdout !== "string") return null;
       const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
-      return usage ? { ...usage, resourceSampledAt: Date.now() } : null;
+      return usage ? { ...usage, resourceSampledAt: this.clock.unsafeCurrentTimeMillis() } : null;
     }, catch: (error) => error }).pipe(
       Effect.timeout(PROBE_TIMEOUT_MS),
       Effect.catchAll((error) => error instanceof FreestyleResourceStatsNotFoundError

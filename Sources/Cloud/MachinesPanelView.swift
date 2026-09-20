@@ -455,6 +455,7 @@ struct MachinesPanelView: View {
             viewModel?.endOperation()
         }
     }
+
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -473,8 +474,7 @@ struct MachinesPanelView: View {
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
-            },
-            onResizeSucceeded: { [weak viewModel] id in viewModel?.invalidateStats(for: id) }
+            }
         )
         // The list endpoint is authoritative for the caller's plan-sized
         // memory ladder. Feed it into the menu so Pro users do not select a
