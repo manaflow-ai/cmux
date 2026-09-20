@@ -26,6 +26,8 @@ struct MacAuthComposition {
     let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
+    /// Reconciles Cloud transports with the coordinator's selected team.
+    let cloudTeamScopeObserver: CloudTeamScopeObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -210,11 +212,15 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        }
     }
 
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
+        cloudTeamScopeObserver.start()
         coordinator.start()
     }
 
