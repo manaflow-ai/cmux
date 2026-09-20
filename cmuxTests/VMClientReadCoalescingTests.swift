@@ -271,6 +271,63 @@ struct VMClientReadCoalescingTests {
         #expect(models[2].machines.isEmpty && models[3].machines.isEmpty)
     }
 
+    @Test("An authoritative fleet replaces the old stats batch and preserves other readers")
+    func changedFleetReplacesStatsBatch() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.holdResponses()
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+        defer { model.stopPolling() }
+        func acceptFleet(_ ids: [String]) {
+            let page = VMListPage(vms: ids.map {
+                VMSummary(id: $0, provider: "fixture", status: "running", image: "desktop-vnc", createdAt: 0, base: nil)
+            }, limits: nil)
+            model.applyRefreshResult(.success(page), generation: model.refreshGeneration, scope: nil)
+        }
+        let otherReader = Task { try await fixture.client.stats(id: "shared") }
+        defer { otherReader.cancel() }
+        await CloudRefreshURLProtocol.waitUntilStarted()
+        acceptFleet(["removed", "shared"])
+        try await eventually {
+            let entries = await fixture.readRequests.entries
+            return entries.values.reduce(0) { $0 + $1.waiters.count } == 3
+        }
+        await CloudRefreshURLProtocol.waitUntilStarted(2)
+        let oldID = try #require(model.statsID)
+        let oldTask = try #require(model.statsTask)
+
+        acceptFleet(["added", "shared"])
+        try #require(model.statsID != oldID, "The changed fleet must replace the running batch")
+        let replacementID = try #require(model.statsID)
+        let replacementTask = try #require(model.statsTask)
+        await oldTask.value
+        #expect(model.statsID == replacementID, "Old completion must not clear the replacement owner")
+        try await eventually {
+            let entries = await fixture.readRequests.entries
+            return entries.first { $0.key.path == "/api/vm/removed/stats" } == nil
+                && entries.first { $0.key.path == "/api/vm/shared/stats" }?.value.waiters.count == 2
+                && entries.first { $0.key.path == "/api/vm/added/stats" }?.value.waiters.count == 1
+        }
+        await CloudRefreshURLProtocol.waitUntilStarted(3)
+        #expect(await CloudRefreshURLProtocol.requestCounts() == [
+            "/api/vm/removed/stats": 1, "/api/vm/shared/stats": 1, "/api/vm/added/stats": 1
+        ])
+
+        acceptFleet([])
+        try #require(model.statsID == nil && model.statsTask == nil)
+        await replacementTask.value
+        #expect(model.statsID == nil && model.statsTask == nil)
+        try await eventually {
+            let entries = await fixture.readRequests.entries
+            return entries.count == 1 && entries.first?.key.path == "/api/vm/shared/stats"
+                && entries.first?.value.waiters.count == 1
+        }
+        await CloudRefreshURLProtocol.releaseResponses()
+        #expect(try await otherReader.value.state == .awake)
+        #expect(model.machines.isEmpty)
+    }
+
     @Test("Team usage shares offline state with list and stats while keeping its shorter budget")
     func teamUsageNetworkState() async throws {
         let clock = CloudReadManualClock()
