@@ -120,6 +120,25 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    @Test("A provider error before local admission reaches the caller")
+    func preReservationProviderErrorPropagates() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.beforeCreate = {
+                throw CloudDiagnosticFailure.conflict
+            }
+            await #expect(throws: CloudDiagnosticFailure.conflict) {
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            #expect(fixture.manager.tabs.count == 1)
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+        }
+    }
+
     @Test("Failed attachment or starter creation retries the same workspace and pending pane", arguments: [false, true], [false, true])
     func failedCreateRetainsItsReceiptForRetry(terminalFailure: Bool, retryFromAction: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

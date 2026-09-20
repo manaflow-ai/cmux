@@ -57,9 +57,19 @@ final class CloudWorkspaceCreationCoordinator {
                 && operation.reservation.map { operation.host?.isLive($0) == true } == true
             guard canRetainForRetry,
                   let reservation = operation.reservation else {
+                // A provider/auth/backend error before local admission must
+                // remain visible to the caller. Only cancellation or a request
+                // invalidated by teardown is translated to CancellationError;
+                // otherwise CloudTreeNodeActions and socket callers lose the
+                // diagnostic they are responsible for presenting.
+                let wasInvalidated = error is CancellationError
+                    || Task.isCancelled
+                    || operations[operation.id] !== operation
+                    || operation.host?.isAvailable == false
                 await cleanupRemoteResources(operation)
                 cancel(operation.id, discardRemote: false)
-                throw CancellationError()
+                if wasInvalidated { throw CancellationError() }
+                throw error
             }
             // Creation committed; retain its identity and input for an explicit
             // reconnect. Only this request's retry may reuse its remote receipt.
