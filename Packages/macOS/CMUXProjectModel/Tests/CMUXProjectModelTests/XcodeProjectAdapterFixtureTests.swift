@@ -20,6 +20,20 @@ struct XcodeProjectAdapterFixtureTests {
             try Data(Self.pbxproj.utf8).write(to: projectURL.appendingPathComponent("project.pbxproj"))
             try Data(Self.scheme.utf8).write(to: schemes.appendingPathComponent("App.xcscheme"))
             try Data(Self.xcconfig.utf8).write(to: root.appendingPathComponent("App/Base.xcconfig"))
+            let storyboard = root.appendingPathComponent("App/Base.lproj/Main.storyboard")
+            try FileManager.default.createDirectory(
+                at: storyboard.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: storyboard)
+        }
+
+        /// Writes `Nested.xcworkspace` next to `App/`, referencing the project from inside located groups.
+        func writeWorkspace(_ xml: String) throws -> URL {
+            let workspace = root.appendingPathComponent("Nested.xcworkspace")
+            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            try Data(xml.utf8).write(to: workspace.appendingPathComponent("contents.xcworkspacedata"))
+            return workspace
         }
 
         deinit { try? FileManager.default.removeItem(at: root) }
@@ -163,6 +177,32 @@ struct XcodeProjectAdapterFixtureTests {
         #expect(variant.style == .variant)
         #expect(variant.resolvedPath?.path == fixture.root.appendingPathComponent("App/Base.lproj/Main.storyboard").path)
         #expect(groups.first { $0.displayName == "Synced" }?.style == .synchronized)
+    }
+
+    @Test
+    func variantChildrenResolveBesideTheVariantGroupNotInsideIt() throws {
+        let fixture = try Fixture()
+        let base = try #require(file(named: "Base", in: try fixture.load().rootGroup))
+        #expect(base.resolvedPath?.path == fixture.root.appendingPathComponent("App/Base.lproj/Main.storyboard").path)
+        #expect(base.existsOnDisk)
+    }
+
+    @Test
+    func workspaceReferencesResolveAgainstTheirEnclosingGroups() throws {
+        let fixture = try Fixture()
+        let workspace = try fixture.writeWorkspace("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <Workspace version="1.0">
+          <Group location="container:App" name="App">
+            <FileRef location="group:Fixture.xcodeproj"/>
+            <Group location="group:Missing" name="Missing">
+              <FileRef location="container:App/Fixture.xcodeproj"/>
+            </Group>
+          </Group>
+        </Workspace>
+        """)
+        let model = try XcodeProjectAdapter().load(at: workspace)
+        #expect(model.modules.map(\.rootURL.path) == [fixture.projectURL.path, fixture.projectURL.path])
     }
 
     @Test
