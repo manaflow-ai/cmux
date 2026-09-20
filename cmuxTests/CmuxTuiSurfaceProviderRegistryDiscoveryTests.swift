@@ -61,7 +61,8 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             listPage: {
                 lists += 1
                 return page
-            }
+            },
+            refreshProvider: { _, _ in }
         )
         registry.start(catalog: catalog)
         registry.recordCreatedMachine(created, scope: registry.creationScope)
@@ -76,6 +77,39 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(lists == 2)
         #expect(registry.provider(machineID: created.id) != nil,
                 "The receipt should converge once discovery positively observes the machine")
+        page = VMListPage(vms: [], limits: nil)
+        #expect(await registry.refresh(force: true))
+        #expect(catalog.machines[.cloud(created.id)] == nil,
+                "After positive discovery, authoritative deletion owns this machine")
+        await registry.accessDidEnd()
+    }
+
+    @Test("Pending machine receipts retire on deletion and team changes without affecting another create")
+    func pendingMachineReceiptsRespectScopeAndDeletion() async {
+        let catalog = SurfaceCatalog()
+        let notifications = NotificationCenter()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            notificationCenter: notifications
+        )
+        registry.start(catalog: catalog)
+        let oldScope = registry.creationScope
+        registry.recordCreatedMachine(machine("VM-First"), scope: oldScope)
+        registry.recordCreatedMachine(machine("VM-Second"), scope: oldScope)
+        registry.machineWasDeleted("vm-first")
+        #expect(catalog.machines[.cloud("VM-First")] == nil)
+        #expect(await registry.refresh(force: true))
+        #expect(catalog.machines[.cloud("VM-Second")] != nil)
+
+        notifications.post(name: .cmuxCloudVMAccessDidEnd, object: nil, userInfo: ["cmux.teamSwitch": true])
+        #expect(catalog.machines.isEmpty)
+        registry.recordCreatedMachine(machine("late-old-team"), scope: oldScope)
+        #expect(catalog.machines.isEmpty)
+        registry.recordCreatedMachine(machine("new-team"), scope: registry.creationScope)
+        #expect(await registry.refresh(force: true))
+        #expect(Set(catalog.machines.keys) == [.cloud("new-team")])
         await registry.accessDidEnd()
     }
 

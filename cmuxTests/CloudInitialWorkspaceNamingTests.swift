@@ -169,7 +169,11 @@ struct CloudInitialWorkspaceNamingTests {
                 selectsCreatedWorkspace: true
             )
             let coordinator = MachineCreateCoordinator(
-                notifier: { _ in }, notificationCenter: NotificationCenter()
+                notifier: { _ in },
+                selectWorkspace: { workspaceID, request in
+                    MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
+                },
+                notificationCenter: NotificationCenter()
             )
             var completion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
             #expect(coordinator.start(request, cancellableLaunch: { _, _, handler in

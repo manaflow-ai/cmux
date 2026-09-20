@@ -61,13 +61,8 @@ final class CloudWorkspaceCreationSidebarFixture {
         provider.beforeRefresh = nil
         provider.beforeMaterialize = nil
         provider.beforeCreate = nil
-        // Tear down native Ghostty panels before unregistering the provider.
-        // Provider retirement can discard a reserved projection itself; doing
-        // that first races the workspace's panel teardown and can trip AppKit's
-        // defunct renderer trap in the test host.
-        manager.tabs.forEach { $0.teardownAllPanels() }
-        catalog.cloudWorkspaceCreationCoordinator.cancelAll()
         catalog.unregister(machine: provider.machine)
+        manager.tabs.forEach { $0.teardownAllPanels() }
         app.unregisterMainWindowContextForTesting(windowId: windowID)
         window.close()
         AppDelegate.shared = previousApp

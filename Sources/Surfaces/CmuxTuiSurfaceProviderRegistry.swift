@@ -166,7 +166,12 @@ final class CmuxTuiSurfaceProviderRegistry {
             MainActor.assumeIsolated {
                 guard let self, self.accessEpoch == epoch else { return }
                 self.creationEpoch = UUID()
-                guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
+                if notification.userInfo?["cmux.teamSwitch"] as? Bool == true {
+                    let pendingIDs = self.pendingMachineCreationIDs
+                    self.pendingMachineCreationIDs.removeAll()
+                    for id in pendingIDs { self.catalog?.unregister(machine: .cloud(id)) }
+                    return
+                }
                 Task { @MainActor in await self.accessDidEnd(epoch: epoch) }
             }
         }
@@ -346,9 +351,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         // A fleet page fetched before the delete must not re-register the
         // machine on top of this teardown.
         refreshGeneration &+= 1
-        pendingMachineCreationIDs = pendingMachineCreationIDs.filter {
-            $0.caseInsensitiveCompare(rawID) != .orderedSame
-        }
         unregisterMachine(rawID)
     }
 
@@ -356,6 +358,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
+        pendingMachineCreationIDs.remove(id)
         let provider = providers.removeValue(forKey: id)
         provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
@@ -380,7 +383,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// the caller's spelling when nothing is registered under it.
     private func registeredMachineID(matching rawID: String) -> String {
         if providers[rawID] != nil { return rawID }
-        let candidates = Set(providers.keys).union(machineTeardowns.keys)
+        let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
     }
 
