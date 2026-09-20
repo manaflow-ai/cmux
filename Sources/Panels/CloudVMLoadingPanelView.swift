@@ -1,6 +1,7 @@
 import SwiftUI
 import CmuxAppKitSupportUI
 import CmuxFeedback
+import CmuxSettings
 
 struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
