@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { V2DashboardController } from "../app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
 
 const originalFetch = globalThis.fetch;
@@ -164,14 +164,15 @@ test("a failed initial socket retries and receives a device directory", async ()
 
 test("permanent authorization failures do not schedule another session", async () => {
   const original = globalThis.fetch;
+  const timers = spyOn(globalThis, "setTimeout");
   let requests = 0;
   const errors: string[] = [];
   globalThis.fetch = (async () => { requests++; return Response.json({ schemaId: "error.v1", code: "team_access_revoked", retryable: false }, { status: 403 }); }) as typeof fetch;
   const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: value => errors.push(value) });
   try {
     await controller.start();
-    await new Promise(resolve => setTimeout(resolve, 1100));
+    expect(timers).not.toHaveBeenCalled();
     expect(requests).toBe(1);
     expect(errors).toEqual(["Team access was removed"]);
-  } finally { await controller.stop(); globalThis.fetch = original; }
+  } finally { await controller.stop(); globalThis.fetch = original; timers.mockRestore(); }
 });

@@ -251,7 +251,7 @@ export class V2DashboardController {
       this.ticket = replacement;
       this.scheduleRefresh();
     }
-    catch (cause) { this.fail(cause); if (!this.stopped) this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
+    catch (cause) { this.fail(cause); this.scheduleReconnect(cause); }
   }
 
   private fail(cause: unknown) {
