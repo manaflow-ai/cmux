@@ -355,6 +355,28 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.releaseResponses()
     }
 
+    @Test("Throttled team usage preserves Retry-After and failed request telemetry")
+    func teamUsageCooldown() async throws {
+        let clock = CloudReadManualClock()
+        let reads = CloudReadRequestCoordinator(clock: CloudRequestClock(clock))
+        let fixture = try await CloudRefreshFixture.make(readRequests: reads)
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.throttled)
+        let recorder = CloudOperationRecorder()
+        let usage = MachineUsageClient(session: fixture.session, auth: fixture.auth, operations: recorder, readRequests: reads)
+        for call in 0..<4 {
+            if call == 2 { clock.advance(by: .seconds(59)) }
+            if call == 3 { clock.advance(by: .seconds(1)) }
+            do { _ = try await usage.teamUsage(); Issue.record("throttled usage succeeded") }
+            catch MachineUsageClientError.httpStatus(429, _) {} catch { Issue.record("\(error)") }
+            #expect(await CloudRefreshURLProtocol.requestCounts() == ["/api/coderouter/vm-usage/team": call == 3 ? 2 : 1])
+        }
+        let requests = recorder.operations.flatMap(\.steps).filter { $0.phase == .request }
+        #expect(requests.count == 2)
+        #expect(requests.allSatisfy { $0.outcome == .failure && $0.failure == .rateLimit })
+    }
+
     @Test("Successful resize invalidates only its authenticated list and machine stats")
     func mutationInvalidationUsesRequestScope() async throws {
         let fixture = try await CloudRefreshFixture.make()
