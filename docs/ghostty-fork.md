@@ -1598,6 +1598,19 @@ tend to conflict together during rebases.
   - Stores the keyboard copy cursor as a tracked screen pin, preserving logical
     cell identity across PTY output, reset, reflow, scrolling, and alternate
     screen transitions.
+  - The pending `issue-12789-copy-mode-wheel` change makes that tracked cursor
+    own wheel navigation too. `Surface.scrollCallback` must bypass application
+    mouse reports, selection clearing, and alternate-screen arrow emulation
+    while Copy Mode is active. It preserves the application's DEC modes and
+    Ghostty's configured delta scaling; leaving Copy Mode restores normal
+    application ownership. Alternate screens still have no scrollback, and
+    returning to the primary screen exposes its retained history.
+    `GhosttyCopyModeScrollbackTests` in cmux exercises real independent surfaces,
+    all three mouse-reporting modes, precise/discrete wheel input, Page Up/Down,
+    selection retention, and the alternate-screen round trip. The customer
+    session's initiating program/state was not provided in cmux issue #12789;
+    this covers the reproduced ownership defect, not a diagnosis of that
+    unavailable session dump.
   - Applies counted glyph movement and scrolling under one terminal lock, then
     returns the authoritative viewport cell and glyph width to the host.
   - Ties keyboard selection ownership to Ghostty's selection activity identity

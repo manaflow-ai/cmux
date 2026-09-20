@@ -90,4 +90,25 @@ struct GhosttyCopyModeScrollbackTests {
             #expect(try terminal.scrollbar().offset < primary.offset)
         }
     }
+
+    @Test func copyModeKeepsWheelOwnershipAcrossScreenSwitch() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let terminal = try ScrollbackTestTerminal()
+            defer { terminal.close() }
+            try await terminal.start()
+            #expect(terminal.surface.toggleKeyboardCopyMode())
+            try terminal.output("\u{1b}[?1049h\u{1b}[?1007hAlternate screen")
+            let alternate = try terminal.scrollbar()
+            #expect(alternate.total == alternate.len)
+
+            // Program output must not return user-owned input to the program
+            // before the copy cursor is reconciled by the next rendered frame.
+            try terminal.wheel()
+            #expect(try await terminal.inputBeforeBarrier().isEmpty)
+            #expect(try terminal.scrollbar().offset == alternate.offset)
+            #expect(terminal.surface.toggleKeyboardCopyMode())
+            try terminal.wheel()
+            #expect(try await terminal.inputBeforeBarrier().contains("\u{1b}[A"))
+        }
+    }
 }
