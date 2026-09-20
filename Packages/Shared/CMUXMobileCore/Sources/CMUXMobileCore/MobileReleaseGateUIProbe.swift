@@ -66,7 +66,7 @@ public final class MobileReleaseGateUIProbe {
     private func selectIfReady() {
         guard phase == .awaitingSelection, let id = targetWorkspace, let row = rows[id], let started else { return }
         phase = .opening
-        measured["app_launch_to_workspace_rows_visible"] = seconds(row.appeared - started)
+        measured["app_launch_request_to_workspace_rows_visible"] = seconds(row.appeared - started)
         if row.select() {
             rows.removeAll()
         } else {

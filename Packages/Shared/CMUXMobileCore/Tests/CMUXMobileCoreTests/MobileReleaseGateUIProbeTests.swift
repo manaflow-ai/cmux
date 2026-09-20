@@ -16,7 +16,7 @@ struct MobileReleaseGateUIProbeTests {
             return true
         }
         try await probe.exercise(workspaceID: "workspace", surfaceID: "terminal")
-        #expect(try #require(probe.latencies()["app_launch_to_workspace_rows_visible"]) >= 2)
+        #expect(try #require(probe.latencies()["app_launch_request_to_workspace_rows_visible"]) >= 2)
         #expect(!MobileReleaseGateUIProbe(launchUptimeNanoseconds: .max).awaitsVisibleRows)
     }
 
@@ -40,7 +40,7 @@ struct MobileReleaseGateUIProbeTests {
         try await probe.exercise(workspaceID: "workspace", surfaceID: "terminal")
         #expect(selections == 1)
         let measured = probe.latencies()
-        #expect(measured["app_launch_to_workspace_rows_visible"] != nil)
+        #expect(measured["app_launch_request_to_workspace_rows_visible"] != nil)
         #expect(measured["workspace_tap_to_terminal_text_visible"] != nil)
         for _ in 0..<100 {
             probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
