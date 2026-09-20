@@ -1,13 +1,14 @@
+import { grantVmImportedAccount } from "../services/coderouter/vmAccountImport";
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { Effect } from "effect";
 import { changeAccountVisibility } from "../services/coderouter/accountSharing";
 import { randomUUID } from "node:crypto";
 import postgres, { type Sql } from "postgres";
-import { closeCloudDbForTests } from "../db/client";
+import { cloudDb, closeCloudDbForTests } from "../db/client";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
-import { authenticateRouteToken, issueRouteToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
+import { authenticateRouteToken, deleteAccount, issueRouteToken, listAccounts, selectAccountForRequest, selectAccountForSession } from "../services/coderouter/repository";
 import { listClaudeAccounts } from "../services/coderouter/claudeUpstream";
-import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext } from "../services/coderouter/requestContext";
+import { resolveCoderouterUsageTeam, resolveCodeRouterRequestContext, resolveCoderouterControlContext } from "../services/coderouter/requestContext";
 import { GET as accountsGet } from "../app/api/coderouter/accounts/route";
 import { GET as claudeGet } from "../app/api/coderouter/claude-upstream/route";
 import { GET as organizationsGet } from "../app/api/coderouter/organizations/route";
@@ -166,4 +167,28 @@ dbTest("personal VMs can use their owner's private pool without granting organiz
   expect(await listAccounts(USER, access())).toEqual([]);
   expect(await listAccounts(USER, { ...personal, vmId: vmA })).toEqual([]);
   expect(await listAccounts(USER, { kind: 'user', userId: 'other-person' })).toEqual([]);
+});
+
+
+dbTest("VM account mutations retain the pool boundary and cannot borrow the creator's private access", async () => {
+  const resolved = await resolveCoderouterControlContext(guest('/api/coderouter/accounts', {'x-cmux-team-id': TEAM_B}));
+  expect(resolved).toMatchObject({ok:true,value:{team:{teamId:TEAM_A},access:access()}});
+  for (const accountId of [privateA, sharedB]) {
+    expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId,access:access()})).toMatchObject({removed:false});
+  }
+  await db`delete from coderouter_pool_accounts where pool_id = ${poolA} and account_id = ${sharedA}`;
+  expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId:sharedA,access:access()})).toMatchObject({removed:false});
+  await db`insert into coderouter_pool_accounts (team_id,pool_id,account_id) values (${TEAM_A},${poolA},${sharedA})`;
+  expect(await deleteAccount({teamId:TEAM_A,accountId:sharedA,access:access()})).toMatchObject({removed:true});
+});
+
+dbTest("a VM import is granted to its current custom pool and rejects stale or foreign bindings", async () => {
+  const [custom] = await db`insert into coderouter_pools (team_id,name) values (${TEAM_A},'Import pool') returning id`;
+  await db`update cloud_vms set coderouter_pool_id = ${custom.id} where id = ${vmA}`;
+  const scope = {kind:'vm' as const,vmId:vmA,poolId:custom.id as string};
+  expect(await listAccounts(TEAM_A,scope)).toEqual([]);
+  await cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_A,sharedA,'native',scope));
+  expect((await listAccounts(TEAM_A,scope)).map(a=>a.id)).toEqual([sharedA]);
+  await expect(cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_B,sharedB,'native',scope))).rejects.toThrow();
+  await expect(cloudDb().transaction(tx=>grantVmImportedAccount(tx,TEAM_A,sharedA,'native',access()))).rejects.toThrow();
 });

@@ -37,23 +37,25 @@ export async function addAccount(
   keys?: CredentialKeyService,
   verify: typeof verifyCodexCredential = verifyCodexCredential,
   verifyStored: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
-  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team" },
+  ownership?: { readonly createdBy: string; readonly visibility: "private" | "team"; readonly access?: CoderouterAccountAccess },
 ): Promise<{ accountId: string; alreadyExists: boolean }> {
+  const access = ownership?.access;
   if (credential.provider === "codex") {
     await verify(credential);
     credential = withCodexOwner(credential);
-    await upgradeLegacyCodexIdentity(teamId, credential.accountId, keys, verifyStored);
+    await upgradeLegacyForImport(teamId, credential.accountId, keys, verifyStored, access);
   }
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
     providerIdentityKey(credential),
+    access,
   );
   if (existing?.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
     throw new Error("account is not available to this user");
   }
   if (existing?.state === "active" || existing?.state === "refreshing") {
-    await updateAccountLabel(teamId, existing.id, credential);
+    await updateAccountLabel(teamId, existing.id, credential, access);
     return { accountId: existing.id, alreadyExists: true };
   }
 
@@ -78,6 +80,7 @@ export async function addAccount(
         teamId,
         credential.provider,
         providerIdentityKey(credential),
+        access,
       );
       if (raced) return { accountId: raced.id, alreadyExists: true };
       throw new Error("coderouter account insert lost a uniqueness race");
@@ -87,9 +90,14 @@ export async function addAccount(
       credential,
       encrypted,
       expectedRevision,
+      access: access,
     });
   }
   return { accountId, alreadyExists: false };
+}
+
+async function upgradeLegacyForImport(teamId: string, accountId: string, keys: CredentialKeyService | undefined, verifyStored: typeof verifyStoredCodexCredential, access?: CoderouterAccountAccess): Promise<void> {
+  if (access?.kind !== "vm") await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored);
 }
 
 /** Legacy workspace-only rows are adopted from their own encrypted credentials. */

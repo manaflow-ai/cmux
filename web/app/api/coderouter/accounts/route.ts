@@ -119,7 +119,7 @@ export function makeCoderouterAccountsPostHandler(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility });
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility, access: resolved.value.access });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,

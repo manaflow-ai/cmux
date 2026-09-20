@@ -76,7 +76,7 @@ export function makeClaudeUpstreamHandlers(
     const stackUserId = resolved.value.user.id;
     try {
       const before = await dependencies.list(teamId, access);
-      const account = await dependencies.add(teamId, stackUserId, input, visibility);
+      const account = await dependencies.add(teamId, stackUserId, input, visibility, access);
       captureCoderouterEvent({
         event: "coderouter_claude_upstream_set",
         userId: stackUserId,

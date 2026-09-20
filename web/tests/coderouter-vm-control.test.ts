@@ -30,6 +30,7 @@ describe("VM-bound CodeRouter control routes", () => {
     expect((received[5] as { createdBy: string; visibility: string })).toEqual({
       createdBy: "creator-user",
       visibility: "team",
+      access: vmContext.value.access,
     });
   });
 
