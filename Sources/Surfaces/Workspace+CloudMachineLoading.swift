@@ -73,4 +73,16 @@ extension Workspace {
         )
         return true
     }
+
+    /// Removes a still-pending card after an existing terminal projection wins
+    /// the reuse race, without touching that projection or user content.
+    @discardableResult
+    func discardCloudMachineLoadingPanel(panelID: UUID, machineID: String) -> Bool {
+        guard cloudVMBinding?.vmID == machineID,
+              panels[panelID] is CloudVMLoadingPanel else { return false }
+        withClosedPanelHistorySuppressed {
+            _ = closePanel(panelID, force: true)
+        }
+        return true
+    }
 }

@@ -55,7 +55,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     /// Removes only the unadopted creating card. User-added panes and an already
     /// attached terminal are no longer a disposable create presentation.
-    static func closeReservedWorkspace(_ workspaceID: UUID) {
+    static func closeReservedWorkspace(_ workspaceID: UUID, machineID: String? = nil) {
         guard let appDelegate = AppDelegate.shared,
               let tabManager = appDelegate.tabManagerFor(tabId: workspaceID),
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else { return }
@@ -65,7 +65,9 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             // A cancelled create may destroy its provider machine after this
             // callback. Detach the preserved user content from that machine
             // before the shared destroy cleanup scans bound workspaces.
-            workspace.cloudVMBinding = nil
+            let ownsBinding = workspace.cloudVMBinding?.vmID == machineID
+                || (machineID == nil && workspace.cloudVMBinding == nil)
+            if ownsBinding { workspace.cloudVMBinding = nil }
             workspace.withClosedPanelHistorySuppressed {
                 for panel in loading { _ = workspace.closePanel(panel.id, force: true) }
             }

@@ -619,17 +619,20 @@ final class SurfaceCatalog {
             resolvedRemoteView = nil
         }
         let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
-        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: destination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
-            // An explicit remote view is a placement identity. Reusing a pane
-            // attached to a different tab would make a later rename hit the
-            // wrong daemon object.
-            // An explicit placement must match an explicit projection. A legacy
-            // projection with no tab id is not safe to reuse because it may be
-            // showing another tab of the same terminal.
-            return resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID
+            // Explicit placements must match their projection; legacy projections
+            // without tab ids are not safe to reuse.
+            return (resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID)
+                && $0.panelID != loadingReservation?.panelID
         }) {
+            if let loadingReservation, let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID) {
+                _ = workspace.discardCloudMachineLoadingPanel(
+                    panelID: loadingReservation.panelID,
+                    machineID: loadingReservation.machineID
+                )
+            }
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
             if resource.kind != .terminal,

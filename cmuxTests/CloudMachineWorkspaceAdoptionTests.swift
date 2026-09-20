@@ -78,14 +78,16 @@ struct CloudMachineWorkspaceAdoptionTests {
             let pane = try #require(pending.bonsplitController.allPaneIds.first)
             let command = try #require(pending.newTerminalSurface(inPane: pane, focus: false,
                 initialCommand: "echo first-command", autoRefreshMetadata: false))
-            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            pending.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "newer-machine", isBase: false)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id, machineID: "cancelled-machine")
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
-            #expect(pending.cloudVMBinding == nil)
+            #expect(pending.cloudVMBinding?.vmID == "newer-machine")
             app.appDelegate.closeWorkspaces(forManagedCloudVMID: "cancelled-machine")
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels[command.id] === command)
             #expect(command.surface.initialCommand?.contains("first-command") == true)
+
         }
     }
 
