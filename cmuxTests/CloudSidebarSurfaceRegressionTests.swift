@@ -196,7 +196,7 @@ struct CloudSidebarSurfaceRegressionTests {
     func portStatusMatrix() {
         let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
             (.loading, .none, "Discovering ports"),
-            (.empty(.noListeningService), .refresh, "No service is listening"),
+            (.empty(.noListeningService), .refresh, "service is listening"),
             (.empty(.otherInterfaceOnly), .refresh, "interface"),
             (.loopbackOnly, .none, "loopback"),
             (.unavailable(.privateAddress), .refresh, "private address"),
