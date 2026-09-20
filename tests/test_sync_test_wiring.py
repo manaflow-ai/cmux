@@ -202,6 +202,26 @@ class SyncTestWiringTests(unittest.TestCase):
                 self.assertIn("AAAAAAAAAAAAAAAAAAAAAAAA /* ExistingTests.swift in Sources */,", repaired)
                 self.assertEqual(self.run_sync(repo, "--check").returncode, 0)
 
+    def test_shared_production_source_keeps_its_own_group_owner(self) -> None:
+        repo = self.make_repo("base.pbxproj", [])
+        project = repo / "cmux.xcodeproj/project.pbxproj"
+        text = self.project_text(repo).replace(
+            "\t\t\t\t444444444444444444444444 /* ExistingTests.swift */,\n", ""
+        ).replace(
+            "/* End PBXGroup section */",
+            "BBBBBBBBBBBBBBBBBBBBBBBB /* Sources */ = {\n"
+            "isa = PBXGroup;\nchildren = (\n"
+            "444444444444444444444444 /* ExistingTests.swift */,\n"
+            ");\npath = Sources;\nsourceTree = \"<group>\";\n};\n"
+            "/* End PBXGroup section */",
+        )
+        project.write_text(text, encoding="utf-8")
+        self.run_sync(repo)
+        repaired = self.project_text(repo)
+        self.assertIn("444444444444444444444444", repaired)
+        self.assertIn("555555555555555555555555", repaired)
+        self.assertEqual(self.run_sync(repo, "--check").returncode, 0)
+
     def test_deleted_file_is_detected_after_its_group_child_was_removed(self) -> None:
         repo = self.make_repo("base.pbxproj", [])
         project = repo / "cmux.xcodeproj/project.pbxproj"

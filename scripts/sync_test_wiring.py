@@ -1013,10 +1013,15 @@ def synchronize(project_text: str, test_filenames: Iterable[str]) -> SyncResult:
         build.file_ref for build in _parse_build_files(text).values()
         if build.identifier in test_build_ids
     }
+    remaining_groups = _group_memberships(text)
     for filename, refs in _direct_refs_by_name(file_refs).items():
         known_ids = {ref.identifier for ref in direct_refs_by_name.get(filename, [])}
         for ref in refs:
-            if ref.identifier in test_ref_ids and ref.identifier not in known_ids:
+            if (
+                ref.identifier in test_ref_ids
+                and ref.identifier not in known_ids
+                and not remaining_groups.get(ref.identifier)
+            ):
                 direct_refs_by_name.setdefault(filename, []).append(ref)
     for filename in sorted(set(direct_refs_by_name) - disk):
         refs = sorted(direct_refs_by_name[filename], key=lambda item: item.identifier)
