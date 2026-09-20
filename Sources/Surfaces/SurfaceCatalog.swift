@@ -636,7 +636,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
-        let loadingReservation = providedLoadingReservation ?? CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
+        let loadingReservation = providedLoadingReservation ?? CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView, remoteWorkspaceID: resource.remoteWorkspace?.id)
         if let loadingPanelID = loadingReservation?.panelID,
            inFlightProjects.keys.contains(where: { $0.loadingPanelID == loadingPanelID && $0.resource != id }) {
             throw CancellationError()

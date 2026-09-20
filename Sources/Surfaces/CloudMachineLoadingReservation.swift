@@ -13,14 +13,14 @@ struct CloudMachineLoadingReservation: Sendable {
     var expectedRemoteTabID: String?
 
     @MainActor
-    init?(_ resource: SurfaceResourceID, at destination: SurfaceDestination, remoteView: SurfaceRemoteView? = nil) {
+    init?(_ resource: SurfaceResourceID, at destination: SurfaceDestination, remoteView: SurfaceRemoteView? = nil, remoteWorkspaceID: String? = nil) {
         guard resource.kind == .terminal, let machineID = resource.machine.cloudMachineID,
               let workspace = Workspace.liveWorkspace(id: destination.workspaceID),
               let loading = workspace.cloudMachineLoadingPanel(at: destination, machineID: machineID) else { return nil }
         workspaceID = workspace.id
         panelID = loading.id
         self.machineID = machineID
-        expectedRemoteWorkspaceID = remoteView?.workspace.id ?? resource.remoteWorkspace?.id
+        expectedRemoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
         expectedRemoteTabID = remoteView?.tabID
     }
 
