@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SWIFTPM_MIRROR_CONFIG="${SWIFTPM_MIRROR_CONFIG:-$SCRIPT_DIR/../config/swiftpm/mirrors.json}"
+cd "$SCRIPT_DIR/.."
 
 PROJECT="cmux.xcodeproj"
 SCHEME="cmux-unit"
