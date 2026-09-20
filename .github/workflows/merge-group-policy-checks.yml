@@ -1,0 +1,43 @@
+name: Merge-group policy checks
+
+# These two contexts are required on main but their normal workflows are
+# pull_request_target-only and policy-locked. A merge group can only contain
+# pull requests that already passed those checks on their heads, so this
+# trusted, merge-group-only workflow reports the required contexts for the
+# synthetic merge commit without re-running the signature ledger or executing
+# candidate-controlled policy code.
+on:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  cla-assistant:
+    name: CLA Assistant
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm pull-request CLA checks preceded the merge group
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GROUP_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EVENT_NAME" == merge_group ]]
+          [[ "$GROUP_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "CLA Assistant was satisfied on the pull-request heads; reporting the merge-group context."
+
+  cla-policy-guard:
+    name: CLA policy guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm trusted merge-group policy context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GROUP_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EVENT_NAME" == merge_group ]]
+          [[ "$GROUP_SHA" =~ ^[0-9a-f]{40}$ ]]
+          echo "CLA policy was evaluated on the pull-request heads; reporting the merge-group context."

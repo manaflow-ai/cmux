@@ -7,6 +7,7 @@ on:
     branches:
       - main
     types: [opened, edited, reopened, synchronize, ready_for_review]
+  merge_group:
   push:
     branches:
       - main
@@ -20,7 +21,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: web-complexity-trusted-${{ github.event.pull_request.number || github.ref }}
+  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +36,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.sha }}
           path: trusted
           fetch-depth: 0
           persist-credentials: false
@@ -49,7 +50,7 @@ jobs:
 
       - name: Verify trusted checkout
         env:
-          TRUSTED_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
+          TRUSTED_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.sha }}
         run: |
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -66,21 +67,21 @@ jobs:
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
-      - name: Checkout pull-request source
-        if: github.event_name == 'pull_request_target'
+      - name: Checkout pull-request or merge-group source
+        if: github.event_name == 'pull_request_target' || github.event_name == 'merge_group'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Check pull-request source with trusted policy
-        if: github.event_name == 'pull_request_target'
+      - name: Check pull-request or merge-group source with trusted policy
+        if: github.event_name == 'pull_request_target' || github.event_name == 'merge_group'
         working-directory: candidate/web
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           bun "$GITHUB_WORKSPACE/trusted/web/scripts/check-complexity.mjs" \
