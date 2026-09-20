@@ -11,9 +11,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
-CI_PHYSICAL_SHARD_TOTAL = 4
+CI_PHYSICAL_SHARD_TOTAL = 6
 CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
+
+
+def production_shard_constants() -> tuple[int, int]:
+    """Read the production matrix constants so this test exercises its topology."""
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    values: dict[str, int] = {}
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        for name in ("PHYSICAL_SHARD_TOTAL", "LOGICAL_BATCHES_PER_WORKER"):
+            prefix = f"{name}="
+            if stripped.startswith(prefix):
+                values[name] = int(stripped[len(prefix):])
+    try:
+        return values["PHYSICAL_SHARD_TOTAL"], values["LOGICAL_BATCHES_PER_WORKER"]
+    except KeyError as error:
+        raise AssertionError(f"production CI is missing {error.args[0]}") from error
+
+
+def check_test_topology_matches_production() -> int:
+    physical, batches = production_shard_constants()
+    if (physical, batches) != (CI_PHYSICAL_SHARD_TOTAL, CI_LOGICAL_BATCHES_PER_WORKER):
+        print(
+            "FAIL: test shard topology differs from production: "
+            f"test={CI_PHYSICAL_SHARD_TOTAL}x{CI_LOGICAL_BATCHES_PER_WORKER}, "
+            f"production={physical}x{batches}"
+        )
+        return 1
+    print("PASS: test shard topology matches production")
+    return 0
 
 
 def write_large_suite_fixture(test_root: Path) -> None:
@@ -268,7 +297,149 @@ final class {name}: XCTestCase {{
     return 0
 
 
+def run_reserved_shard(
+    tmp_root: Path, shard: int, total: int, physical: int, reserve: list[str], timings: Path
+) -> subprocess.CompletedProcess[str]:
+    arguments = [
+        sys.executable, str(HELPER), "--root", str(tmp_root),
+        "--shard-index", str(shard), "--shard-total", str(total),
+        "--physical-shard-total", str(physical),
+        "--output", str(tmp_root / f"reserved-{shard}.args"), "--timings", str(timings),
+    ]
+    for value in reserve:
+        arguments += ["--reserve", value]
+    return subprocess.run(arguments, text=True, capture_output=True, check=False)
+
+
+def check_reserved_workers_get_less_of_the_batch() -> int:
+    """A worker with strict steps outside the batch must receive less batch work."""
+    import json
+
+    suites = [f"Timed{index:02d}Tests" for index in range(24)]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        test_root = tmp_root / "cmuxTests"
+        test_root.mkdir()
+        for name in suites:
+            (test_root / f"{name}.swift").write_text(
+                f"final class {name}: XCTestCase {{\n    func testOne() {{}}\n}}\n", encoding="utf-8"
+            )
+        manifest = tmp_root / "timings.json"
+        manifest.write_text(
+            json.dumps({"default_test_ms": 200, "suites": {name: 10000 for name in suites}, "methods": {}}),
+            encoding="utf-8",
+        )
+
+        # Two workers, two logical shards each. Worker 1 carries 40 s of wall
+        # time outside the batch, worth 100 s of the 240 s batch.
+        assigned: dict[int, list[str]] = {}
+        for shard in range(1, 5):
+            result = run_reserved_shard(tmp_root, shard, 4, 2, ["1=40"], manifest)
+            if result.returncode != 0:
+                print(result.stdout + result.stderr)
+                return 1
+            assigned[shard] = (tmp_root / f"reserved-{shard}.args").read_text(encoding="utf-8").split()
+
+        for bad in (["3=40"], ["1=x"], ["1=40", "1=50"], ["1"]):
+            result = run_reserved_shard(tmp_root, 1, 4, 2, bad, manifest)
+            if result.returncode == 0 or "Traceback" in result.stderr:
+                print(f"FAIL: --reserve {bad} should be rejected without a traceback")
+                return 1
+        result = run_reserved_shard(tmp_root, 1, 3, 2, [], manifest)
+        if result.returncode == 0 or "Traceback" in result.stderr:
+            print("FAIL: a non-divisible logical total should be rejected without a traceback")
+            return 1
+        for total, physical in ((0, 0), (4, 0), (4, -2), (-4, 2)):
+            result = run_reserved_shard(tmp_root, 1, total, physical, [], manifest)
+            if result.returncode == 0 or "Traceback" in result.stderr:
+                print(f"FAIL: shard totals {total}/{physical} should be rejected with a message")
+                return 1
+
+    everything = sorted(selector for lines in assigned.values() for selector in lines)
+    if everything != sorted(f"-only-testing:cmuxTests/{name}" for name in suites):
+        print(f"FAIL: reservations must not drop or duplicate selectors, got {len(everything)}")
+        return 1
+    worker_one = len(assigned[1]) + len(assigned[3])
+    worker_two = len(assigned[2]) + len(assigned[4])
+    if (worker_one, worker_two) != (7, 17):
+        print(f"FAIL: expected the reserved worker to get 7 of 24 suites, got {worker_one} and {worker_two}")
+        return 1
+    print("PASS: a worker's reserved wall time moves batch work to the other workers")
+    return 0
+
+
+def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
+    """Return suites strict steps run in full, suites run in part, and the job env."""
+    import re
+
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
+    if match is None:
+        raise SystemExit("FAIL: app-host-unit-tests job missing from ci.yml")
+    job = match.group(1)
+    whole: set[str] = set()
+    partial: set[str] = set()
+    for step in re.split(r"(?m)^      - name: ", job)[1:]:
+        if step.split("\n", 1)[0] == "Run unit tests":
+            continue
+        body = "\n".join(line for line in step.splitlines() if not line.strip().startswith("#"))
+        for selector in re.finditer(r'-only-testing:"?cmuxTests/([A-Za-z0-9_]+)(/[A-Za-z0-9_]+)?', body):
+            (partial if selector.group(2) else whole).add(selector.group(1))
+        for loop in re.finditer(r"(?s)for suite in(.*?)(?:;|\n\s*do\b)", body):
+            whole |= {word for word in re.findall(r"[A-Za-z0-9_]+", loop.group(1)) if word[0].isupper()}
+    env = dict(re.findall(r'(?m)^      (CMUX_APP_HOST_[A-Z_]+): "([^"]*)"$', job))
+    return whole, partial, env
+
+
+def check_focused_gates_run_once() -> int:
+    import importlib.util
+    import re
+
+    spec = importlib.util.spec_from_file_location("cmux_unit_test_shard", HELPER)
+    assert spec is not None and spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    whole, partial, env = focused_steps_in_ci_workflow()
+    excluded = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
+    if excluded != whole - partial:
+        print("FAIL: the batch must leave out exactly the suites a strict ci.yml step runs in full")
+        print(f"  strict in ci.yml but still in the batch: {sorted(whole - partial - excluded)}")
+        print(f"  left out of the batch but not strict in ci.yml: {sorted(excluded - (whole - partial))}")
+        return 1
+
+    sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((ROOT / "cmuxTests").glob("**/*.swift"))
+    )
+    undeclared = sorted(
+        name for name in whole | partial
+        if not re.search(rf"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?(?:class|struct|enum|actor)\s+{name}\b", sources)
+    )
+    if undeclared:
+        print(f"FAIL: ci.yml strict steps name suites cmuxTests does not declare: {undeclared}")
+        return 1
+
+    groups = {
+        env.get(name)
+        for name in (
+            "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
+            "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
+            "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
+            "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
+        )
+    }
+    reserved = {value.split("=")[0] for value in env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split()}
+    if None in groups or len(groups) != 4 or groups != reserved:
+        print(f"FAIL: strict step groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
+        return 1
+    print("PASS: strict suites run once, exist, and every worker that runs them has wall time reserved")
+    return 0
+
+
 def main() -> int:
+    if (rc := check_test_topology_matches_production()) != 0:
+        return rc
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
         test_root = tmp_root / "cmuxTests"
@@ -409,6 +580,12 @@ def main() -> int:
         return rc
 
     if (rc := check_swift_testing_extension_weights()) != 0:
+        return rc
+
+    if (rc := check_reserved_workers_get_less_of_the_batch()) != 0:
+        return rc
+
+    if (rc := check_focused_gates_run_once()) != 0:
         return rc
 
     print("PASS: cmuxTests sharding covers extension methods and leaves focused gates explicit")
