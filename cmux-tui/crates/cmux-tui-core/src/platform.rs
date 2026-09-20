@@ -999,16 +999,46 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 fn process_name(pid: u32) -> Option<String> {
     // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15 bytes
     // and wrapper launchers can exec with a meaningful argv[0].
-    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
-        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
-        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
-        (!argv0.is_empty()).then(|| argv0.to_string())
-    });
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .and_then(|cmdline| process_command_name(&cmdline));
     argv0.or_else(|| {
         let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
         let comm = comm.trim();
         (!comm.is_empty()).then(|| comm.to_string())
     })
+}
+
+/// Resolve a directly launched program or a Node CLI's script. Do not scan
+/// arbitrary arguments: prompts and filenames can contain agent names too.
+#[cfg(target_os = "linux")]
+fn process_command_name(cmdline: &[u8]) -> Option<String> {
+    let mut args = cmdline.split(|byte| *byte == 0);
+    let executable = std::str::from_utf8(args.next()?).ok()?.trim();
+    if executable.is_empty() {
+        return None;
+    }
+    let basename = std::path::Path::new(executable).file_name()?.to_str()?;
+    if matches!(basename, "node" | "nodejs") {
+        let mut skip_option_value = false;
+        for raw in args {
+            let arg = std::str::from_utf8(raw).ok()?;
+            if skip_option_value {
+                skip_option_value = false;
+                continue;
+            }
+            match arg {
+                "-e" | "--eval" | "-p" | "--print" => break,
+                "-r" | "--require" | "--loader" | "--import" => {
+                    skip_option_value = true;
+                }
+                "" => break,
+                _ if arg.starts_with('-') => continue,
+                _ => return Some(arg.to_string()),
+            }
+        }
+    }
+    Some(executable.to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -1382,6 +1412,10 @@ mod tests {
         // with an exact captured argv rather than requiring Codex in CI.
         let result = process_command_name(b"node\0/usr/local/bin/codex\0--yolo\0");
         assert_eq!(result.as_deref(), Some("/usr/local/bin/codex"));
+        assert_eq!(process_command_name(b"node\0--require\0codex\0/app/server.js\0").as_deref(), Some("/app/server.js"));
+        assert_eq!(process_command_name(b"node\0-e\0codex\0").as_deref(), Some("node"));
+        assert_eq!(process_command_name(b"bash\0codex\0").as_deref(), Some("bash"));
+        assert_eq!(process_command_name(b"pi\0").as_deref(), Some("pi"));
     }
 
 
