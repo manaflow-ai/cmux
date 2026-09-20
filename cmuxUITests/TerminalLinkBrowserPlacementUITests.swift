@@ -96,7 +96,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         // the terminal. Drive the real pointer with Command held; no fixture
         // poller can raise the terminal over Settings or steal subsequent focus.
         try clickTerminalLink(app: app, state: readState(stateURL))
-        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 })
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 }, "Browser tabs: \(try browsers(workspace))")
         XCTAssertEqual(try panes(workspace).count, expectedPanes)
         let clickedBrowser = try XCTUnwrap(try browsers(workspace).first)
         if placement == "samePane" {
@@ -131,7 +131,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let shellCommand = "open https://example.com/terminal-placement > '\(outputPath)' 2>&1"
         _ = try rpc("surface.send_text", ["workspace_id": workspace, "surface_id": source, "text": shellCommand])
         _ = try rpc("surface.send_key", ["workspace_id": workspace, "surface_id": source, "key": "enter"])
-        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 })
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 }, "Browser tabs: \(try browsers(workspace))")
         XCTAssertEqual(try panes(workspace).count, expectedCommandPanes)
         if placement == "samePane" {
             XCTAssertTrue(try browsers(workspace).allSatisfy { $0["pane_id"] as? String == sourcePane })
@@ -182,7 +182,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 5))
         picker.click()
         let title = placement == "samePane" ? "Tab in Same Pane" : "Split Right"
-        let option = app.menuItems[title]
+        let option = picker.menuItems[title]
         XCTAssertTrue(option.waitForExistence(timeout: 5))
         option.click()
         XCTAssertTrue(poll { picker.value as? String == title })
@@ -216,7 +216,9 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     private func browsers(_ workspace: String) throws -> [[String: Any]] {
-        try surfaces(workspace).filter { $0["type"] as? String == "browser" }
+        // Browser placement needs the live browser inventory after a UI action;
+        // surface.list may return a previously published control-plane snapshot.
+        try XCTUnwrap(rpc("browser.tab.list", ["workspace_id": workspace])["tabs"] as? [[String: Any]])
     }
 
     private func panes(_ workspace: String) throws -> [[String: Any]] {
