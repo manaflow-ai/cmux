@@ -28,9 +28,9 @@ struct CloudMachinesBetaSettingActionTests {
             center.removeObserver(observer)
             changes.continuation.finish()
         }
-        // Give the store actor its own non-Sendable UserDefaults handle.
-        let storeDefaults = try #require(UserDefaults(suiteName: suite))
-        let store = UserDefaultsSettingsStore(defaults: storeDefaults)
+        // Construct the actor's handle directly: #require retains diagnostic
+        // aliases on MainActor. This suite was already validated above.
+        let store = UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suite)!)
         let model = DefaultsValueModel(store: store, key: key)
         let action = CloudMachinesBetaSettingAction(model: model, notificationCenter: center)
 
