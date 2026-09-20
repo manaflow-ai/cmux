@@ -66,11 +66,18 @@ extension ControlCommandCoordinator {
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
+        let routing = routingSelectors(params)
         guard let context else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return routing.remoteRelayOwnerWorkspaceID == nil
+                ? .err(code: "unavailable", message: "TabManager not available", data: nil)
+                : .err(
+                    code: "remote_relay_workspace_denied",
+                    message: "Relay owner workspace is not active",
+                    data: nil
+                )
         }
         let outcome: WorkspaceListHopOutcome = context.controlResolveOnMain { seam in
-            switch seam.controlWorkspaceList(routing: self.routingSelectors(params)) {
+            switch seam.controlWorkspaceList(routing: routing) {
             case .tabManagerUnavailable:
                 return .tabManagerUnavailable
             case .relayOwnerUnavailable:
