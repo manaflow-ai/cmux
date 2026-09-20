@@ -11,18 +11,14 @@ import Foundation
 /// controller sequences around its own `await` gaps.
 @MainActor
 final class RemoteTmuxTransportRegistry {
-    private var transports: [String: RemoteTmuxSSHTransport] = [:]
+    var transports: [String: RemoteTmuxSSHTransport] = [:]
 
-    /// Returns (creating if needed) the transport for a host. The executable
-    /// is injected at creation so tests do not mutate the app's environment.
-    func transport(
-        for host: RemoteTmuxHost,
-        sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath()
-    ) -> RemoteTmuxSSHTransport {
+    /// Returns (creating if needed) the transport for a host.
+    func transport(for host: RemoteTmuxHost) -> RemoteTmuxSSHTransport {
         if let existing = transports[host.connectionHash] {
             return existing
         }
-        let transport = RemoteTmuxSSHTransport(host: host, sshExecutablePath: sshExecutablePath)
+        let transport = RemoteTmuxSSHTransport(host: host)
         transports[host.connectionHash] = transport
         return transport
     }

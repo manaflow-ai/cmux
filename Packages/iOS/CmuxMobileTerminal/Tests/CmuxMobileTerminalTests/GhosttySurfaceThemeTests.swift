@@ -64,17 +64,50 @@ import UIKit
 }
 
 @MainActor
-@Test func activeAccessoryForegroundFollowsSystemAppearance() {
-    let foreground = UIColor.terminalAccessoryActiveForeground
+@Test func activeAccessoryButtonRecolorsAndClearsStickyBorder() throws {
+    let input = TerminalInputTextView()
+    let button = try #require(input.toolbarView.descendant(
+        withAccessibilityIdentifier: "terminal.inputAccessory.control"
+    ) as? AccessoryActionButton)
+    button.frame = CGRect(x: 0, y: 0, width: 32, height: 28)
+    let restingForeground = button.configuration?.baseForegroundColor
 
-    #expect(
-        foreground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
-            .isEqual(UIColor.white)
-    )
-    #expect(
-        foreground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
-            .isEqual(UIColor.black)
-    )
+    // Drive the modifier's clock explicitly, avoiding a wall-clock double tap.
+    input.modifierState.tap(.control, now: 0)
+    input.refreshThemeColors()
+    let armedForeground = try #require(button.configuration?.baseForegroundColor)
+    #expect(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)).isEqual(UIColor.white))
+    #expect(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).isEqual(UIColor.black))
+    #expect(button.layer.borderWidth == 0)
+
+    input.modifierState.tap(.control, now: 0.1)
+    input.refreshThemeColors()
+    for appearance in [UIUserInterfaceStyle.dark, .light, .dark] {
+        button.overrideUserInterfaceStyle = appearance
+        button.setNeedsLayout()
+        button.layoutIfNeeded()
+        let expected: UIColor = appearance == .dark ? .white : .black
+        let foreground = try #require(button.configuration?.baseForegroundColor)
+        #expect(foreground.resolvedColor(with: button.traitCollection).isEqual(expected))
+        if #available(iOS 26.0, *) {
+            #expect(button.isStickyLocked)
+            #expect(button.layer.borderWidth == 2)
+            let border = try #require(button.layer.borderColor)
+            #expect(UIColor(cgColor: border).isEqual(expected))
+        } else {
+            let background = try #require(button.configuration?.background)
+            #expect(background.strokeWidth == 2)
+            let border = try #require(background.strokeColor)
+            #expect(border.resolvedColor(with: button.traitCollection).isEqual(expected))
+        }
+    }
+
+    input.modifierState.tap(.control, now: 1)
+    input.refreshThemeColors()
+    #expect(!button.isStickyLocked)
+    #expect(button.layer.borderWidth == 0)
+    #expect(button.layer.borderColor == nil)
+    #expect(button.configuration?.baseForegroundColor == restingForeground)
 }
 
 @MainActor

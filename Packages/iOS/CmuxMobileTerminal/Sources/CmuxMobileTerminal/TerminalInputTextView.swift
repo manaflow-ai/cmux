@@ -81,7 +81,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
     /// back for byte encoding and button styling.
-    private var modifierState = TerminalInputModifierState()
+    var modifierState = TerminalInputModifierState()
     private var controlAccessoryArmed: Bool { modifierState.isArmed(.control) }
     private var alternateAccessoryArmed: Bool { modifierState.isArmed(.alternate) }
     private var commandAccessoryArmed: Bool { modifierState.isArmed(.command) }

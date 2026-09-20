@@ -414,10 +414,11 @@ import Testing
         // Ghostty retains its startup environment buffer. Calling setenv after
         // initialization can invalidate that buffer before this test's new
         // window creates a native terminal. Inject only this host's transport.
-        let transport = harness.controller.transportRegistry.transport(
-            for: host,
+        let transport = RemoteTmuxSSHTransport(
+            host: host,
             sshExecutablePath: sshURL.path
         )
+        harness.controller.transportRegistry.transports[host.connectionHash] = transport
         #expect(harness.controller.transport(for: host) === transport)
         defer { harness.controller.detach(host: host, sessionName: "one") }
         harness.cacheConnection(host: host, session: "one")
