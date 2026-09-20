@@ -144,6 +144,7 @@ MODEL_BY_PATH = {
     'commands/close-surface/request': models.CloseSurfaceRequest,
     'commands/close-terminal/request': models.CloseTerminalRequest,
     'commands/close-workspace/request': models.CloseWorkspaceRequest,
+    'commands/cloud-bootstrap/request': models.CloudBootstrapRequest,
     'commands/copy/request': models.CopyRequest,
     'commands/create-surface-with-receipt/request': models.CreateSurfaceWithReceiptRequest,
     'commands/create-terminal/request': models.CreateTerminalRequest,

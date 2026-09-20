@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0.
+// cmux-tui mux protocol 12, IR e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -346,6 +346,16 @@ pub struct CloseWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudBootstrapRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub welcome: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type CloudBootstrapResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1533,6 +1543,10 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn cloud_bootstrap(&mut self, request: CloudBootstrapRequest) -> Result<CloudBootstrapResult> {
+        self.execute(&CLOUD_BOOTSTRAP_METADATA, &request)
     }
 
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {

@@ -1464,6 +1464,12 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class CloudBootstrapRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cloud-bootstrap/request'
+    welcome: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CopyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/copy/request'
     surface: Id
@@ -2894,6 +2900,7 @@ __all__ = [
     'CloseSurfaceRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'CloudBootstrapRequest',
     'CopyRequest',
     'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',

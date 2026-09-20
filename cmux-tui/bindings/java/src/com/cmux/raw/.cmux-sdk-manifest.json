@@ -306,6 +306,11 @@
       "size": 5723
     },
     {
+      "path": "CloudBootstrapRequest.java",
+      "sha256": "973262b71a33ab5a83a6aa3c71f17b06d9f36474a0e774e9c739617c1641d757",
+      "size": 1990
+    },
+    {
       "path": "ColorsChangedEvent.java",
       "sha256": "9c57d9e802c017a7b4d69d0f7dd6b0058c47a4d78f38ea50393f386d6c4508f4",
       "size": 8564
@@ -317,8 +322,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "f868d6af6836f191470b7db85bba7ee156ac456aad734fd55104c4456237b719",
-      "size": 27182
+      "sha256": "3253b017ccedeffe4e39b590520d5eb7e6b027bf62c87b83da44aa4ddddc5049",
+      "size": 27406
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -507,8 +512,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "75c3c2dc34a9794fb817b5d09705d9ccdfcf4aa53e04199a03bdd6cef1b33471",
-      "size": 26182
+      "sha256": "770104d545ac137768ff20d84f3a5218b4d8767250e1f56ba73d2e34c1fc244f",
+      "size": 26409
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -907,7 +912,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "235b874bbf9936690ced787ea3c6f3f5e2620cc653d3aa015f9840bfcdf6f665",
+      "sha256": "0884e5bc1e1c713d6caed3fa0ffdf4d698d699e91d51bc84088bd69f10244824",
       "size": 4260
     },
     {
@@ -1622,7 +1627,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0",
+  "ir_sha256": "e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

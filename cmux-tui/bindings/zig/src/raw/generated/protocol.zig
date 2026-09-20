@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
+pub const ir_sha256 = "e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2470,6 +2470,29 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
                 .{ .name = "mutation_id", .since = 7, .capability = null },
                 .{ .name = "origin", .since = 7, .capability = null },
             },
+        },
+        request,
+    );
+}
+
+pub const CloudBootstrapRequest = struct {
+    welcome: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "welcome",
+    };
+};
+
+pub const CloudBootstrapResult = EmptyResult;
+
+pub fn cloudBootstrap(client: anytype, request: CloudBootstrapRequest) !wire.Decoded(CloudBootstrapResult) {
+    return client.callTyped(
+        CloudBootstrapResult,
+        .{
+            .name = "cloud-bootstrap",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
         },
         request,
     );
@@ -5304,7 +5327,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 112;
+pub const command_count: usize = 113;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5330,6 +5353,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-surface", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "cloud-bootstrap", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "copy", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "create-surface-with-receipt", .authority = "control", .since = 10, .capability = "creation-receipts-v1", .stream = null },
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },

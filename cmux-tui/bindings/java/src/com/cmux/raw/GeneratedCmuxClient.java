@@ -133,6 +133,11 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
+    public final EmptyResult cloudBootstrap(CloudBootstrapRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_BOOTSTRAP, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final CopyResult copy(CopyRequest request) throws CmuxException {
         Object result = execute(Commands.COPY, request.toWire());
         return CopyResult.fromWire(result);

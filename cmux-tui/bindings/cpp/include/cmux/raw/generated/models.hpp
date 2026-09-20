@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
+inline constexpr std::string_view kProtocolIrSha256 = "e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -160,6 +160,7 @@ struct CloseScreenRequest;
 struct CloseSurfaceRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct CloudBootstrapRequest;
 struct CopyRequest;
 struct CreateSurfaceWithReceiptRequest;
 struct CreateTerminalRequest;
@@ -931,6 +932,11 @@ struct CloseWorkspaceRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
+};
+
+struct CloudBootstrapRequest {
+    std::optional<bool> welcome{};
+    friend bool operator==(const CloudBootstrapRequest&, const CloudBootstrapRequest&) = default;
 };
 
 struct ColorHex {
@@ -3644,6 +3650,12 @@ template <>
 struct Codec<CloseWorkspaceRequest> {
     static Result<Json> encode(const CloseWorkspaceRequest& value);
     static Result<CloseWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudBootstrapRequest> {
+    static Result<Json> encode(const CloudBootstrapRequest& value);
+    static Result<CloudBootstrapRequest> decode(const Json& value);
 };
 
 template <>
