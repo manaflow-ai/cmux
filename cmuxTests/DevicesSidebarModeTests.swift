@@ -30,6 +30,15 @@ struct DevicesSidebarModeTests {
         #expect(!RightSidebarMode.availableModes(defaults: defaults).contains(.machines))
     }
 
+    @Test("Enabling Cloud alone does not opt a fresh install into Mac discovery or hosting")
+    func freshInstallDoesNotStartDeviceNetworking() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+        #expect(!DevicesFeature.isDiscoveryEnabled(defaults: defaults, cloudEnabled: true))
+        #expect(!MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true))
+        #expect(!MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .dev))
+    }
+
     @Test("The two device preferences remain independent within Cloud")
     func independentPreferencesWithinCloud() {
         let defaults = makeDefaults()

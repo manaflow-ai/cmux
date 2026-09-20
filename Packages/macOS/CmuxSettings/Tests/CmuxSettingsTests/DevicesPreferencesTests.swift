@@ -4,16 +4,17 @@ import Testing
 
 @Suite("Device discovery and visibility preferences")
 struct DevicesPreferencesTests {
-    @Test("Fresh installs discover Macs without advertising this Mac")
+    @Test("Fresh installs require an explicit choice before discovering or advertising Macs")
     func privateByDefault() async throws {
         let name = "cmux.devices.defaults.\(UUID().uuidString)"
         let store = UserDefaultsSettingsStore(defaults: try #require(UserDefaults(suiteName: name)))
         let keys = DevicesCatalogSection()
-        #expect(await store.value(for: keys.discoveryEnabled))
+        #expect(await store.value(for: keys.discoveryEnabled) == false)
         #expect(await store.value(for: keys.incomingAccessEnabled) == false)
         await store.set(true, for: keys.incomingAccessEnabled)
         let restored = UserDefaultsSettingsStore(defaults: try #require(UserDefaults(suiteName: name)))
         #expect(await restored.value(for: keys.incomingAccessEnabled))
+        #expect(await restored.value(for: keys.discoveryEnabled) == false)
     }
 
     @Test("Discovery and incoming access can be changed independently")
@@ -28,6 +29,9 @@ struct DevicesPreferencesTests {
         await store.set(true, for: keys.discoveryEnabled)
         #expect(await store.value(for: keys.discoveryEnabled))
         #expect(await store.value(for: keys.incomingAccessEnabled) == false)
+        let restored = UserDefaultsSettingsStore(defaults: try #require(UserDefaults(suiteName: name)))
+        #expect(await restored.value(for: keys.discoveryEnabled))
+        #expect(await restored.value(for: keys.incomingAccessEnabled) == false)
     }
 
     @Test("Hiding concurrent Macs preserves both choices and survives reopening the store")
