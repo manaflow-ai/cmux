@@ -352,6 +352,9 @@ jobs:
       - name: Validate cmux-tui client installation
         run: bash ./tests/test_install_cmux_tui_client.sh
 
+      - name: Validate coderouter CLI installation
+        run: bash ./tests/test_install_coderouter_cli.sh
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
@@ -2873,6 +2876,7 @@ jobs:
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
           ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+          ./scripts/install-coderouter-cli.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Validate Release artifact slices
         run: |
@@ -2887,6 +2891,10 @@ jobs:
           TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
           test -x "$TUI_CLIENT"
           lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
+          CODEROUTER_CLI="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/coderouter"
+          test -x "$CODEROUTER_CLI"
+          for arch in arm64 x86_64; do lipo "$CODEROUTER_CLI" -verify_arch "$arch"; done
+          "$CODEROUTER_CLI" capabilities --json | grep -q '"product":"coderouter"'
           test -x "$HELPER_BINARY"
           test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"

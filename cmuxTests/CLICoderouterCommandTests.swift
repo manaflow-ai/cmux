@@ -664,27 +664,96 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
-        // With an empty PATH and an empty HOME (the passthrough also looks in
-        // the installer's ~/.coderouter/bin) there is no `coderouter`/`cr` to
-        // run; the point is that the socket is never consulted for a non-cmux
-        // verb.
-        let emptyPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: emptyPath) }
+        // No `coderouter`/`cr` on PATH and none bundled beside the CLI: the
+        // passthrough exits 127 before the socket is ever consulted. The CLI is
+        // copied into a bare fake .app so a bundled copy in DerivedData cannot
+        // satisfy the lookup, and no socket path is set, so a socket round trip
+        // would surface as a connection error rather than 127.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-missing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("Bare.app/Contents/Resources/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let cli = bin.appendingPathComponent("cmux")
+        try FileManager.default.copyItem(atPath: try bundledCLIPath(), toPath: cli.path)
 
-        let (result, state) = try runCoderouterCLI(
-            ["coderouter", "accounts"],
-            socketName: "coderouter-passthrough",
-            extraEnvironment: [
-                "PATH": emptyPath.path,
-                "HOME": emptyPath.path,
-                "CFFIXED_USER_HOME": emptyPath.path,
-            ],
-            waitForSocket: false
-        ) { _, _ in nil }
+        let result = runProcess(
+            executablePath: cli.path,
+            arguments: ["coderouter", "accounts"],
+            environment: passthroughEnvironment(path: root.appendingPathComponent("empty-path").path),
+            timeout: 5
+        )
 
         XCTAssertEqual(result.status, 127, result.stderr)
-        XCTAssertTrue(state.commands.isEmpty, "passthrough verbs must not touch the cmux socket: \(state.commands)")
+        XCTAssertTrue(result.stderr.contains("CodeRouter CLI is not installed"), result.stderr)
+    }
+
+    /// A stand-in CodeRouter that prints how it was invoked, so a test can tell
+    /// which copy the passthrough exec'd.
+    private func writeFakeCoderouter(at url: URL, marker: String) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        printf '%s argv=%s\\n' "\(marker)" "$*"
+        """.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func passthroughEnvironment(path: String) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = path
+        environment["HOME"] = path
+        environment["CFFIXED_USER_HOME"] = path
+        environment.removeValue(forKey: "CODEROUTER_INSTALL")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        return environment
+    }
+
+    /// Both executable names a user install can carry win over the bundled copy.
+    /// PATH is exactly one temp directory so a real install on this Mac cannot
+    /// leak into the lookup; the fake needs only /bin/sh builtins.
+    func testCoderouterPassthroughPrefersTheUserInstallOnPath() throws {
+        for name in ["cr", "coderouter"] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-coderouter-path-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            try writeFakeCoderouter(at: root.appendingPathComponent("bin/\(name)"), marker: "PATH-\(name)")
+
+            let result = runProcess(
+                executablePath: try bundledCLIPath(),
+                arguments: ["cr", "add", "codex"],
+                environment: passthroughEnvironment(path: "\(root.path)/bin"),
+                timeout: 5
+            )
+
+            XCTAssertEqual(result.status, 0, "\(name): \(result.stderr)")
+            XCTAssertEqual(result.stdout, "PATH-\(name) argv=add codex\n", name)
+        }
+    }
+
+    /// The fresh-Mac case: nothing on PATH, so `cmux coderouter <verb>` execs the
+    /// CodeRouter bundled beside the cmux CLI in Contents/Resources/bin.
+    func testCoderouterPassthroughFallsBackToTheBundledCopy() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-bundled-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bin = root.appendingPathComponent("Fresh.app/Contents/Resources/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // A copy, not a symlink: the CLI resolves its own path with realpath, so
+        // a symlink would point back at the DerivedData bundle.
+        let cli = bin.appendingPathComponent("cmux")
+        try FileManager.default.copyItem(atPath: try bundledCLIPath(), toPath: cli.path)
+        try writeFakeCoderouter(at: bin.appendingPathComponent("coderouter"), marker: "BUNDLED")
+
+        let result = runProcess(
+            executablePath: cli.path,
+            arguments: ["coderouter", "login"],
+            environment: passthroughEnvironment(path: root.appendingPathComponent("empty-path").path),
+            timeout: 5
+        )
+
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "BUNDLED argv=login\n")
     }
 }
