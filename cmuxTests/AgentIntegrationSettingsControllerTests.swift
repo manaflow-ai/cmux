@@ -35,7 +35,7 @@ struct AgentIntegrationSettingsControllerTests {
     func readsAuthoritativeStatus(state: String, expected: AgentIntegrationInstallState) async {
         let runner = AgentIntegrationScriptedRunner(results: [
             CommandResult(
-                stdout: #"{"integration":"amp","state":"#(state)"}"#,
+                stdout: #"{"integration":"amp","state":"\#(state)"}"#,
                 stderr: nil,
                 exitStatus: 0,
                 timedOut: false,
