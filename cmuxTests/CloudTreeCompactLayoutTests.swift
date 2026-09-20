@@ -151,7 +151,7 @@ struct CloudTreeCompactLayoutTests {
                 "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
         #expect(folderGap <= 6 * scale, "No reserved unread column between caret and folder")
         for row in 0..<outline.numberOfRows {
-            #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
+            #expect(abs(outline.rect(ofRow: row).height - 24 * scale) <= 0.5)
         }
         try fixture.attachScreenshot(named: "compact-tree-\(Int(width))-\(percent)")
 
@@ -173,7 +173,7 @@ struct CloudTreeCompactLayoutTests {
         fixture.container.layoutSubtreeIfNeeded()
         let after = outline.frameOfOutlineCell(atRow: row)
         #expect(before.size == after.size, "Collapsing must not resize the caret column")
-        #expect(abs(after.width - CloudTreeRowGrid.disclosureSlot * scale) <= 0.5)
+        #expect(abs(after.width - CloudTreeStyle.compact.rowGrid.disclosureSlot * scale) <= 0.5)
         try fixture.attachScreenshot(named: "compact-tree-collapsed-\(Int(width))-\(percent)")
         let reopenedButton = try #require(descendants(of: outline).compactMap { $0 as? NSButton }.first {
             $0.identifier == NSOutlineView.disclosureButtonIdentifier && outline.row(for: $0) == row
