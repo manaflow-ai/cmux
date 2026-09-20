@@ -25,6 +25,7 @@ extension MobileShellComposite {
     /// - Throws: ``MobileIrohReleaseGateProbeFailure`` when an invariant fails.
     public func runIrohReleaseGateProbe(
         marker: String,
+        terminalSession: MobileIrohReleaseGateTerminalSession? = nil,
         scenario: MobileIrohReleaseGateScenario = .standard,
         soakDurationSeconds: Int = 0,
         endpointIdentity: @escaping @Sendable () async -> CmxIrohPeerIdentity? = { nil },
@@ -94,7 +95,8 @@ extension MobileShellComposite {
             let terminalRoundTripStarted = ContinuousClock.now
             try await verifyTerminalRoundTrip(
                 surfaceID: terminalID,
-                marker: marker
+                marker: marker,
+                session: terminalSession
             )
             record("terminal_round_trip", started: terminalRoundTripStarted)
             let independentEventsStarted = ContinuousClock.now
@@ -131,7 +133,8 @@ extension MobileShellComposite {
             let terminalRoundTripStarted = ContinuousClock.now
             try await verifyTerminalRoundTrip(
                 surfaceID: terminalID,
-                marker: marker
+                marker: marker,
+                session: terminalSession
             )
             record("terminal_round_trip", started: terminalRoundTripStarted)
             let independentEventsStarted = ContinuousClock.now
@@ -890,8 +893,13 @@ extension MobileShellComposite {
 
     func verifyTerminalRoundTrip(
         surfaceID: String,
-        marker: String
+        marker: String,
+        session: MobileIrohReleaseGateTerminalSession? = nil
     ) async throws {
+        if let session {
+            try await session.verify(surfaceID: surfaceID, marker: marker)
+            return
+        }
         var probe = MobileIrohReleaseGateTerminalProbe(marker: marker)
         var iterator = terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
 

@@ -291,9 +291,6 @@ struct CMUXMobileRootView: View {
         .animation(.smooth(duration: 0.35), value: shouldShowOnboarding)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
-            #if os(iOS) && DEBUG
-            MobileReleaseGateUIProbe.record(.appRootVisible)
-            #endif
             syncShellAuthentication(isAuthenticated)
             #if os(iOS)
             diagnosticLog?.recordAppEvent(

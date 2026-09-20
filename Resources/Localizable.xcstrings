@@ -4368,6 +4368,131 @@
         }
       }
     },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparivanje nije dovršeno. Provjerite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parringen kunne ikke fuldføres. Kontrollér din forbindelse, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido completar el enlace. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile completare l’abbinamento. Controlla la connessione e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្គូផ្គងមិនអាចបញ្ចប់បានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke fullføre sammenkoblingen. Kontroller tilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się ukończyć parowania. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível concluir o emparelhamento. Verifique sua conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось завершить сопряжение. Проверьте подключение и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับคู่ให้เสร็จสมบูรณ์ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleştirme tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завершити спарювання. Перевірте з’єднання та спробуйте ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
+          }
+        }
+      }
+    },
     "socket.agentHook.error.barrierTimeout": {
       "extractionState": "manual",
       "localizations": {
