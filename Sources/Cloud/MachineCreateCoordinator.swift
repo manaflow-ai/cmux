@@ -108,6 +108,14 @@ final class MachineCreateCoordinator {
         let attempt = lifecycle.reserve(request.lifecycleRequest)
         requests[attempt.operationID] = request
         launches[attempt.operationID] = launch
+#if DEBUG
+        let presentationWorkspace = request.presentationWorkspaceID?.uuidString ?? "none"
+        cmuxDebugLog(
+            "cloud.create.accepted operation=\(attempt.operationID.uuidString) " +
+            "workspace=\(presentationWorkspace) " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         postDidChange()
         return attempt
     }
@@ -220,13 +228,25 @@ final class MachineCreateCoordinator {
             return Finished(operation: operation, outcome: result.outcome)
         }
         let cancelledHandles = transition.cancelOperationIDs.compactMap { handles.removeValue(forKey: $0) }
+        var didSelectCreatedWorkspace = false
         if let finished {
             lastFinished = finished
             let id = finished.operation.id
             handles[id] = nil
+#if DEBUG
+            let presentationWorkspace = finished.operation.request.presentationWorkspaceID?.uuidString ?? "none"
+            cmuxDebugLog(
+                "cloud.create.completed operation=\(id.uuidString) " +
+                "workspace=\(presentationWorkspace) " +
+                "outcome=\(String(describing: finished.outcome)) " +
+                "elapsed=\(Date().timeIntervalSince(finished.operation.startedAt))"
+            )
+#endif
             if case .created(_, let workspaceID) = finished.outcome {
                 resumeWaiter(id, workspaceID: workspaceID)
-                if let workspaceID { _ = selectWorkspace(workspaceID, finished.operation.request) }
+                if let workspaceID {
+                    didSelectCreatedWorkspace = selectWorkspace(workspaceID, finished.operation.request)
+                }
             } else {
                 resumeWaiter(id, workspaceID: nil)
             }
@@ -235,10 +255,16 @@ final class MachineCreateCoordinator {
         for handle in cancelledHandles { handle.cancel() }
         for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
         for operation in closed { cancelOperation(operation) }
-        // The workspace and Cloud tree acknowledge success without an unread
-        // notification. Only failures need another action from the user.
-        if let finished, let notice = MachineCreateNotice(finished: finished) {
-            notifier(notice)
+        // A successful Cloud create already has its workspace projection. Keep
+        // success silent; failures remain actionable through the notifier.
+        if let finished {
+            switch finished.outcome {
+            case .created:
+                break
+            case .createdButOpenFailed, .failed:
+                notifier(MachineCreateNotice(finished: finished))
+            }
+        }
         }
         if transition.changed { postDidChange(finished: finished) }
     }

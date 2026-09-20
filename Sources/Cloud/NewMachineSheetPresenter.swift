@@ -23,10 +23,9 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
 
     var isPresenting: Bool { sheetWindow != nil }
 
-    /// Reserves the local loading workspace at the acceptance boundary. The
-    /// placeholder is inserted with `select: false`, so it is visible and
-    /// truthful immediately while the create runs without moving keyboard
-    /// focus away from the person's current workspace.
+    /// Reserves and immediately selects the local loading workspace at the
+    /// acceptance boundary. Completion never selects again, so later network
+    /// callbacks cannot steal focus after the person navigates away.
     private func reserveNewMachineWorkspace(preferredWindow: NSWindow?) -> UUID? {
         guard let appDelegate = AppDelegate.shared else { return nil }
         let context = appDelegate.contextForMainWindow(preferredWindow)
@@ -40,9 +39,15 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                 titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,
-                select: false,
+                select: true,
                 autoWelcomeIfNeeded: false
               ) else { return nil }
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.create.reserve workspace=\(workspace.id.uuidString) focus=1 " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         return workspace.id
     }
 
