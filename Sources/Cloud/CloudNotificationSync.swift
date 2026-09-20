@@ -257,6 +257,7 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
+    private var hasAppliedSnapshot = false
     /// Rows whose delivery was transiently declined or had no local placement.
     /// A catalog change or later feed fold retries only this small set instead
     /// of refolding every unchanged row.
@@ -300,7 +301,11 @@ final class CloudNotificationSync {
     @discardableResult
     func apply(rows incoming: [CloudVMNotificationRow]) -> Bool {
         guard !retired else { return false }
-        guard rows != incoming || !retryableDeliveryIDs.isEmpty else { return false }
+        guard rows != incoming || !retryableDeliveryIDs.isEmpty || !hasAppliedSnapshot else {
+            requestFlush()
+            return false
+        }
+        hasAppliedSnapshot = true
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
