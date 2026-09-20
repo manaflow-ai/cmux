@@ -26,21 +26,12 @@ struct CloudBrowserRouting {
         defer { connection.cancel() }
         do {
             return try await withTaskCancellationHandler {
-                try await withThrowingTaskGroup(of: Bool.self) { group in
-                    group.addTask {
-                        try await connection.startAndWaitUntilReady(queue: probeQueue)
-                        try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
-                        guard try await responseStatus(connection) == 200 else { return false }
-                        try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
-                        return try await responseStatus(connection) == 200
-                    }
-                    group.addTask {
-                        try await clock.sleep(for: timeout)
-                        connection.cancel()
-                        return false
-                    }
-                    defer { group.cancelAll(); connection.cancel() }
-                    return try await group.next() ?? false
+                try await withDeadline(timeout, clock: clock) {
+                    try await connection.startAndWaitUntilReady(queue: probeQueue)
+                    try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
+                    guard try await responseStatus(connection) == 200 else { return false }
+                    try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
+                    return try await responseStatus(connection) == 200
                 }
             } onCancel: {
                 connection.cancel()
@@ -48,6 +39,22 @@ struct CloudBrowserRouting {
         } catch {
             try Task.checkCancellation()
             return false
+        }
+    }
+
+    private static func withDeadline<T: Sendable>(
+        _ duration: Duration,
+        clock: any Clock<Duration>,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await clock.sleep(for: duration)
+                throw CloudTunnelError.deadlineExceeded
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
         }
     }
 
@@ -114,7 +121,7 @@ struct CloudBrowserRouting {
           const rewrite = (input) => {
             let parsed;
             try { parsed = new URL(input, document.baseURI); } catch (_) { return null; }
-            if (parsed.protocol !== 'ws:' || parsed.hostname.toLowerCase() !== targetHost) return null;
+            if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.hostname.toLowerCase() !== targetHost) return null;
             const target = `${parsed.hostname}:${parsed.port || '80'}`;
             parsed.protocol = 'ws:';
             parsed.hostname = '127.0.0.1';
