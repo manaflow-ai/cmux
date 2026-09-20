@@ -1,4 +1,5 @@
 #if os(iOS)
+import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
 import SwiftUI
@@ -32,6 +33,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let isInitialConnectionLoading: Bool
     let initialConnectionTitle: String?
     let initialConnectionDescription: String?
+    let setupGuideURL: URL?
     let enablesReorder: Bool
     let moveRows: ((IndexSet, Int) -> Void)?
     let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
@@ -62,7 +64,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let signOut: (() -> Void)?
     let retryInitialConnection: (() -> Void)?
     let showAddDevice: (() -> Void)?
-    let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {

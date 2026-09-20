@@ -64,6 +64,7 @@ import UIKit
             isInitialConnectionLoading: false,
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
+            setupGuideURL: nil,
             enablesReorder: true,
             moveRows: {
                 recorder.moveRowsCalls.append(($0, $1))
@@ -92,7 +93,6 @@ import UIKit
             signOut: nil,
             retryInitialConnection: nil,
             showAddDevice: nil,
-            reconnect: nil,
             refresh: nil
         )
         let coordinator = WorkspaceListTableCoordinator(configuration: configuration)

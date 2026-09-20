@@ -1201,7 +1201,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     descriptionOverride: configuration.initialConnectionDescription,
                     retry: configuration.retryInitialConnection,
                     addDevice: configuration.showAddDevice,
-                    reconnect: configuration.reconnect
+                    setupGuideURL: configuration.setupGuideURL
                 )
             )
         case .filterEmpty:
@@ -1269,7 +1269,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 configuration.initialConnectionDescription ?? "",
                 String(configuration.retryInitialConnection != nil),
                 String(configuration.showAddDevice != nil),
-                String(configuration.reconnect != nil),
             ].joined(separator: "|"))
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
@@ -1382,9 +1381,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previous.isInitialConnectionLoading != next.isInitialConnectionLoading
                 || previous.initialConnectionTitle != next.initialConnectionTitle
                 || previous.initialConnectionDescription != next.initialConnectionDescription
+                || previous.setupGuideURL != next.setupGuideURL
                 || (previous.retryInitialConnection != nil) != (next.retryInitialConnection != nil)
                 || (previous.showAddDevice != nil) != (next.showAddDevice != nil)
-                || (previous.reconnect != nil) != (next.reconnect != nil)
         case .filterEmpty:
             return previous.filter != next.filter
         case .emptyWorkspaceList:
