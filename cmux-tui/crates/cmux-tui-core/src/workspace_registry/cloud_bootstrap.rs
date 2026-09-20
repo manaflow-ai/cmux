@@ -7,8 +7,13 @@ const KEY: &str = "cloud_initial_bootstrap_v1";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct CloudBootstrap {
     pub workspace_key: String,
-    pub terminal_id: String,
+    #[serde(alias = "terminal_id")]
+    pub operation_id: String,
     pub finished: bool,
+    #[serde(default)]
+    pub prepared_output: Option<Vec<u8>>,
+    #[serde(default)]
+    pub prepared_instance: Option<String>,
 }
 
 impl WorkspaceRegistry {
@@ -17,7 +22,7 @@ impl WorkspaceRegistry {
     pub(crate) fn reserve_cloud_bootstrap(
         &self,
         workspace_key: &str,
-        terminal_id: &str,
+        operation_id: &str,
     ) -> anyhow::Result<Option<CloudBootstrap>> {
         if let Some(value) = meta_value(&self.connection, KEY)? {
             return serde_json::from_str(&value).context("read Cloud bootstrap identity");
@@ -30,8 +35,10 @@ impl WorkspaceRegistry {
         )?;
         let bootstrap = fresh.then(|| CloudBootstrap {
             workspace_key: workspace_key.to_owned(),
-            terminal_id: terminal_id.to_owned(),
+            operation_id: operation_id.to_owned(),
             finished: false,
+            prepared_output: None,
+            prepared_instance: None,
         });
         self.connection.execute(
             "INSERT INTO meta(key, value) VALUES(?1, ?2)",
@@ -61,8 +68,11 @@ impl WorkspaceRegistry {
         entry: &CloudBootstrap,
     ) -> anyhow::Result<bool> {
         Ok(self.connection.query_row(
-            "SELECT EXISTS(SELECT 1 FROM terminal_hosts WHERE workspace_key = ?1 AND terminal_id != ?2)",
-            params![entry.workspace_key, entry.terminal_id], |row| row.get(0),
+            "SELECT EXISTS(SELECT 1 FROM terminal_hosts t WHERE workspace_key = ?1
+                AND NOT EXISTS(SELECT 1 FROM terminal_events e
+                    WHERE e.terminal_id = t.terminal_id AND e.origin = 'cloud-bootstrap'))",
+            [&entry.workspace_key],
+            |row| row.get(0),
         )?)
     }
 
@@ -71,6 +81,11 @@ impl WorkspaceRegistry {
         mut bootstrap: CloudBootstrap,
     ) -> anyhow::Result<()> {
         bootstrap.finished = true;
+        bootstrap.prepared_output = None;
+        self.save_cloud_bootstrap(&bootstrap)
+    }
+
+    pub(crate) fn save_cloud_bootstrap(&self, bootstrap: &CloudBootstrap) -> anyhow::Result<()> {
         self.connection.execute(
             "UPDATE meta SET value = ?2 WHERE key = ?1",
             params![KEY, serde_json::to_string(&Some(bootstrap))?],
@@ -98,13 +113,13 @@ mod tests {
             let pending =
                 registry.reserve_cloud_bootstrap(&new_uuid_v4(), "different").unwrap().unwrap();
             assert_eq!(pending.workspace_key, workspace);
-            assert_eq!(pending.terminal_id, terminal);
+            assert_eq!(pending.operation_id, terminal);
             registry.finish_cloud_bootstrap(pending).unwrap();
         }
         {
             let registry = WorkspaceRegistry::open(&root, "cloud").unwrap();
             assert!(registry.cloud_bootstrap().unwrap().unwrap().finished);
         }
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 }

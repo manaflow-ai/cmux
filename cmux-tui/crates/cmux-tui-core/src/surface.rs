@@ -113,6 +113,8 @@ pub enum PointerSnapshotProbe {
 pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
+    /// Output prepared by the owner before this terminal exists. Never input.
+    pub initial_output: Vec<u8>,
     pub cwd: Option<String>,
     /// TERM value for children: the outer terminal's xterm-ghostty when it
     /// advertised that (see [`default_child_term`]), else the compatible
@@ -180,6 +182,7 @@ impl Default for SurfaceOptions {
     fn default() -> Self {
         SurfaceOptions {
             command: None,
+            initial_output: Vec::new(),
             cwd: None,
             term: std::env::var("CMUX_TUI_TERM")
                 .or_else(|_| std::env::var("CMUX_MUX_TERM"))
@@ -2362,6 +2365,7 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.vt_write(&opts.initial_output);
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         term.set_kitty_graphics_limits(initial_kitty_limits)?;
         if let Some(mux) = mux.upgrade() {
@@ -4140,6 +4144,7 @@ impl Surface {
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
+        term.vt_write(&opts.initial_output);
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         term.set_kitty_graphics_limits(initial_kitty_limits)?;
         if let Some(mux) = mux.upgrade() {

@@ -630,6 +630,7 @@ mod unix {
         scrollback: usize,
         cwd: Option<String>,
         command: Vec<String>,
+        initial_output: Vec<u8>,
         extra_env: Vec<(String, String)>,
         default_colors: DefaultColors,
         kitty_graphics_limits: KittyGraphicsLimits,
@@ -671,6 +672,7 @@ mod unix {
             output.extend_from_slice(&cell_pixels.0.to_le_bytes());
             output.extend_from_slice(&cell_pixels.1.to_le_bytes());
             encode_kitty_graphics_limits(&mut output, self.kitty_graphics_limits)?;
+            put_blob(&mut output, &self.initial_output)?;
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
             }
@@ -705,6 +707,7 @@ mod unix {
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
             let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
+            let initial_output = decoder.bytes_with_limit(16 * 1024)?.to_vec();
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -716,6 +719,7 @@ mod unix {
                 scrollback,
                 cwd,
                 command,
+                initial_output,
                 extra_env,
                 default_colors,
                 kitty_graphics_limits,
@@ -2102,6 +2106,7 @@ mod unix {
             cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
             extra_env: options.extra_env.clone(),
+            initial_output: options.initial_output.clone(),
             default_colors,
             kitty_graphics_limits,
         };
@@ -5445,6 +5450,27 @@ mod unix {
             }
         })?;
 
+        // The prelude is an ordered output event before the PTY reader starts,
+        // never terminal input. The launch owner's snapshot/stream barrier
+        // includes it, so a reconnect replays the same initial output.
+        if !launch.initial_output.is_empty() {
+            let bytes = launch.initial_output.clone();
+            let count = bytes.len();
+            shared.parser_budget.reserve(count);
+            let cursor = shared.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+            anyhow::ensure!(
+                enqueue_parser_output(
+                    &shared.parser_commands,
+                    &shared.parser_budget,
+                    &shared.smart,
+                    bytes,
+                    cursor,
+                    count,
+                ),
+                "terminal initial output could not be queued"
+            );
+        }
+
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
             reader_host.wait_for_launch_owner_stream_ready();
@@ -6977,6 +7003,7 @@ mod unix {
                 cwd: Some("/tmp".into()),
                 command: vec!["/bin/cat".into()],
                 extra_env: vec![("KEY".into(), "value".into())],
+                initial_output: b"welcome\r\n".to_vec(),
                 default_colors,
                 kitty_graphics_limits: KittyGraphicsLimits {
                     image_bytes: 1_000,
@@ -6991,6 +7018,7 @@ mod unix {
             assert_eq!(decoded.cell_pixels, (9, 18));
             assert_eq!(decoded.kitty_graphics_limits, launch.kitty_graphics_limits);
             assert_eq!(decoded.command, launch.command);
+            assert_eq!(decoded.initial_output, launch.initial_output);
             assert_eq!(decoded.extra_env, launch.extra_env);
             assert_eq!(
                 decode_default_colors_payload(&encode_default_colors_payload(default_colors))
@@ -7035,6 +7063,7 @@ mod unix {
                 scrollback: 1_000,
                 cwd: Some("/tmp".into()),
                 command: vec!["/definitely/missing/cmux-terminal-host-child".into()],
+                initial_output: Vec::new(),
                 extra_env: Vec::new(),
                 default_colors: DefaultColors::default(),
                 kitty_graphics_limits: KittyGraphicsLimits::default(),
@@ -7068,6 +7097,79 @@ mod unix {
                     .any(|window| window == b"terminal launch failed"),
                 "launch failure payload omitted the child error: {failure:?}",
             );
+        }
+
+        #[test]
+        fn cloud_bootstrap_initial_output_precedes_shell_and_preserves_input() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-cloud-prelude-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+            ));
+            prepare_private_dir(&root).unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id: TerminalId::random().unwrap(),
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let mut bytes = Vec::new();
+            write_frame(&mut bytes, &bootstrap.into_frame(1)).unwrap();
+            let host_identity = crate::terminal_host::bootstrap_stdio_once(
+                &mut std::io::Cursor::new(bytes),
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let launch = HostLaunch {
+                endpoint: root.join("host.sock").to_string_lossy().into_owned(),
+                record_path: root.join("host.json").to_string_lossy().into_owned(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 1_000,
+                cwd: Some(root.to_string_lossy().into_owned()),
+                command: vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "IFS= read -r line; printf 'SHELL:%s\\n' \"$line\"".into(),
+                ],
+                initial_output: b"CLOUD-GUIDE\r\n".to_vec(),
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let host = spawn_host_runtime(&launch, &host_identity).unwrap();
+            struct Cleanup(Arc<HostShared>);
+            impl Drop for Cleanup {
+                fn drop(&mut self) {
+                    self.0.request_termination();
+                }
+            }
+            let cleanup = Cleanup(host.clone());
+            host.mark_launch_owner_stream_ready();
+            {
+                let mut input = host.writer.lock().unwrap();
+                input.write_all(b"user startup input\n").unwrap();
+                input.flush().unwrap();
+            }
+            let exit = host.child_exit.0.lock().unwrap();
+            let (exit, _) = host
+                .child_exit
+                .1
+                .wait_timeout_while(exit, Duration::from_secs(5), |exit| exit.is_none())
+                .unwrap();
+            assert!(exit.is_some(), "fixture shell did not exit");
+            drop(exit);
+            let text = host.term.lock().unwrap().plain_text().unwrap();
+            assert_eq!(text.matches("CLOUD-GUIDE").count(), 1);
+            assert!(
+                text.find("CLOUD-GUIDE").unwrap() < text.find("SHELL:user startup input").unwrap()
+            );
+            drop(cleanup);
+            drop(host);
+            // Exit publication is asynchronous; retain its isolated temporary
+            // directory rather than racing the publisher with deletion.
         }
 
         #[test]

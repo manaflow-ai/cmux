@@ -4495,6 +4495,14 @@ impl Mux {
                 .as_str()
                 .context("stored terminal reservation omitted its mutation origin")?,
         )?;
+        let fields = intent["fields"].as_object().context("missing terminal fields")?;
+        let mut initial_output = effect_initial_output(fields)?;
+        if let Some(instance) = fields.get("cloud_welcome_instance") {
+            let options = self.surface_options.lock().unwrap();
+            if !super::cloud_bootstrap::cloud_welcome_output_allowed(&options, instance) {
+                initial_output.clear();
+            }
+        }
         Ok(TerminalReservationRequest {
             terminal_id,
             mutation,
@@ -4510,6 +4518,7 @@ impl Mux {
             expected_generation: None,
             expected_revision: None,
             on_exit: on_exit.unwrap_or_default(),
+            initial_output,
         })
     }
 
@@ -5110,10 +5119,20 @@ fn effect_target(operation: ResourceOperation, selectors: &ResourceSelectors) ->
     }
 }
 
+fn effect_initial_output(fields: &Map<String, Value>) -> anyhow::Result<Vec<u8>> {
+    let Some(value) = fields.get("initial_output") else {
+        return Ok(Vec::new());
+    };
+    let text = value.as_str().context("initial terminal output must be text")?;
+    anyhow::ensure!(text.len() <= 16 * 1024, "initial terminal output is too large");
+    Ok(text.as_bytes().to_vec())
+}
+
 fn validate_effect_fields(
     operation: ResourceOperation,
     fields: &Map<String, Value>,
 ) -> anyhow::Result<()> {
+    let _ = effect_initial_output(fields)?;
     match operation {
         ResourceOperation::WorkspaceCreate => {
             anyhow::ensure!(
