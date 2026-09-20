@@ -66,9 +66,17 @@ extension ControlCommandCoordinator {
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
-        let routing = routingSelectors(params)
+        // `routingSelectors` resolves opaque refs through the coordinator's
+        // main-actor handle registry. The nil-context path cannot perform that
+        // lookup, but it must still keep relay-owned failures scoped instead
+        // of leaking the generic local "TabManager" diagnostic.
+        let relayOwnerMarkerPresent: Bool = {
+            guard let value = params["_cmux_remote_workspace_id"] else { return false }
+            if case .null = value { return false }
+            return true
+        }()
         guard let context else {
-            return routing.remoteRelayOwnerWorkspaceID == nil
+            return !relayOwnerMarkerPresent
                 ? .err(code: "unavailable", message: "TabManager not available", data: nil)
                 : .err(
                     code: "remote_relay_workspace_denied",
@@ -77,6 +85,7 @@ extension ControlCommandCoordinator {
                 )
         }
         let outcome: WorkspaceListHopOutcome = context.controlResolveOnMain { seam in
+            let routing = self.routingSelectors(params)
             switch seam.controlWorkspaceList(routing: routing) {
             case .tabManagerUnavailable:
                 return .tabManagerUnavailable
