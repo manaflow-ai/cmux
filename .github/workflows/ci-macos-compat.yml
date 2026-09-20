@@ -18,15 +18,6 @@ jobs:
             skip_zig: false
             expected_arch: arm64
             expected_os_major: "14"
-          - os: macos-15-intel
-            timeout: 90
-            run_unit_tests: false
-            run_mobile_transport_tests: true
-            startup_smoke: true
-            virtual_display: true
-            skip_zig: false
-            expected_arch: x86_64
-            expected_os_major: "15"
           - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 120
             run_unit_tests: false

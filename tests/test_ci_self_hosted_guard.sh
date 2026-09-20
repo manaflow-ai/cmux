@@ -46,6 +46,14 @@ check_macos_runner() {
   echo "PASS: $job in $(basename "$file") uses a paid macOS runner"
 }
 
+check_compatibility_lane_is_not_intel() {
+  if grep -nE 'macos-15-intel|expected_arch: x86_64|macOS 15 Intel' "$COMPAT_FILE"; then
+    echo "FAIL: ci-macos-compat.yml must not run an Intel lane; Nightly owns Intel app validation"
+    exit 1
+  fi
+  echo "PASS: ci-macos-compat.yml has no Intel lane"
+}
+
 check_display_runner_identity_guard() {
   local file="$1" job="$2"
   if ! awk -v job="$job" '
@@ -1230,6 +1238,7 @@ check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
+check_compatibility_lane_is_not_intel
 
 # test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
