@@ -90,6 +90,12 @@ final class CloudWorkspaceProjectionCoordinator {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
             guard let remoteID = binding.remoteWorkspaceID else { continue }
+            // A delete owns this workspace's visible lifecycle. Do not let a
+            // late projection refresh recreate its panes while the backend
+            // request is pending; a committed delete will reconcile them once.
+            if catalog.isCloudWorkspaceDeletionPending(machine: machine, workspaceID: remoteID) {
+                continue
+            }
             guard isCurrent(state, catalog: catalog) else {
                 if !Task.isCancelled { requested.insert(machine) }
                 return

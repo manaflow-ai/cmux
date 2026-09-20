@@ -79,15 +79,12 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
                 .path
         }
     }
-
     if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
        let normalized = agentHookDebugNonEmpty(lastPath) {
         return NSString(string: normalized).expandingTildeInPath
     }
-
     return "/tmp/cmux-debug.log"
 }
-
 private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
@@ -95,18 +92,15 @@ private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     }
     return trimmed
 }
-
 private func agentHookDebugShort(_ value: String?) -> String {
     guard let value = agentHookDebugNonEmpty(value) else { return "nil" }
     return String(value.prefix(12))
 }
-
 private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
 #endif
-
 struct ClaudeHookSessionRecord: Codable {
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
@@ -4914,17 +4908,8 @@ struct CMUXCLI {
             }
         }
 
-        if command == "help" {
-            if commandArgs.count == 1,
-               let topic = commandArgs.first,
-               let topicUsage = taskHelpUsage(topic) {
-                print(topicUsage)
-            } else {
-                print(usage())
-            }
-            return
-        }
-        if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
@@ -18442,14 +18427,9 @@ struct CMUXCLI {
             """
         case "help":
             return """
-            Usage: cmux help [topic]
+            Usage: cmux help
 
-            Show top-level CLI usage, or one task-focused command group.
-
-            Topics:
-            \(Self.taskHelpTopicSummary)
-
-            Unknown topics keep the top-level help behavior.
+            Show top-level CLI usage and command list.
             Also works without a running cmux app or socket.
             """
         case "docs":
@@ -18490,6 +18470,8 @@ struct CMUXCLI {
 
             Print whether cmux browser creation and link interception are enabled.
             """
+        case "socket-status":
+            return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
         case "agent-hibernation":
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
@@ -41112,116 +41094,6 @@ export default CMUXSessionRestore;
         return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
-    private enum TaskHelpTopic: CaseIterable {
-        case start
-        case agents
-        case navigate
-        case inspect
-        case customize
-        case automation
-        case browser
-        case remote
-        case diagnostics
-
-        var name: String {
-            switch self {
-            case .start: return "start"
-            case .agents: return "agents"
-            case .navigate: return "navigate"
-            case .inspect: return "inspect"
-            case .customize: return "customize"
-            case .automation: return "automation"
-            case .browser: return "browser"
-            case .remote: return "remote"
-            case .diagnostics: return "diagnostics"
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .start: return "Start & Resume"
-            case .agents: return "Agents"
-            case .navigate: return "Navigate & Arrange"
-            case .inspect: return "Inspect"
-            case .customize: return "Customize"
-            case .automation: return "Automation"
-            case .browser: return "Browser"
-            case .remote: return "Remote"
-            case .diagnostics: return "Diagnostics / Advanced"
-            }
-        }
-
-        var aliases: [String] {
-            switch self {
-            case .start: return ["start", "resume", "start-resume", "start-and-resume"]
-            case .agents: return ["agents", "agent"]
-            case .navigate: return ["navigate", "arrange", "navigation", "navigate-arrange", "navigate-and-arrange"]
-            case .inspect: return ["inspect", "inspection"]
-            case .customize: return ["customize", "customise", "customization"]
-            case .automation: return ["automation", "automate"]
-            case .browser: return ["browser", "web"]
-            case .remote: return ["remote", "remotes", "cloud"]
-            case .diagnostics: return ["diagnostics", "diagnostic", "advanced", "diagnostics-advanced"]
-            }
-        }
-
-        static func resolve(_ rawValue: String) -> Self? {
-            let normalized = rawValue
-                .lowercased()
-                .replacingOccurrences(of: "_", with: "-")
-            return allCases.first { $0.aliases.contains(normalized) }
-        }
-    }
-
-    private static var taskHelpTopicSummary: String {
-        TaskHelpTopic.allCases
-            .map { "  \($0.name)  \($0.title)" }
-            .joined(separator: "\n")
-    }
-
-    private static var taskHelpTopicNames: String {
-        TaskHelpTopic.allCases
-            .map(\.name)
-            .joined(separator: "|")
-    }
-
-    private func taskHelpUsage(_ rawTopic: String) -> String? {
-        guard let topic = TaskHelpTopic.resolve(rawTopic) else {
-            return nil
-        }
-
-        let helpLines = usage().components(separatedBy: "\n")
-        let heading = "  \(topic.title):"
-        guard let start = helpLines.firstIndex(of: heading) else {
-            return nil
-        }
-
-        var end = helpLines.index(after: start)
-        while end < helpLines.endIndex {
-            let line = helpLines[end]
-            if line == "Environment:"
-                || TaskHelpTopic.allCases.contains(where: { line == "  \($0.title):" }) {
-                break
-            }
-            end = helpLines.index(after: end)
-        }
-
-        let section = helpLines[start..<end]
-            .map { line in
-                line.hasPrefix("  ") ? String(line.dropFirst(2)) : line
-            }
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        return """
-        cmux help \(topic.name)
-
-        \(section)
-
-        Run `cmux <command> --help` for command-specific usage.
-        """
-    }
-
     private func usage() -> String {
         return """
         cmux - control cmux via Unix socket
@@ -41247,225 +41119,208 @@ export default CMUXSessionRestore;
           Ghostty config lives at ~/.config/ghostty/config (terminal transparency, blur, font, theme, keybinds, etc.).
           `cmux reload-config` reloads BOTH Ghostty config and ~/.config/cmux/cmux.json, then refreshes terminals in place. No app restart needed.
 
-        Task Help:
-          cmux help <\(Self.taskHelpTopicNames)>
-          Show one command group without connecting to the cmux socket.
-
         Commands:
-          Start & Resume:
-            \(restoreCommandUsageLine)
-            \(forkCommandUsageLine)
-            restore-session
-            \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
-            open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-            new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
-            local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
-            tmux attach [session] [options]                         (local-tmux alias)
-            surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          guide | --skill
+          welcome
+          docs [settings|shortcuts|api|browser|agents|dock|sidebars]
+          settings [open [target]|path|docs|<target>]
+          config <doctor|check|validate|path|paths|docs|documentation|reload>
+          shortcuts
+          disable-browser | enable-browser | browser-status
+          \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]"))
+          agent-hibernation <on|off>
+          \(restoreCommandUsageLine)
+          \(forkCommandUsageLine)
+          restore-session
+          \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
+          feedback [--email <email> --body <text> [--image <path> ...]]
+          feed tui|clear
+          themes [list|set|clear]
+          claude-teams [claude-args...]
+          codex-teams [codex-args...]
+          omo [opencode-args...]
+          omx [omx-args...]
+          omc [omc-args...]
+          hooks setup|uninstall [--agent <name>]
+          hooks <agent> <install|uninstall|event> [options; opencode supports --project]
+          hooks feed --source <agent> [--event <event>]
+          ping
+          iroh-diag
+          version
+          \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)"))
+          \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending"))
+          \(String(localized: "sudo.cli.global_usage.setup_touch_id", defaultValue: "sudo setup-touch-id"))
+          capabilities
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          automation <list|show|test|enable|disable|logs|reload> [args]
+          auth <status|login|logout>
+          login | logout                                      (aliases for auth login/logout)
+          \(localizedCoderouterAliases())
+          \(localizedCoderouterCommands())
+          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+          remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
+          ai-accounts <list|upload|remove> [--team <id>] [--json]
+          rpc <method> [json-params]
+          \(simulatorCommandUsageLine)
+          \(iosCommandUsageLine)
+          identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
+          list-windows
+          current-window
+          new-window
+          focus-window --window <id>
+          close-window --window <id>
+          move-workspace-to-window --workspace <id|ref> --window <id|ref>
+          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
+          reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          comments list [--repo <path>] [--all] [--json]
+          vault sessions [--agent <id>] [--folder <path>] [--limit <n>] [--json]
+          vault search <query> [--limit <n>] [--json]
+          vault checkpoints --agent <id> --session <id> [--json]
+          vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
+          vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
+          move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
+          list-workspaces [--window <id|ref|index>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
+          ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
+          mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
+          ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
+          local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
+          tmux attach [session] [options]                         (local-tmux alias)
+          ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
+          ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
+          ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
+          remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
+          new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--command <text>] [--focus <true|false>]
+          list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
+          list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
+          tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
+          memory [--all] [--workspace <id|ref|index>] [--groups <count>]
+          focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
+          close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
+          split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+          reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
+          surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
+          drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+          refresh-surfaces
+          reload-config
+          surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
+          debug-terminals
+          trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
+          focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
+          close-workspace --workspace <id|ref|index> [--window <id|ref|index>]
+          select-workspace --workspace <id|ref|index> [--window <id|ref|index>]
+          rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
+          rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
+          current-workspace [--window <id|ref|index>]
+          \(Self.readSelectionUsageLine)
+          \(Self.readScreenUsageLine)
+          send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
+          send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
+          send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
+          send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
+          notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          list-notifications
+          dismiss-notification (--id <uuid> | --all-read)
+          mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
+          open-notification --id <uuid>
+          jump-to-unread
+          clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+          sidebar <validate|reload|select|open> [name]
+          set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
+          clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
+          list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          clear-progress [--workspace <id|ref|index>] [--window <id|ref|index>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref|index>] [--window <id|ref|index>] <message>
+          clear-log [--workspace <id|ref|index>] [--window <id|ref|index>]
+          list-log [--workspace <id|ref|index>] [--window <id|ref|index>] [--limit <n>]
+          sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
+          set-app-focus <active|inactive|clear>
+          simulate-app-active
+          simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]
 
-          Agents:
-            agent-hibernation <on|off>
-            claude-teams [claude-args...]
-            codex-teams [codex-args...]
-            omo [opencode-args...]
-            omx [omx-args...]
-            omc [omc-args...]
-            hooks setup|uninstall [--agent <name>]
-            hooks <agent> <install|uninstall|event> [options; opencode supports --project]
-            hooks feed --source <agent> [--event <event>]
-            \(localizedCoderouterAliases())
-            \(localizedCoderouterCommands())
-            ai-accounts <list|upload|remove> [--team <id>] [--json]
+          # tmux compatibility commands
+          capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
+          resize-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] (-L|-R|-U|-D) [--amount <n>]
+          pipe-pane --command <shell-command> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          wait-for [-S|--signal] <name> [--timeout <seconds>]
+          swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
+          break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          next-window | previous-window | last-window [--window <id|ref|index>]
+          last-pane [--workspace <id|ref|index>] [--window <id|ref|index>]
+          find-window [--window <id|ref|index>] [--content] [--select] <query>
+          clear-history [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          set-hook [--list] [--unset <event>] | <event> <command>
+          popup
+          bind-key | unbind-key | copy-mode
+          set-buffer [--name <name>] <text>
+          list-buffers
+          paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
+          respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]
+          display-message [-p|--print] <text>
 
-          Navigate & Arrange:
-            new-window
-            focus-window --window <id>
-            close-window --window <id>
-            move-workspace-to-window --workspace <id|ref> --window <id|ref>
-            reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
-            reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]
-            workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
-            workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
-            move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
-            new-split <left|right|up|down> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--panel <id|ref|index>] [--window <id|ref|index>] [--command <text>] [--focus <true|false>]
-            focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-            new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--command <text>] [--focus <true|false>]
-            new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--command <text>] [--focus <true|false>]
-            close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
-            move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
-            split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-            reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-            tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--url <url>] [--focus <true|false>]
-            rename-tab [--workspace <id|ref|index>] [--tab <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <title>
-            drag-surface-to-split --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-            refresh-surfaces
-            list-panels [--workspace <id|ref|index>] [--window <id|ref|index>]
-            focus-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-            close-workspace --workspace <id|ref|index> [--window <id|ref|index>]
-            select-workspace --workspace <id|ref|index> [--window <id|ref|index>]
-            rename-workspace [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
-            rename-window [--workspace <id|ref|index>] [--window <id|ref|index>] <title>
+          markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
-          Inspect:
-            diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
-            identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
-            list-windows
-            current-window
-            comments list [--repo <path>] [--all] [--json]
-            vault sessions [--agent <id>] [--folder <path>] [--limit <n>] [--json]
-            vault search <query> [--limit <n>] [--json]
-            vault checkpoints --agent <id> --session <id> [--json]
-            vault checkpoint --agent <id> --session <id> [--name <text>] [--json]
-            vault fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open] [--json]
-            list-workspaces [--window <id|ref|index>]
-            list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
-            list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
-            tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
-            top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
-            memory [--all] [--workspace <id|ref|index>] [--groups <count>]
-            surface-health [--workspace <id|ref|index>] [--window <id|ref|index>]
-            current-workspace [--window <id|ref|index>]
-            \(Self.readSelectionUsageLine)
-            \(Self.readScreenUsageLine)
-            sidebar-state [--workspace <id|ref|index>] [--window <id|ref|index>]
-            markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
-            diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
-
-          Customize:
-            guide | --skill
-            welcome
-            docs [settings|shortcuts|api|browser|agents|dock|sidebars]
-            settings [open [target]|path|docs|<target>]
-            config <doctor|check|validate|path|paths|docs|documentation|reload>
-            shortcuts
-            feedback [--email <email> --body <text> [--image <path> ...]]
-            feed tui|clear
-            themes [list|set|clear]
-            reload-config
-            right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-            sidebar <validate|reload|select|open> [name]
-            help
-
-          Automation:
-            events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
-            automation <list|show|test|enable|disable|logs|reload> [args]
-            todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
-            send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
-            send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
-            send-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <text>
-            send-key-panel --panel <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] <key>
-            notify [--title <text>] [--subtitle <text>] [--body <text>] [--reply] [--clear] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            list-notifications
-            dismiss-notification (--id <uuid> | --all-read)
-            mark-notification-read (--id <uuid> | --workspace <id|ref|index> [--surface <id|ref|index>] [--window <id|ref|index>] | --all)
-            open-notification --id <uuid>
-            jump-to-unread
-            clear-notifications [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            set-status <key> <value> [--workspace <id|ref|index>] [--window <id|ref|index>] [--icon <name>] [--color <#hex>] [--priority <n>]
-            clear-status <key> [--workspace <id|ref|index>] [--window <id|ref|index>]
-            list-status [--workspace <id|ref|index>] [--window <id|ref|index>]
-            set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref|index>] [--window <id|ref|index>]
-            clear-progress [--workspace <id|ref|index>] [--window <id|ref|index>]
-            log [--level <level>] [--source <name>] [--workspace <id|ref|index>] [--window <id|ref|index>] <message>
-            clear-log [--workspace <id|ref|index>] [--window <id|ref|index>]
-            list-log [--workspace <id|ref|index>] [--window <id|ref|index>] [--limit <n>]
-
-          Browser:
-            disable-browser | enable-browser | browser-status
-            browser [--surface <id|ref|index> | <surface>] <subcommand> ...
-            browser disable | enable | status
-            browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-            browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
-            browser goto|navigate <url> [--snapshot-after]
-            browser back|forward|reload [--snapshot-after]
-            browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
-            browser devtools toggle|console [--surface <id>]
-            browser focus-mode enter|exit|toggle [--surface <id>]
-            \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
-            browser zoom in|out|reset|<factor> [--surface <id>]   (factor sets an absolute zoom, e.g. 0.8 = 80%)
-            browser history clear --force   (clears the default profile's history; mirrors the View menu)
-            browser url|get-url
-            browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
-            browser eval <script>
-            browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
-            browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
-            browser type <selector> <text> [--snapshot-after]
-            browser fill <selector> [text] [--snapshot-after]   (empty text clears input)
-            browser press|keydown|keyup <key> [--snapshot-after]
-            browser select <selector> <value> [--snapshot-after]
-            browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
-            browser screenshot [--out <path>] [--json]
-            browser get <url|title|text|html|value|attr|count|box|styles> [...]
-            browser is <visible|enabled|checked> <selector>
-            browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
-            browser frame <selector|main>
-            browser dialog <accept|dismiss> [text]
-            browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
-            browser profiles <list|add|rename|clear|delete> [...]
-            browser profiles clear <profile|--all> [--force]
-            browser import [...]
-            \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
-            browser storage <local|session> <get|set|clear> [...]
-            browser tab <new|list|switch|close|<index>> [...]
-            browser console <list|clear>
-            browser errors <list|clear>
-            browser highlight <selector>
-            browser state <save|load> <path>
-            browser addinitscript <script>
-            browser addscript <script>
-            browser addstyle <css>
-            browser identify [--surface <id|ref|index>]
-
-          Remote:
-            auth <status|login|logout>
-            login | logout                                      (aliases for auth login/logout)
-            vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
-            remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
-            \(simulatorCommandUsageLine)
-            \(iosCommandUsageLine)
-            ssh <destination> [--transport <ssh|mosh>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-            mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
-            mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
-            ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus] [--new-window]
-            ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
-            ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
-            ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
-            remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-
-          Diagnostics / Advanced:
-            ping
-            iroh-diag
-            version
-            \(String(localized: "sudo.cli.global_usage.run", defaultValue: "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)"))
-            \(String(localized: "sudo.cli.global_usage.pending", defaultValue: "sudo pending"))
-            \(String(localized: "sudo.cli.global_usage.setup_touch_id", defaultValue: "sudo setup-touch-id"))
-            capabilities
-            rpc <method> [json-params]
-            debug-terminals
-            trigger-flash [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            set-app-focus <active|inactive|clear>
-            simulate-app-active
-            simulate-sidebar-drag --window <id|ref|index> --from <ws> --to <ws> [--duration-ms <n>] [--steps <n>]
-            # tmux compatibility commands
-            capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]
-            resize-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] (-L|-R|-U|-D) [--amount <n>]
-            pipe-pane --command <shell-command> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            wait-for [-S|--signal] <name> [--timeout <seconds>]
-            swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
-            break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-            join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
-            next-window | previous-window | last-window [--window <id|ref|index>]
-            last-pane [--workspace <id|ref|index>] [--window <id|ref|index>]
-            find-window [--window <id|ref|index>] [--content] [--select] <query>
-            clear-history [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            set-hook [--list] [--unset <event>] | <event> <command>
-            popup
-            bind-key | unbind-key | copy-mode
-            set-buffer [--name <name>] <text>
-            list-buffers
-            paste-buffer [--name <name>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
-            respawn-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <cmd>]
-            display-message [-p|--print] <text>
+          browser [--surface <id|ref|index> | <surface>] <subcommand> ...
+          browser disable | enable | status
+          browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+          browser goto|navigate <url> [--snapshot-after]
+          browser back|forward|reload [--snapshot-after]
+          browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
+          browser devtools toggle|console [--surface <id>]
+          browser focus-mode enter|exit|toggle [--surface <id>]
+          \(String(localized: "cli.browser.designMode.help", defaultValue: "browser design-mode enable|disable|toggle|status [--surface <id>]"))
+          browser zoom in|out|reset|<factor> [--surface <id>]   (factor sets an absolute zoom, e.g. 0.8 = 80%)
+          browser history clear --force   (clears the default profile's history; mirrors the View menu)
+          browser url|get-url
+          browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
+          browser eval <script>
+          browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
+          browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
+          browser type <selector> <text> [--snapshot-after]
+          browser fill <selector> [text] [--snapshot-after]   (empty text clears input)
+          browser press|keydown|keyup <key> [--snapshot-after]
+          browser select <selector> <value> [--snapshot-after]
+          browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
+          browser screenshot [--out <path>] [--json]
+          browser get <url|title|text|html|value|attr|count|box|styles> [...]
+          browser is <visible|enabled|checked> <selector>
+          browser find <role|text|label|placeholder|alt|title|testid|first|last|nth> ...
+          browser frame <selector|main>
+          browser dialog <accept|dismiss> [text]
+          browser download list [--limit <1...25>] | download [wait] [--path <path>] [--timeout-ms <ms>]
+          browser profiles <list|add|rename|clear|delete> [...]
+          browser profiles clear <profile|--all> [--force]
+          browser import [...]
+          \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
+          browser storage <local|session> <get|set|clear> [...]
+          browser tab <new|list|switch|close|<index>> [...]
+          browser console <list|clear>
+          browser errors <list|clear>
+          browser highlight <selector>
+          browser state <save|load> <path>
+          browser addinitscript <script>
+          browser addscript <script>
+          browser addstyle <css>
+          browser identify [--surface <id|ref|index>]
+          help
 
         Environment:
           CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
