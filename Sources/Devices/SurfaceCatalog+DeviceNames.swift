@@ -29,7 +29,7 @@ extension SurfaceCatalog {
             }
             guard Set(members.map(\.panelID)) == Set(workspace.panels.keys),
                   let target = cloudWorkspaceRenameService.inferredRemoteWorkspaceTarget(
-                    projections: members, resources: [], resourcesByID: resources), target.machine == machine,
+                    projections: Array(members), resources: [], resourcesByID: resources), target.machine == machine,
                   let remote = members.compactMap({ resources[$0.resource] }).flatMap(\.remoteWorkspaces)
                     .first(where: { $0.id == target.remoteWorkspaceID }) else { continue }
             if let pending = pendingCloudRenameName(for: .workspace(machine: machine, id: remote.id)),
