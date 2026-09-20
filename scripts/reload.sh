@@ -1015,8 +1015,13 @@ tagged_derived_data_path() {
 # worktrees, a fleet lease) name that warm directory once, so callers do not have
 # to pass --derived-data on every reload. It must be absolute, and only one build
 # may use it at a time; that is the owner's lock to hold, not this script's.
-default_tagged_derived_data() {
-  local slug="$1"
+resolve_tagged_derived_data() {
+  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then one directory per tag.
+  local slug="$1" explicit_set="${2:-0}" explicit_path="${3:-}"
+  if [[ "$explicit_set" -eq 1 ]]; then
+    echo "$explicit_path"
+    return 0
+  fi
   if [[ -n "${CMUX_DERIVED_DATA:-}" ]]; then
     if [[ "$CMUX_DERIVED_DATA" != /* ]]; then
       echo "error: CMUX_DERIVED_DATA must be an absolute path, got '$CMUX_DERIVED_DATA'" >&2
@@ -1290,9 +1295,7 @@ if [[ -n "$TAG" ]]; then
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
-  if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="$(default_tagged_derived_data "$TAG_SLUG")"
-  fi
+  DERIVED_DATA="$(resolve_tagged_derived_data "$TAG_SLUG" "$DERIVED_SET" "${DERIVED_DATA:-}")"
   cleanup_stale_cli_pointer_target || true
   cleanup_stale_tag_state "$TAG_SLUG" || true
 fi

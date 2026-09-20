@@ -30,7 +30,7 @@ Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS ar
 Compile-only check, no launch. Point it at the derived data `reload.sh` uses for the tag, so the check reuses that build instead of starting a second cold one:
 
 ```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "${CMUX_DERIVED_DATA:-$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>}" build
 ```
 
 `<tag>` here is the slug `reload.sh` makes from your tag: lowercased, with every run of other characters turned into `-` (`Fix/ABC-1` becomes `fix-abc-1`). A raw tag that differs from its slug points at a different, empty directory.
