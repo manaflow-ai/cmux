@@ -3467,7 +3467,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.ignoresSafeArea())
+        view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost().allowsHitTesting(false)))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         })
@@ -12390,10 +12390,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 guard let app = AppDelegate.shared else { return false }
                 switch action {
                 case .existingWorkspace(let workspaceId):
-                    if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-                       source.workspaceId == workspaceId {
-                        return true
-                    }
                     return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
                 case .newWorkspace:
                     return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
@@ -16033,7 +16029,7 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
-                SidebarCloudWorkspaceBadgeView(label: workspaceSnapshot.cloudWorkspaceLabel, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
+                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.cloudWorkspaceLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
 
                 if isEditing {
                     SidebarInlineRenameField(

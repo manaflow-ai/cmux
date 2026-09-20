@@ -23,6 +23,11 @@
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     },
+    "displayName": {
+      "title": "Nevažeći naziv mašine",
+      "message": "Naziv mašine mora biti ispisiv tekst od najviše {maxLength} znakova.",
+      "action": "Koristite kraći naziv bez kontrolnih znakova ili ga ostavite praznim da biste ga obrisali."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
     "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"
@@ -380,6 +386,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Podijeli s timom",
+      "makePrivate": "Učini privatnim",
+      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
+      "cancelAction": "Otkaži"
     }
   },
   "community": {
@@ -1003,10 +1016,10 @@
       "targetTitle": "Pogrešan prozor ili blokiran klik",
       "targetBody": "Ponovo pregledajte aplikaciju i izaberite element iz trenutnog stanja. Ako drugi prozor prekriva cilj, otkrijte željeni prozor i pregledajte ga prije ponavljanja. Ne koristite zastarjele koordinate ili indekse.",
       "productLink": "Pregled cmux Computer Use",
-    "copyTitle": "Kopiraj Computer Use prompt",
-    "copyPrompt": "Kopiraj prompt",
-    "copiedPrompt": "Kopirano",
-    "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
+      "copyTitle": "Kopiraj Computer Use prompt",
+      "copyPrompt": "Kopiraj prompt",
+      "copiedPrompt": "Kopirano",
+      "installPrompt": "Koristi vještinu $cmux-cua. Ako nedostaje, instaliraj je uobičajenim instalaterom. Ako nema dozvola, reci mi da otvorim cmux Postavke → Computer Use. Pregledaj prije rada i provjeri svaku promjenu.\n\nZadatak: [opišite zadatak ovdje]"
     },
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
@@ -1213,6 +1226,7 @@
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Kada je true (zadano), cmux koristi zadanu paletu koja prati izgled, osim ako su podešeni Ghostty tema ili boje terminala. Font i ostale postavke se zadržavaju. Kada je false, Ghostty koristi svoju fiksnu ugrađenu paletu. Izričito zadane teme i boje uvijek imaju prednost, uključujući theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcionalna maksimalna širina, u tačkama, za sadržaj terminala i ugrađenog razgovora s agentom. Postavite false za korištenje pune širine okna.",
           "sessionContentAlignment": "Horizontalni položaj sadržaja terminala i ugrađenog razgovora s agentom kada je sessionContentMaxWidth omogućen.",
           "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
@@ -1327,7 +1341,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Jednostavne komande",
       "simpleCommandsDesc": "Jednostavna komanda pokreće shell komandu u trenutno fokusiranom terminalu:",

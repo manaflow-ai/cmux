@@ -1286,7 +1286,10 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 index += 1;
             }
             "-h" | "--help" => return,
-            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+            scope
+                if cli::canonical_scope(scope) == "server"
+                    && args.get(index + 1).map(String::as_str) == Some("start") =>
+            {
                 let start_args = &args[index + 2..];
                 if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
@@ -2499,10 +2502,7 @@ fn start_detached_owner_session(
     // Capture the client's truthful terminal identity once. The detached
     // owner may outlive this client and must not derive TERM from a different
     // launch environment, or prompt palettes can diverge between clients.
-    let owner_term = args
-        .term
-        .clone()
-        .unwrap_or_else(cmux_tui_core::default_child_term);
+    let owner_term = args.term.clone().unwrap_or_else(cmux_tui_core::default_child_term);
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),
@@ -2923,6 +2923,15 @@ fn usage_exit(msg: &str) -> ! {
 #[cfg(all(test, unix))]
 mod remote_args_tests {
     use super::*;
+
+    #[test]
+    fn shorthand_server_start_uses_the_existing_lifecycle() {
+        let mut args = ["--session", "shorthand-test", "srv", "start", "--ephemeral"]
+            .map(str::to_string)
+            .to_vec();
+        rewrite_server_start(&mut args);
+        assert_eq!(args, ["--headless", "--session", "shorthand-test", "--ephemeral"]);
+    }
 
     #[test]
     fn daemon_accepts_native_and_durable_object_relay_registrations() {
