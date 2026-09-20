@@ -271,6 +271,7 @@ struct CloudOperationRecorderTests {
     @Test func metadataSeparatesNightlyFromItsBackend() {
         let info: [String: Any] = ["CFBundleShortVersionString": "1.2.3", "CFBundleVersion": "45", "CMUXCommit": "abcdef123"]
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).channel == "nightly")
+        #expect(CloudTelemetryClient.current(info: info, flavor: .rc).channel == "rc")
         #expect(CloudTelemetryClient.current(info: info, flavor: .stable).channel == "production")
         #expect(CloudTelemetryClient.current(info: info, flavor: .dev).channel == "dev")
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).revision == "abcdef123")

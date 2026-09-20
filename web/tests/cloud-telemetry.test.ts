@@ -21,7 +21,7 @@ function span(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
-function batch(spans = [span()]) { return { version: 1, client: { channel: "nightly", version: "0.1.0", build: "123", revision: "abcdef1234567", osVersion: "26.0", architecture: "arm64" }, spans }; }
+function batch(spans = [span()], channel = "nightly") { return { version: 1, client: { channel, version: "0.1.0", build: "123", revision: "abcdef1234567", osVersion: "26.0", architecture: "arm64" }, spans }; }
 function request(body: unknown = batch(), headers: Record<string, string> = {}) {
   return new Request("https://cmux.test/api/observability/cloud", {
     method: "POST", headers: { "content-type": "application/json", ...headers },
@@ -75,6 +75,47 @@ describe("Cloud diagnostic boundary", () => {
       key: "error.type", value: { stringValue: "placement" },
     });
     expect(JSON.stringify(sent)).not.toContain("synthetic-owner");
+  });
+
+  test("accepts authenticated RC diagnostics and exports rc separately from production", async () => {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const sent: { url: string; body: any }[] = [];
+    const configuration = {
+      origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+      identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+      errorsDataset: "test-errors", environment: "production", revision: "abcdef123",
+    } as const;
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        await exportCloudDiagnostics(value.spans.map((span) => ({
+          userId, eventId: span.eventId, attempts: 1, payload: { client: value.client, span },
+        })), configuration, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+    const rcPayload = batch([span({ eventId: "e51c27bc-b0ad-4149-9d92-0fc79c5d2292" })], "rc");
+    const productionPayload = batch([span({ eventId: "8cc333de-a1bc-4eb1-8d69-1decd01e17a9" })], "production");
+
+    const rcResponse = await handler(request(rcPayload));
+    const productionResponse = await handler(request(productionPayload));
+    expect(rcResponse.status).toBe(202);
+    expect(productionResponse.status).toBe(202);
+    expect((await rcResponse.json()).accepted).toBe(1);
+    expect((await productionResponse.json()).accepted).toBe(1);
+
+    const errorChannels = sent.filter((item) => item.url.endsWith("/v1/ingest/test-errors"))
+      .flatMap((item) => item.body.map((row: any) => row.client_channel)).sort();
+    expect(errorChannels).toEqual(["production", "rc"]);
+    const traceChannels = sent.filter((item) => item.url.endsWith("/v1/traces"))
+      .map((item) => item.body.resourceSpans[0].resource.attributes
+        .find((attribute: any) => attribute.key === "cmux.client.channel").value.stringValue).sort();
+    expect(traceChannels).toEqual(["production", "rc"]);
   });
 
   test("accepts a timed operation with a real parent span", () => {
