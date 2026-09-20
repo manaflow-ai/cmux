@@ -104,6 +104,7 @@ validate_extension_profile() {
   fi
   if ! python3 - "$plist_path" "$EXPECTED_CERT_SHA256" <<'PY'
 import hashlib
+import os
 import plistlib
 import sys
 from datetime import datetime, timezone
@@ -116,8 +117,18 @@ if entitlements.get("get-task-allow") is not False:
     raise SystemExit("profile is not an App Store distribution profile")
 if profile.get("ProvisionsAllDevices") or "ProvisionedDevices" in profile:
     raise SystemExit("profile is not an App Store distribution profile")
+# Tests inject a fixed instant so a fixture never depends on the real clock;
+# the release lanes leave it unset and validate against now.
+fixed_now = os.environ.get("IOS_APPSTORE_PROFILE_VALIDATION_TIME", "")
+if fixed_now:
+    now = datetime.fromisoformat(fixed_now.replace("Z", "+00:00"))
+    if now.tzinfo is None:
+        raise SystemExit("IOS_APPSTORE_PROFILE_VALIDATION_TIME must carry a timezone offset")
+    now = now.astimezone(timezone.utc)
+else:
+    now = datetime.now(timezone.utc)
 expiration = profile.get("ExpirationDate")
-if not isinstance(expiration, datetime) or expiration.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+if not isinstance(expiration, datetime) or expiration.astimezone(timezone.utc) <= now:
     raise SystemExit("profile is expired")
 if expected_cert:
     fingerprints = {

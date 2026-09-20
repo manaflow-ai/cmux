@@ -123390,51 +123390,251 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynaklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси"
+          }
+        }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
-        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання"
+          }
+        }
       }
     },
     "cloudTree.group.terminals": {
@@ -528695,7 +528895,48 @@
           }
         }
       }
-    }
+    },
+    "cloudTree.resources.provisionedCPU": null,
+    "cloudTree.resources.provisionedCapacity": null,
+    "machines.row.pin": null,
+    "machines.row.unpin": null,
+    "cli.socketControlStatus.error.invalidArguments": null,
+    "cli.socketControlStatus.help": null,
+    "cli.socketControlStatus.command": null,
+    "cli.socketControlStatus.summary": null,
+    "cli.socketControlStatus.detail": null,
+    "settings.automation.socketMode.managed": null,
+    "sidebar.cloudWorkspace.directoryUnavailable": null,
+    "sidebar.account.noTeam": null,
+    "sidebar.account.teamWithPlan": null,
+    "sidebar.account.loadingTeams": null,
+    "sidebar.account.createTeam": null,
+    "sidebar.account.headerLabel": null,
+    "sidebar.account.switchTeamFailed": null,
+    "sidebar.account.teamRowLabel": null,
+    "sidebar.account.activeSuffix": null,
+    "sidebar.account.createTeamPlaceholder": null,
+    "sidebar.account.createTeamSubmit": null,
+    "sidebar.account.createTeamCancel": null,
+    "sidebar.account.createTeamFailed": null,
+    "shortcut.openTeamPicker.label": null,
+    "machines.teamSwitch.disconnectedDetail": null,
+    "socket.authTeam.missingTeam": null,
+    "socket.authTeam.missingName": null,
+    "socket.authTeam.unknownMethod": null,
+    "cli.auth.team.useUsage": null,
+    "cli.auth.team.createUsage": null,
+    "cli.auth.team.selected": null,
+    "cli.auth.team.created": null,
+    "cli.auth.team.usage": null,
+    "command.auth.teamPicker.title": null,
+    "cli.auth.usage": null,
+    "cli.auth.help": null,
+    "socket.authTeam.asyncRequired": null,
+    "socket.authTeam.signedOut": null,
+    "socket.authTeam.notMember": null,
+    "socket.authTeam.invalidName": null,
+    "socket.authTeam.failed": null
   },
   "version": "1.0"
 }
