@@ -45,6 +45,7 @@ pub struct RegistryAgentProjection {
     pub source: String,
     pub updated_at_ms: u64,
     pub source_session: Option<String>,
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +66,7 @@ impl RegistryAgentProjection {
             "source": self.source,
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
+            "agent": self.agent,
         })
     }
 }
@@ -129,6 +131,8 @@ struct StoredAgent {
     source: StoredAgentSource,
     updated_at_ms: WireDecimal,
     source_session: Option<String>,
+    #[serde(default)]
+    agent: Option<String>,
     #[serde(default)]
     extra: Option<HashMap<String, Value>>,
 }
@@ -426,6 +430,7 @@ impl WorkspaceRegistry {
                 source: stored.source.as_str().to_string(),
                 updated_at_ms: stored.updated_at_ms.get(),
                 source_session: stored.source_session,
+                agent: stored.agent,
             });
         }
         agents.reverse();
