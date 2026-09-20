@@ -1237,8 +1237,12 @@ def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt(
 
 
 def test_admission_lookup_finds_matching_attempt_beyond_the_first_jobs_page() -> None:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from find_admitted_build import admitted_run, artifact_name
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+    finally:
+        sys.path[:] = original_path
 
     # An earlier attempt's fan-out fills the first page. Only the later
     # attempt compiled the desired inputs successfully.
@@ -1254,9 +1258,13 @@ def test_admission_lookup_finds_matching_attempt_beyond_the_first_jobs_page() ->
 
 
 def test_admission_lookup_falls_back_when_a_later_jobs_page_fails() -> None:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from find_admitted_build import admitted_run, artifact_name
-    from urllib.parse import parse_qs, urlsplit
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+        from urllib.parse import parse_qs, urlsplit
+    finally:
+        sys.path[:] = original_path
 
     base_api = admission_api(
         [admission_run(8)], {8: [artifact_name("abc", 2)]},
@@ -1278,9 +1286,13 @@ def test_admission_lookup_falls_back_when_a_later_jobs_page_fails() -> None:
 
 
 def test_admission_lookup_bounds_job_pages_and_stops_after_a_match() -> None:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from find_admitted_build import admitted_run, artifact_name
-    from urllib.parse import parse_qs, urlsplit
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+        from urllib.parse import parse_qs, urlsplit
+    finally:
+        sys.path[:] = original_path
 
     # Cap lookup work even when a run has many attempts. Missing an old
     # admission is safe: this candidate compiles normally instead.
