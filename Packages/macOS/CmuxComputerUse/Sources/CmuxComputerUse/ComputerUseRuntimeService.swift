@@ -5,8 +5,10 @@ import CoreServices
 import Darwin
 import Foundation
 import Security
+import CmuxFoundation
 
-enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
+/// The computer use direct screen capture verification exposed to the host application.
+public enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
     case ready
     case notCapturable
     case unavailable
@@ -18,15 +20,17 @@ enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
 /// driver binary. It installs the helper, launches that app through
 /// LaunchServices, and reads permission status exclusively over the daemon UDS.
 @MainActor
-final class ComputerUseRuntimeService {
+public final class ComputerUseRuntimeService {
     static let helperAppName = "cmux Computer Use"
     nonisolated private static let helperExecutableName = "cmux-cua"
 
     private static let systemSettingsBundleIdentifier = "com.apple.systempreferences"
 
     let paths: ComputerUseRuntimePaths
-    let applicationName: String
-    let stateAuthenticationKey: Data
+    /// The application name exposed to the host application.
+    public let applicationName: String
+    /// The state authentication key exposed to the host application.
+    public let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
     private let transport: SocketTransport
@@ -53,7 +57,8 @@ final class ComputerUseRuntimeService {
     /// `DisableComputerUse` (MDM), read on every enable and start.
     private let isDisabledByPolicy: () -> Bool
 
-    init(
+    /// Creates a ComputerUseRuntimeService with the supplied values.
+    public init(
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
         transport: SocketTransport = SocketTransport(),
@@ -87,7 +92,8 @@ final class ComputerUseRuntimeService {
         readinessPublicationTask?.cancel()
     }
 
-    var helperAppURL: URL? {
+    /// The helper app url exposed to the host application.
+    public var helperAppURL: URL? {
         installedHelperURL
     }
 
@@ -96,7 +102,7 @@ final class ComputerUseRuntimeService {
     /// Keep `helperAppURL` restricted to the installed helper because permission
     /// interactions need that independently registered URL. Presentation can use
     /// the identical nested app immediately, avoiding a generic first frame.
-    var presentationIcon: NSImage? {
+    public var presentationIcon: NSImage? {
         let candidate = installedHelperURL ?? bundledHelperAppURL
         let darkMode = NSApp.effectiveAppearance.bestMatch(
             from: [.darkAqua, .aqua]
@@ -152,31 +158,36 @@ final class ComputerUseRuntimeService {
         return status == noErr
     }
 
-    var stateDirectoryURL: URL {
+    /// The state directory url exposed to the host application.
+    public var stateDirectoryURL: URL {
         paths.stateDirectoryURL
     }
 
-    func status() -> (accessibility: Bool, screenRecording: Bool) {
+    /// The status exposed to the host application.
+    public func status() -> (accessibility: Bool, screenRecording: Bool) {
         (cachedStatus.accessibility, cachedStatus.screenRecording)
     }
 
-    var permissionStatusIsKnown: Bool {
+    /// The permission status is known exposed to the host application.
+    public var permissionStatusIsKnown: Bool {
         cachedStatus.isKnown
     }
 
     /// Seeds the host gate from the capture verification persisted by the last
     /// completed onboarding run. This is called before the enabled setting is
     /// reconciled, so starting the helper can publish the correct first value.
-    func setInitialOnboardingCompletion(_ completed: Bool) {
+    public func setInitialOnboardingCompletion(_ completed: Bool) {
         guard !desiredEnabled else { return }
         permissionPhase = .disabled(onboardingComplete: completed)
     }
 
-    func onboardingWasPresented() {
+    /// The onboarding was presented exposed to the host application.
+    public func onboardingWasPresented() {
         transitionPermissionPhase(.onboardingPresented)
     }
 
-    func onboardingWasCompleted() {
+    /// The onboarding was completed exposed to the host application.
+    public func onboardingWasCompleted() {
         transitionPermissionPhase(.onboardingCompleted)
     }
 
@@ -184,7 +195,7 @@ final class ComputerUseRuntimeService {
     ///
     /// The event is only a refresh trigger; the helper remains the sole
     /// authority for whether either permission is actually granted.
-    nonisolated func permissionStatusEvents() -> AsyncStream<Void> {
+    public nonisolated func permissionStatusEvents() -> AsyncStream<Void> {
         let directoryURL = paths.permissionDatabaseDirectoryURL
         return Self.mergedFileSystemEvents(at: [
             directoryURL,
@@ -193,7 +204,7 @@ final class ComputerUseRuntimeService {
     }
 
     /// Reconciles the helper daemon with the live `computerUse.enabled` setting.
-    func setEnabled(_ requested: Bool) async {
+    public func setEnabled(_ requested: Bool) async {
         // `DisableComputerUse` (MDM) wins over the user setting on every apply;
         // the managed-policy extension re-applies on a transition.
         let newValue = requested && !isDisabledByPolicy()
@@ -222,7 +233,7 @@ final class ComputerUseRuntimeService {
 
     /// Installs the nested helper at its independently registered top-level URL.
     @discardableResult
-    func ensureStandaloneHelperInstalled() async -> URL? {
+    public func ensureStandaloneHelperInstalled() async -> URL? {
         await serializeHelperLifecycle(cancelledResult: nil as URL?) { [weak self] in
             guard let self else { return nil }
             return await self.ensureStandaloneHelperInstalledWithinLifecycle()
@@ -236,7 +247,7 @@ final class ComputerUseRuntimeService {
     /// helper: opening Settings is not authorization to override the enabled
     /// preference or interrupt an active Computer Use request.
     @discardableResult
-    func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
+    public func refreshHelperStatus() async -> (accessibility: Bool, screenRecording: Bool) {
         guard acceptsNewLaunches, !Task.isCancelled else { return status() }
         permissionRefreshGeneration &+= 1
         let generation = permissionRefreshGeneration
@@ -283,7 +294,7 @@ final class ComputerUseRuntimeService {
     /// starts, so onboarding uses this explicit path for its drag and TCC-event
     /// callbacks. Other passive status reads remain lifecycle-neutral.
     @discardableResult
-    func refreshHelperStatusAfterPermissionChange() async
+    public func refreshHelperStatusAfterPermissionChange() async
         -> (accessibility: Bool, screenRecording: Bool)
     {
         guard acceptsNewLaunches, !Task.isCancelled else { return status() }
@@ -311,13 +322,15 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    func openAccessibilitySettings() async -> Bool {
+    /// The open accessibility settings exposed to the host application.
+    public func openAccessibilitySettings() async -> Bool {
         await openSystemSettings(
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         )
     }
 
-    func openScreenRecordingSettings() async -> Bool {
+    /// The open screen recording settings exposed to the host application.
+    public func openScreenRecordingSettings() async -> Bool {
         await openSystemSettings(
             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
         )
@@ -428,7 +441,8 @@ final class ComputerUseRuntimeService {
         await verifyDirectScreenCaptureOutcome() == .ready
     }
 
-    func verifyDirectScreenCaptureOutcome()
+    /// The verify direct screen capture outcome exposed to the host application.
+    public func verifyDirectScreenCaptureOutcome()
         async -> ComputerUseDirectScreenCaptureVerification
     {
         await serializeHelperLifecycle(cancelledResult: .unavailable) { [weak self] in
@@ -533,7 +547,7 @@ final class ComputerUseRuntimeService {
 
     /// Ends one exact cmux-managed proxy generation through the authenticated
     /// helper that owns its lifecycle state.
-    func endDriverSession(
+    public func endDriverSession(
         _ driverSessionID: String,
         proxySessionID: String
     ) async -> Bool {
@@ -605,7 +619,7 @@ final class ComputerUseRuntimeService {
     /// exact authenticated proxy generation that wrote the current state. The
     /// stable identity carries the choice into later calls; the exact identity
     /// owns the cursor feed that may already be visible.
-    func setDriverCursorVisible(
+    public func setDriverCursorVisible(
         _ visible: Bool,
         driverSessionID: String,
         proxySessionID: String? = nil,
@@ -684,7 +698,7 @@ final class ComputerUseRuntimeService {
     /// a cmux focus transition. This is strictly an ordering repair: lifecycle
     /// visibility is owned by `setDriverCursorVisible` and cannot be changed by
     /// a stale focus request.
-    func reassertDriverCursor(
+    public func reassertDriverCursor(
         driverSessionID: String,
         proxySessionID: String? = nil,
         targetWindowID: UInt32,
@@ -894,7 +908,7 @@ final class ComputerUseRuntimeService {
     /// code signature, so any cached "capture verified" state is stale the
     /// moment the installed build changes and must be re-verified through
     /// onboarding rather than surprising the user mid-session.
-    var helperBuildReplacedHandler: (@MainActor () -> Void)?
+    public var helperBuildReplacedHandler: (@MainActor () -> Void)?
 
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
@@ -1319,7 +1333,7 @@ final class ComputerUseRuntimeService {
 
     /// Synchronously prevents relaunch and stops the out-of-process helper.
     /// App termination cannot rely on an unstructured async task surviving exit.
-    func stopForTermination() {
+    public func stopForTermination() {
         desiredEnabled = false
         acceptsNewLaunches = false
         permissionRefreshGeneration &+= 1

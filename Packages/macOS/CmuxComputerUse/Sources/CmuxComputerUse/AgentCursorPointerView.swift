@@ -80,10 +80,11 @@ private enum ComputerUseCursorArtwork {
 /// records translation 257.8472/257.8472, scale 45.7900, roundness 16.5, and a
 /// 59% gradient midpoint.
 @MainActor
-enum ComputerUseHelperIconRenderer {
+public enum ComputerUseHelperIconRenderer {
     private static var cachedImage: NSImage?
 
-    static func image(darkMode: Bool? = nil) -> NSImage? {
+    /// The image exposed to the host application.
+    public static func image(darkMode: Bool? = nil) -> NSImage? {
         // Icon Composer owns appearance, mask, plate, rim, and lighting. Keep
         // this parameter for call-site compatibility while the source has one
         // shared macOS rendition.
@@ -109,12 +110,16 @@ enum ComputerUseHelperIconRenderer {
 /// with the cmux brand gradient (#12c7f5 -> #2d8cff -> #6c5cff) and a white
 /// outline, as a stable AppKit view.
 @MainActor
-final class AgentCursorPointerView: NSView {
-    override var isOpaque: Bool { false }
-    override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { false }
+public final class AgentCursorPointerView: NSView {
+    /// The is opaque exposed to the host application.
+    public override var isOpaque: Bool { false }
+    /// The is flipped exposed to the host application.
+    public override var isFlipped: Bool { true }
+    /// The accepts first responder exposed to the host application.
+    public override var acceptsFirstResponder: Bool { false }
 
-    override init(frame frameRect: NSRect) {
+    /// Creates a AgentCursorPointerView with the supplied values.
+    public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -124,22 +129,26 @@ final class AgentCursorPointerView: NSView {
         setAccessibilityElement(false)
     }
 
+    /// Creates a AgentCursorPointerView with the supplied values.
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
         nil
     }
 
-    override func viewDidMoveToWindow() {
+    /// The view did move to window exposed to the host application.
+    public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsDisplay = true
     }
 
-    override func viewDidChangeBackingProperties() {
+    /// The view did change backing properties exposed to the host application.
+    public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         needsDisplay = true
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    /// The hit test exposed to the host application.
+    public override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
@@ -147,7 +156,8 @@ final class AgentCursorPointerView: NSView {
     /// silhouette occupies ~11.2 units of that box, so this renders a ~17pt cursor.
     private static let skyScale: CGFloat = 1.5
 
-    override func draw(_ dirtyRect: NSRect) {
+    /// The draw exposed to the host application.
+    public override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
 
         // The icon renderer calls this same path/gradient without an outline;

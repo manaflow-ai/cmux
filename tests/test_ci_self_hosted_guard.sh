@@ -210,13 +210,8 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the Release app binary stays universal"
-    exit 1
-  fi
-
-  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the bundled CLI stays universal"
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the Release app, CLI, and cmux-cua contain exactly the resolved architectures"
     exit 1
   fi
 
@@ -225,7 +220,7 @@ check_release_build_signal() {
     exit 1
   fi
 
-  echo "PASS: release-build keeps universal artifact verification"
+  echo "PASS: release-build verifies exact artifact architectures"
 }
 
 check_release_build_disk_cleanup() {
@@ -325,15 +320,15 @@ check_runtime_regressions_collapsed() {
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
     in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
     in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
 
@@ -1229,7 +1224,6 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"

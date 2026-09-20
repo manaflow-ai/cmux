@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
+run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -11,6 +11,10 @@ on:
       test_filter:
         description: "Test class or class/method; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
         required: true
+      dispatch_id:
+        description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
+        required: false
+        default: ""
       test_timeout:
         description: "Per-test timeout in seconds"
         required: false
@@ -49,7 +53,6 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
-      SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Tart canary identity
@@ -393,7 +396,6 @@ jobs:
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
             "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-$PWD}"
-            "SWIFTPM_MIRROR_CONFIG=${SWIFTPM_MIRROR_CONFIG:-}"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
