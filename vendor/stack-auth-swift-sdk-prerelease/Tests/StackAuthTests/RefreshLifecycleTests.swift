@@ -80,4 +80,52 @@ import Testing
         session.invalidateAndCancel()
         await fixture.close()
     }
+
+    @Test func accessOnlySessionReplacementIsRejected() async {
+        let store = TokenOnlyRaceStore(access: Self.fresh)
+        let client = APIClient(
+            baseUrl: "https://fixture.invalid",
+            projectId: "fixture",
+            publishableClientKey: "synthetic",
+            tokenStore: store
+        )
+
+        let pair = await client.getOrFetchLikelyValidTokens()
+
+        #expect(pair.accessToken == nil)
+        #expect(pair.refreshFailure == .sessionChanged)
+        #expect(await store.getStoredAccessToken() == "replacement")
+    }
+}
+
+private actor TokenOnlyRaceStore: TokenStoreProtocol {
+    private var accessToken: String?
+    private var accessReads = 0
+
+    init(access: String) {
+        accessToken = access
+    }
+
+    func getStoredAccessToken() async -> String? {
+        let captured = accessToken
+        accessReads += 1
+        if accessReads == 1 {
+            accessToken = "replacement"
+        }
+        return captured
+    }
+
+    func getStoredRefreshToken() async -> String? { nil }
+
+    func setTokens(accessToken: String?, refreshToken: String?) async {
+        self.accessToken = accessToken
+    }
+
+    func clearTokens() async {
+        accessToken = nil
+    }
+
+    func compareAndSet(compareRefreshToken: String, newRefreshToken: String?, newAccessToken: String?) async {
+        accessToken = newAccessToken
+    }
 }
