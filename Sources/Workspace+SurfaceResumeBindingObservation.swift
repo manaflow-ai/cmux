@@ -8,7 +8,7 @@ extension Workspace {
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) {
         for panelId in panels.keys {
-            let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+            let initialStoredBinding = surfaceResumeBindingsByPanelId[panelId]
             let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
             if surfaceResumeBindingIndex.hasAmbiguousPanel(panelId), detectedBinding == nil {
                 // A missing panel-only winner is uncertainty, not proof that a
@@ -16,7 +16,7 @@ extension Workspace {
                 continue
             }
 
-            var storedBinding = storedBinding
+            var storedBinding = initialStoredBinding
             if detectedBinding != nil {
                 storedBinding?.clearRestoredProcessDetectionObservation()
                 if let storedBinding {
