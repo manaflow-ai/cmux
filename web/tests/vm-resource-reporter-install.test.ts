@@ -37,4 +37,5 @@ describe("advisory resource reporter installation", () => {
     await expect(provider.create({ image: "sh-test" })).rejects.toThrow();
     expect(deleted).toEqual(["vm-resource-reporter-test"]);
   });
+
 });

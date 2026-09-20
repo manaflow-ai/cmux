@@ -8,9 +8,15 @@ import SwiftUI
 /// tracking area (the buttons are always laid out so hovering never reflows).
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
+    var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
+    }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
@@ -25,7 +31,7 @@ final class CloudTreeCellView: NSTableCellView {
         addSubview(displayHost)
         // The outline owns the complete disclosure slot and gap. The hosted
         // content starts at the cell edge, with no second horizontal offset.
-        // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
+        // Content pads its own trailing edge (`style.rowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
             displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
@@ -73,10 +79,12 @@ final class CloudTreeCellView: NSTableCellView {
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
-            let buttons = buttonsHost ?? makeButtonsHost()
+            let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
+            buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
+            buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
             // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
@@ -102,26 +110,32 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else if case .resource(_, let row) = node.kind {
             setAccessibilityLabel(row.accessibilityLabel)
+        } else if case .terminal(let row) = node.kind {
+            setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
+        } else if case .display(let resource, _, _) = node.kind {
+            setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
     }
 
-    private func makeButtonsHost() -> NSHostingView<AnyView> {
+    private func makeButtonsHost(style: CloudTreeStyle) -> NSHostingView<AnyView> {
         let host = NSHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         // Buttons sit on the name line (two-line machine cards), like the chevron
         // and the status dot; every other row activates the center constraint.
-        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeStyleStore.current.machineVerticalPadding)
+        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: style.machineVerticalPadding)
         let center = host.centerYAnchor.constraint(equalTo: centerYAnchor)
+        let trailing = host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
+        buttonsTrailingConstraint = trailing
         NSLayoutConstraint.activate([
-            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            trailing,
             top,
         ])
         buttonsLeadingConstraint = displayHost.trailingAnchor.constraint(
             lessThanOrEqualTo: host.leadingAnchor,
-            constant: -CloudTreeRowGrid.trailingGap
+            constant: -style.rowGrid.trailingGap
         )
         buttonsTopConstraint = top
         buttonsCenterConstraint = center
@@ -136,6 +150,7 @@ final class CloudTreeCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        machineReorderAccessibilityActions = nil
         hovered = false
     }
 }

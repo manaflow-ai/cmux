@@ -26,6 +26,8 @@ struct MachineRowActions {
     /// Persists a pin and returns the authoritative fleet order/render state.
     /// Nil means the action was not accepted (for example, after sign-out).
     var setPinned: @MainActor (String, Bool) -> [MachineSnapshot]? = { _, _ in nil }
+    /// Account-bound local ordering; no machine command or connection mutation.
+    var ordering: CloudMachineOrderingActions?
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 

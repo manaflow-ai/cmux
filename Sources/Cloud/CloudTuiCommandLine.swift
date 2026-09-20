@@ -41,7 +41,8 @@ struct CloudTuiCommandLine: Sendable {
     /// The probe capability a client advertises when it understands `--wireguard-hub`.
     static let wireGuardHubCapability = "wireguard-hub"
 
-    /// Private addresses are browser identities; the daemon opens each requested port on its loopback.
+    /// Private addresses are browser identities; the daemon opens each requested port on its loopback
+    /// after the authenticated CONNECT proxy or Cloud WebSocket bridge accepts the browser connection.
     static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
         var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
                     "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
