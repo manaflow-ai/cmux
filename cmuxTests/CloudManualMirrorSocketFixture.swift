@@ -19,6 +19,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     let offset: Int?
     let imageBytes: Data?
     let hasDestinationPath: Bool
+    let pointerRow: Int?
 
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
@@ -37,6 +38,8 @@ struct CloudManualMirrorFixtureCommand: Sendable {
         offset = object["offset"] as? Int
         imageBytes = (object["data"] as? String).flatMap { Data(base64Encoded: $0) }
         hasDestinationPath = object["path"] != nil
+        pointerRow = (object["pointer"] as? [String: Any])
+            .flatMap { ($0["row"] as? NSNumber)?.intValue }
     }
 }
 
