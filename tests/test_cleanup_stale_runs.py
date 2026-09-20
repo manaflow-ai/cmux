@@ -13,7 +13,19 @@ SPEC.loader.exec_module(MODULE)
 
 class ClassifyRunTests(unittest.TestCase):
     now = dt.datetime(2026, 9, 19, tzinfo=dt.timezone.utc)
-    run_data = {"created_at": "2026-09-18T00:00:00Z", "status": "queued"}
+    run_data = {"created_at": "2026-09-18T00:00:00Z", "status": "queued", "event": "pull_request"}
+
+    def test_non_pr_runs_are_preserved_at_a_merged_commit(self):
+        prs = [{"state": "closed", "merged_at": "2026-09-18T12:00:00Z"}]
+        for event in ("push", "schedule", "workflow_dispatch", "merge_group", "pull_request_target", None):
+            with self.subTest(event=event):
+                run = dict(self.run_data, event=event)
+                self.assertIsNone(MODULE.classify_run(run, prs, now=self.now, min_age_seconds=3600))
+
+    def test_completed_pr_run_is_preserved(self):
+        prs = [{"state": "closed", "merged_at": "2026-09-18T12:00:00Z"}]
+        run = dict(self.run_data, status="completed")
+        self.assertIsNone(MODULE.classify_run(run, prs, now=self.now, min_age_seconds=3600))
 
     def test_merged_pr_is_eligible(self):
         prs = [{"state": "closed", "merged_at": "2026-09-18T12:00:00Z"}]
@@ -31,7 +43,7 @@ class ClassifyRunTests(unittest.TestCase):
         self.assertIsNone(MODULE.classify_run(self.run_data, [], now=self.now, min_age_seconds=3600))
 
     def test_recent_terminal_run_is_preserved(self):
-        recent = {"created_at": "2026-09-19T00:00:00Z", "status": "queued"}
+        recent = {"created_at": "2026-09-19T00:00:00Z", "status": "queued", "event": "pull_request"}
         prs = [{"state": "closed", "merged_at": None}]
         self.assertIsNone(MODULE.classify_run(recent, prs, now=self.now, min_age_seconds=3600))
 
