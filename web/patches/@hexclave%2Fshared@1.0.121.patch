@@ -18,7 +18,7 @@ index b652e6dfbdba2b122dfa21b515220c300e2ef0a8..f35ba51705d146afcdd328695a3c8c4a
 +			) {
 +				const currentUrl = new URL(window.location.href);
 +				const url = new URL("/handler/auth-error", currentUrl);
-+				url.searchParams.set("code", "email-conflict");
++				url.searchParams.set("code", "signup-pending");
 +				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
 +					const value = currentUrl.searchParams.get(name);
 +					if (value) url.searchParams.set(name, value);
@@ -54,7 +54,7 @@ index 1922c6665b6311c181f34555fd49cd45113b8046..3728f2d0a6a48b98c06ef9dc21176ec8
 +			) {
 +				const currentUrl = new URL(window.location.href);
 +				const url = new URL("/handler/auth-error", currentUrl);
-+				url.searchParams.set("code", "email-conflict");
++				url.searchParams.set("code", "signup-pending");
 +				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
 +					const value = currentUrl.searchParams.get(name);
 +					if (value) url.searchParams.set(name, value);

@@ -2,14 +2,27 @@ diff --git a/dist/components/credential-sign-up.js b/dist/components/credential-
 index 56a74bf9419e1c0cdc5324918d351f937e82eb9f..bbecb001f029102c646fdbc58e18b2550f9a7a07 100644
 --- a/dist/components/credential-sign-up.js
 +++ b/dist/components/credential-sign-up.js
-@@ -44,10 +44,16 @@ function CredentialSignUp(props) {
+@@ -44,10 +44,28 @@ function CredentialSignUp(props) {
  				email,
- 				password
+-				password
++				password,
++				noRedirect: true
  			});
 -			if (result.status === "error") setError("email", {
 -				type: "manual",
 -				message: result.error.message
 -			});
++			if (result.status === "ok") {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				await app.signOut({ redirectUrl: url.toString() });
++				return;
++			}
 +			if (result.status === "error") {
 +				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
 +					(0, _hexclave_shared_dist_utils_promises.runAsynchronouslyWithAlert)(Promise.reject(result.error), { noErrorLogging: true });
@@ -83,14 +96,27 @@ diff --git a/dist/esm/components/credential-sign-up.js b/dist/esm/components/cre
 index 5d725553ccf9851cc7809ef2809f1860df677b5d..070b11390666a50d05eb1f88a4c651c9092f9a49 100644
 --- a/dist/esm/components/credential-sign-up.js
 +++ b/dist/esm/components/credential-sign-up.js
-@@ -40,10 +40,16 @@ function CredentialSignUp(props) {
+@@ -40,10 +40,28 @@ function CredentialSignUp(props) {
  				email,
- 				password
+-				password
++				password,
++				noRedirect: true
  			});
 -			if (result.status === "error") setError("email", {
 -				type: "manual",
 -				message: result.error.message
 -			});
++			if (result.status === "ok") {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				await app.signOut({ redirectUrl: url.toString() });
++				return;
++			}
 +			if (result.status === "error") {
 +				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
 +					runAsynchronouslyWithAlert(Promise.reject(result.error), { noErrorLogging: true });

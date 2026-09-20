@@ -93,7 +93,7 @@ describe("Stack Auth async error alerts", () => {
     ).toBeLessThan(source.indexOf('message: result.error.message'));
   });
 
-  test("redirects an email conflict to localized recovery guidance", async () => {
+  test("redirects a duplicate signup to neutral localized recovery guidance", async () => {
     Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(
       "buyer@example.com",
@@ -106,7 +106,7 @@ describe("Stack Auth async error alerts", () => {
     );
     const redirect = new URL(result.url);
     expect(redirect.pathname).toBe("/handler/auth-error");
-    expect(redirect.searchParams.get("code")).toBe("email-conflict");
+    expect(redirect.searchParams.get("code")).toBe("signup-pending");
     expect(redirect.searchParams.get("after_auth_return_to")).toBe(
       "/handler/after-sign-in?nonce=opaque",
     );
@@ -116,7 +116,7 @@ describe("Stack Auth async error alerts", () => {
     expect(result.alertCalled).toBe(false);
   });
 
-  test("uses the same recovery path for a verified duplicate-email conflict", async () => {
+  test("uses the same neutral recovery path for a verified duplicate-email conflict", async () => {
     Reflect.deleteProperty(mutableProcessEnv, "NODE_ENV");
     const error = new KnownErrors.UserWithEmailAlreadyExists(
       "buyer@example.com",
@@ -124,8 +124,26 @@ describe("Stack Auth async error alerts", () => {
     );
 
     const result = await captureRedirect(error);
-    expect(new URL(result.url).searchParams.get("code")).toBe("email-conflict");
+    expect(new URL(result.url).searchParams.get("code")).toBe("signup-pending");
     expect(result.alertCalled).toBe(false);
+  });
+
+  test("keeps successful credential sign-up on the same neutral, signed-out path", async () => {
+    const source = await readFile(
+      fileURLToPath(
+        new URL(
+          "../node_modules/@hexclave/next/dist/esm/components/credential-sign-up.js",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("noRedirect: true");
+    expect(source).toContain(
+      'await app.signOut({ redirectUrl: url.toString() });',
+    );
+    expect(source).toContain('url.searchParams.set("code", "signup-pending");');
   });
 
   test("keeps development diagnostics for typed errors", async () => {

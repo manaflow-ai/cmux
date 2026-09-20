@@ -92,6 +92,19 @@ describe("localized browser auth error page", () => {
     expect(html).not.toContain("unexpected");
   });
 
+  test("renders signup recovery without disclosing whether an account exists", async () => {
+    acceptLanguage = "en-US,en;q=0.9";
+    const element = await AuthErrorPage({
+      searchParams: Promise.resolve({ code: "signup-pending" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-auth-error="signupPending"');
+    expect(html).toContain("Verify your email to continue");
+    expect(html).toContain("If we found an account, check your email for next steps");
+    expect(html).not.toContain("USER_EMAIL_ALREADY_EXISTS");
+  });
+
   test("sets right-to-left direction for Arabic recovery copy", async () => {
     acceptLanguage = "ar-SA,ar;q=0.9,en;q=0.8";
     const element = await AuthErrorPage({

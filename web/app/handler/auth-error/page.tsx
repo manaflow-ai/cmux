@@ -6,11 +6,12 @@ import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language
 import { loadMessages } from "../../../i18n/messages";
 import type { Locale } from "../../../i18n/routing";
 
-type AuthErrorMessageKey = "emailUnverified" | "generic";
+type AuthErrorMessageKey = "emailUnverified" | "signupPending" | "generic";
 
 type AuthErrorMessages = {
   emailUnverifiedTitle: string;
   emailUnverifiedBody: string;
+  signupPendingBody: string;
   genericTitle: string;
   genericBody: string;
   backToSignIn: string;
@@ -67,7 +68,9 @@ export default async function AuthErrorPage({
         <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
           {key === "emailUnverified"
             ? messages.emailUnverifiedBody
-            : messages.genericBody}
+            : key === "signupPending"
+              ? messages.signupPendingBody
+              : messages.genericBody}
         </p>
         <Link
           className="inline-flex min-h-10 items-center justify-center bg-[#25231f] px-4 py-2 text-sm font-medium text-white hover:bg-[#3a3731]"
@@ -82,6 +85,7 @@ export default async function AuthErrorPage({
 
 /** Maps an external query token onto the closed set of product-owned states. */
 function authErrorMessageKey(code: string | null): AuthErrorMessageKey {
+  if (code === "signup-pending") return "signupPending";
   return code === "email-conflict" || code === "email-unverified"
     ? "emailUnverified"
     : "generic";
@@ -98,7 +102,10 @@ async function authErrorMessages(headersList: Headers): Promise<{
   const catalog = await loadMessages(locale);
   return {
     locale,
-    messages: catalog.authError as AuthErrorMessages,
+    messages: {
+      ...(catalog.authError as AuthErrorMessages),
+      signupPendingBody: (catalog.billingRecovery as { message: string }).message,
+    },
   };
 }
 
@@ -107,7 +114,7 @@ function authErrorTitle(
   messages: AuthErrorMessages,
   key: AuthErrorMessageKey,
 ): string {
-  return key === "emailUnverified"
+  return key === "emailUnverified" || key === "signupPending"
     ? messages.emailUnverifiedTitle
     : messages.genericTitle;
 }
