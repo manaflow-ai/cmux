@@ -111,6 +111,40 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(registry.isPolling == false)
     }
 
+    @Test("Restarting Cloud discovery during an in-flight fleet read starts the new account promptly")
+    @MainActor
+    func restartingDuringInFlightDiscoveryDoesNotLeaveThePollSleeping() async {
+        let firstStarted = CloudLinkFirstValue<Bool>()
+        let secondStarted = CloudLinkFirstValue<Bool>()
+        let releaseFirst = CloudLinkFirstValue<Bool>()
+        let calls = CloudWireGuardHubTests.AttemptCounter()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { true },
+            listPage: {
+                if await calls.next() == 1 {
+                    firstStarted.resolve(true)
+                    _ = await releaseFirst.result
+                } else {
+                    secondStarted.resolve(true)
+                }
+                return VMListPage(vms: [], limits: nil)
+            },
+            notificationCenter: NotificationCenter()
+        )
+
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await received(firstStarted))
+
+        // A sign-in/account restart must invalidate the blocked pass and start a
+        // fresh poll. Otherwise the old task is discarded by generation fencing,
+        // then the retained poll sleeps for its full 45-second cadence.
+        registry.start(catalog: SurfaceCatalog())
+        releaseFirst.resolve(true)
+        #expect(await received(secondStarted))
+        await registry.accessDidEnd()
+    }
+
     @Test("An authenticated empty fleet prepares the shared terminal tunnel without delaying discovery")
     @MainActor
     func emptyFleetPreparesBeforeTheFirstMachine() async throws {
