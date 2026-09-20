@@ -116,9 +116,41 @@ class WebValidationTests(unittest.TestCase):
                 capture_output=True)
             self.assertEqual(output.read_text().strip(), "required=true")
 
-    def check_results(self, needs):
+    def test_ci_selects_every_input_previously_owned_by_web_validation(self):
+        for path in (
+            ".vercelignore", "vercel.json", "bunfig.toml", ".npmrc",
+            ".github/workflows/web-validation.yml", "tests/test_web_validation.py",
+            "config/iroh/managed-relay-catalog.json",
+            "workers/presence/src/generated/managedRelayCatalog.ts",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(gate.classify_files([path]).web)
+
+    def test_pr_and_merge_group_checks_belong_to_ci(self):
+        delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},
+                     "build": {"result": "success"},
+                     "tests": {"result": "skipped"}, "database": {"result": "skipped"}}
+        for event in ("pull_request", "merge_group"):
+            with self.subTest(event=event):
+                self.assertEqual(self.check_results(delegated, event), 0)
+                for result in ("failure", "cancelled", "skipped"):
+                    self.assertNotEqual(self.check_results(
+                        {**delegated, "build": {"result": result}}, event), 0)
+                for job in ("tests", "database"):
+                    for result in ("failure", "cancelled"):
+                        self.assertNotEqual(self.check_results(
+                            {**delegated, job: {"result": result}}, event), 0)
+                    missing = dict(delegated)
+                    del missing[job]
+                    self.assertNotEqual(self.check_results(missing, event), 0)
+        for event in ("push", "workflow_dispatch", "", "unknown"):
+            with self.subTest(event=event):
+                self.assertNotEqual(self.check_results(delegated, event), 0)
+
+    def check_results(self, needs, event="workflow_dispatch"):
         return subprocess.run([sys.executable, str(ROOT / "scripts/ci/web_validation.py"), "check"],
-            env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs)}, capture_output=True).returncode
+            env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
+                 "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
 
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},
