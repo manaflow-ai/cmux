@@ -2939,46 +2939,6 @@ jobs:
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
 
-  merge-group-fail-fast:
-    name: merge group fail fast
-    # One failed job already decides a merge group: it will be removed from the
-    # queue. ci-status reports only after every job finishes, so without this
-    # the remaining macOS jobs run to the end first, and every pull request
-    # queued behind waits for them. This job cancels the run at the first
-    # failure; ci-status runs on cancellation and reports it.
-    #
-    # It holds actions: write, so it checks out nothing and runs on a GitHub
-    # hosted runner. ci-status does not need it, and it exits when every other
-    # job is done.
-    if: ${{ github.event_name == 'merge_group' }}
-    runs-on: ubuntu-24.04 # github-hosted-required
-    timeout-minutes: 360
-    permissions:
-      actions: write
-    steps:
-      - name: Cancel the run when a job fails
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
-          while :; do
-            # A job is listed once its needs are met, so "nothing is running" can
-            # be true between stages. ci-status needs every job, so it being
-            # listed is the signal that the run is over.
-            state="$(gh api "$jobs" --paginate | jq -r '.jobs[] | [.name, .status, (.conclusion // "")] | @tsv')" || state=""
-            if grep -qE "[[:space:]]completed[[:space:]](failure|timed_out)$" <<<"$state"; then
-              echo "A job failed; cancelling the run so the queue can move on."
-              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/cancel"
-              exit 0
-            fi
-            if grep -qE "^ci-status[[:space:]]" <<<"$state"; then
-              echo "ci-status started without a failed job."
-              exit 0
-            fi
-            sleep 20
-          done
-
   ci-status:
     needs:
       - changes

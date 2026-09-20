@@ -1040,11 +1040,14 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
 def test_merge_groups_stop_at_the_first_failure() -> None:
     shards = workflow_job_block("app-host-unit-tests")
     assert "fail-fast: ${{ github.event_name == 'merge_group' }}" in shards
-    watcher = workflow_job_block("merge-group-fail-fast")
-    assert "if: ${{ github.event_name == 'merge_group' }}" in watcher
-    assert "actions: write" in watcher
-    assert "uses:" not in watcher, "the job holding actions: write must not check out or run repository code"
-    assert "merge-group-fail-fast" not in workflow_job_block("ci-status")
+    # The job that may cancel runs must come from the default branch, where a
+    # queued pull request cannot edit it, and must not run repository code.
+    watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
+    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested]" in watcher
+    assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
+    assert "permissions: {}" in watcher and "actions: write" in watcher
+    assert "uses:" not in watcher
+    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
