@@ -1482,6 +1482,28 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
+# Managed profiles already supply their own SourcePackages path. Warm that
+# exact path from local seeds before resolution; cache warming never downloads
+# on the reload path, and populated native state is never replaced.
+if [[ "${GITHUB_ACTIONS:-false}" != "true" && -n "${CMUX_SOURCE_PACKAGES_DIR:-}" && "${CMUX_LOCAL_CACHE_PREFLIGHT:-1}" == "1" ]]; then
+  CACHE_PREFLIGHT_RECEIPT="${RELOAD_LOG}.cache.json"
+  if python3 "$PWD/scripts/local-build-cache-preflight.py" \
+      --local-only --source-packages-dir "$CMUX_SOURCE_PACKAGES_DIR" --receipt "$CACHE_PREFLIGHT_RECEIPT"; then
+    if python3 - "$CACHE_PREFLIGHT_RECEIPT" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    verified = json.load(stream).get("ghosttykit", {}).get("verified_install") is True
+raise SystemExit(0 if verified else 1)
+PY
+    then
+      export CMUX_GHOSTTYKIT_PREPROVISIONED=1
+    fi
+  else
+    echo "==> Build cache preflight unavailable; using normal dependency setup."
+  fi
+fi
+
 # CI can verify/download the xcframework before deciding whether Zig is needed.
 # Fail closed if that caller assertion is inconsistent with the checkout.
 if [[ "${CMUX_GHOSTTYKIT_PREPROVISIONED:-0}" == "1" ]]; then
@@ -1775,7 +1797,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
   rm -rf "$TAG_APP_STAGING_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  /bin/cp -cR "$APP_PATH" "$TAG_APP_STAGING_PATH"
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
@@ -1892,8 +1914,11 @@ fi
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
+  # Local Debug builds run on this Mac; fetch only its client slice. The
+  # installer's universal default remains available to distribution workflows.
   cmux_tui_install_args=(
     "$APP_PATH"
+    --arch native
     --require-capability wireguard-hub
     --require-capability browser-proxy
   )
