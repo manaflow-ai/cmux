@@ -27,7 +27,10 @@ public final class MobileIrohReleaseGateTerminalSession {
 
     deinit {
         if case let .reading(surface, owner, task) = state {
-            client.clearTerminalOutputConsumerOwner(surfaceID: surface, ownerID: owner)
+            let client = self.client
+            Task { @MainActor [client] in
+                client.clearTerminalOutputConsumerOwner(surfaceID: surface, ownerID: owner)
+            }
             task.cancel()
         }
     }
