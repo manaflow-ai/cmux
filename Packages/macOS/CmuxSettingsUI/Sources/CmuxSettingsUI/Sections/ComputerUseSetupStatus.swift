@@ -42,7 +42,7 @@ public enum ComputerUseSetupStatus: Equatable, Sendable {
         case .disabled:
             String(localized: "settings.computerUse.setup.disabled", defaultValue: "Enable Computer Use to finish setup.")
         case .unavailable:
-            String(localized: "settings.computerUse.setup.unavailable", defaultValue: "The Computer Use helper is unavailable. Retry setup.")
+            String(localized: "settings.computerUse.setup.unavailable", defaultValue: "Computer Use is unavailable. Retry setup.")
         case .accessibilityRequired:
             String(localized: "settings.computerUse.setup.accessibility", defaultValue: "Accessibility permission is required.")
         case .screenRecordingRequired:

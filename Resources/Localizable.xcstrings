@@ -16050,55 +16050,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The first cmux-cua request starts setup automatically."
+            "value": "The first Computer Use request starts setup automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最初のcmux-cuaリクエストで設定が自動的に開始されます。"
+            "value": "最初の Computer Use リクエストで設定が自動的に開始されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "首次 cmux-cua 请求会自动开始设置。"
+            "value": "首次 Computer Use 请求会自动开始设置。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Einrichtung startet automatisch bei der ersten cmux-cua-Anfrage."
+            "value": "Die Einrichtung startet automatisch bei der ersten Computer Use-Anfrage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La configuration démarre automatiquement à la première demande cmux-cua."
+            "value": "La configuration démarre automatiquement à la première demande Computer Use."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يبدأ الإعداد تلقائيًا عند أول طلب cmux-cua."
+            "value": "يبدأ الإعداد تلقائيًا عند أول طلب Computer Use."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La configuración comienza automáticamente con la primera solicitud de cmux-cua."
+            "value": "La configuración comienza automáticamente con la primera solicitud de Computer Use."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "第一次 cmux-cua 要求會自動開始設定。"
+            "value": "第一次 Computer Use 要求會自動開始設定。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "첫 번째 cmux-cua 요청 시 설정이 자동으로 시작됩니다."
+            "value": "첫 번째 Computer Use 요청 시 설정이 자동으로 시작됩니다."
           }
         }
       }
@@ -536467,55 +536467,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Computer Use helper is unavailable. Retry setup."
+            "value": "Computer Use is unavailable. Retry setup."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Computer Use-Helfer ist nicht verfügbar. Versuche die Einrichtung erneut."
+            "value": "Computer Use ist nicht verfügbar. Versuche die Einrichtung erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’assistant Computer Use est indisponible. Réessayez la configuration."
+            "value": "Computer Use est indisponible. Réessayez la configuration."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساعد Computer Use غير متاح. أعد محاولة الإعداد."
+            "value": "Computer Use غير متاح. أعد محاولة الإعداد."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El asistente de Computer Use no está disponible. Vuelve a intentar la configuración."
+            "value": "Computer Use no está disponible. Vuelve a intentar la configuración."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法使用 Computer Use 輔助程式。請重試設定。"
+            "value": "無法使用 Computer Use。請重試設定。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use 辅助程序不可用。请重试设置。"
+            "value": "Computer Use 不可用。请重试设置。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use 도우미를 사용할 수 없습니다. 설정을 다시 시도하세요."
+            "value": "Computer Use를 사용할 수 없습니다. 설정을 다시 시도하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use ヘルパーを利用できません。セットアップを再試行してください。"
+            "value": "Computer Use を利用できません。セットアップを再試行してください。"
           }
         }
       }

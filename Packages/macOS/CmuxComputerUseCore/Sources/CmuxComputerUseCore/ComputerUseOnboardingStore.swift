@@ -1,33 +1,30 @@
 import Foundation
 import Observation
 
-/// Owns verified setup independently of window presentation and session activity files.
+/// Owns verified setup independently of window presentation and activity files.
 @MainActor
 @Observable
-final class ComputerUseOnboardingStore {
-    static let legacyCompletionKey = "cmux.computerUse.directCapture.ready"
+public final class ComputerUseOnboardingStore {
+    public static let legacyCompletionKey = "cmux.computerUse.directCapture.ready"
     private let defaults: UserDefaults
     private let scope: String
     private var completionKey: String { "cmux.computerUse.onboarding.completion.\(scope)" }
     private var helperIdentity: String?
     private var verificationID = UUID()
+    private var pendingVerificationID: UUID?
     @ObservationIgnored private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
-    private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false) {
+    public private(set) var completionCommitted = false
+    public private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false) {
         didSet { if oldValue != phase { statusChanged() } }
     }
 
-    init(defaults: UserDefaults, scope: String) {
+    public init(defaults: UserDefaults, scope: String) {
         self.defaults = defaults
         self.scope = scope
     }
 
-    deinit {
-        for continuation in subscribers.values { continuation.finish() }
-    }
-
-    /// Coalesced snapshot invalidations, including daemon acknowledgements and TCC changes.
-    /// Settings consumes these without starting another permission probe or setup flow.
-    func updates() -> AsyncStream<Void> {
+    /// Coalesced snapshot invalidations for Settings and other observers.
+    public func updates() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
             subscribers[id] = continuation
@@ -38,21 +35,20 @@ final class ComputerUseOnboardingStore {
         }
     }
 
-    func statusChanged() {
+    public func statusChanged() {
         for continuation in subscribers.values { continuation.yield() }
     }
 
-    func apply(_ event: ComputerUseRuntimePermissionPhase.Event) {
+    public func apply(_ event: ComputerUseRuntimePermissionPhase.Event) {
         let next = phase.applying(event)
         guard next != phase else { return }
         verificationID = UUID()
+        pendingVerificationID = nil
         phase = next
     }
 
-    /// Restores only evidence for this scope and the installed helper's code signature.
-    /// Legacy completion is adopted only after the runtime compares the entire installed
-    /// bundle with the shipped bundle. A missing/replaced helper never inherits it.
-    func restore(for identity: String) {
+    /// Restores evidence only for this runtime scope and helper identity.
+    public func restore(for identity: String) {
         guard helperIdentity != identity else { return }
         verificationID = UUID()
         helperIdentity = identity
@@ -65,6 +61,7 @@ final class ComputerUseOnboardingStore {
             persistCompletion(for: identity)
             complete = true
         }
+        completionCommitted = complete
         defaults.removeObject(forKey: Self.legacyCompletionKey)
         switch phase {
         case .disabled:
@@ -74,51 +71,72 @@ final class ComputerUseOnboardingStore {
         }
     }
 
-    /// Must run before replacing or re-provisioning a helper, including a missing copy.
-    /// Restored records must also match the signing digest, so a crash cannot
-    /// authorize replacement code even if the preferences invalidation was not flushed.
-    func invalidateHelper() {
+    /// Invalidates evidence before replacing or re-provisioning a helper.
+    public func invalidateHelper() {
         invalidateCompletion()
         helperIdentity = nil
     }
 
-    /// Revocation or failed publication invalidates both saved and in-flight evidence.
-    func invalidateCompletion() {
+    /// Revocation or failed publication invalidates saved and in-flight evidence.
+    public func invalidateCompletion() {
         verificationID = UUID()
+        pendingVerificationID = nil
+        completionCommitted = false
         phase = phase.applying(.helperReplaced)
         defaults.removeObject(forKey: completionKey)
         defaults.removeObject(forKey: Self.legacyCompletionKey)
     }
 
-    func beginVerification() -> UUID? {
+    public func beginVerification() -> UUID? {
         guard helperIdentity != nil else { return nil }
         if case .disabled = phase { return nil }
         return verificationID
     }
 
-    /// Commits only a current, explicitly requested, successful daemon capture probe.
-    /// This synchronous MainActor transaction has no suspension between checking the
-    /// generation, persisting the complete record, and authorizing tool admission.
-    func finishVerification(
+    /// Commits a successful verification for callers that do not need a
+    /// multi-profile admission transaction.
+    @discardableResult
+    public func finishVerification(
         _ result: ComputerUseDirectScreenCaptureVerification,
         attempt: UUID
     ) -> ComputerUseDirectScreenCaptureVerification {
-        guard beginVerification() == attempt, let helperIdentity else { return .unavailable }
-        guard result == .ready else {
-            invalidateCompletion()
+        guard stageVerification(result, attempt: attempt) == .ready else {
             return result
         }
-        persistCompletion(for: helperIdentity)
+        return commitVerification(attempt: attempt) ? .ready : .unavailable
+    }
+
+    /// Stages a successful capture in memory; it is not authorized until commit.
+    @discardableResult
+    public func stageVerification(
+        _ result: ComputerUseDirectScreenCaptureVerification,
+        attempt: UUID
+    ) -> ComputerUseDirectScreenCaptureVerification {
+        guard beginVerification() == attempt, result == .ready else {
+            if result != .ready { invalidateCompletion() }
+            return result == .ready ? .unavailable : result
+        }
+        pendingVerificationID = attempt
         phase = phase.applying(.onboardingCompleted)
         return .ready
+    }
+
+    /// Atomically records a staged verification after daemon publication.
+    @discardableResult
+    public func commitVerification(attempt: UUID) -> Bool {
+        guard pendingVerificationID == attempt,
+              phase.isReady,
+              let helperIdentity else { return false }
+        persistCompletion(for: helperIdentity)
+        pendingVerificationID = nil
+        completionCommitted = true
+        statusChanged()
+        return true
     }
 
     private func persistCompletion(for identity: String) {
         let record = ComputerUseOnboardingCompletion(version: 1, scope: scope, helperIdentity: identity)
         guard let data = try? JSONEncoder().encode(record) else { return }
-        // One versioned preferences value, never independently written boolean fields.
-        // A crash before preferences flush can lose completion and require setup again;
-        // it cannot turn a partial record into authorization.
         defaults.set(data, forKey: completionKey)
         defaults.removeObject(forKey: Self.legacyCompletionKey)
     }

@@ -1,16 +1,17 @@
 import AppKit
 import CmuxControlSocket
+import CmuxComputerUseCore
 import CmuxSettings
 import CoreServices
 import Darwin
 import Foundation
+import OSLog
 import Security
 
-enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
-    case ready
-    case notCapturable
-    case unavailable
-}
+private nonisolated let computerUseLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ComputerUse"
+)
 
 /// The single app-side owner of the standalone Computer Use helper lifecycle.
 ///
@@ -53,7 +54,9 @@ final class ComputerUseRuntimeService {
         }
     }
     var onboardingIsComplete: Bool {
-        permissionPhase.isReady && ComputerUseDaemonProfile.allCases.allSatisfy {
+        onboarding.completionCommitted
+            && permissionPhase.isReady
+            && ComputerUseDaemonProfile.allCases.allSatisfy {
             acknowledgedReadiness[$0] == true
         }
     }
@@ -164,10 +167,8 @@ final class ComputerUseRuntimeService {
         let normalizedURL = url.standardizedFileURL
         let status = register(normalizedURL as CFURL)
         if status != noErr {
-            NSLog(
-                "Computer Use helper LaunchServices registration failed (status: %d) for %@",
-                status,
-                normalizedURL.path
+            computerUseLogger.error(
+                "Computer Use helper LaunchServices registration failed (status: \(status, privacy: .public))"
             )
         }
         return status == noErr
@@ -1091,7 +1092,31 @@ final class ComputerUseRuntimeService {
         guard await configureStateAuthentication(for: profile) else {
             return false
         }
+        if onboarding.completionCommitted,
+           permissionPhase.isReady {
+            guard await revalidateRestoredCompletion(for: profile) else {
+                onboarding.invalidateCompletion()
+                acknowledgedReadiness.removeAll()
+                return false
+            }
+        }
         return await publishExternalPermissionReadiness(for: profile)
+    }
+
+    private func revalidateRestoredCompletion(
+        for profile: ComputerUseDaemonProfile
+    ) async -> Bool {
+        guard let identity = processIdentity(for: profile),
+              AgentPIDProcessIdentity(pid: identity.pid) == identity,
+              let status = await daemonAdmission.permissionStatus(
+                  at: socketURL(for: profile),
+                  peer: identity
+              ) else {
+            return false
+        }
+        return status.helperOwnsPermissions
+            && status.accessibility
+            && status.screenRecording
     }
 
     func publishExternalPermissionReadiness(
@@ -1118,7 +1143,8 @@ final class ComputerUseRuntimeService {
             acknowledgedReadiness.removeValue(forKey: profile)
             return false
         }
-        acknowledgedReadiness[profile] = enabled && phase.isReady
+        acknowledgedReadiness[profile] =
+            enabled && phase.isReady && onboarding.completionCommitted
         return true
     }
 

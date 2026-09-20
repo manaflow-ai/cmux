@@ -167,7 +167,7 @@ struct ComputerUseOnboardingView: View {
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.helperNote",
-                    defaultValue: "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
+                    defaultValue: "Computer Use runs independently from cmux. You can quit or reopen it without closing cmux or your terminal sessions."
                 ))
                 .font(.system(size: 11))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))

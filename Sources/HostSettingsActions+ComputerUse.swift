@@ -51,6 +51,24 @@ extension HostSettingsActions {
         )
     }
 
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot {
+        let status = computerUseRuntimeService.status()
+        let setupStatus = ComputerUseSetupStatus(
+            enabled: computerUseRuntimeService.desiredEnabled,
+            helperAvailable: computerUseRuntimeService.setupStatusIsKnown,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording,
+            captureVerified: computerUseRuntimeService.onboardingIsComplete
+        )
+        return ComputerUseSettingsSnapshot(
+            enabled: computerUseRuntimeService.desiredEnabled,
+            status: setupStatus,
+            accessibilityGranted: status.accessibility,
+            screenRecordingGranted: status.screenRecording,
+            permissionStatusIsKnown: computerUseRuntimeService.permissionStatusIsKnown
+        )
+    }
+
     func finishComputerUseSetup() {
         runComputerUseOnboardingAction(computerUseRuntimeService.status().accessibility ? .screenRecording : .accessibility)
     }

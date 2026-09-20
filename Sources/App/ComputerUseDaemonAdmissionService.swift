@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxComputerUseCore
 import Foundation
 
 /// Publishes the host's verified setup decision to an exact authenticated helper generation.

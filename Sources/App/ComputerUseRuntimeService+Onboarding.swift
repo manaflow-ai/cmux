@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxComputerUseCore
 import Foundation
 
 /// Host-only setup verification, committed before either daemon admits functional tools.

@@ -2,10 +2,14 @@ import Foundation
 import Security
 
 /// The signing digest changes whenever the helper's signed code or resources change.
-struct ComputerUseHelperIdentity: Sendable {
-    let bundleURL: URL
+public struct ComputerUseHelperIdentity: Sendable {
+    public let bundleURL: URL
 
-    func read() -> String? {
+    public init(bundleURL: URL) {
+        self.bundleURL = bundleURL
+    }
+
+    public func read() -> String? {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(bundleURL as CFURL, [], &code) == errSecSuccess,
               let code else { return nil }

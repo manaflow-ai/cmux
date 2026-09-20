@@ -123,7 +123,7 @@ def run_admission_contract(binary, send, read):
             try:
                 for empty_directory in (False, True):
                     if empty_directory:
-                        (root / "state").mkdir()
+                        (root / "state").mkdir(exist_ok=True)
                     daemon.ready.clear()
                     daemon.probed.clear()
                     daemon.functional_calls.clear()

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxComputerUseCore
 
 /// Commits one verified setup attempt across both daemon profiles, or withdraws it.
 @MainActor
@@ -11,7 +12,7 @@ struct ComputerUseOnboardingAdmissionCoordinator {
         _ verification: ComputerUseDirectScreenCaptureVerification,
         attempt: UUID
     ) async -> ComputerUseDirectScreenCaptureVerification {
-        let result = store.finishVerification(verification, attempt: attempt)
+        let result = store.stageVerification(verification, attempt: attempt)
         guard result == .ready else {
             await withdraw()
             return result
@@ -22,9 +23,15 @@ struct ComputerUseOnboardingAdmissionCoordinator {
                 return .unavailable
             }
         }
-        guard store.beginVerification() == attempt else {
+        guard store.commitVerification(attempt: attempt) else {
             await withdraw()
             return .unavailable
+        }
+        for profile in ComputerUseDaemonProfile.allCases {
+            guard await publish(profile) else {
+                await withdraw()
+                return .unavailable
+            }
         }
         return .ready
     }

@@ -12,6 +12,7 @@ final class ComputerUseUXCoordinator {
     private let showInMenuBarKey: JSONKey<Bool>
     private let liveSettingRepository: ComputerUseLiveSettingRepository
     private let runtimeService: ComputerUseRuntimeService
+    private let liveAgentIndex: SharedLiveAgentIndex
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
@@ -59,6 +60,7 @@ final class ComputerUseUXCoordinator {
         self.showInMenuBarKey = showInMenuBarKey
         self.liveSettingRepository = liveSettingRepository
         self.runtimeService = runtimeService
+        self.liveAgentIndex = liveAgentIndex
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
@@ -325,27 +327,45 @@ final class ComputerUseUXCoordinator {
 
     func handleWorkstreamEvent(_ event: WorkstreamEvent) async {
         let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
+        let toolName = Self.computerUseToolName(event)
         let isCompletion =
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
         guard isComputerUseInvocation || isCompletion else { return }
+        let isFunctionalInvocation = isComputerUseInvocation
+            && toolName != "check_permissions"
+            && featureEnabled()
+            && runtimeService.desiredEnabled
+        let surfaceID = event.surfaceId.flatMap(UUID.init(uuidString:))
+        let hasValidSurface = surfaceID != nil
+        let ownsLocalSurface = surfaceID.map {
+            ownsSurface($0, event.workspaceId.flatMap(UUID.init(uuidString:)))
+        } == true
         if isComputerUseInvocation,
-           Self.computerUseToolName(event) != "check_permissions",
-           let surfaceID = event.surfaceId.flatMap(UUID.init(uuidString:)),
-           ownsSurface(surfaceID, event.workspaceId.flatMap(UUID.init(uuidString:))),
+           toolName != "check_permissions",
+           hasValidSurface,
+           ownsLocalSurface,
            runtimeService.acceptsNewLaunches {
-            // The live terminal registry establishes ownership immediately.
-            // Agent process indexing may lag the first hook and is needed only
-            // for session/cursor bookkeeping, never for permission presentation.
-            let presented = ensureOnboardingCoordinator().requestFromToolInvocation(
+            // Authenticated hook ingress has already established ownership of a
+            // live local terminal. Agent process indexing may lag the first
+            // hook, so it is used only for session bookkeeping below.
+            _ = ensureOnboardingCoordinator().requestFromToolInvocation(
                 onboarding: runtimeService.onboarding
             )
-            if presented && !runtimeService.desiredEnabled {
+            if !runtimeService.desiredEnabled {
                 // An explicit functional request is the opt-in. Persist it
                 // after presenting so the window is never delayed by config I/O.
                 try? await configStore.set(true, for: enabledKey)
                 await runtimeService.setEnabled(true)
             }
+        }
+        if isFunctionalInvocation,
+           ownsLocalSurface,
+           runtimeService.permissionPhase == .onboardingRequired {
+            // A valid-surface hook may precede the initial agent-index scan.
+            // Await its authoritative refresh before resolving the session.
+            guard await liveAgentIndex.indexRefreshingNow() != nil,
+                  !Task.isCancelled else { return }
         }
         let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,

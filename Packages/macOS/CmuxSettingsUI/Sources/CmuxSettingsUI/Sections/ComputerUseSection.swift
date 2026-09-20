@@ -7,10 +7,7 @@ import SwiftUI
 public struct ComputerUseSection: View {
     @State private var enabled: JSONValueModel<Bool>
     @State private var showInMenuBar: JSONValueModel<Bool>
-    @State private var accessibilityGranted: Bool
-    @State private var screenRecordingGranted: Bool
-    @State private var permissionStatusIsKnown: Bool
-    @State private var setupStatus: ComputerUseSetupStatus
+    @State private var setupSnapshot: ComputerUseSettingsSnapshot
     @State private var permissionCheckArmed = false
     @State private var permissionRefreshRequest = 0
     /// `DisableComputerUse` (MDM): the toggle locks and says so; re-read on
@@ -43,10 +40,7 @@ public struct ComputerUseSection: View {
             key: catalog.computerUse.showInMenuBar,
             errorLog: errorLog
         ))
-        _accessibilityGranted = State(initialValue: hostActions.computerUseAccessibilityGranted())
-        _screenRecordingGranted = State(initialValue: hostActions.computerUseScreenRecordingGranted())
-        _permissionStatusIsKnown = State(initialValue: hostActions.computerUsePermissionStatusIsKnown())
-        _setupStatus = State(initialValue: hostActions.computerUseSetupStatus())
+        _setupSnapshot = State(initialValue: hostActions.computerUseSetupSnapshot())
     }
 
     /// Renders Computer Use enablement, permissions, and menu-bar preferences.
@@ -63,11 +57,11 @@ public struct ComputerUseSection: View {
                     String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
                     subtitle: managedByPolicy
                         ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                        : enabled.current
+                        : setupSnapshot.enabled
                             ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first cmux-cua request starts setup automatically.")
+                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first Computer Use request starts setup automatically.")
                 ) {
-                    Toggle("", isOn: Binding(get: { enabled.current && !managedByPolicy }, set: { enabled.set($0) }))
+                    Toggle("", isOn: Binding(get: { setupSnapshot.enabled && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()
                         .controlSize(.small)
                         .disabled(managedByPolicy)
@@ -91,13 +85,13 @@ public struct ComputerUseSection: View {
                 SettingsCardDivider()
                 SettingsCardRow(
                     String(localized: "settings.computerUse.setup.title", defaultValue: "Setup"),
-                    subtitle: setupStatus.message
+                    subtitle: setupSnapshot.status.message
                 ) {
-                    if setupStatus != .ready {
+                    if setupSnapshot.status != .ready {
                         Button(String(localized: "settings.computerUse.setup.finish", defaultValue: "Finish Setup…")) {
                             beginPermissionFlow(hostActions.finishComputerUseSetup)
                         }
-                        .disabled(!enabled.current || managedByPolicy)
+                        .disabled(!setupSnapshot.enabled || managedByPolicy)
                         .accessibilityIdentifier("SettingsComputerUseFinishSetup")
                     }
                 }
@@ -146,8 +140,8 @@ public struct ComputerUseSection: View {
             subtitle: String(localized: "settings.computerUse.permission.accessibility.subtitle", defaultValue: "Lets cmux Computer Use inspect and control app interfaces.")
         ) {
             permissionControls(
-                granted: accessibilityGranted,
-                statusIsKnown: permissionStatusIsKnown,
+                granted: setupSnapshot.accessibilityGranted,
+                statusIsKnown: setupSnapshot.permissionStatusIsKnown,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseAccessibility)
                 },
@@ -169,8 +163,8 @@ public struct ComputerUseSection: View {
             subtitle: String(localized: "settings.computerUse.permission.screenRecording.subtitle", defaultValue: "Lets cmux Computer Use see app windows and screen content.")
         ) {
             permissionControls(
-                granted: screenRecordingGranted,
-                statusIsKnown: permissionStatusIsKnown,
+                granted: setupSnapshot.screenRecordingGranted,
+                statusIsKnown: setupSnapshot.permissionStatusIsKnown,
                 request: {
                     beginPermissionFlow(hostActions.requestComputerUseScreenRecording)
                 },
@@ -220,10 +214,7 @@ public struct ComputerUseSection: View {
     }
 
     private func applyPermissionSnapshot() {
-        accessibilityGranted = hostActions.computerUseAccessibilityGranted()
-        screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
-        permissionStatusIsKnown = hostActions.computerUsePermissionStatusIsKnown()
-        setupStatus = hostActions.computerUseSetupStatus()
+        setupSnapshot = hostActions.computerUseSetupSnapshot()
     }
 
     private func beginPermissionFlow(_ action: () -> Void) {

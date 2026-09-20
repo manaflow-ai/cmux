@@ -1,20 +1,18 @@
-import Foundation
-
 /// The host-authoritative permission phase for the standalone Computer Use helper.
-enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
+public enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
     case disabled(onboardingComplete: Bool)
     case onboardingRequired
     case onboarding
     case ready
 
-    enum Event: Equatable, Sendable {
+    public enum Event: Equatable, Sendable {
         case setEnabled(Bool)
         case onboardingPresented
         case onboardingCompleted
         case helperReplaced
     }
 
-    var isReady: Bool {
+    public var isReady: Bool {
         switch self {
         case .ready, .disabled(onboardingComplete: true):
             true
@@ -25,7 +23,7 @@ enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
         }
     }
 
-    func applying(_ event: Event) -> Self {
+    public func applying(_ event: Event) -> Self {
         switch event {
         case .setEnabled(false):
             return .disabled(onboardingComplete: isReady)
@@ -33,8 +31,7 @@ enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
             switch self {
             case .disabled(onboardingComplete: true), .ready:
                 return .ready
-            case .disabled(onboardingComplete: false),
-                 .onboardingRequired:
+            case .disabled(onboardingComplete: false), .onboardingRequired:
                 return .onboardingRequired
             case .onboarding:
                 return .onboarding
