@@ -1266,6 +1266,7 @@
 			CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */; };
 		D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96971000000000000000001 /* CMUXCLI+Sudo.swift */; };
 		A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */; };
+		B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */; };
 		C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
@@ -5356,6 +5357,7 @@
 			CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHStartupScripts.swift"; sourceTree = "<group>"; };
 		D96971000000000000000001 /* CMUXCLI+Sudo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Sudo.swift"; sourceTree = "<group>"; };
 		A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SurfaceSelection.swift"; sourceTree = "<group>"; };
+		330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TaskHelp.swift"; sourceTree = "<group>"; };
 		C2538002A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TerminalCreation.swift"; sourceTree = "<group>"; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
@@ -10869,6 +10871,7 @@
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
 				C0DE60C0000000000000A021 /* CMUXCLI+Coderouter.swift */,
 				13019F000000000000000001 /* CMUXCLI+AuthTeam.swift */,
+				330D98B52CC6A159D363DA42 /* CMUXCLI+TaskHelp.swift */,
 				C0DE60C0000000000000A033 /* CMUXCLI+CoderouterPassthrough.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
 				E60610200000000000000001 /* SSHPTYAttachReconnectInputFilterControl.swift */,
@@ -15509,6 +15512,7 @@
 					CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */,
 				D96970000000000000000006 /* CMUXCLI+Sudo.swift in Sources */,
 				A10020000000000000000007 /* CMUXCLI+SurfaceSelection.swift in Sources */,
+				B6E774493F579BDC8C8BD8C1 /* CMUXCLI+TaskHelp.swift in Sources */,
 				C2538001A1B2C3D4E5F60719 /* CMUXCLI+TerminalCreation.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,
