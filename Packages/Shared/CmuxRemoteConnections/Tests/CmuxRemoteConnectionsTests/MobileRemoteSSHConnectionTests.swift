@@ -3,6 +3,41 @@ import Testing
 @testable import CmuxRemoteConnections
 
 @Suite struct MobileRemoteSSHConnectionTests {
+    @Test func missingHostChallengeCannotLoadCredential() async throws {
+        let connector = FakeConnector(challenge: nil)
+        let recorder = LoadRecorder()
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: try await authenticatedGate(), connector: connector,
+            hostKeyApprover: { _, _ in .accept }
+        )
+        await #expect(throws: (any Error).self) {
+            _ = try await coordinator.connect(profile: profile(), credential: .init {
+                await recorder.mark()
+                return .password("synthetic-password")
+            })
+        }
+        #expect(await recorder.loaded == false)
+    }
+
+    @Test func signOutDuringHostApprovalCannotLoadCredential() async throws {
+        let gate = try await authenticatedGate()
+        let recorder = LoadRecorder()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: profileID, algorithm: "ssh-ed25519", fingerprint: "SHA256:test"
+        ))
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: connector,
+            hostKeyApprover: { _, _ in await gate.clear(); return .accept }
+        )
+        await #expect(throws: (any Error).self) {
+            _ = try await coordinator.connect(profile: profile(), credential: .init {
+                await recorder.mark()
+                return .password("synthetic-password")
+            })
+        }
+        #expect(await recorder.loaded == false)
+    }
+
     @Test func signedOutBlocksConnectorAndCredentialLoading() async throws {
         let connector = FakeConnector(challenge: nil)
         let gate = MobileRemoteAccountGate()
