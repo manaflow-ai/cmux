@@ -13156,11 +13156,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        TerminalScrollBarPresencePolicy.isPresent(
+        TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
             hasScrollback: surfaceHasScrollback()
-        )
+        ).isPresent
     }
 
 }
