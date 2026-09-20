@@ -7,19 +7,21 @@ that takes effect on the next workflow run.
 
 | Variable            | Used by                                                    | Active value                | Fallback baked into the workflow |
 | ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
-| `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `warp-ubuntu-latest-x64-4x`   |
+| `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification              | `ubuntu-24.04-arm`          | `ubuntu-24.04-arm`               |
-| `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `tart-macos-15` | `warp-macos-15-arm64-6x`         |
+| `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `tart-macos-15` | `blacksmith-6vcpu-macos-15`      |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26`   | macOS 26 compatibility jobs                                | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
 | `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds       | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26`     |
 | `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
-| `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests           | `tart-gui`                  | `warp-macos-15-arm64-6x`         |
+| `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests           | `tart-gui`                  | `blacksmith-6vcpu-macos-15`      |
 | `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `tart-ios` | `blacksmith-6vcpu-macos-26`  |
 
-Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}`.
+Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
-missing variable.
+missing variable. Pull requests from forks never see repository variables, so
+the fallback is where they always run: it must be a Blacksmith label, never the
+paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that.
 
 ## Tart isolation and capacity
 
@@ -82,7 +84,7 @@ gh variable list --repo manaflow-ai/cmux
 ## Manual runs
 
 `perf-activation.yml` and `test-e2e.yml` keep a `runner` choice input that
-defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Warp
+defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Blacksmith
 fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation

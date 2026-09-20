@@ -18,7 +18,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
     private final class RecordingSheetPresenter: NewMachineSheetPresenting {
         private(set) var presentCount = 0
         private(set) var lastWindow: NSWindow?
-        func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+        func presentNewMachineFetchingPlan(preferredWindow: NSWindow?, onReservation: @escaping @MainActor (UUID) -> Void) async -> UUID? {
             presentCount += 1
             lastWindow = preferredWindow
             return nil

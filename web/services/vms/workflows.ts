@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage, parseVmResourceUsage } from "./resourceUsage";
-import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
+import {
+  applyVmResourceUsage,
+  VM_RESOURCE_USAGE_KEY,
+  VM_RESOURCE_USAGE_MAX_AGE_MS,
+  shouldReadVmResourceStatsDirectly,
+} from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -111,7 +115,6 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
-import { vmResumeState } from "./resumeState";
 
 export {
   homeVolumeNameForUser,
@@ -536,7 +539,7 @@ function requireGoMetadataShape(planId: string, metadata: Record<string, unknown
   return requireGoShape(planId, hasVmResourceReservationMetadata(metadata) ? vmResourceReservationFromMetadata(metadata) : null);
 }
 
-export function createVm(input: {
+type CreateVmInput = {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
@@ -546,6 +549,8 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  /** Stored before provisioning so the first guest prompt already has its chosen name. */
+  readonly displayName?: string | null;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -574,7 +579,23 @@ export function createVm(input: {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
-}): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+};
+
+function createVmBeginInput(input: CreateVmInput): CreateVmInput {
+  if (!isPaidVmPlan(input.billingPlanId)) return input;
+  return {
+    ...input,
+    // Reserve the logical CPU and memory profile when memoryMb is present,
+    // while retaining the baked image's actual disk claim. A direct caller
+    // may instead provide only imageSize; in that form the image is the
+    // authoritative request.
+    resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go"
+      ? GO_VM_RESERVATION
+      : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })),
+  };
+}
+
+export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
     yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
@@ -582,19 +603,7 @@ export function createVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     // Record paid machine shapes for snapshot, fork, and resize recovery.
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        // Reserve the logical CPU and memory profile when memoryMb is present,
-        // while retaining the baked image's actual disk claim. A direct caller
-        // may instead provide only imageSize; in that form the image is the
-        // authoritative request.
-        resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({
-          memoryMb: input.memoryMb,
-          imageSize: input.imageSize,
-        })),
-      }
-      : input;
+    const beginInput = createVmBeginInput(input);
 
     // The owner's network row and the create row do not depend on each other,
     // so the request pays the slower of the two reads, not their sum. A network
@@ -684,7 +693,10 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        displayName: create.vm.slug ?? undefined,
+        // The display label is reserved with the row before provider work starts.
+        // Passing it here makes the first guest prompt correct and removes the
+        // blocking post-create rename on current backends.
+        displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
@@ -1327,18 +1339,7 @@ export function pauseVm(input: {
       return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
     }
     if (vm.status === "paused") {
-      // Freestyle traffic can wake a VM before our row is reconciled. Only
-      // skip the pause when a live read confirms it is still parked.
-      const status = providers.getStatus
-        ? yield* providers.getStatus(vm.provider, providerVmId)
-        : "paused";
-      if (status === "paused") {
-        return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
-      }
-      if (status === "destroyed") {
-        yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "destroyed" });
-        return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
-      }
+      return { id: providerVmId, status: "paused" } satisfies VmPauseResumeResult;
     }
     const pause = providers.pause;
     if (!pause) {
@@ -2407,6 +2408,19 @@ function setRuntimeBudget(providers: VmProviderGatewayShape, vm: CloudVmRow, vmI
   return providers.setRuntimeBudget(vm.provider, vmId, seconds);
 }
 
+function bestEffortPause(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  const pause = providers.pause;
+  if (!pause) return Effect.void;
+  return Effect.gen(function* () {
+    if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+    yield* pause(vm.provider, providerVmId);
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
 function resumeUntilRunning(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -2420,10 +2434,13 @@ function resumeUntilRunning(
       if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
       yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
     }
-    const handle = yield* resume(vm.provider, providerVmId);
+    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
+    // The provider start already happened; roll back so a started-but-
+    // unrecorded VM is never left running outside Postgres accounting.
+    yield* bestEffortPause(providers, vm, providerVmId);
     return yield* Effect.fail(
       new VmProviderOperationError({
         provider: vm.provider,
@@ -2434,14 +2451,13 @@ function resumeUntilRunning(
   });
 }
 
-function resumeWithReservation(
+function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  resumeSource: VmResumeSource,
   maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
 ): Effect.Effect<boolean, VmWorkflowError> {
+  if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
     const reserved = yield* repo.reservePausedResume({
       id: vm.id,
@@ -2449,7 +2465,6 @@ function resumeWithReservation(
       billingTeamId: vm.billingTeamId,
       providerVmId,
       maxActiveVms,
-      observedResumeGeneration: vmResumeState(vm.providerMetadata)?.generation ?? null,
     });
     if (!reserved) {
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -2463,37 +2478,21 @@ function resumeWithReservation(
         }),
       );
     }
-    if (reserved.resumeClaimed) {
-      yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
-        Effect.tapError(() => rollbackPausedResumeReservation(repo, providers, vm, providerVmId, reserved.resumeGeneration)),
-      );
-    } else if (!(yield* waitForRunningStatus(providers, vm, providerVmId))) {
-      return yield* Effect.fail(new VmProviderOperationError({
-        provider: vm.provider, operation: `resume(${providerVmId})`,
-        cause: new Error("another resume did not reach running"),
-      }));
-    }
-    // The reservation already counts this VM as running. A final-write failure
-    // must not pause it: another request may have confirmed and attached to it.
-    yield* recordRunningTransition(repo, vm, providerVmId, reserved.resumeGeneration, resumeSource);
-    return reserved.resumeClaimed;
+    return vm.status === "paused";
   });
 }
 
 function rollbackPausedResumeReservation(
   repo: VmRepositoryShape,
-  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  resumeGeneration: string,
+  reserved: boolean,
 ): Effect.Effect<void, never> {
-  return Effect.gen(function* () {
-    // A failed start can have reached the provider. Release capacity only
-    // after a passive read proves it stayed paused, and only for our claim.
-    if (!providers.getStatus) return;
-    const status = yield* providers.getStatus(vm.provider, providerVmId).pipe(Effect.timeout(RESUME_STATUS_PROBE_TIMEOUT));
-    if (status !== "paused") return;
-    yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", resumeGeneration });
+  if (!reserved) return Effect.void;
+  return repo.markProviderObservedStatus({
+    id: vm.id,
+    providerVmId,
+    status: "paused",
   }).pipe(Effect.catchAll(() => Effect.void));
 }
 
@@ -2546,8 +2545,7 @@ function preflightResumeIfSuspended(
     // A passive/exec path can trust the row and let the provider operation
     // perform its own wake. User-open paths opt into a live probe because a
     // provider can idle-pause a VM while Postgres still says `running`.
-    const pendingResume = vmResumeState(vm.providerMetadata);
-    if (vm.status === "running" && !forceProviderProbe && pendingResume?.phase !== "pending") return false;
+    if (vm.status === "running" && !forceProviderProbe) return false;
 
     const status = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.timeoutFail({
@@ -2609,12 +2607,6 @@ function preflightResumeIfSuspended(
       return false;
     }
     if (status === "running") {
-      // Recover a caller that started the VM but died before completing its
-      // durable claim. Completion is generation-checked and emits at most once.
-      if (pendingResume?.phase === "pending") {
-        yield* recordRunningTransition(repo, vm, providerVmId, pendingResume.generation, resumeSource);
-        return false;
-      }
       // A provider-side action can resume a VM entirely outside the control
       // plane; if the durable row still says paused, record the observed
       // running state so active-limit reconciliation can see the VM.
@@ -2632,7 +2624,21 @@ function preflightResumeIfSuspended(
     }
     if (status !== "paused") return false;
 
-    return yield* resumeWithReservation(repo, providers, vm, providerVmId, resumeSource, options.maxActiveVms);
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms);
+    yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
+    yield* recordRunningTransition(
+      repo,
+      providers,
+      vm,
+      providerVmId,
+      new VmNotFoundError({ vmId: providerVmId }),
+    ).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+    );
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+    return true;
   });
 }
 
@@ -2670,38 +2676,51 @@ function withResumeOnSuspendedAfterFailure<A>(
           return yield* Effect.fail(originalError);
         }
 
-        yield* resumeWithReservation(repo, providers, vm, providerVmId, resumeSource, maxActiveVms).pipe(
+        const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms);
+        yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
         );
+        yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
+          Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
+        );
+        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
         return yield* op;
       });
     }),
   );
 }
 
-// Either the starter or a waiter may confirm the provider's running state.
-// Only the winner of this generation's durable completion records the event.
-function recordRunningTransition(
+// After a successful provider resume, Postgres must record the running
+// transition before the workflow proceeds. When the write fails (or the row
+// was destroyed concurrently), roll the provider back to the durable state
+// with a best-effort pause so a running VM is never left invisible to
+// active-limit accounting; Freestyle's idle auto-suspend (~10s) is the
+// backstop if the pause itself fails.
+function recordRunningTransition<E extends VmWorkflowError>(
   repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
-  resumeGeneration: string,
-  resumeSource: VmResumeSource,
-): Effect.Effect<void, VmWorkflowError> {
+  staleRowError: E,
+): Effect.Effect<void, VmDatabaseError | E> {
+  const rollbackPause = (): Effect.Effect<void, never> => {
+    const pause = providers.pause;
+    if (!pause) return Effect.void;
+    return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  };
   return Effect.gen(function* () {
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId,
       status: "running",
-      resumeGeneration,
-    });
+    }).pipe(
+      Effect.tapError(() => rollbackPause()),
+    );
     if (!didUpdate) {
-      const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.billingTeamId, providerVmId });
-      const completed = vmResumeState(current?.providerMetadata);
-      if (current?.status === "running" && completed?.generation === resumeGeneration && completed.phase === "running") return;
-      return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
+      yield* rollbackPause();
+      return yield* Effect.fail(staleRowError);
     }
-    yield* recordResumeUsageEvent(repo, vm, resumeSource);
   });
 }
 
@@ -2974,31 +2993,22 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
-        // Local GCP dev backends do not share the production coderouter edge,
-        // so their baked guest reporter cannot authenticate its callback. Keep
-        // this explicit dev-only fallback behind an operator-set flag; release
-        // and staging continue to use the normal reporter metadata path.
-        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1" || stats.state !== "awake") {
+        // The private development backend cannot receive production-edge reports.
+        // Production keeps the push path. Never probe non-awake machines, and
+        // prefer an existing fresh report over another guest round trip.
+        const fresh = reported.resourceSampledAt !== undefined
+          && reported.resourceSampledAt <= now
+          && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
           return Effect.succeed(reported);
         }
-        const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
-        return providers.exec(vm.provider, input.providerVmId, command).pipe(
-          Effect.map((result) => {
-            if (result.exitCode !== 0) return reported;
-            try {
-              const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
-              if (!usage) return reported;
-              return {
-                ...stats,
-                ...usage,
-                sampledAt: now,
-                resourceSampledAt: now,
-              };
-            } catch {
-              return reported;
-            }
-          }),
-          Effect.catchAll(() => Effect.succeed(reported)),
+        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+            [VM_RESOURCE_USAGE_KEY]: {
+              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+            },
+          }, input.providerVmId, Date.now()) : reported),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
         );
       }),
       Effect.mapError((error): VmWorkflowError => error),
