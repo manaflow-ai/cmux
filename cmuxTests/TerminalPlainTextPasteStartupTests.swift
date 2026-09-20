@@ -25,8 +25,7 @@ struct TerminalPlainTextPasteStartupTests {
             pasteboard.releaseGlobally()
         }
         #expect(pasteboard.setString(text, forType: .string))
-        let helperURL = try makeHelper(for: text)
-        defer { try? FileManager.default.removeItem(at: helperURL) }
+        let helperURL = try bundledHelper()
         let client = TerminalPastePreparationWorkerClient(
             executableURL: URL(fileURLWithPath: "/usr/bin/false"),
             pasteboardService: TerminalPasteboardService(),
@@ -55,8 +54,7 @@ struct TerminalPlainTextPasteStartupTests {
         }
         #expect(pasteboard.setString("visible text", forType: .string))
         #expect(pasteboard.setString("<p>visible text</p>", forType: .html))
-        let helperURL = try makeHelper(for: "incorrect helper result")
-        defer { try? FileManager.default.removeItem(at: helperURL) }
+        let helperURL = try bundledHelper()
         let client = TerminalPastePreparationWorkerClient(
             executableURL: URL(fileURLWithPath: "/usr/bin/false"),
             pasteboardService: TerminalPasteboardService(),
@@ -72,24 +70,11 @@ struct TerminalPlainTextPasteStartupTests {
         }
     }
 
-    @MainActor
-    private func makeHelper(for text: String) throws -> URL {
-        let helperURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-plain-text-helper-\(UUID().uuidString)")
-        let encodedText = Data(text.utf8).base64EncodedString()
-        let script = """
-        #!/bin/sh
-        if [ \"$1\" != \"--cmux-plain-text-paste-worker\" ]; then exit 64; fi
-        directory=\"$3\"
-        printf '%s' '\(encodedText)' | /usr/bin/base64 -D > \"$directory/text-payload.txt\"
-        printf '%s' '{\"status\":\"text\",\"destination\":\"terminal\",\"filename\":\"text-payload.txt\"}' > \"$directory/response.json\"
-        exit 0
-        """
-        try script.data(using: .utf8)?.write(to: helperURL)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o700],
-            ofItemAtPath: helperURL.path
-        )
-        return helperURL
+    private func bundledHelper() throws -> URL {
+        try #require(Bundle.main.url(
+            forResource: "cmux-paste-text-worker",
+            withExtension: nil,
+            subdirectory: "bin"
+        ))
     }
 }
