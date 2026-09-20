@@ -1,0 +1,34 @@
+name: Merge-group policy checks
+
+# "CLA Assistant", "CLA policy guard" and "Web complexity" are required on main,
+# and their own workflows judge a pull request's head: they run only on
+# pull_request_target, and a pull request may not edit them. A merge group holds
+# only pull requests that already passed all three, so this workflow reports the
+# same check names for the queue's merge commit without running anything.
+# "Web complexity" still runs on every push to main.
+on:
+  merge_group:
+
+permissions: {}
+
+jobs:
+  cla-assistant:
+    name: CLA Assistant
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo "Passed on every pull request in this merge group."
+
+  cla-policy-guard:
+    name: CLA policy guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo "Passed on every pull request in this merge group."
+
+  web-complexity:
+    name: Web complexity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: echo "Passed on every pull request in this merge group."

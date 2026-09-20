@@ -6370,18 +6370,12 @@ extension BrowserPanel {
         bypassesRemoteWorkspaceProxy
     }
 
-    func automationReloadTargetURL() -> URL? {
-        restorableDisplayURLForCurrentErrorPage(liveURL: webView.url)
-            ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
-            ?? navigationDelegate?.lastAttemptedURL
-            ?? resolvedCurrentSessionHistoryURL()
-            ?? currentURL
-            ?? URL(string: "about:blank")
-    }
-
     private func prepareForReload(reason: String, mode: BrowserPanelReloadMode) -> Bool {
         if cloudAccess.model != nil {
             cloudAccess.retry()
+            return true
+        }
+        if retryFailedNavigationForReload(mode: mode) {
             return true
         }
         if recoverTerminatedWebContent(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
