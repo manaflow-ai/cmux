@@ -29,6 +29,7 @@ struct CloudDesktopAccessTests {
         var navigations: [URL] = []
         state.automaticallyNavigate { navigations.append($0) }
         model.connect()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
         #expect(navigations.isEmpty, "A slow route cannot invent a completed navigation")
         ready.resolve(true)
         #expect(await wait { navigations.count == 1 })
