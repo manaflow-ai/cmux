@@ -193,7 +193,7 @@ extension FileDropOverlayView {
             return insert(text, into: textView)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
-            return insert(urls, into: terminal)
+            return insert(urls, into: terminal, pasteboard: sender.draggingPasteboard)
         }
         return false
     }
@@ -235,10 +235,11 @@ extension FileDropOverlayView {
         return true
     }
 
-    private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
+    private func insert(_ urls: [URL], into terminal: GhosttyNSView, pasteboard: NSPasteboard) -> Bool {
         FileDropTextDropController.performTerminalFileDrop(
             terminal: terminal,
-            urls: urls
+            urls: urls,
+            pasteboard: pasteboard
         )
     }
 

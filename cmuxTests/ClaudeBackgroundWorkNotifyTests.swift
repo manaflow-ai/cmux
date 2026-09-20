@@ -63,7 +63,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: stdin,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -166,7 +166,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"notif-perm-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude needs your permission","notification_type":"permission_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -197,7 +197,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"notif-cue-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude needs your permission to run a tool"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -230,7 +230,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(stopResult)
@@ -240,7 +240,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(notifResult)
@@ -282,7 +282,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(stopResult)
@@ -291,7 +291,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(notifResult)

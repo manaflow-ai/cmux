@@ -149,6 +149,7 @@ struct Tokens {
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
+    super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
         .words
         .first()
@@ -297,7 +298,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "ignore-case",
 ];
 
-fn is_boolean_flag(name: &str) -> bool {
+pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
 }
 
@@ -914,6 +915,7 @@ fn parse_tab_strings(
         }
         [selector, "rename"] => {
             selectors.insert("tab", "tab", selector)?;
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             request_with_required_name(ResourceOperation::TabRename, selectors, flags)
         }
         [selector, "move"] => {
@@ -1800,7 +1802,10 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         if !request.is_object() {
             return Err(UsageError::new("--request-json must be a JSON object"));
         }
-        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request }));
+        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan {
+            request,
+            stream: flags.boolean("stream"),
+        }));
     }
     let operation = match refs.as_slice() {
         ["operation", operation] => *operation,
@@ -2235,6 +2240,17 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("name".into(), Value::String(flags.required("name")?));
+    if operation == ResourceOperation::TabRename {
+        if let Some(source) = flags.take("source") {
+            validate_one_of("--source", &source, &["user", "auto"])?;
+            params.insert("source".into(), Value::String(source));
+        }
+        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
+        if let Some(revision) = flags.take("expected-name-revision") {
+            validate_decimal("--expected-name-revision", &revision)?;
+            params.insert("expected_name_revision".into(), Value::String(revision));
+        }
+    }
     request(operation, selectors, flags, params)
 }
 
@@ -3357,6 +3373,43 @@ mod tests {
     }
 
     #[test]
+    fn cloud_rename_authority_validates_name_source_and_revision() {
+        const TAB: &str = "tab_00000000000000000000000000000007";
+        for source in ["user", "auto"] {
+            for revision in ["0", "18446744073709551615"] {
+                let plan = protocol(&[
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    source,
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    revision,
+                ]);
+                assert_eq!(operation(&plan), "tab.rename");
+                assert_eq!(plan.params["source"], source);
+                assert_eq!(plan.params["expected_generation"], "daemon");
+                assert_eq!(plan.params["expected_name_revision"], revision);
+            }
+        }
+
+        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
+        }
+
+        for invalid in ["", "process", "USER"] {
+            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid source {invalid:?}");
+        }
+    }
+
+    #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
         const TERMINAL: &str = "term_00000000000000000000000000000041";
         let plain = protocol(&[
@@ -4470,7 +4523,22 @@ mod tests {
                 ],
                 "tab.create_browser",
             ),
-            (vec!["tab", TAB, "rename", "--name", "logs"], "tab.rename"),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    "auto",
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    "0",
+                ],
+                "tab.rename",
+            ),
             (
                 vec![
                     "tab",

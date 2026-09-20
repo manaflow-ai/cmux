@@ -28,6 +28,7 @@ Review production Swift and runtime changes for:
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 - Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
+- Remote CLI relay authorization (GHSA-9vmv-3hjw-j28c): the relay credential lives on the remote host, so flag any v2 method added to the relay allowlist without a per-method security analysis, any command-bearing param (`initial_command`, `command`, `tmux_start_command`, `pane_start_command`) accepted through the relay, new workspace/surface/tab ID param names missing from the scoped key sets, and any weakening of deny-by-default in `RemoteRelayCommandPolicy`.
 
 ## Runtime No Hacky Sleeps
 
@@ -151,6 +152,12 @@ Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect
 
 For web changes under `web/app/api/vm/**` and `web/services/vms/**`, the Cloud VM control plane is an Effect boundary: business logic is an Effect program over `VmRepository`, `VmProviderGateway`, and `VmBillingGateway`, failures are tagged errors in `VmWorkflowError`, and routes run programs through `runVmRoute` with a route-local `onError` overrides table.
 
-Flag a VM route that awaits Drizzle, `cloudDb()`, `services/coderouter/teamMachines`, or a provider SDK directly; `Effect.runPromise`, `Effect.provide`, or `runVmWorkflow` inside a route handler; `isVm*Error` predicate chains in a route; a new tagged error missing from `VmWorkflowError` or from `vmWorkflowErrorResponders` in `web/services/vms/routeHelpers.ts`; a workflow failure modeled as a thrown Error or a null return; a new repository query written as a plain Promise and wrapped at the call site; and a PR that adds a VM endpoint in plain code and defers the migration to a follow-up.
+Flag a VM route that awaits Drizzle, `cloudDb()`, `services/coderouter/teamMachines`, or a provider SDK directly; `Effect.runPromise`, `Effect.provide`, or `runVmWorkflow` inside a route; `isVm*Error` predicate chains in a route; a new tagged error missing from `VmWorkflowError` or from `vmWorkflowErrorResponders` in `web/services/vms/routeHelpers.ts`; a workflow failure modeled as a thrown Error or a null return; a new repository query written as a plain Promise and wrapped at the call site; and a PR that adds a VM endpoint in plain code and defers the migration to a follow-up.
 
 Pass for routes that parse input and resolve auth with the existing helpers then call `runVmRoute(program, { request, onError })`, cron and account-deletion callers on `runVmWorkflow`, plain TypeScript outside the VM control plane (billing, coderouter, subrouter, vault, pages, scripts), and existing code only touched incidentally.
+
+## Cloud Persistent Session and Early Input
+
+For Cloud terminal creation and transport, keep one authenticated machine-owned cmux-tui session and multiplex control replies and revisioned events over it. Logical per-terminal streams are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing. Reserve the focused user-created manual pane and request its empty Ghostty runtime immediately; remote PTY creation, shell startup, and attachment populate that runtime later. Preserve ordered input ownership, auth, idempotency keys, revision fences, and attachment leases. Reuse a current validated event graph and refresh only for cold, stale, missing, or revision-conflict state.
+
+Hidden panes retain bounded restore admission. Manual renderers must not wait for local command-wrapper installation: that startup work belongs to surfaces that execute a local child. Never replay early input to a replacement terminal or generation.

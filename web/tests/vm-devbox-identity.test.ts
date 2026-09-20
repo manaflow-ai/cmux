@@ -12,6 +12,7 @@ import {
   devboxSshHostKeyRegenerateCommand,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
+import { devboxNetworkAnnounceCommand } from "../services/vms/images/network";
 
 // The devbox identity contract (services/vms/images/identity.ts): a cmux Cloud
 // machine is `cmux`, never the Freestyle base's `freestyle-vm`. The shell that
@@ -161,5 +162,83 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     expect(wipe).toBeGreaterThan(-1);
     expect(rekey).toBeGreaterThan(wipe);
     expect(bound).toBeGreaterThan(rekey);
+  });
+});
+
+// The private-network announce (services/vms/images/network.ts): the VPC
+// fabric forwards to a machine only after a frame from it, and a clone sends
+// none by itself. The shell runs here against fake `ip` and `arping` binaries;
+// the boot supervisor, the attach path, the image and its verify are pinned.
+describe("devbox private-network announce (services/vms/images/network.ts)", () => {
+  const withFakeNet = (addrs: string, run: (env: NodeJS.ProcessEnv, log: string) => void) => {
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-announce-"));
+    try {
+      const log = path.join(dir, "arping.log");
+      writeFileSync(path.join(dir, "ip"), `#!/bin/sh\n[ "$*" = "-o -4 addr show scope global" ] || { echo "unexpected ip $*" >&2; exit 2; }\ncat <<'EOF'\n${addrs}EOF\n`, { mode: 0o755 });
+      writeFileSync(path.join(dir, "arping"), `#!/bin/sh\necho "$*" >> ${JSON.stringify(log)}\n`, { mode: 0o755 });
+      run({ ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` }, log);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  test("announces every global IPv4 on a real interface, two unsolicited probes each, and skips container bridges and the provider's link-local leg", () => {
+    withFakeNet(
+      "2: eth0    inet 169.254.77.2/30 scope global eth0\\       valid_lft forever\n" +
+        "3: docker0    inet 172.17.0.1/16 brd 172.17.255.255 scope global docker0\\       valid_lft forever\n" +
+        "4: veth1a2b    inet 172.18.0.2/16 scope global veth1a2b\\       valid_lft forever\n" +
+        "5: eth0.164    inet 10.16.162.53/24 brd 10.16.162.255 scope global eth0.164\\       valid_lft forever\n" +
+        "6: eth1    inet 10.16.163.7/24 scope global eth1\\       valid_lft forever\n",
+      (env, log) => {
+        const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], { env, encoding: "utf8" });
+        expect(result.status).toBe(0);
+        expect(readFileSync(log, "utf8").trim().split("\n").sort()).toEqual([
+          "-U -c 2 -w 2 -I eth0.164 10.16.162.53",
+          "-U -c 2 -w 2 -I eth1 10.16.163.7",
+        ]);
+      },
+    );
+  });
+
+  test("is a successful no-op with no global address and without arping", () => {
+    withFakeNet("", (env, log) => {
+      const result = spawnSync("sh", ["-c", devboxNetworkAnnounceCommand()], { env, encoding: "utf8" });
+      expect(result.status).toBe(0);
+      expect(existsSync(log)).toBe(false);
+    });
+    const empty = mkdtempSync(path.join(tmpdir(), "cmux-noarping-"));
+    try {
+      // PATH holds only the empty dir, so `command -v arping` cannot find a host
+      // binary; /bin/sh is invoked by absolute path and needs no PATH.
+      const result = spawnSync("/bin/sh", ["-c", devboxNetworkAnnounceCommand()], {
+        env: { ...process.env, PATH: empty },
+        encoding: "utf8",
+      });
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  test("the boot supervisor announces on every clone and keeps announcing for the life of the machine", () => {
+    // The very command the attach path runs, so the two cannot drift.
+    expect(devboxBoot).toContain(`announce_network() {\n  ${devboxNetworkAnnounceCommand()}\n}`);
+    // Periodic: started once, before the supervisor loop, as a job of the
+    // supervisor (not detached) so a restarted supervisor never doubles it.
+    expect(devboxBoot).toContain("announce_loop() {\n  while true; do announce_network; sleep 30; done\n}");
+    expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeGreaterThan(-1);
+    expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeLessThan(devboxBoot.indexOf("\nwhile true; do\n"));
+    // On a clone: detached, right after the SSH rekey, before the machine is bound.
+    const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
+    const announce = devboxBoot.indexOf("( announce_network & )");
+    const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
+    expect(announce).toBeGreaterThan(rekey);
+    expect(bound).toBeGreaterThan(announce);
+  });
+
+  test("the image installs arping and verify proves the announce loop on a booted machine", () => {
+    expect(readFileSync(path.join(templateDir, "Dockerfile"), "utf8")).toContain("    iputils-arping \\\n");
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok");
   });
 });

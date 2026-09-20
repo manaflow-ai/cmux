@@ -1,0 +1,106 @@
+import AppKit
+import Foundation
+
+extension CloudTreeNodeActions {
+    /// The local workspace's title: the remote workspace's own name — what a
+    /// person actually named it, or typed into its terminal — never the
+    /// machine's raw provider id. `hostName` (the machine's friendly label)
+    /// only shows up when the workspace itself has no name to show.
+    static func localWorkspaceTitle(hostName: String, group: SurfaceResourceGroup) -> String {
+        let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? hostName : name
+    }
+    /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
+    /// preferred name its own sidebar row shows), never the raw provider VM
+    /// id. Shared by every caller that needs a machine's name in
+    /// user-visible text (progress labels, a compound workspace title).
+    static func resolvedMachineName(_ machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> String {
+        if machine.isLocal { return String(localized: "cloudTree.machine.local", defaultValue: "This Mac") }
+        let name = snapshot.machines.first(where: { $0.id == machine })?.name
+        return name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? name! : machine.rawValue
+    }
+
+    /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
+    /// create the cmux-tui workspace, give it a starter terminal, and open it as a new
+    /// local workspace. The daemon may attach its own starter to a created workspace
+    /// (older cmux-tui builds do), so an existing terminal is reused before a second one
+    /// is created — ⌘N must yield exactly one pane.
+    @MainActor
+    static func createWorkspaceAndOpenLocally(
+        machine: SurfaceMachineID,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        name: String?,
+        focus: Bool,
+        openLocally: Bool = true,
+        existingWorkspace: SurfaceRemoteWorkspace? = nil,
+        existingTerminal: SurfaceResource? = nil,
+        onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in }
+    ) async throws -> (
+        workspace: SurfaceRemoteWorkspace,
+        terminal: SurfaceResource,
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])?
+    ) {
+        let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
+        onReceipt(workspace, nil)
+        await provider.refresh()
+        let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
+            resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
+        }
+        let terminal: SurfaceResource
+        if let existing {
+            terminal = existing
+        } else {
+            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+        }
+        onReceipt(workspace, terminal)
+        guard openLocally else { return (workspace, terminal, nil) }
+        let placement = SurfaceResourcePlacement(
+            resource: terminal.id,
+            remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },
+            remoteWorkspaceID: workspace.id
+        )
+        let group = SurfaceResourceGroup(
+            title: workspace.name,
+            placements: [placement],
+            remoteWorkspaceID: workspace.id
+        )
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group,
+            title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
+            focus: focus,
+            host: .appOptimistic
+        )
+        catalog.bindCloudWorkspace(
+            localWorkspaceID: opened.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: workspace.id,
+            generatedTitle: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group)
+        )
+        if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
+        return (workspace, terminal, opened)
+    }
+
+    /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
+    /// the socket's `vm.workspace_delete`: kill every terminal viewed in the workspace,
+    /// then close the workspace. Re-syncs and re-enumerates AT operation time — the
+    /// sidebar's pre-confirm list only words its dialog; a terminal created while the
+    /// dialog was up must die with the workspace too, never linger in the pool. Returns
+    /// how many terminals were closed. (Plain `closeRemoteWorkspace` is the protocol's
+    /// keep-terminals close, reachable only from the CLI / `vm.workspace_close`.)
+    @MainActor
+    @discardableResult
+    static func deleteWorkspaceAndTerminals(
+        machine: SurfaceMachineID,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        workspaceID: String
+    ) async throws -> Int {
+        let deletion = catalog.deleteCloudWorkspace(machine: machine, workspaceID: workspaceID, provider: provider)
+        return try await withTaskCancellationHandler {
+            try await deletion.value
+        } onCancel: {
+            deletion.cancel()
+        }
+    }
+}

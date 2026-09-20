@@ -44,11 +44,20 @@ extension DockSplitStore {
         case (.promptIdle, .some(.awaitingAutoResumeCommand)):
             scheduleRestoredStartupInputResend(panelId: panelId)
         case (.commandRunning, .some(.manualResumeAvailable)):
+            if restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) {
+                // A TUI turn (OSC 133;C) from the agent itself, not an
+                // unrelated command replacing an idle agent.
+                restoredAgentLifecycle.setResumeState(.observedAgentCommandRunning, panelId: panelId)
+                break
+            }
             restoredAgentLifecycle.setSnapshot(nil, panelId: panelId)
             restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
             retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
+            // A TUI prompt mark (OSC 133;A) is not the shell prompt returning
+            // while the agent process is still alive.
+            guard !restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) else { break }
             if restoredAgent != nil {
                 markRestoredAgentCompleted(panelId: panelId)
             } else {
@@ -178,23 +187,6 @@ extension DockSplitStore {
         }
     }
 
-    /// Replays a retained restore selector once after the shell reports an idle prompt.
-    func scheduleRestoredStartupInputResend(panelId: UUID) {
-        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Workspace.restoredStartupInputResendGrace) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      let terminal = self.panels[panelId] as? TerminalPanel,
-                      let input = self.restoredAgentLifecycle.takeStartupInputForResend(
-                          panelId: panelId,
-                          shellState: terminal.shellActivity.state
-                      ),
-                      terminal.surface.surface != nil else { return }
-                _ = terminal.sendInputResult(input)
-            }
-        }
-    }
-
     @discardableResult
     func resumeAgentHibernation(panelId: UUID, focus: Bool) -> Bool {
         guard let terminal = panels[panelId] as? TerminalPanel,
@@ -256,27 +248,6 @@ extension DockSplitStore {
                 surfaceResumeBindingsByPanelId[panelId] = binding
             }
         }
-    }
-
-    func markRestoredAgentCompleted(panelId: UUID) {
-        // A live completion belongs to the current session generation. Keep
-        // older cached metadata invalidated, but no longer classify this
-        // current tombstone as the cached generation that was replaced.
-        replacedCachedTransferAgentSessionPanelIds.remove(panelId)
-        let runtimeIdentities = Set(
-            (agentRuntimeByPanelId[panelId]
-                ?? detachedSurfaceTransfersByPanelId[panelId]?.agentRuntime)?
-                .agentPIDProcessIdentities.values.map { $0 } ?? []
-        )
-        restoredAgentLifecycle.markCompleted(
-            panelId: panelId,
-            observation: SharedLiveAgentIndex.shared.index?.entry(
-                workspaceId: detachedSurfaceTransfersByPanelId[panelId]?.sessionRestoreWorkspaceId
-                    ?? workspaceId,
-                panelId: panelId
-            ),
-            runtimeProcessIdentities: runtimeIdentities
-        )
     }
 
     func agentRuntimeStatusEntry(key: String, panelId: UUID) -> SidebarStatusEntry? {

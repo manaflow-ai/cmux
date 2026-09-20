@@ -4,6 +4,7 @@
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod terminal_directory;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
@@ -2358,6 +2359,8 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    #[cfg(unix)]
+    pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
     #[cfg(test)]
@@ -2387,7 +2390,22 @@ struct RestoredTerminalBinding {
 
 impl Mux {
     fn default_workspace_name(state: &State) -> String {
-        state.workspaces.len().to_string()
+        // Provider-created workspaces use a stable, human-readable sequence.
+        // Existing names (including user-renamed workspaces) are left untouched;
+        // only the next automatically generated name is derived here. The
+        // sequence never restarts below the number of workspaces that exist:
+        // renaming `workspace-1` to `shell` and creating another one yields
+        // `workspace-2` (the second workspace), not a second `workspace-1`.
+        let highest = state
+            .workspaces
+            .iter()
+            .filter_map(|workspace| {
+                workspace.name.strip_prefix("workspace-")?.parse::<usize>().ok()
+            })
+            .max()
+            .unwrap_or(0);
+        let next = highest.max(state.workspaces.len()).saturating_add(1);
+        format!("workspace-{next}")
     }
 
     /// Resolve one public resource path from a single live-state snapshot.
@@ -2739,6 +2757,8 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            #[cfg(unix)]
+            image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
@@ -8390,6 +8410,30 @@ impl Mux {
     }
 
     #[cfg(all(test, unix))]
+    pub(crate) fn seed_launching_terminal_for_test(
+        &self,
+        terminal_id: &str,
+        workspace_key: &str,
+    ) -> anyhow::Result<()> {
+        let mut registry = self.workspace_registry.lock().unwrap();
+        commit_terminal_transition(
+            &mut registry,
+            "terminal-reserved",
+            "seed-launching-terminal",
+            &RegistryTerminal {
+                terminal_id: terminal_id.to_string(),
+                workspace_key: workspace_key.to_string(),
+                incarnation: None,
+                lifecycle: TerminalLifecycle::Launching,
+                launch_spec: serde_json::json!({}),
+                exit: None,
+                on_exit: TerminalOnExit::Close,
+            },
+        )?;
+        Ok(())
+    }
+
+    #[cfg(all(test, unix))]
     pub(crate) fn seed_running_terminal_for_test(
         self: &Arc<Self>,
         terminal_id: &str,
@@ -8760,27 +8804,59 @@ impl Mux {
         Some(removed)
     }
 
-    /// Resolve a process-stable terminal UUID and one live view placement.
-    /// A catalog-owned terminal with zero views resolves successfully with a
-    /// null surface. This is lookup-only and never creates a replacement shell.
+    /// Resolve a terminal identity to its durable record and one live view
+    /// placement. A catalog-owned terminal with zero views resolves
+    /// successfully with a null surface. This is lookup-only and never creates
+    /// a replacement shell.
+    ///
+    /// Either identity a client can hold is accepted: the process-stable
+    /// terminal host UUID, or the public `term_…` resource id every resource
+    /// command reports (with or without its prefix). A public id maps through
+    /// the registry, including after close, so a tombstone still answers.
+    /// Clients such as the Mac app only ever hold public ids; validating them
+    /// as host ids answered `invalid_terminal_id` and left a detached
+    /// terminal unresolvable by construction (#12362).
     pub fn resolve_terminal(
         &self,
         terminal_id: &str,
     ) -> anyhow::Result<Option<TerminalResolution>> {
-        validate_terminal_hex(terminal_id, "invalid_terminal_id")?;
         let (terminal, terminal_revision) = {
             let registry = self.workspace_registry.lock().unwrap();
-            let snapshot = registry.terminal_snapshot()?;
-            (registry.terminal_record(terminal_id)?, snapshot.revision)
+            let Some(host_id) = Self::resolve_terminal_host_id(&registry, terminal_id)? else {
+                return Ok(None);
+            };
+            (registry.terminal_record(&host_id)?, registry.terminal_revision()?)
         };
         let Some(terminal) = terminal else {
             return Ok(None);
         };
         let state = self.state.lock().unwrap();
         let surface = self
-            .catalog_terminal_by_host(&state, terminal_id)?
+            .catalog_terminal_by_host(&state, &terminal.terminal_id)?
             .and_then(|runtime| terminal_placement_for_runtime(&state, &runtime));
         Ok(Some(TerminalResolution { surface, terminal, terminal_revision }))
+    }
+
+    /// The host id behind a resolver input, or `None` when no registered
+    /// terminal carries that identity. A UUIDv4-shaped value is tried as a host
+    /// id first; about one public id in 64 has that shape by chance, so on a
+    /// miss it is retried as a public id before being reported unknown.
+    fn resolve_terminal_host_id(
+        registry: &WorkspaceRegistry,
+        terminal_id: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let payload = terminal_id.strip_prefix("term_").unwrap_or(terminal_id);
+        let is_hex = payload.len() == crate::terminal_host::TERMINAL_ID_LEN * 2
+            && payload.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'));
+        anyhow::ensure!(is_hex, "invalid_terminal_id");
+        if !terminal_id.starts_with("term_")
+            && TerminalId::from_hex(payload).is_some()
+            && registry.terminal_record(payload)?.is_some()
+        {
+            return Ok(Some(payload.to_string()));
+        }
+        let public_id = TerminalPublicId::parse(format!("term_{payload}"))?;
+        registry.terminal_host_id(&public_id)
     }
 
     /// Atomically resolve, incarnation-check, and remove a hosted terminal by
@@ -9965,6 +10041,8 @@ impl Mux {
             }
         }
         if let Some(terminal_id) = runtime.terminal_public_id() {
+            #[cfg(unix)]
+            self.image_pastes.close_terminal(terminal_id.as_str());
             self.purge_terminal_side_tables(terminal_id);
         }
     }
@@ -14463,6 +14541,12 @@ impl Mux {
         }
         drop(state);
         drop(registry);
+        #[cfg(unix)]
+        if let Some(terminal_id) = &public_terminal_id {
+            // Replay is a recovery path: the durable exit may have committed
+            // before the previous cleanup attempt completed.
+            self.image_pastes.close_terminal(terminal_id.as_str());
+        }
         if !replayed {
             if let Some((snapshot_terminal_id, generation, blob)) = exit_replay {
                 // Best-effort: a snapshot store failure must not disturb the
@@ -16507,7 +16591,7 @@ fn terminal_exit_snapshot_in_state(
         "rows": rows.max(1),
         "running": false,
     });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
         snapshot["cwd"] = serde_json::json!(cwd);
     }
     Ok(snapshot)
@@ -18138,6 +18222,78 @@ mod tests {
     };
 
     #[test]
+    fn tab_workspace_move_preserves_surface_and_commits_one_revision() {
+        let mux = test_mux();
+        let first = mux.new_workspace(Some("source".into()), Some((80, 24))).unwrap();
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let before = mux.with_state(|state| state.resource_revision);
+        mux.move_tab_to_workspace(second.id, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert_eq!(state.resource_revision, before + 1);
+            assert_eq!(
+                state.active_pane().and_then(|id| state.panes[&id].active_surface()),
+                Some(second.id)
+            );
+            assert!(state.pane_of(first.id).is_some());
+        });
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let empty = mux.create_empty_workspace(Some("empty".into()), None, None).unwrap();
+        mux.move_tab_to_workspace(second.id, Some(empty.workspace)).unwrap();
+        assert_eq!(
+            mux.with_state(|state| state.workspaces[state.active_workspace].id),
+            empty.workspace
+        );
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let before = mux.with_state(|state| (state.workspaces.len(), state.resource_revision));
+        assert!(mux.move_tab_to_workspace(second.id, Some(u64::MAX)).is_err());
+        assert_eq!(
+            mux.with_state(|state| (state.workspaces.len(), state.resource_revision)),
+            before
+        );
+        let third = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let source = mux.with_state(|state| state.workspaces[0].id);
+        mux.move_tab_to_workspace(second.id, Some(source)).unwrap();
+        let key = mux.with_state(|state| state.workspaces[0].key.clone());
+        {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let topology = registry.resource_topology_snapshot().unwrap();
+            let tab_id = &second.resource_identity().unwrap().tab_id;
+            let tab = topology.tabs.iter().find(|tab| &tab.public_id == tab_id).unwrap();
+            assert_eq!(
+                registry
+                    .terminal_record(tab.terminal_id.as_deref().unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .workspace_key,
+                key
+            );
+            restore_resource_state(registry.snapshot().unwrap(), topology).unwrap();
+        }
+        mux.close_surface(third.id).unwrap();
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn tab_workspace_failed_commit_keeps_both_memory_and_durable_topology() {
+        let mux = test_mux();
+        let tab = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let before = mux.with_state(state_topology_fingerprint);
+        let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        assert!(mux.move_tab_to_workspace(tab.id, None).is_err());
+        assert_eq!(mux.with_state(state_topology_fingerprint), before);
+        {
+            let registry = mux.workspace_registry.lock().unwrap();
+            assert_eq!(registry.resource_topology_snapshot().unwrap(), durable);
+            registry.set_resource_patch_failure(false).unwrap();
+        }
+        assert!(Arc::ptr_eq(&tab, &mux.surface(tab.id).unwrap()));
+        mux.close_surface(tab.id).unwrap();
+    }
+
+    #[test]
     fn signaled_mutex_records_holder_site_wait_and_hold() {
         let mutex = SignaledMutex::new(0u32);
         assert!(mutex.stats().snapshot().holder.is_none());
@@ -18570,6 +18726,8 @@ mod tests {
             .map(|(index, tab)| {
                 let pane_index = index.min(4);
                 RegistryTab {
+                    name_source: Default::default(),
+                    name_revision: 0,
                     public_id: tab.clone(),
                     pane_id: panes[pane_index].clone(),
                     position: usize::from(index == 5),
@@ -22416,6 +22574,41 @@ mod tests {
     }
 
     #[cfg(unix)]
+    /// The Mac holds only public `term_…` ids. A running terminal whose views
+    /// were all closed stays attachable only if `resolve-terminal` answers for
+    /// that id: the compatibility tree lists tabs, not terminals, so a
+    /// detached terminal was unresolvable by construction (#12362).
+    #[test]
+    fn resolve_terminal_accepts_the_public_id_of_a_detached_terminal() {
+        let mux = test_mux();
+        let source = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let public_id = source
+            .terminal_public_id()
+            .cloned()
+            .expect("hosted terminal has a public content identity");
+        let host = mux
+            .resource_terminal_host_identity(&source)
+            .expect("hosted terminal has a durable process identity");
+        let workspace =
+            mux.surface_workspace(source.id).expect("the new workspace hosts the terminal");
+        mux.create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000012362".into()), None)
+            .unwrap();
+        assert!(mux.close_workspace_at_revision(workspace, None).unwrap().is_some());
+        assert_eq!(mux.resolve_terminal(&host.terminal_id).unwrap().unwrap().surface, None);
+        assert!(
+            mux.surface(source.id).is_some(),
+            "closing a workspace detaches its terminals; it never kills them"
+        );
+
+        let resolved = mux
+            .resolve_terminal(public_id.as_str())
+            .expect("a public terminal id is a valid resolver input")
+            .expect("the detached terminal is still registered");
+        assert_eq!(resolved.terminal.terminal_id, host.terminal_id);
+        assert_eq!(resolved.terminal.lifecycle, TerminalLifecycle::Running);
+        assert_eq!(resolved.surface, None);
+    }
+
     #[test]
     fn hosted_terminal_exit_atomically_detaches_every_projected_view() {
         let mux = test_mux();
@@ -24949,7 +25142,7 @@ mod tests {
         );
         let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
-        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "0"));
+        mux.with_state(|state| assert_eq!(state.workspaces[0].name, "workspace-1"));
 
         let round_trip_spec = mux.with_state(|s| {
             fn from_node(node: &Node) -> LayoutSpec {
@@ -27540,7 +27733,7 @@ mod tests {
 
         let (ws0, ws1, pane1, surface1) = mux.with_state(|s| {
             assert_eq!(s.workspaces.len(), 2);
-            assert_eq!(s.workspaces[0].name, "0");
+            assert_eq!(s.workspaces[0].name, "workspace-1");
             assert_eq!(s.workspaces[1].name, "dev");
             assert_eq!(s.active_workspace, 1);
             let pane = s.workspaces[1].screens[0].active_pane;
@@ -27571,6 +27764,44 @@ mod tests {
             assert_eq!(s.active_workspace, 0);
         });
         assert!(events.try_iter().count() > 0);
+    }
+
+    #[test]
+    fn automatically_created_workspaces_use_one_based_sequence() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "workspace-1");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
+
+        // A user name is authoritative and does not get rewritten by later
+        // automatic creation. The sequence continues past existing defaults.
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+        let third = mux.new_workspace(None, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+            assert_eq!(state.workspaces[2].name, "workspace-3");
+        });
+        assert_ne!(second.id, third.id);
+    }
+
+    #[test]
+    fn automatic_workspace_sequence_survives_renaming_the_first_workspace() {
+        let mux = test_mux();
+        let _first = mux.new_workspace(None, None).unwrap();
+        let first_workspace = mux.with_state(|state| state.workspaces[0].id);
+        assert!(mux.rename_workspace(first_workspace, "shell".into()));
+
+        mux.new_workspace(None, None).unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces[0].name, "shell");
+            assert_eq!(state.workspaces[1].name, "workspace-2");
+        });
     }
 
     #[test]
@@ -28159,6 +28390,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
@@ -28370,6 +28603,8 @@ mod tests {
                                 terminal,
                             },
                             ResourceChange::UpsertTab(RegistryTab {
+                                name_source: Default::default(),
+                                name_revision: 0,
                                 public_id: tab.clone(),
                                 pane_id: pane.clone(),
                                 position: 0,
@@ -29673,6 +29908,54 @@ mod tests {
         assert_eq!(first_surface.spawn_cwd().as_deref(), Some("/tmp"));
         assert_eq!(second_surface.spawn_cwd().as_deref(), Some("/tmp"));
         mux.set_resource_terminal_reservation_hook_for_test(None);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn new_terminal_inherits_the_selected_hosted_terminals_reported_cwd() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
+        let (first, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                Some("/tmp".into()),
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert!(first.terminal_runtime_id().is_some(), "the selected terminal is hosted");
+
+        // The shell reported a `cd` on this host with OSC 7. A terminal created
+        // from the selected pane starts there, not in the launch directory.
+        first.set_test_pwd(Some("file://localhost/usr".into()));
+        let (second, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(second.spawn_cwd().as_deref(), Some("/usr"));
+
+        // A report naming another host cannot choose a spawn directory here;
+        // the selected terminal's authenticated launch directory stays the fallback.
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.focus_pane(pane);
+        mux.select_tab(Some(pane), Some(0), None);
+        first.set_test_pwd(Some("file://other-host/etc".into()));
+        let (third, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(third.spawn_cwd().as_deref(), Some("/tmp"));
         mux.shutdown();
     }
 
