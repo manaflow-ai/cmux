@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--presence-base-url <url>]
-       [--skip-build] [--keep-simulator]
+       [--skip-build] [--keep-simulator] [--simulator-id <dedicated-monitor-udid>]
        [--report-output <path>] [--print-plan]
        [--soak-profile <basic|stress>]
        [--credentials-file <agent-profile-env>]
@@ -31,6 +31,7 @@ STAGING_BASE_URL="${CMUX_IROH_RELEASE_GATE_BASE_URL:-https://cmux-staging.vercel
 PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
 SKIP_BUILD=0
 KEEP_SIMULATOR=0
+PROVIDED_SIMULATOR_ID=""
 REPORT_OUTPUT=""
 PRODUCTION=0
 STACK_ENV_FILE=""
@@ -50,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --stack-env-file) STACK_ENV_FILE="${2:-}"; shift 2 ;;
     --skip-build) SKIP_BUILD=1; shift ;;
     --keep-simulator) KEEP_SIMULATOR=1; shift ;;
+    --simulator-id) PROVIDED_SIMULATOR_ID="${2:-}"; shift 2 ;;
     --report-output) REPORT_OUTPUT="${2:-}"; shift 2 ;;
     --print-plan) PRINT_PLAN=1; shift ;;
     --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
@@ -103,6 +105,12 @@ if [[ -n "$SOAK_PROFILE" ]]; then
     *) echo "error: invalid soak profile" >&2; exit 2 ;;
   esac
   GATE_SCENARIO=standard
+fi
+
+if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
+  [[ "$SKIP_BUILD" -eq 1 && "$PRODUCTION" -eq 0 && -n "$SOAK_PROFILE" ]] || {
+    echo "error: --simulator-id requires a prebuilt staging soak" >&2; exit 2;
+  }
 fi
 
 if [[ "$PRODUCTION" -eq 1 && "$GATE_PLAN" == "host-private-path-transport" ]]; then
@@ -359,7 +367,14 @@ cleanup() {
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-access-token >/dev/null 2>&1 || true
     security delete-generic-password -s "$MAC_BUNDLE_ID.auth" -a cmux-auth-refresh-token >/dev/null 2>&1 || true
   fi
-  if [[ "$KEEP_SIMULATOR" -ne 1 && -n "$SIMULATOR_ID" ]]; then
+  if [[ -n "$PROVIDED_SIMULATOR_ID" && -n "$SIMULATOR_ID" ]]; then
+    xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
+    # The controller reservation owns these devices. Release their memory when
+    # the service is interrupted; ordinary completed checks keep iOS warm.
+    if [[ "$exit_code" -ge 128 ]]; then
+      xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+    fi
+  elif [[ "$KEEP_SIMULATOR" -ne 1 && -n "$SIMULATOR_ID" ]]; then
     xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
     xcrun simctl delete "$SIMULATOR_ID" >/dev/null 2>&1 || true
   fi
@@ -436,6 +451,22 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
   echo "==> temporary production Stack account ready (credentials redacted)"
 fi
 
+if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
+  # Accept only the exact dedicated monitor device, never a developer's sim.
+  SIMULATOR_STATE="$(PROVIDED_SIMULATOR_ID="$PROVIDED_SIMULATOR_ID" MONITOR_TAG="$SLUG" /usr/bin/python3 <<'PY'
+import json, os, subprocess
+listing = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "-j"]))
+match = [device for devices in listing["devices"].values() for device in devices
+         if device["udid"].lower() == os.environ["PROVIDED_SIMULATOR_ID"].lower()]
+if (len(match) != 1 or not match[0].get("isAvailable", False)
+        or match[0]["name"] != "cmux Iroh monitor " + os.environ["MONITOR_TAG"]):
+    raise SystemExit("simulator is not this tag's dedicated monitor device")
+print(match[0]["state"])
+PY
+)"
+  SIMULATOR_ID="$PROVIDED_SIMULATOR_ID"
+  if [[ "$SIMULATOR_STATE" == Shutdown ]]; then xcrun simctl boot "$SIMULATOR_ID"; fi
+else
 shutdown_prior_gate_simulators "$SIMULATOR_NAME"
 
 SIMULATOR_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 <<'PY'
@@ -486,6 +517,7 @@ PY
 )"
 
 xcrun simctl boot "$SIMULATOR_ID"
+fi
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
