@@ -51,9 +51,10 @@ public struct MobileReleaseGateUISnapshot {
         guard let data = image.pngData(),
               let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
         let destination = caches.appendingPathComponent("cmux-iroh-ui-\(name).png")
-        Task.detached(priority: .utility) {
-            try? data.write(to: destination, options: .atomic)
-        }
+        // This is debug evidence consumed immediately after the release-gate
+        // report. Complete the atomic write before returning so report copy
+        // cannot race a detached writer.
+        try? data.write(to: destination, options: .atomic)
     }
 }
 #endif

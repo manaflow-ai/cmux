@@ -369,10 +369,7 @@ final class MobileIrohReleaseGateRunner {
 
     private func execute(store: CMUXMobileShellStore) async -> Report {
         var readyObservations = 0
-        let requiredReadyObservations = dependencies.readinessUpdates == nil
-            ? 1
-            : Self.requiredReadyObservations
-        while readyObservations < requiredReadyObservations {
+        while readyObservations < Self.requiredReadyObservations {
             let readiness = dependencies.readinessUpdates?(store)
                 ?? readinessUpdates(for: store)
             var observedReady = false
@@ -408,6 +405,12 @@ final class MobileIrohReleaseGateRunner {
                 )
             }
             readyObservations += 1
+            if readyObservations < Self.requiredReadyObservations {
+                // Observation's next turn is the causal settling boundary for
+                // the second readiness sample. Do not replace it with a fixed
+                // wall-clock sleep that rewards a transient ready state.
+                await Task.yield()
+            }
         }
         progress = .running
         guard !Task.isCancelled else {

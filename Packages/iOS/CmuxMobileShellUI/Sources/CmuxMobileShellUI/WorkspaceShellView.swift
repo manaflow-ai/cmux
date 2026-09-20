@@ -844,7 +844,7 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             workspacesStackIsOnScreen = true
-            #if DEBUG
+            #if os(iOS) && DEBUG
             if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
                 releaseGateUIProbe.closeWorkspace = { popCompactStack() }
             }
@@ -901,7 +901,7 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
-            #if DEBUG
+            #if os(iOS) && DEBUG
             if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
                 releaseGateUIProbe.closeWorkspace = {
                     withAnimation {
