@@ -24,6 +24,40 @@ WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity-trusted.yml"
 # file as the script, exits 0, and the check never happens.
 BUN = 'bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs'
 
+# Body/title edits do not change source or policy. Base retargets still do.
+# Keep ignored events off the required check name and its concurrency group:
+# GitHub treats a skipped required job as passing, and a new pending run can
+# replace a pending run even when cancel-in-progress is false.
+METADATA_ONLY = (
+    "github.event_name == 'pull_request_target' && github.event.action == 'edited' && "
+    "!github.event.changes.base && (github.event.changes.body || github.event.changes.title)"
+)
+REQUIRED_CHECK = "Web complexity"
+IGNORED_CHECK = "Web complexity metadata (ignored)"
+CONTENT_GROUP = (
+    "web-complexity-trusted-${{ github.event.pull_request.number || "
+    "github.event.merge_group.head_sha || github.ref }}"
+)
+
+
+def validate_metadata_routing(document: dict) -> None:
+    job = document["jobs"]["complexity"]
+    assert job["if"] == "${{ !(" + METADATA_ONLY + ") }}", "metadata edits must not allocate content runners"
+    assert job["name"] == (
+        "${{ " + METADATA_ONLY + " && '" + IGNORED_CHECK + "' || '" + REQUIRED_CHECK + "' }}"
+    ), "ignored metadata must not publish a skipped-success under the required check name"
+    assert document["concurrency"]["group"] == (
+        CONTENT_GROUP + "${{ " + METADATA_ONLY + " && '-metadata' || '' }}"
+    ), "metadata edits must not cancel or replace an in-flight content check"
+    assert document["concurrency"]["cancel-in-progress"] is True
+    # PyYAML's YAML 1.1 loader treats the Actions `on` key as a boolean.
+    events = document.get("on", document.get(True))
+    assert events["pull_request_target"]["types"] == [
+        "opened", "edited", "reopened", "synchronize", "ready_for_review"
+    ], "source changes and base retargets must still validate"
+    assert "merge_group" in events and "push" in events
+
+
 EXPECTED_CHECKS = [
     {
         "name": "Check pull-request or merge-group source with trusted policy",
@@ -57,6 +91,7 @@ EXPECTED_CHECKS = [
 
 def main() -> int:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    validate_metadata_routing(document)
     job = document["jobs"]["complexity"]
     if job.get("continue-on-error"):
         print("FAIL: the complexity job must not continue on error")
