@@ -13,7 +13,7 @@ from typing import Any
 
 OPT_IN_MARKER = "<!-- agent-pr-review-required -->"
 DEFAULT_REVIEW_BOTS = ("coderabbitai", "greptile-apps")
-INFO_MARKERS = ("rate limit", "review limit reached", "walkthrough", "no actionable")
+INFO_PREFIXES = ("review limit reached", "review in progress")
 
 
 def parse_time(value: str | None) -> dt.datetime:
@@ -32,7 +32,9 @@ def is_review_bot(name: str, bots: tuple[str, ...]) -> bool:
 
 def is_informational(body: str) -> bool:
     text = re.sub(r"\s+", " ", body).strip().lower()
-    return any(marker in text for marker in INFO_MARKERS)
+    # Only recognize stable provider formats. Do not discard an actionable
+    # request merely because it happens to mention rate limiting or a walkthrough.
+    return text.startswith(INFO_PREFIXES) or "<!-- greptile_summary -->" in text or "<!-- this is an auto-generated comment: summarize by coderabbit.ai -->" in text
 
 
 @dataclass(frozen=True)
@@ -118,17 +120,53 @@ def fetch_pr() -> dict[str, Any]:
     repository = os.environ.get("GITHUB_REPOSITORY", "").split("/", 1)
     if len(repository) != 2 or not number:
         raise RuntimeError("GITHUB_REPOSITORY and pull_request.number are required")
-    query = """query($owner:String!, $repo:String!, $number:Int!) { repository(owner:$owner,name:$repo) { pullRequest(number:$number) { body headRefOid author { login } reviews(first:100) { nodes { author { login } state submittedAt commit { oid } } } reviewThreads(first:100) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } } } } } } }"""
-    data = json.dumps({"query": query, "variables": {"owner": repository[0], "repo": repository[1], "number": int(number)}}).encode()
-    request = urllib.request.Request(
-        "https://api.github.com/graphql", data=data,
-        headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request) as response:
-        payload = json.load(response)
-    if payload.get("errors"):
-        raise RuntimeError(json.dumps(payload["errors"]))
-    return payload["data"]["repository"]["pullRequest"]
+    def graphql(query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        data = json.dumps({"query": query, "variables": variables}).encode()
+        request = urllib.request.Request(
+            "https://api.github.com/graphql", data=data,
+            headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request) as response:
+            payload = json.load(response)
+        if payload.get("errors"):
+            raise RuntimeError(json.dumps(payload["errors"]))
+        return payload["data"]
+
+    variables = {"owner": repository[0], "repo": repository[1], "number": int(number), "after": None}
+    base_query = """query($owner:String!, $repo:String!, $number:Int!, $after:String) {
+      repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
+        body headRefOid author { login }
+        reviews(first:100, after:$after) { nodes { author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
+        reviewThreads(first:100, after:$after) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
+      } }
+    }"""
+    first = graphql(base_query, variables)["repository"]["pullRequest"]
+    reviews = list(first["reviews"]["nodes"])
+    threads = list(first["reviewThreads"]["nodes"])
+    for connection in ("reviews", "reviewThreads"):
+        page = first[connection]["pageInfo"]
+        while page["hasNextPage"]:
+            variables["after"] = page["endCursor"]
+            next_pr = graphql(base_query, variables)["repository"]["pullRequest"]
+            target = reviews if connection == "reviews" else threads
+            target.extend(next_pr[connection]["nodes"])
+            page = next_pr[connection]["pageInfo"]
+    # Paginate comments independently; the nested connection shares the thread
+    # cursor in the PR query, so a node query avoids silently dropping comment 101+.
+    comment_query = """query($id:ID!, $after:String) { node(id:$id) { ... on PullRequestReviewThread {
+      comments(first:100, after:$after) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } }
+    } } }"""
+    for thread in threads:
+        comments = thread["comments"]["nodes"]
+        page = thread["comments"]["pageInfo"]
+        while page["hasNextPage"]:
+            result = graphql(comment_query, {"id": thread["id"], "after": page["endCursor"]})["node"]["comments"]
+            comments.extend(result["nodes"])
+            page = result["pageInfo"]
+        thread["comments"]["nodes"] = comments
+    first["reviews"]["nodes"] = reviews
+    first["reviewThreads"]["nodes"] = threads
+    return first
 
 
 def main() -> int:

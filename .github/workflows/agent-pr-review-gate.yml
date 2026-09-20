@@ -1,8 +1,8 @@
 name: Agent PR review gate
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
   pull_request_review:
     types: [submitted]
   pull_request_review_comment:
@@ -17,16 +17,18 @@ jobs:
     name: agent-pr-review-complete
     runs-on: ubuntu-latest
     steps:
-      # This is a read-only pull_request workflow with no secrets. Check out the
-      # merge ref so the versioned checker travels with the workflow and can be
-      # tested in the same change. The checker only reads GitHub API data.
+      # pull_request_target loads this workflow from the default branch. The
+      # checker is read from the base branch, so PR authors cannot replace the
+      # code that runs with the token. No PR files are checked out or executed.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Evaluate current-head review obligations
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
+          REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '0' }}
         run: python3 .github/scripts/agent-pr-review-gate.py
