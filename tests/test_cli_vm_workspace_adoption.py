@@ -170,8 +170,9 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
                 self.assertIs(project["reuse"], True)
                 self.assertIs(project["reuse_in_workspace"], True)
                 before_project = server.requests[:methods.index("surface.project")]
-                self.assertTrue(any(r["method"] == "workspace.cloud_vm_bind" and
-                                    r["params"].get("remote_workspace_id") == "ws-first" for r in before_project))
+                initial_binding = next(r for r in before_project if r["method"] == "workspace.cloud_vm_bind" and
+                                       r["params"].get("remote_workspace_id") == "ws-first")
+                self.assertIs(initial_binding["params"].get("defer_projection"), True)
                 self.assertIn("OK workspace=workspace:73", result.stdout)
 
     def test_failures_leave_the_owning_card_for_retry(self):

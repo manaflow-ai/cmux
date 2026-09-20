@@ -179,6 +179,30 @@ struct CloudTerminalPaneReservationTests {
         }
     }
 
+    @Test @MainActor
+    func workspaceOnlyCreationReceiptValidatesByAuthoritativeWorkspaceIdentity() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let machine = SurfaceMachineID.cloud("workspace-only-fixture")
+            let pending = app.manager.addWorkspace(
+                initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false
+            )
+            pending.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false)
+            let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term-created")
+            let reservation = try #require(CloudMachineLoadingReservation(
+                resource,
+                at: .workspace(id: pending.id, placement: .tab),
+                remoteWorkspaceID: "workspace-1"
+            ))
+
+            try reservation.validate(materializedPlacement: nil, materializedWorkspaceID: "workspace-1")
+            #expect(throws: CloudDiagnosticFailure.placement) {
+                try reservation.validate(materializedPlacement: nil, materializedWorkspaceID: "other-workspace")
+            }
+        }
+    }
+
     @Test("Restored attachment validates the exact saved view after catalog changes",
           arguments: ["moved", "removed", "metadataMissing", "wrongTabReceipt", "wrongWorkspaceReceipt", "wrongResource", "wrongMachine"])
     @MainActor
