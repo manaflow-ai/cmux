@@ -176,7 +176,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
-        super.draggingEnded(sender)
+        // NSOutlineView may not implement this optional destination notification.
         reorderPresentation.ended(sender)
     }
 

@@ -1461,6 +1461,7 @@ jobs:
 
       - name: Run Cloud machine ordering acceptance
         if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
           # suite cannot mask a miswired or accidentally empty selector.
@@ -1472,6 +1473,9 @@ jobs:
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 60 \
+              -maximum-test-execution-time-allowance 60 \
               -only-testing:"cmuxTests/$suite" \
               test-without-building 2>&1 | tee "$test_log"
             scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"

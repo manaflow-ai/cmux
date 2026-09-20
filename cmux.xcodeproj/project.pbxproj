@@ -769,6 +769,7 @@
 		32297D75B3ED6ABE50D4C244 /* CloudMachineNotificationGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EDC6087D41DC9E2271BC886 /* CloudMachineNotificationGate.swift */; };
 		A13086000000000000000008 /* CloudMachineOrderingActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000007 /* CloudMachineOrderingActions.swift */; };
 		A1308600000000000000000E /* CloudMachineOrderingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1308600000000000000000D /* CloudMachineOrderingFixture.swift */; };
+		A13086000000000000000014 /* CloudMachineOrderingTestPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000013 /* CloudMachineOrderingTestPanel.swift */; };
 		A13086000000000000000010 /* CloudMachineOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1308600000000000000000F /* CloudMachineOrderingTests.swift */; };
 		C12306000000000000000002 /* CloudMachineRefreshCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */; };
 		A1308600000000000000000A /* CloudMachineReorderDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000009 /* CloudMachineReorderDrop.swift */; };
@@ -4784,6 +4785,7 @@
 		8EDC6087D41DC9E2271BC886 /* CloudMachineNotificationGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudMachineNotificationGate.swift; sourceTree = "<group>"; };
 		A13086000000000000000007 /* CloudMachineOrderingActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudMachineOrderingActions.swift"; sourceTree = "<group>"; };
 		A1308600000000000000000D /* CloudMachineOrderingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingFixture.swift"; sourceTree = "<group>"; };
+		A13086000000000000000013 /* CloudMachineOrderingTestPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingTestPanel.swift"; sourceTree = "<group>"; };
 		A1308600000000000000000F /* CloudMachineOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineOrderingTests.swift"; sourceTree = "<group>"; };
 		C12306000000000000000001 /* CloudMachineRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudMachineRefreshCoordinator.swift; sourceTree = "<group>"; };
 		A13086000000000000000009 /* CloudMachineReorderDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudMachineReorderDrop.swift"; sourceTree = "<group>"; };
@@ -11405,6 +11407,7 @@
 				F0A17868063D4FF7939B0525 /* CloudSidebarPinGeometryTests.swift */,
 				722810E7A6B61367EB82C783 /* CloudTreeCompactLayoutTests.swift */,
 				A13086000000000000000001 /* CloudMachineDragSourceTests.swift */,
+				A13086000000000000000013 /* CloudMachineOrderingTestPanel.swift */,
 				A1308600000000000000000D /* CloudMachineOrderingFixture.swift */,
 				A1308600000000000000000F /* CloudMachineOrderingTests.swift */,
 				8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */,
@@ -15556,6 +15559,7 @@
 				62D6740CB59ACBE3EED47A27 /* CloudMachineNotificationDeliveryTests.swift in Sources */,
 				E35A8A2444244DF837446844 /* CloudMachineNotificationEventTests.swift in Sources */,
 				A1308600000000000000000E /* CloudMachineOrderingFixture.swift in Sources */,
+				A13086000000000000000014 /* CloudMachineOrderingTestPanel.swift in Sources */,
 				A13086000000000000000010 /* CloudMachineOrderingTests.swift in Sources */,
 				FA0000000000000000000001 /* CloudManualInputOptionBackspaceTests.swift in Sources */,
 				C12376010000000000000001 /* CloudManualMirrorPresentationTests.swift in Sources */,
