@@ -12,13 +12,10 @@ func cliMockAgentHookDeliveryTargetResponse(
           let method = payload["method"] as? String else {
         return nil
     }
-    let params = (payload["params"] as? [String: Any]) ?? [:]
     let result: [String: Any]
     switch method {
     case "surface.list":
         result = ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
-    case "agent.resolve_delivery_target":
-        return nil
     default:
         return nil
     }
