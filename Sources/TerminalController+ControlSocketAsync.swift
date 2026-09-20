@@ -132,7 +132,6 @@ extension TerminalController {
                 }
             }
         }
-
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
         guard let commandToken = parts.first else {
             return await v2MainAsync {
@@ -164,7 +163,6 @@ extension TerminalController {
             }
         }
     }
-
     /// Handles a v2 worker request. Snapshot hits are entirely off-main;
     /// topology misses use the coordinator's typed result seam once and cache
     /// that result for subsequent polls. Legacy worker methods remain on their
@@ -172,10 +170,14 @@ extension TerminalController {
     private nonisolated func socketWorkerV2ResponseAsync(
         _ request: ControlRequest
     ) async -> String? {
+        if request.method == "auth.team.list"
+            || request.method == "auth.team.use"
+            || request.method == "auth.team.create" {
+            return await v2AuthTeamResponseAsync(request)
+        }
         if request.method == "surface.read_selection" {
             return await socketSurfaceSelectionResponseAsync(request)
         }
-
         if request.method == "feed.jump" {
             guard let result = await controlCommandCoordinator
                 .handleSocketWorkerFeedAsync(request, context: self) else {
@@ -191,7 +193,6 @@ extension TerminalController {
             }
             return Self.v2Encoder.response(id: request.id, result)
         }
-
         if request.method == "agent.restore.admit" {
             return await agentRestoreAdmissionResponse(request)
         }
@@ -209,7 +210,6 @@ extension TerminalController {
            ) {
             return Self.v2Encoder.response(id: request.id, snapshotResult)
         }
-
         if ControlCommandExecutionPolicy.servesFromPublishedReadSnapshot(method: request.method),
            let coordinatorResult = await v2MainAsync({
                self.controlCommandCoordinator.handleSocketWorkerV2(

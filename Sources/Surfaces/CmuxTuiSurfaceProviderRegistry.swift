@@ -98,7 +98,6 @@ final class CmuxTuiSurfaceProviderRegistry {
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
         }
     }
-
     /// True while the periodic fleet read is scheduled.
     var isPolling: Bool { pollTask != nil }
 
@@ -132,14 +131,14 @@ final class CmuxTuiSurfaceProviderRegistry {
         accessEpoch &+= 1
         refreshGeneration &+= 1
         let epoch = accessEpoch
-        // Block observers are retained by NotificationCenter: drop the previous
-        // tokens so a re-start never leaves stale callbacks registered.
+        // Replacing block observers prevents stale callbacks after a restart.
         if let accessObserver { notificationCenter.removeObserver(accessObserver) }
         accessObserver = notificationCenter.addObserver(
             forName: .cmuxCloudVMAccessDidEnd,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
             Task { @MainActor in await self?.accessDidEnd(epoch: epoch) }
         }
         // A Ghostty config reload can change the resolved theme; re-push it so remote
@@ -486,9 +485,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         let suspension = featureSuspensionTask
         featureSuspensionTask = nil
         isFeatureSuspended = false
-        for provider in providers.values { await provider.stop() }
-        for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
+        let retiringProviders = providers
+        for id in retiringProviders.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
+        for provider in retiringProviders.values { await provider.stop() }
         let teardowns = Array(machineTeardowns.values)
         machineTeardowns.removeAll()
         let previous = teardownInFlight
