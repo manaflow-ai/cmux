@@ -69,28 +69,13 @@ struct RestoredProcessDetectedBindingTests {
         #expect(exited.panels.first?.terminal?.resumeBinding == nil)
     }
 
-    @Test func preservationDeadlineDoesNotMoveWhenSnapshotsRepeat() throws {
-        let original = binding(kind: "tmux")
-        var pending = try #require(RestoredProcessDetectedBinding(binding: original, nowUptime: 100))
-        for now in [100.0, 101, 110, 123] {
-            pending.observe(storedBinding: original, detectedBinding: nil, nowUptime: now)
-            #expect(pending.preserves(original, nowUptime: now))
-        }
-        #expect(!pending.preserves(original, nowUptime: 124))
-        pending.observe(storedBinding: original, detectedBinding: nil, nowUptime: 124)
-        #expect(!pending.preserves(original, nowUptime: 100))
-    }
-
-    @Test func positiveObservationAndReplacementCannotResurrectAnOldIntent() throws {
-        let original = binding(kind: "tmux")
-        var observed = try #require(RestoredProcessDetectedBinding(binding: original, nowUptime: 100))
-        observed.observe(storedBinding: original, detectedBinding: original, nowUptime: 101)
-        observed.observe(storedBinding: original, detectedBinding: nil, nowUptime: 102)
-        #expect(!observed.preserves(original, nowUptime: 102))
-
-        var replaced = try #require(RestoredProcessDetectedBinding(binding: original, nowUptime: 100))
-        replaced.observe(storedBinding: binding(kind: "ssh"), detectedBinding: nil, nowUptime: 101)
-        #expect(!replaced.preserves(original, nowUptime: 102))
+    @Test func restoredBindingObservationDeadlineIsBoundedAndClearsOnEvidence() throws {
+        var pending = binding(kind: "tmux")
+        pending.armRestoredProcessDetectionObservation(nowUptime: 100)
+        #expect(pending.preservesRestoredProcessDetection(nowUptime: 123))
+        #expect(!pending.preservesRestoredProcessDetection(nowUptime: 124))
+        pending.clearRestoredProcessDetectionObservation()
+        #expect(!pending.preservesRestoredProcessDetection(nowUptime: 100))
     }
 
     @Test func aFinishedCommandReleasesTheWorkspaceRestoreIntent() throws {

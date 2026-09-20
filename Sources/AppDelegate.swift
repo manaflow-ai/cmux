@@ -1180,6 +1180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
+    private var processDetectedSessionSaveTask: Task<Void, Never>?
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -4547,6 +4548,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
+        processDetectedSessionSaveTask?.cancel()
+        processDetectedSessionSaveTask = nil
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
     }
@@ -5074,7 +5077,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // A watchdog fallback or synchronous updater callback must not retry
         // process or filesystem work on the main actor.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
@@ -5159,7 +5162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Revalidate only the already-cached process generations and argv, and fail closed
         // with an empty index when startup has not populated that cache yet.
         let resumeIndexes = ProcessDetectedResumeIndexes.cached(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
@@ -5176,7 +5179,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        Task { @MainActor [weak self] in
+        processDetectedSessionSaveTask?.cancel()
+        processDetectedSessionSaveTask = Task { @MainActor [weak self] in
             let resumeIndexes = await ProcessDetectedResumeIndexes.load(
                 ttyDeviceBindings: ttyDeviceBindings
             )
@@ -5324,7 +5328,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
         // Snapshot capture must not perform a cold hook-store/process scan on main.
         // Nil keeps cold windowless owners live until their asynchronous freeze resolves.
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? SharedLiveAgentIndex.shared.index
+        let restorableAgentIndex = suppliedRestorableAgentIndex
+            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
         let routes = orderedSessionRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex

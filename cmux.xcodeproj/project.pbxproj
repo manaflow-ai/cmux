@@ -1642,6 +1642,7 @@
 		A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */; };
 		D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000012 /* DockSplitStore+Reset.swift */; };
 		D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */; };
+		2428C6949FDFA1A999590224 /* DockSplitStore+RestoredProcessDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4886B0E32E11E735111A55AC /* DockSplitStore+RestoredProcessDetection.swift */; };
 		D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */; };
 		D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */; };
 		D86840000000000000000003 /* DockSplitStore+SessionSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000004 /* DockSplitStore+SessionSnapshot.swift */; };
@@ -2644,7 +2645,6 @@
 		C12793000000000000000002 /* RestoredAgentLifecycleProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */; };
 		F6572072A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */; };
 		F6572042A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */; };
-		37B246E29A9DA46389840482 /* RestoredProcessDetectedBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */; };
 		C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */; };
 		A54730000000000000000004 /* RestoredStartupInputResendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54730000000000000000003 /* RestoredStartupInputResendTests.swift */; };
 		9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */; };
@@ -3129,6 +3129,7 @@
 		F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */; };
 		8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */; };
 		7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */; };
+		B5001610 /* SurfaceResumeBindingSnapshot+RestoreObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5001611 /* SurfaceResumeBindingSnapshot+RestoreObservation.swift */; };
 		F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */; };
 		11295000000000000000000C /* SurfaceResumeCommandCanonicalizer+Fork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000B /* SurfaceResumeCommandCanonicalizer+Fork.swift */; };
 		F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */; };
@@ -5507,6 +5508,7 @@
 		AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RemoteTerminalLiveness.swift"; sourceTree = "<group>"; };
 		D86840000000000000000012 /* DockSplitStore+Reset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Reset.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredAgentLifecycle.swift"; sourceTree = "<group>"; };
+		4886B0E32E11E735111A55AC /* DockSplitStore+RestoredProcessDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredProcessDetection.swift"; sourceTree = "<group>"; };
 		D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredStartupInputOwnership.swift"; sourceTree = "<group>"; };
 		D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SessionRestore.swift"; sourceTree = "<group>"; };
 		D86840000000000000000004 /* DockSplitStore+SessionSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SessionSnapshot.swift"; sourceTree = "<group>"; };
@@ -6495,7 +6497,6 @@
 		C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLifecycleProjectionTests.swift; sourceTree = "<group>"; };
 		F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLiveness.swift; sourceTree = "<group>"; };
 		F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentShellActivityLivenessTests.swift; sourceTree = "<group>"; };
-		094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBinding.swift; sourceTree = "<group>"; };
 		C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBindingTests.swift; sourceTree = "<group>"; };
 		A54730000000000000000003 /* RestoredStartupInputResendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredStartupInputResendTests.swift; sourceTree = "<group>"; };
 		9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeLauncherCwdConsistencyTests.swift; sourceTree = "<group>"; };
@@ -6971,6 +6972,7 @@
 		F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingIndex.swift; sourceTree = "<group>"; };
 		8993B0018993B0018993B002 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
 		7989B1017989B1017989B101 /* SurfaceResumeBindingSnapshot+Remote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeBindingSnapshot+Remote.swift"; sourceTree = "<group>"; };
+		B5001611 /* SurfaceResumeBindingSnapshot+RestoreObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingSnapshot+RestoreObservation.swift; sourceTree = "<group>"; };
 		F6572011A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift"; sourceTree = "<group>"; };
 		11295000000000000000000B /* SurfaceResumeCommandCanonicalizer+Fork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+Fork.swift"; sourceTree = "<group>"; };
 		F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift"; sourceTree = "<group>"; };
@@ -9118,6 +9120,7 @@
 				A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */,
 				6BAC6DCC5DA64C5FBA16A6AD /* DockSplitStore+AgentResumeOwnership.swift */,
 				4295C82200717ECAABCB0107 /* DockSplitStore+SurfaceResumeBindingObservation.swift */,
+				4886B0E32E11E735111A55AC /* DockSplitStore+RestoredProcessDetection.swift */,
 				5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */,
 				7CE7F2921E15B7A423AAA862 /* Workspace+SurfaceResumeBindingObservation.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
@@ -9132,7 +9135,6 @@
 				992300019923000199230009 /* WorkspaceTerminalStartupRestoreCommitOwner.swift */,
 				9864510B84F2428BB83568CF /* RestoredAgentCompletedGeneration.swift */,
 				9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */,
-				094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */,
 				9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
 				C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */,
@@ -10130,6 +10132,7 @@
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				B5001611 /* SurfaceResumeBindingSnapshot+RestoreObservation.swift */,
 				87590000000000000000000A /* MainThreadHangCaptureStore.swift */,
 				87590000000000000000000C /* MainThreadHangSampleRunner.swift */,
 				875900000000000000000004 /* MainThreadHangWatchdog.swift */,
@@ -13270,6 +13273,7 @@
 				A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */,
 				D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */,
 				D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */,
+				2428C6949FDFA1A999590224 /* DockSplitStore+RestoredProcessDetection.swift in Sources */,
 				D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */,
 				D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */,
 				D86840000000000000000003 /* DockSplitStore+SessionSnapshot.swift in Sources */,
@@ -13932,7 +13936,6 @@
 				F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */,
 				C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */,
 				F6572072A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift in Sources */,
-				37B246E29A9DA46389840482 /* RestoredProcessDetectedBinding.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
@@ -14260,6 +14263,7 @@
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
 				8993B0018993B0018993B001 /* SurfaceResumeBindingSnapshot+ManagedSessionIdentity.swift in Sources */,
 				7989B0017989B0017989B001 /* SurfaceResumeBindingSnapshot+Remote.swift in Sources */,
+				B5001610 /* SurfaceResumeBindingSnapshot+RestoreObservation.swift in Sources */,
 				F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */,
 				11295000000000000000000C /* SurfaceResumeCommandCanonicalizer+Fork.swift in Sources */,
 				F6572000A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift in Sources */,

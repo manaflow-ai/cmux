@@ -10,11 +10,9 @@ import CryptoKit
 #if canImport(Security)
 import Security
 #endif
-
 enum SessionSnapshotSchema {
     static let currentVersion = 1
 }
-
 enum SessionPersistencePolicy {
     static let sidebarMinimumWidthKey = "sidebarMinimumWidth"
     // Keep the default equal to the minimum so a fresh sidebar starts at the minimum width.
@@ -37,7 +35,6 @@ enum SessionPersistencePolicy {
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
-
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
         let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
         let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
@@ -293,6 +290,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     /// Whether decoding observed a legacy binding without an execution location.
     private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
+    /// In-memory restore observation deadline; intentionally excluded from persisted snapshots.
+    var restoredProcessDetectionDeadlineUptime: TimeInterval?
 
     init(
         name: String? = nil,
@@ -337,6 +336,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
+        self.restoredProcessDetectionDeadlineUptime = nil
     }
 
     init(from decoder: Decoder) throws {

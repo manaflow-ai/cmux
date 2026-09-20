@@ -4,7 +4,6 @@ import CmuxWorkspaces
 import Darwin
 import AppKit
 import Foundation
-
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
@@ -22,12 +21,14 @@ extension DockSplitStore {
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
-
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
         flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
+        clearRestoredProcessDetectionObservationIfCommandCompleted(
+            panelId: panelId, previousState: previousState, state: state
+        )
         if previousState != state,
            let pendingTitle = advanceRestoredPanelTitleBoundary(
                panelId: panelId,
@@ -36,7 +37,6 @@ extension DockSplitStore {
             applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
-
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
             restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)

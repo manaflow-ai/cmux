@@ -8,8 +8,9 @@ extension DockSplitStore {
     ) {
         if let resumeBinding {
             if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: terminal.id) {
-                surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
-                terminal.shellActivity.restoredProcessDetectedBinding = RestoredProcessDetectedBinding(binding: resumeBinding)
+                var restoredBinding = resumeBinding
+                restoredBinding.armRestoredProcessDetectionObservation()
+                surfaceResumeBindingsByPanelId[terminal.id] = restoredBinding
             }
         }
         if let managedResumeBinding {
@@ -23,9 +24,11 @@ extension DockSplitStore {
         downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool,
         detectedIsAmbiguous: Bool
     ) -> SurfaceResumeBindingSnapshot? {
-        let stored = surfaceResumeBindingsByPanelId[panelId]
-        let terminal = panels[panelId] as? TerminalPanel
-        terminal?.shellActivity.restoredProcessDetectedBinding?.observe(storedBinding: stored, detectedBinding: detected)
+        var stored = surfaceResumeBindingsByPanelId[panelId]
+        if detected != nil {
+            stored?.clearRestoredProcessDetectionObservation()
+            if let stored { surfaceResumeBindingsByPanelId[panelId] = stored }
+        }
         if let stored,
            stored.hasCompleteManagedSessionIdentity,
            managedAgentResumeBindingsByPanelId[panelId] == nil {
@@ -49,7 +52,7 @@ extension DockSplitStore {
         } else if stored?.isProcessDetected == true {
             effective = detectedIsAmbiguous
                 ? stored?.disablingAutomaticResume()
-                : (terminal?.shellActivity.restoredProcessDetectedBinding?.preserves(stored) == true ? stored : nil)
+                : (stored?.preservesRestoredProcessDetection() == true ? stored : nil)
         } else {
             effective = stored
         }

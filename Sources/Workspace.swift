@@ -1944,8 +1944,9 @@ extension Workspace {
                     restoredBinding,
                     panelId: terminalPanel.id
                 ) {
+                    var restoredBinding = restoredBinding
+                    restoredBinding.armRestoredProcessDetectionObservation()
                     surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
-                    terminalPanel.shellActivity.restoredProcessDetectedBinding = RestoredProcessDetectedBinding(binding: restoredBinding)
                 }
                 if restoredBinding.isPlainSSHProcessDetectedBinding,
                    restoredBindingLaunch != nil {
@@ -5762,6 +5763,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
+
+        if previousState == .commandRunning, state == .promptIdle,
+           var restoredBinding = surfaceResumeBindingsByPanelId[panelId] {
+            restoredBinding.clearRestoredProcessDetectionObservation()
+            surfaceResumeBindingsByPanelId[panelId] = restoredBinding
+        }
 
         if surfaceResumeBindingsByPanelId[panelId]?.isPlainSSHProcessDetectedBinding == true {
             switch state {

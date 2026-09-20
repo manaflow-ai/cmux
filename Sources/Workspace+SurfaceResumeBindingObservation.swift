@@ -16,12 +16,15 @@ extension Workspace {
                 continue
             }
 
-            let terminal = panels[panelId] as? TerminalPanel
-            terminal?.shellActivity.restoredProcessDetectedBinding?.observe(
-                storedBinding: storedBinding, detectedBinding: detectedBinding
-            )
+            var storedBinding = storedBinding
+            if detectedBinding != nil {
+                storedBinding?.clearRestoredProcessDetectionObservation()
+                if let storedBinding {
+                    surfaceResumeBindingsByPanelId[panelId] = storedBinding
+                }
+            }
             if detectedBinding == nil,
-               terminal?.shellActivity.restoredProcessDetectedBinding?.preserves(storedBinding) == true {
+               storedBinding?.preservesRestoredProcessDetection() == true {
                 continue
             }
 
@@ -149,8 +152,7 @@ extension Workspace {
         }
         guard let storedBinding else { return detectedBinding }
         guard let detectedBinding else {
-            if (panels[panelId] as? TerminalPanel)?.shellActivity.restoredProcessDetectedBinding?
-                .preserves(storedBinding) == true {
+            if storedBinding.preservesRestoredProcessDetection() {
                 return storedBinding
             }
             if storedBinding.isPlainSSHProcessDetectedBinding {
