@@ -1,5 +1,8 @@
 # Choose verification for the change
 
+Run repository commands only from a [trusted checkout](../../../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
+
 Start with the smallest check that can expose the failure you are fixing. Use
 `python3 scripts/verify-local.py --list` to see the fast static checks; run the
 full command before a native build or push when those checks apply. A passing

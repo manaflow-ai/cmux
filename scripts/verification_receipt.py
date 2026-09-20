@@ -131,9 +131,14 @@ def local(repo):
         r["source"]["after"] = observe(repo)
         return assess(r)
     r["recipe"]["revision"] = "sha256:" + digest(recipe.read_bytes())
+    try:
+        toolchain = subprocess.check_output(["python3", "--version"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        toolchain = None
     r["environment"].update(platform=platform.system(), architecture=platform.machine(),
-                             toolchain=subprocess.check_output(["python3", "--version"], text=True).strip())
+                             toolchain=toolchain)
     started = datetime.now(timezone.utc).isoformat()
+    executed = True
     try:
         completed = subprocess.run(["python3", RECIPE], cwd=repo, capture_output=True, text=True,
                                    timeout=60)
@@ -142,6 +147,8 @@ def local(repo):
         state = "interrupted" if code < 0 or code in (130, 143) else "failed"
     except (subprocess.TimeoutExpired, KeyboardInterrupt):
         output, code, state = "", None, "interrupted"
+    except OSError as error:
+        output, code, state, executed = str(error), None, "unsupported", False
     r["source"]["after"] = observe(repo)
     counts, ok = unittest_summary(output)
     r["tests"].update(counts)
@@ -151,7 +158,7 @@ def local(repo):
                      "completed_at": datetime.now(timezone.utc).isoformat(), "exit_code": code,
                      "output_sha256": digest(output.encode()),
                      "summary": safe_summary(output)}
-    check(r, "tests").update(status=state, executed=True, evidence="evidence")
+    check(r, "tests").update(status=state, executed=executed, evidence="evidence")
     return assess(r)
 
 

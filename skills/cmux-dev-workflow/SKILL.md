@@ -7,6 +7,9 @@ description: "Contributor workflow for native cmux setup, tagged dev builds, Xco
 
 ## Scope and routing
 
+Run repository commands only from a [trusted checkout](../../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
+
 [Choose verification for the change](../cmux-testing/references/local-vs-ci-validation.md)
 before preparing a native build. Fast feedback starts with
 `python3 scripts/verify-local.py`; portable-tooling and documentation changes use

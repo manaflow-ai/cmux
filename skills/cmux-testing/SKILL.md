@@ -7,10 +7,12 @@ description: "Choose scoped cmux verification, add behavioral tests, and validat
 
 ## Choose the first check
 
-Run from the repository root in a trusted checkout.
+Run repository commands only from a [trusted checkout](../../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
 
 | Task | Command |
 | --- | --- |
+| Choose static checks from local edits | `python3 scripts/verify-local.py --affected` |
 | Run the fast static recipe | `python3 scripts/verify-local.py` |
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |

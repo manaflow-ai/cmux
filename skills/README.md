@@ -7,6 +7,9 @@ and flags; repository instructions own build routing and shared-machine limits.
 
 ## Working on the repository
 
+Run repository commands only from a [trusted checkout](../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
+
 For a local iteration, start with `python3 scripts/verify-local.py --help`.
 `--swift-changed` discovers current Swift edits; `--list` exposes focused checks.
 See [cmux-testing](cmux-testing/SKILL.md) for the boundary between static checks,
