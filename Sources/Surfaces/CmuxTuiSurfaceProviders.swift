@@ -402,7 +402,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if let eventsFeedWarning {
             linkState = .error
             linkError = eventsFeedWarning
-            portState = .stale
+            if supportsPortPreviews, portState != .unsupported {
+                portState = .stale
+            }
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
         info = Self.info(
