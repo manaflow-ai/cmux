@@ -9,8 +9,22 @@
 # one universal binary. Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
-#     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--manifest-file <path>] [--expected-commit <sha>] [--require-capability <name>]...
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
+#   scripts/install-cmux-tui-client.sh --print-source-identity [--manifest-url <url>]
+#     [--save-manifest <path>]
+#
+# --print-source-identity installs nothing. It prints a value that changes whenever the
+# client this script would install changes: the sha256 of the local binary, or of the
+# manifest currently served at the manifest URL (which pins the binaries). Callers use
+# it to decide whether an earlier install is still current. It fails when the source
+# cannot be read.
+#
+# A rolling manifest can be republished between that identity and the install.
+# --save-manifest keeps the manifest the identity was computed from, and
+# --manifest-file installs from such a copy instead of fetching the URL again, so the
+# identity describes the client that gets installed. The copy is authenticated like a
+# fetched manifest, and --manifest-url still locates the binaries.
 #
 # Every remote install authenticates the downloaded manifest before any value in it is
 # trusted: `gh attestation verify` must find a Sigstore build-provenance attestation for
@@ -26,22 +40,28 @@
 # a prebuilt universal binary to install instead of downloading (offline/dev builds).
 set -euo pipefail
 
-usage() { sed -n '2,22p' "$0"; }
+usage() { sed -n '2,37p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
 CACHE_DIR="${CMUX_TUI_CLIENT_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-client}"
+MANIFEST_FILE=""
+SAVE_MANIFEST=""
 EXPECTED_COMMIT=""
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
+PRINT_SOURCE_IDENTITY=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
     --manifest-url) shift; MANIFEST_URL="${1:?--manifest-url needs a value}" ;;
+    --manifest-file) shift; MANIFEST_FILE="${1:?--manifest-file needs a value}" ;;
+    --save-manifest) shift; SAVE_MANIFEST="${1:?--save-manifest needs a value}" ;;
     --cache-dir) shift; CACHE_DIR="${1:?--cache-dir needs a value}" ;;
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
+    --print-source-identity) PRINT_SOURCE_IDENTITY=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -49,6 +69,31 @@ while (( $# )); do
   esac
   shift
 done
+sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+if (( PRINT_SOURCE_IDENTITY )); then
+  if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
+    [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
+    printf 'local:%s\n' "$(sha256_of "$CMUX_TUI_CLIENT_LOCAL")"
+    exit 0
+  fi
+  IDENTITY_MANIFEST="$(mktemp "${TMPDIR:-/tmp}/cmux-tui-manifest.XXXXXX")"
+  trap 'rm -f "$IDENTITY_MANIFEST"' EXIT
+  # One bounded attempt: a caller that cannot resolve the identity falls back to a
+  # full install, which retries and reports the network error.
+  curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 5 --max-time 15 "$MANIFEST_URL" -o "$IDENTITY_MANIFEST" || {
+    echo "error: could not fetch the cmux-tui manifest at $MANIFEST_URL" >&2
+    exit 1
+  }
+  if [[ -n "$SAVE_MANIFEST" ]]; then
+    mkdir -p "$(dirname "$SAVE_MANIFEST")"
+    cp "$IDENTITY_MANIFEST" "$SAVE_MANIFEST.tmp.$$"
+    mv -f "$SAVE_MANIFEST.tmp.$$" "$SAVE_MANIFEST"
+  fi
+  printf 'manifest:%s\n' "$(sha256_of "$IDENTITY_MANIFEST")"
+  exit 0
+fi
+
 [[ -n "$APP_PATH" && -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at '${APP_PATH:-<missing>}'" >&2; exit 1; }
 [[ "$ATTEST_SIGNER_WORKFLOW" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$ ]] || {
   echo "error: --attest-signer-workflow must look like owner/repo/.github/workflows/name.yml: $ATTEST_SIGNER_WORKFLOW" >&2
@@ -57,8 +102,6 @@ done
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
 DEST="$DEST_DIR/cmux-tui"
 mkdir -p "$DEST_DIR"
-
-sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
 # Fail closed: without a valid attestation nothing from the manifest is used, so
 # no binary it names is downloaded or executed.
@@ -110,8 +153,13 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
 fi
 
 mkdir -p "$CACHE_DIR"
-MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
-curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+if [[ -n "$MANIFEST_FILE" ]]; then
+  [[ -f "$MANIFEST_FILE" ]] || { echo "error: --manifest-file not found: $MANIFEST_FILE" >&2; exit 1; }
+  MANIFEST="$MANIFEST_FILE"
+else
+  MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
+  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+fi
 if (( ALLOW_UNATTESTED )); then
   echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
 else
