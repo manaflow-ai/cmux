@@ -93,19 +93,12 @@ struct TerminalScrollBarGutterStabilityTests {
         #expect(afterReset == harness.paneWidth)
     }
 
-    @Test("AppKit's legacy scroller remains visible for Automatic and Always", arguments: ["Automatic", "Always"])
-    func legacyPresentationRespectsAppKit(preference: String) throws {
+    @Test("AppKit's legacy scroller remains visible")
+    func legacyPresentationRespectsAppKit() throws {
         // Automatic can select legacy for a connected mouse. The resolved
         // AppKit style, rather than our interpretation of the preference
-        // string, owns presentation. Use a temporary argument domain so this
-        // test never changes the user's persisted preferences.
-        let defaults = UserDefaults.standard
-        let previousArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
-        var arguments = previousArguments
-        arguments["AppleShowScrollBars"] = preference
-        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-        defer { defaults.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain) }
-
+        // string, owns presentation. Pin only this scroll view's style so
+        // concurrent tests retain the process's unmodified preferences.
         let harness = Harness(scrollerStyle: .legacy)
         let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
         let scroller = try #require(scrollView.verticalScroller)
