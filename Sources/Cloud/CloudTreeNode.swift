@@ -901,9 +901,11 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
-            rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
+            let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
+            if member.resource.kind == .browser { rows.browsers.append(placement) }
+            else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
         let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in

@@ -852,7 +852,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         let receipt = try await createRemoteWorkspaceReceipt(name: name)
-        _ = await refreshCurrentGraph(force: true)
         return info.remoteWorkspaces?.first(where: { $0.id == receipt.workspace.id }) ?? receipt.workspace
     }
 
@@ -919,7 +918,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let terminal = starter.map { recordCreatedTerminal($0, workspaceID: id, name: nil, cwd: nil) }
         scheduleRefresh()
         return SurfaceWorkspaceCreationReceipt(
-            workspace: provisional, terminal: terminal,
+            workspace: info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional,
+            terminal: terminal,
             cursor: starter?.cursor ?? CmuxTuiSnapshotParser.mutationCursor(fromResult: object)
         )
     }
