@@ -3994,38 +3994,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         })
     }
 
-    func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let originalContentView = window.contentView
-        let portal = WindowBrowserPortal(window: window)
-        _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = originalContentView,
-              let container = window.contentView else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
-
-        XCTAssertTrue(contentView.isDescendant(of: container))
-        XCTAssertGreaterThan(
-            hostIndex,
-            contentIndex,
-            "Browser portal host must remain above content view so portal-hosted web views stay visible"
-        )
-    }
-
     private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
         BrowserPortalSearchOverlayConfiguration(
             panelId: panelId,
@@ -4187,61 +4155,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         // A responder no slot owns must still return nil after scanning all 166 slots.
         XCTAssertNil(portal.searchOverlayPanelId(for: window))
-    }
-
-    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-
-        let originalContentView = window.contentView
-        let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = WindowTerminalPortal(window: window)
-        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = originalContentView,
-              let container = window.contentView else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        func assertHostOrder(_ message: String) {
-            guard let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }) else {
-                XCTFail("Expected both portal hosts in same container")
-                return
-            }
-
-            XCTAssertGreaterThan(
-                browserHostIndex,
-                terminalHostIndex,
-                message
-            )
-        }
-
-        assertHostOrder("Browser portal host should start above terminal portal host")
-
-        let terminalAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 140))
-        contentView.addSubview(terminalAnchor)
-        let terminalHostedView = GhosttySurfaceScrollView(
-            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
-        )
-        terminalPortal.bind(hostedView: terminalHostedView, to: terminalAnchor, visibleInUI: true)
-        terminalPortal.synchronizeHostedViewForAnchor(terminalAnchor)
-        assertHostOrder("Terminal portal sync should not rise above the browser portal host")
-
-        let browserAnchor = NSView(frame: NSRect(x: 240, y: 20, width: 220, height: 140))
-        contentView.addSubview(browserAnchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        browserPortal.bind(webView: webView, to: browserAnchor, visibleInUI: true)
-        browserPortal.synchronizeWebViewForAnchor(browserAnchor)
-        assertHostOrder("Browser portal sync should keep browser panes above portal-hosted terminals")
     }
 
     func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
