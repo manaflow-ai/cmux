@@ -252,14 +252,6 @@ extension TerminalController {
         return TerminalMutationBus.shared.enqueueReplacingMainActorMutation(
             replaceKey: .shellActivity(surfaceId: scope.panelID),
             admitting: {
-                if let owner = scope.remoteRelayOwnerWorkspaceID {
-                    guard let connectionID = scope.remoteRelayConnectionID,
-                          let workspace = AppDelegate.shared?.workspaceFor(tabId: owner),
-                          workspace.activeRemoteSessionControllerID == connectionID,
-                          workspace.isRemoteTerminalContext(scope.panelID) else {
-                        return false
-                    }
-                }
                 guard registry.isCurrentSurface(
                     id: scope.panelID,
                     terminalLifecycleID: admittedTerminalLifecycleID
