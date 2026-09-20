@@ -228,6 +228,9 @@ jobs:
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      - name: Validate required checks report for the merge queue
+        run: python3 tests/test_ci_merge_queue_required_checks.py
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
