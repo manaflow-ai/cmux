@@ -567,7 +567,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Run machines with up to 64 GB RAM on Max for $200 per month, billed monthly."
+        "upsell": "Max includes up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs for $200 per month, billed monthly."
       }
     },
     "testflight": {
@@ -936,8 +936,8 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 64 GB RAM per machine",
-        "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+        "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs",
+        "Unlimited workspaces and the iOS app"
       ]
     },
     "team": {
@@ -1045,7 +1045,7 @@
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
-          "max": "64 GB RAM and 16 vCPUs per VM",
+          "max": "64 GB RAM and 16 vCPUs shared across all VMs",
           "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
@@ -1157,7 +1157,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. It includes everything in Pro and unlocks Cloud VMs with 32 GB or 64 GB RAM. Pro, Team, and Free machines top out at 24 GB RAM."
+          "a": "Max is $200/mo, billed monthly. Up to 50 Cloud VMs share a total of 64 GB RAM and 16 vCPUs. It includes everything in Pro and supports 32 GB and 64 GB machines within that shared total. Pro, Team, and Free machines top out at 24 GB RAM."
         },
         {
           "q": "What is cmux Vault?",
