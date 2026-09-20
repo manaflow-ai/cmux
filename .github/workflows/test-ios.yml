@@ -12,6 +12,19 @@ on:
         description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
+      swift_package:
+        description: "Optional SwiftPM package to test instead of the simulator; test_filter selects its suite"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - CMUXMobileCore
+          - CmuxSyncStore
+          - CmuxMobilePairedMac
+          - CmuxMobileChanges
+          - CmuxMobileShell
+          - CmuxMobileShellModel
       ios_version:
         description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
         required: false
@@ -113,10 +126,21 @@ jobs:
     needs: detect-ios-changes
     if: >-
       ${{ needs.detect-ios-changes.outputs.should_run == 'true'
-          && !(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') }}
+          && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 10
+    env:
+      SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
     steps:
+      - name: Validate package selection
+        env:
+          SELECTED_PACKAGE: ${{ inputs.swift_package }}
+        run: |
+          case "$SELECTED_PACKAGE" in
+            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
+            *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
+          esac
+
       - name: Validate Tart runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
@@ -157,39 +181,69 @@ jobs:
           xcodebuild -version
 
       - name: Run CMUXMobileCore package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
         run: |
-          swift test --package-path Packages/Shared/CMUXMobileCore
+          args=(--package-path Packages/Shared/CMUXMobileCore)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
       - name: Run CmuxSyncStore package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxSyncStore' }}
         run: |
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
-          swift test --package-path Packages/Shared/CmuxSyncStore
+          args=(--package-path Packages/Shared/CmuxSyncStore)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
       - name: Run CmuxMobilePairedMac package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
-          swift test --package-path Packages/iOS/CmuxMobilePairedMac
+          args=(--package-path Packages/iOS/CmuxMobilePairedMac)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
       - name: Run CmuxMobileChanges package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileChanges' }}
         run: |
-          swift test --package-path Packages/iOS/CmuxMobileChanges
+          args=(--package-path Packages/iOS/CmuxMobileChanges)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
       - name: Run CmuxMobileShell package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}
         run: |
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          swift test --package-path Packages/iOS/CmuxMobileShell
+          args=(--package-path Packages/iOS/CmuxMobileShell --no-parallel)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
       - name: Run CmuxMobileShellModel package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShellModel' }}
         run: |
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
-          swift test --package-path Packages/iOS/CmuxMobileShellModel
+          args=(--package-path Packages/iOS/CmuxMobileShellModel)
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          swift test "${args[@]}"
 
   ios-simulator:
     needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
     # carries). iOS simulator XCTest runs inside the Simulator, not as a
     # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
