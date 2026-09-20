@@ -43,6 +43,7 @@ export class V2DashboardController {
   private readonly options: DashboardOptions;
   private readonly clientInstanceId: string;
   private socket: WebSocket | null = null;
+  private readonly cancellation = new AbortController();
   private stopped = false;
   private revision: number | undefined;
   private ticket: Ticket | null = null;
@@ -72,6 +73,7 @@ export class V2DashboardController {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.cancellation.abort();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -105,7 +107,7 @@ export class V2DashboardController {
       method: "POST", mode: "cors", credentials: "omit",
       headers: { authorization: `Bearer ${stackToken}`, "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId, clientInstanceId: this.clientInstanceId, environment: this.options.environment, projectId: this.options.projectId, teamId: this.options.teamId, userId: this.options.userId }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.any([this.cancellation.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
     });
     const body = await this.readJSON(response) as Record<string, unknown>;
     if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);

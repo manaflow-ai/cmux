@@ -176,3 +176,26 @@ test("permanent authorization failures do not schedule another session", async (
     expect(errors).toEqual(["Team access was removed"]);
   } finally { await controller.stop(); globalThis.fetch = original; timers.mockRestore(); }
 });
+
+test("stopping aborts an in-flight session request without reporting an error", async () => {
+  const original = globalThis.fetch;
+  let signal: AbortSignal | undefined;
+  let requestStarted!: () => void;
+  const issued = new Promise<void>(resolve => { requestStarted = resolve; });
+  const errors: string[] = [];
+  globalThis.fetch = ((_input, init) => new Promise<Response>((_resolve, reject) => {
+    signal = init!.signal!;
+    signal.addEventListener("abort", () => reject(signal!.reason), { once: true });
+    requestStarted();
+  })) as typeof fetch;
+  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: message => errors.push(message) });
+  try {
+    const started = controller.start();
+    await issued;
+    expect(signal!.aborted).toBe(false);
+    await controller.stop();
+    await started;
+    expect(signal!.aborted).toBe(true);
+    expect(errors).toEqual([]);
+  } finally { await controller.stop(); globalThis.fetch = original; }
+});
