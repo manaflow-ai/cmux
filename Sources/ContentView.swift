@@ -6051,6 +6051,20 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
+    private static func resolveCommandPaletteAgentLauncherProviders(
+        environment: [String: String],
+        bundleResourceURL: URL?,
+        configuredExecutablePaths: [AgentSessionProviderID: String]
+    ) -> Set<AgentSessionProviderID> {
+        let resolver = AgentExecutableResolver(
+            environment: environment,
+            bundleResourceURL: bundleResourceURL,
+            configuredExecutablePaths: configuredExecutablePaths
+        )
+        return Set([AgentSessionProviderID.claude, .codex].filter {
+            (try? resolver.resolve($0)) != nil
+        })
+    }
 
     /// Resolves launcher availability off-main once per visible palette lifecycle.
     private func refreshCommandPaletteAgentLauncherAvailabilityIfNeeded(
@@ -6071,17 +6085,11 @@ struct ContentView: View {
         let bundleResourceURL = Bundle.main.resourceURL
         let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
         commandPaletteTaskStore.replace(.agentLauncherAvailability, priority: .utility) {
-            let resolver = AgentExecutableResolver(
+            let availableProviders = Self.resolveCommandPaletteAgentLauncherProviders(
                 environment: environment,
                 bundleResourceURL: bundleResourceURL,
                 configuredExecutablePaths: configuredExecutablePaths
             )
-            var availableProviders: Set<AgentSessionProviderID> = []
-            for provider in [AgentSessionProviderID.claude, .codex] {
-                if (try? resolver.resolve(provider)) != nil {
-                    availableProviders.insert(provider)
-                }
-            }
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -6117,12 +6125,11 @@ struct ContentView: View {
         let bundleResourceURL = Bundle.main.resourceURL
         let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
         commandPaletteTaskStore.replace(.agentLauncherActivation(provider), priority: .userInitiated) {
-            let resolver = AgentExecutableResolver(
+            let isAvailable = Self.resolveCommandPaletteAgentLauncherProviders(
                 environment: environment,
                 bundleResourceURL: bundleResourceURL,
                 configuredExecutablePaths: configuredExecutablePaths
-            )
-            let isAvailable = (try? resolver.resolve(provider)) != nil
+            ).contains(provider)
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
