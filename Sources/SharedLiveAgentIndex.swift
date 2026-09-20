@@ -58,9 +58,8 @@ final class SharedLiveAgentIndex {
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    // A synchronous loader cannot be interrupted once it is inside its
-    // process/filesystem scan. Share one detached loader across refresh
-    // wrappers so an ownership timeout never starts an unbounded second scan.
+    // A loader cannot be interrupted once it is inside its
+    // filesystem scan. Share one detached loader across refresh
     private var indexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
     private var indexLoaderTaskGeneration: UUID?
     // A timed-out synchronous loader cannot be force-cancelled safely from
@@ -118,11 +117,8 @@ final class SharedLiveAgentIndex {
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
-    nonisolated private static let maximumForkExecutableWatchSourceCountCeiling = 64
     nonisolated private static let forkExecutableWatchInstallTimeoutNanoseconds: UInt64 = 3_000_000_000
     nonisolated private static let maximumOutstandingForkExecutableWatchInstallWork = 8
-    nonisolated private static let minimumReservedFileDescriptorCount = 128
-    nonisolated private static let rlimInfinity = rlim_t(Int64.max)
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
@@ -138,92 +134,23 @@ final class SharedLiveAgentIndex {
         return deadline > now ? deadline - now : 0
     }
 
-    nonisolated static func forkExecutableWatchSourceCountBudget(
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil,
-        pendingReservationCount: Int = 0
-    ) -> Int {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return 0
-        }
-        let availableAfterReserve = forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        )
-        guard availableAfterReserve > 0 else {
-            return 0
-        }
-        let derivedBudget = max(1, availableAfterReserve / 4)
-        return min(maximumForkExecutableWatchSourceCountCeiling, derivedBudget)
-    }
-
-    nonisolated private static func forkExecutableWatchDescriptorReserveIsSatisfied(
-        pendingReservationCount: Int,
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil
-    ) -> Bool {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return false
-        }
-        return forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        ) >= 0
-    }
-
-    nonisolated private static func forkExecutableWatchAvailableDescriptorCount(
-        softFileDescriptorLimit: Int,
-        openFileDescriptorCount: Int,
-        pendingReservationCount: Int
-    ) -> Int {
-        softFileDescriptorLimit
-            - openFileDescriptorCount
-            - pendingReservationCount
-            - minimumReservedFileDescriptorCount
-    }
-
-    nonisolated private static func forkExecutableWatchSoftFileDescriptorLimit(
-        _ explicitSoftLimit: Int?
-    ) -> Int? {
-        if let explicitSoftLimit {
-            return explicitSoftLimit
-        }
-        var limit = rlimit()
-        guard getrlimit(RLIMIT_NOFILE, &limit) == 0,
-              limit.rlim_cur != rlimInfinity,
-              limit.rlim_cur <= rlim_t(Int.max) else {
-            return nil
-        }
-        return Int(limit.rlim_cur)
-    }
-
-    nonisolated private static func currentOpenFileDescriptorCount() -> Int? {
-        guard let fileDescriptorNames = try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd") else {
-            return nil
-        }
-        return fileDescriptorNames.compactMap(Int.init).count
-    }
-
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let processSnapshotLoader: @Sendable () async -> CmuxTopProcessSnapshot
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
-
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
+        indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader.loadFreshResult()
         },
+        processSnapshotLoader: @escaping @Sendable () async -> CmuxTopProcessSnapshot = { await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeCMUXScope: true, includeResources: false) },
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -240,6 +167,7 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.processSnapshotLoader = processSnapshotLoader
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -247,7 +175,6 @@ final class SharedLiveAgentIndex {
         self.dateProvider = dateProvider
         self.forkExecutableWatchSourceBudgetProvider = forkExecutableWatchSourceBudgetProvider
     }
-
     func forkValidationExecutableFingerprint(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
@@ -521,6 +448,37 @@ final class SharedLiveAgentIndex {
             return index
         }
         return nil
+    }
+
+    func beginScheduledHibernationRefresh() -> SharedLiveAgentIndexScheduledHibernationSession? {
+        ensureWatchingHookStoreDirectory()
+        guard let cachedIndex = index else { return nil }
+        return SharedLiveAgentIndexScheduledHibernationSession(
+            cachedIndex: cachedIndex,
+            processSnapshotLoader: processSnapshotLoader,
+            completionGeneration: refreshCompletionGeneration
+        )
+    }
+
+    func finishScheduledHibernationRefresh(
+        _ session: SharedLiveAgentIndexScheduledHibernationSession,
+        refreshedIndex: RestorableAgentSessionIndex
+    ) -> Bool {
+        guard !Task.isCancelled,
+              refreshCompletionGeneration == session.completionGeneration,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !changePending,
+              deferredReloadTimer == nil else { return false }
+        let previousFingerprint = liveAgentProcessFingerprint
+        index = refreshedIndex
+        loadedAt = dateProvider()
+        liveAgentProcessFingerprint = refreshedIndex.liveAgentProcessFingerprint()
+            .union(refreshedIndex.liveSessionOwnerFingerprint)
+        if liveAgentProcessFingerprint != previousFingerprint {
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+        }
+        return true
     }
 
     /// Waits for an index whose scan started after this request, and names the
@@ -846,7 +804,7 @@ final class SharedLiveAgentIndex {
         let indexLoader = self.indexLoader
         let generation = UUID()
         let task = Task.detached(priority: .utility) {
-            indexLoader()
+            await indexLoader()
         }
         indexLoaderTask = task
         indexLoaderTaskGeneration = generation
