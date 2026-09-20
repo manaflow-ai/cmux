@@ -245,6 +245,16 @@ esac
       expect(invalid.status).toBe(2);
       expect(invalid.stderr).toContain("unknown option --bad-option");
 
+      const offline = makeShimDirectory();
+      try {
+        rmSync(join(offline, "cmux-tui"), { force: true });
+        const result = runShimInDirectory(offline, ["welcome"]);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("Welcome to cmux Cloud");
+      } finally {
+        rmSync(offline, { recursive: true, force: true });
+      }
+
       const fork = runShimInDirectory(directory, ["welcome", "--auto"], { DISPLAY: ":1", CMUX_VM_ID: "forked-vm" });
       expect(fork.status).toBe(0);
       expect(fork.stdout).toContain("Welcome to cmux Cloud");

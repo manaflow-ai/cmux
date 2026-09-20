@@ -104,7 +104,7 @@ case "\${1:-}:\${2:-}:\${3:-}" in
 esac
 case "\${1:-}:\${2:-}" in
   workspace:help|workspace:--help|workspace:-h|workspace:|pane:help|pane:--help|pane:-h|pane:|tab:help|tab:--help|tab:-h|tab:|terminal:help|terminal:--help|terminal:-h) ;;
-  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
+  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|welcome:*|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
   *) [ -x "\$CMUX_TUI_BIN" ] || die_message 1 missingDaemon "\$CMUX_TUI_BIN" ;;
 esac
 
