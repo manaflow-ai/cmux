@@ -40,7 +40,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -154,7 +153,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -219,7 +217,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -265,7 +262,6 @@ import Testing
         )
         await pairedStore.gateUpsert(macDeviceID: "mac-a")
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -336,7 +332,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -419,7 +414,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -495,7 +489,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -528,7 +521,6 @@ import Testing
             blockedTeams: []
         )
         let store = MobileShellComposite(
-            runtime: Self.metadataRuntime(),
             isSignedIn: false,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -546,15 +538,6 @@ import Testing
         let rows = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
         #expect(rows.map(\.macDeviceID) == ["mac-a"])
         #expect(rows.first?.customName == nil)
-    }
-
-    // Endpoint coalescing is limited to the runtime's supported transports.
-    // These metadata-only tests declare Tailscale and reject any actual dial.
-    private static func metadataRuntime() -> PairingDeadlineRuntime {
-        PairingDeadlineRuntime(
-            transportFactory: FailingPoolTransportFactory(attempts: PoolTransportAttemptCounter()),
-            supportedRouteKinds: [.tailscale]
-        )
     }
 
     private static func pairedMac(
