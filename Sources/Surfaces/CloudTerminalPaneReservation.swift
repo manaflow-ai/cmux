@@ -228,7 +228,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             guard !state.discarded, state.remoteRebindToken == token else { return }
             state.remoteRebindInFlight = false
             state.remoteRebindToken = nil
-            if !bound { state.remoteBindingPending = true }
+            if !bound {
+                // One failed recovery attempt falls back to the native mirror.
+                // The ambiguous item was intentionally not replayed; the
+                // untouched suffix remains ordered in `pending`.
+                state.remoteBindingPending = false
+                state.remoteRebind = nil
+                promoteRequestedRouterIfReadyLocked(&state)
+            }
         }
     }
 

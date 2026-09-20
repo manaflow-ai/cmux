@@ -191,7 +191,13 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func cancelCheckedWrite(_ token: UUID) {
         queue.async { [self] in
             guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else {
+                // The write already drained before the cancellation callback
+                // reached the queue. Keep only a bounded fence for the rare
+                // inverse ordering where the enqueue block is still pending.
                 cancelledWriteTokens.insert(token)
+                if cancelledWriteTokens.count > 1024 {
+                    cancelledWriteTokens.removeFirst()
+                }
                 return
             }
             let continuation = pendingWriteContinuations[index]
