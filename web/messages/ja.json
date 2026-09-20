@@ -4,6 +4,9 @@
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
   "guestCLI": {
+    "openURLUsage": "使い方: cmux open-url <http-or-https-url>",
+    "openURLInvalid": "有効な HTTP または HTTPS の URL が必要です。",
+    "openURLFallback": "この URL を開いてください: %s",
     "topologyHelp": "ターミナルを再起動せずに、このマシンの配置を変更します:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux workspace <selector> close [--json]\n  cmux workspace close --workspace <selector> [--focus false] [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nID は cmux tree で確認できます。インデックスは 0 から始まります。\nタブ名は配置ごとに設定され、terminal rename はそのターミナルの現在の全配置を変更します。\n複数の表示があるターミナルは tab move で対象の配置だけを移動してください。\nピアでは cmux vm <workspace|pane|tab|terminal> <verb> <machine> ... を使います。\nセレクターを先に指定するデーモン構文も利用できます。layout apply は新規または空の\nワークスペース用です。使用中の配置は move/swap/resize で変更してください。\nこれらはデーモンのレイアウトを変更します。Mac で表示するには\ncmux vm workspace open <machine> <ws> を使います。\nclose は互換性のため --focus false を受け付けますが、追加のフォーカス操作は行いません。\n--focus true は未対応です。リビジョンと冪等性のオプションはデーモンへそのまま渡されます。",
     "topologyUsage": "配置コマンドの引数が無効です。名前変更と配置操作は cmux workspace help で確認してください。",
     "topologyCloseFocus": "workspace close では --focus false のみ指定できます。明示的にフォーカスを移すには workspace focus <id> を使ってください。",
@@ -95,7 +98,7 @@
     "hostTokens": "アカウントの認証情報: ホストのみ（このマシンには保存されません）",
     "version": "cmux ゲスト CLI（マシン接続）",
     "connected": "OK %s に接続しました socket=%s",
-    "help": "cmux - クラウドワークスペース CLI（cmux Cloud マシン内）\n\nこのマシン（自分のセッション。Mac と同じコマンド）\n  cmux tree [--json]                          ワークスペース・ペイン・端末の一覧\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   任意の端末をヘッドレスで操作（cmux terminal help）\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     このマシンの全シェルとエージェントの環境変数（cmux env help）\n  cmux file receive <path> [--mode <octal>]   cmux vm push の受信側（Mac の --secret、他マシン）。バイト列はリンク経由で入力（cmux file help）\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui のリソース文法（cmux <resource> --help）\n\n自分は誰か\n  cmux self [--json]                          名前・ID・状態・チーム・所有者・プラン（コントロールプレーンの把握内容）\n  cmux self peers|integrations|owner|machine [--json]   到達できるマシンと使える機能（別名: cmux whoami, cmux reflect）\n\n他のマシン（cmux vm <verb> <machine> ...。Mac と同じ文法）\n  cmux vm ls [--json]                         所有者のマシン一覧（このマシンは * 付き）\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   ファイル 1 つをリンク経由で入力（exec API は通さない）\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    （一覧は cmux vm help）\n\n人間に知らせる\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nモデルとエージェント\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   この端末で終了まで実行\n  cmux agent list|report|hook ...\n\n認証\n  cmux auth status [--json]                   デーモン・CodeRouter エッジ・マシン識別の確認\n  cmux auth login|logout                      サインインは Mac で管理します\n\nアカウントの認証情報はマシンにコピーされません。TLS エッジが通信上で認証します。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
+    "help": "cmux - クラウドワークスペース CLI（cmux Cloud マシン内）\n\nこのマシン（自分のセッション。Mac と同じコマンド）\n  cmux tree [--json]                          ワークスペース・ペイン・端末の一覧\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   任意の端末をヘッドレスで操作（cmux terminal help）\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     このマシンの全シェルとエージェントの環境変数（cmux env help）\n  cmux file receive <path> [--mode <octal>]   cmux vm push の受信側（Mac の --secret、他マシン）。バイト列はリンク経由で入力（cmux file help）\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui のリソース文法（cmux <resource> --help）\n\n自分は誰か\n  cmux self [--json]                          名前・ID・状態・チーム・所有者・プラン（コントロールプレーンの把握内容）\n  cmux self peers|integrations|owner|machine [--json]   到達できるマシンと使える機能（別名: cmux whoami, cmux reflect）\n\n他のマシン（cmux vm <verb> <machine> ...。Mac と同じ文法）\n  cmux vm ls [--json]                         所有者のマシン一覧（このマシンは * 付き）\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   ファイル 1 つをリンク経由で入力（exec API は通さない）\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    （一覧は cmux vm help）\n\n人間に知らせる\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nモデルとエージェント\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   この端末で終了まで実行\n  cmux agent list|report|hook ...\n\n認証\n  cmux auth status [--json]                   デーモン・CodeRouter エッジ・マシン識別の確認\n  cmux auth login|logout                      サインインは Mac で管理します\n\nアカウントの認証情報はマシンにコピーされません。TLS エッジが通信上で認証します。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
     "peerHelp": "cmux vm - このマシンから、同じ所有者の他の cmux Cloud マシンを操作（Mac と同じ文法）。\n\n  cmux vm ls [--json]                 所有者のマシン一覧: このマシンは * 付き、状態、到達可否、linked/connected\n  cmux vm connect <machine>           リンクを開始（他の操作時にも自動接続）\n  cmux vm exec <machine> -- <cmd…>    そのマシンの永続端末でコマンドを実行\n  cmux vm tree <machine>              そのマシンのワークスペースと端末の状態\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> …   そのマシンの端末を操作\n  cmux vm send|send-key|read-screen <machine> <term> …       Mac と同じコマンド名\n  cmux vm workspace new|rename|close|rm <machine> …          そのマシンのワークスペース（rm は端末も終了）\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]\n                                      ファイル 1 つ（最大 256 KiB）をそのマシンの cmux file receive にリンク経由で入力:\n                                      exec API・argv・コントロールプレーンは通りません\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>\n                                      そのマシンの永続端末でエージェントを開始。--wait は終了まで待機（終了コードはエージェントのもの）、\n                                      --output は端末の出力ストリームを表示、--timeout は待機時間の上限\n  cmux vm layout export|apply <machine> …    そのマシンのレイアウト（cmux layout help を参照）\n  cmux vm env set|ls|rm|path <machine> …     そのマシンの環境変数（値はリンク経由のみ。cmux env help を参照）\n  cmux vm <resource> <machine> …      そのマシンの cmux-tui リソース操作\n\nリンクのないマシンはリフレクション（cmux self peers）で見つかります。現在のイメージでは\nプライベートネットワークのルートだけで接続でき、Mac での操作は不要です。\nローカル操作に接頭辞は不要です：cmux workspace…、cmux terminal…、cmux session…。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
     "thisMachine": "（このマシン）",
     "selfHelp": "cmux self - 自分は誰か。リフレクションは TLS エッジが保証する、コントロールプレーンから見たこのマシンの情報です（認証情報はマシン内にありません）。\n\n  cmux self [--json]                   名前・ID・状態・チーム・所有者・プラン\n  cmux self peers [--json]             所有者の他のマシン: 状態・プライベートルート・到達可否\n  cmux self integrations [--json]      このマシンで使える機能と、そのヘルプコマンド\n  cmux self owner|machine [--json]     所有者 / このマシンのサイズ・イメージ・ネットワーク・デスクトップ\n  cmux self <path> [--json]            任意のリフレクションパス（peers、/peers など）\n\n別名: cmux whoami = cmux self、cmux reflect [<path>] = cmux self [<path>]。\n探索: cmux vm ls は同じマシン一覧を表示し、cmux vm exec <machine> -- <cmd> は初回に自動でリンクします。",
@@ -168,6 +171,11 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "displayName": {
+      "title": "マシン名が無効です",
+      "message": "マシン名は {maxLength} 文字以内の表示可能なテキストにしてください。",
+      "action": "制御文字を含まない短い名前を使うか、空にして名前をクリアしてください。"
     },
     "memoryPlan": {
       "title": "cmux {plan}",
@@ -280,6 +288,7 @@
   "authError": {
     "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
     "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "signupPendingBody": "すでにアカウントをお持ちの場合は、以前に使用した方法でサインインしてください。新しくアカウントを作成した場合は、サインインする前にメールアドレスを確認してください。",
     "genericTitle": "サインインを完了できませんでした",
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
@@ -319,7 +328,7 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "mobileDevices": "モバイルデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -381,7 +390,7 @@
     },
     "coderouterAccounts": {
       "title": "アカウント",
-      "description": "このチームの Cloud VM と CLI 上の Claude Code、Codex、OpenCode はこれらのアカウントを経由します。各マシンはプロバイダーごとに 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続けます。レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "description": "共有アカウントは、このチームの Cloud VM で利用できます。非公開のアカウントは、追加した本人だけが利用できます。",
       "accountsCount": "{count} 件のアカウント",
       "emptyTitle": "まだアカウントがありません",
       "emptyBody": "アカウントを追加するまで、このチームからのリクエストは失敗します。",
@@ -453,7 +462,10 @@
       "removeClaudeConfirmBody": "このアカウントに固定されたマシンはチームの他のアカウントに移ります。最後のアカウントの場合、新しいアカウントを追加するまでこのチームからの Claude リクエストは失敗します。",
       "removeNativeConfirmBody": "このアカウントに固定されたセッションはチームの他のアカウントに移ります。再追加には cr add で再度サインインが必要です。",
       "removeSharedConfirmBody": "チーム全体からこのアカウントが削除されます。再追加には再度サインインが必要です。",
-      "cancelAction": "キャンセル"
+      "cancelAction": "キャンセル",
+      "shareWithTeam": "チームと共有",
+      "makePrivate": "非公開にする",
+      "privateImportHint": "新しいアカウントは非公開です。共有すると、このチームの Cloud VM で利用できます。"
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -544,7 +556,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
+        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
       }
     },
     "testflight": {
@@ -591,23 +603,25 @@
         "leave": "TestFlightから退出"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "モバイルデバイス",
+      "description": "接続済みのコンピュータ、スマートフォン、タブレットへのアクセスを管理します。",
+      "team": "チーム",
+      "teamSwitchError": "チームを切り替えられませんでした。もう一度お試しください。",
+      "loading": "デバイスを読み込んでいます…",
+      "empty": "このチームには登録済みのデバイスがありません。",
+      "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
+      "retry": "もう一度試す",
+      "mutationError": "デバイスの変更を完了できませんでした。",
+      "revoke": "アクセスを取り消す",
+      "deviceId": "デバイス",
+      "revision": "リビジョン",
+      "status": "ステータス",
+      "active": "有効",
+      "revoked": "取り消し済み",
+      "relaySettings": "リレー設定",
+      "relaySettingsDescription": "このチームで使用するリレーサーバーを選択します。1 行に 1 つ URL を入力してください。",
+      "saveRelaySettings": "リレー設定を保存"
     }
   },
   "vault": {
@@ -913,8 +927,8 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "マシンごとに最大 64 GB RAM",
-        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "無制限のワークスペースと iOS アプリ"
       ]
     },
     "team": {
@@ -1022,7 +1036,7 @@
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
           "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
           "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
@@ -1134,7 +1148,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1965,10 +1979,10 @@
       "targetTitle": "別のウィンドウが選ばれる、またはクリックがブロックされる",
       "targetBody": "アプリを再確認し、現在の状態から要素を選び直します。他のウィンドウに隠れている場合は対象を表示してから再確認してください。古い座標や要素インデックスを再利用しないでください。",
       "productLink": "cmux Computer Useの概要",
-    "copyTitle": "Computer Useのプロンプトをコピー",
-    "copyPrompt": "プロンプトをコピー",
-    "copiedPrompt": "コピーしました",
-    "installPrompt": "この作業では $cmux-cua スキルを使ってください。利用できなければ通常のスキルインストーラーで導入してください。権限がなければcmuxの設定 → Computer Useを開くよう伝えてください。操作前に確認し、変更のたびに検証してください。\n\nタスク：[ここにタスクを記入]"
+      "copyTitle": "Computer Useのプロンプトをコピー",
+      "copyPrompt": "プロンプトをコピー",
+      "copiedPrompt": "コピーしました",
+      "installPrompt": "この作業では $cmux-cua スキルを使ってください。利用できなければ通常のスキルインストーラーで導入してください。権限がなければcmuxの設定 → Computer Useを開くよう伝えてください。操作前に確認し、変更のたびに検証してください。\n\nタスク：[ここにタスクを記入]"
     },
     "managedPolicies": {
       "title": "管理デバイスポリシー（MDM）",
@@ -2356,7 +2370,7 @@
           "paneResizeStepPixels": "ペインのリサイズショートカットを1回押すごとに移動するピクセル数。範囲は 1～200、既定値は 20 です。変更はすぐに適用されます。"
         },
         "terminal": {
-          "adaptiveDefaultTheme": "true（既定）の場合、Ghostty 設定にディレクティブが一つもないときに限り、cmux の管理するライト／ダークパレットを適用します。false の場合、未設定の Ghostty では固定された組み込みパレットを使用します。Ghostty のディレクティブが一つでもあれば管理パレットは適用せず、theme = light:X,dark:Y は引き続き外観に追従します。",
+          "adaptiveDefaultTheme": "true（既定）の場合、Ghostty のテーマやターミナルの色が設定されていなければ、外観に追従する既定のパレットを適用します。フォントなどの設定は保持されます。false の場合は Ghostty の固定された組み込みパレットを使用します。theme = light:X,dark:Y を含め、明示的なテーマと色の設定が常に優先されます。",
           "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
           "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
@@ -2498,7 +2512,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents、New Terminal、New Browser を表示している cmux プラスボタンの右クリックメニュー",
       "plusButtonScreenshotCaption": "右クリックメニューは ui.newWorkspace.contextMenu の順序に従います。",
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",

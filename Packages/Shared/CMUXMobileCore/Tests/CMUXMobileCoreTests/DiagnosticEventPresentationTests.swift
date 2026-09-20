@@ -269,6 +269,7 @@ import Testing
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",
+            .terminalTrace: "Terminal operation trace",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",

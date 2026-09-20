@@ -23,6 +23,11 @@
       "message": "Cloud VM wymagają planu cmux Pro.",
       "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     },
+    "displayName": {
+      "title": "Nieprawidłowa nazwa maszyny",
+      "message": "Nazwa maszyny musi być tekstem drukowalnym o długości co najwyżej {maxLength} znaków.",
+      "action": "Użyj krótszej nazwy bez znaków sterujących lub pozostaw pole puste, aby ją wyczyścić."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Zweryfikuj e-mail, aby kontynuować",
     "emailUnverifiedBody": "Zaloguj się metodą używaną pierwotnie, a następnie zweryfikuj e-mail przed użyciem tej metody logowania.",
+    "signupPendingBody": "Jeśli masz już konto, zaloguj się metodą używaną wcześniej. Jeśli właśnie utworzyłeś konto, potwierdź adres e-mail przed zalogowaniem.",
     "genericTitle": "Nie udało się zalogować",
     "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
     "backToSignIn": "Wróć do logowania"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "przegląd",
       "team": "zespół",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Urządzenia mobilne"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,32 @@
         "loading": "Ładowanie…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Urządzenia mobilne",
+      "description": "Zarządzaj dostępem do połączonych komputerów, telefonów i tabletów.",
+      "team": "Zespół",
+      "teamSwitchError": "Nie można przełączyć zespołu. Spróbuj ponownie.",
+      "loading": "Ładowanie urządzeń…",
+      "empty": "Brak urządzeń zarejestrowanych dla tego zespołu.",
+      "unavailable": "Nie można załadować urządzeń. Odśwież stronę i spróbuj ponownie.",
+      "retry": "Spróbuj ponownie",
+      "mutationError": "Nie udało się ukończyć zmiany urządzenia.",
+      "revoke": "Odbierz dostęp",
+      "deviceId": "Urządzenie",
+      "revision": "Wersja",
+      "status": "Stan",
+      "active": "Aktywne",
+      "revoked": "Unieważnione",
+      "relaySettings": "Ustawienia przekaźnika",
+      "relaySettingsDescription": "Wybierz serwery przekaźnikowe używane przez ten zespół. Wpisz jeden URL w wierszu.",
+      "saveRelaySettings": "Zapisz ustawienia przekaźnika"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Udostępnij zespołowi",
+      "makePrivate": "Ustaw jako prywatne",
+      "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać.",
+      "description": "Konta udostępnione są dostępne dla maszyn Cloud VM tego zespołu. Konta prywatne pozostają dostępne tylko dla osoby, która je dodała.",
+      "cancelAction": "Anuluj"
     }
   },
   "community": {
@@ -1003,10 +1018,10 @@
       "targetTitle": "Niewłaściwe okno lub zablokowane kliknięcie",
       "targetBody": "Sprawdź aplikację ponownie i wybierz aktualny element. Jeśli inne okno zasłania cel, odsłoń właściwe okno i sprawdź je przed kolejną próbą. Nie używaj starych współrzędnych ani indeksów.",
       "productLink": "Przegląd cmux Computer Use",
-    "copyTitle": "Kopiuj prompt Computer Use",
-    "copyPrompt": "Kopiuj prompt",
-    "copiedPrompt": "Skopiowano",
-    "installPrompt": "Użyj umiejętności $cmux-cua. Jeśli jej brakuje, zainstaluj ją zwykłym instalatorem. Przy braku uprawnień poproś mnie o otwarcie Ustawienia cmux → Computer Use. Sprawdź przed działaniem i zweryfikuj każdą zmianę.\n\nZadanie: [opisz zadanie tutaj]"
+      "copyTitle": "Kopiuj prompt Computer Use",
+      "copyPrompt": "Kopiuj prompt",
+      "copiedPrompt": "Skopiowano",
+      "installPrompt": "Użyj umiejętności $cmux-cua. Jeśli jej brakuje, zainstaluj ją zwykłym instalatorem. Przy braku uprawnień poproś mnie o otwarcie Ustawienia cmux → Computer Use. Sprawdź przed działaniem i zweryfikuj każdą zmianę.\n\nZadanie: [opisz zadanie tutaj]"
     },
     "remoteTmux": {
       "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."
@@ -1214,6 +1229,7 @@
           "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Przy true (domyślnie) cmux udostępnia domyślną paletę dostosowaną do wyglądu, chyba że skonfigurowano motyw Ghostty lub kolory terminala. Czcionka i inne ustawienia są zachowywane. Przy false Ghostty używa swojej stałej wbudowanej palety. Jawnie ustawione motywy i kolory zawsze mają pierwszeństwo, w tym theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcjonalna maksymalna szerokość w punktach dla zawartości terminala i wbudowanego czatu agenta. Ustaw false, aby użyć pełnej szerokości panelu.",
           "sessionContentAlignment": "Poziome położenie zawartości terminala i wbudowanego czatu agenta po włączeniu sessionContentMaxWidth.",
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
@@ -1328,7 +1344,7 @@
       "plusButtonScreenshotAlt": "Menu prawego kliknięcia przycisku plus w cmux pokazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Menu prawego kliknięcia używa kolejności z ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Niestandardowe akcje przycisku plus",
-      "newWorkspaceButtonDesc": "Użyj <action>ui.newWorkspace.action</action>, aby nadpisać działanie przycisku plus. Użyj <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (lub aliasu <rightClick>rightClick</rightClick>), aby zdefiniować uporządkowane menu prawego kliknięcia. Wpisami menu mogą być ID akcji, obiekty akcji albo <separator>{ \"type\": \"separator\" }</separator>. Gdy nie ustawiono, menu wyświetla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) z bieżącymi skrótami. Pozycje chmurowe pojawiają się tylko po włączeniu Cloud Machines.",
+      "newWorkspaceButtonDesc": "Użyj <action>ui.newWorkspace.action</action>, aby nadpisać działanie przycisku plus. Użyj <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (lub aliasu <rightClick>rightClick</rightClick>), aby zdefiniować uporządkowane menu prawego kliknięcia. Wpisami menu mogą być ID akcji, obiekty akcji albo <separator>{ \"type\": \"separator\" }</separator>. Gdy nie ustawiono, menu wyświetla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) z bieżącymi skrótami. Pozycje chmurowe pojawiają się tylko po włączeniu Cloud Machines.",
       "newWorkspaceWorktreeNote": "Ten przykład sprawia, że zwykłe kliknięcie plus uruchamia akcję <action>worktree-agents</action>. Polecenie obszaru roboczego z <commands>commands</commands> używa widocznego terminala przygotowującego, aby najpierw utworzyć Git <worktree>worktree</worktree>. Codex i Claude startują jednocześnie, czekają na plik stanu dla obszaru roboczego, a następnie przechodzą do utworzonego katalogu przed exec.",
       "simpleCommands": "Proste polecenia",
       "simpleCommandsDesc": "Proste polecenie uruchamia polecenie shell w aktualnie sfokusowanym terminalu:",

@@ -3,7 +3,7 @@ import SwiftUI
 
 extension GhosttySurfaceRepresentable {
     func makeCoordinator() -> Coordinator {
-        Coordinator(
+        let coordinator = Coordinator(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
             store: store,
@@ -19,6 +19,10 @@ extension GhosttySurfaceRepresentable {
             onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
             onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
+        #if DEBUG
+        coordinator.releaseGateUIProbe = releaseGateUIProbe
+        #endif
+        return coordinator
     }
 
 }

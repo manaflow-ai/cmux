@@ -23,6 +23,11 @@
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
     },
+    "displayName": {
+      "title": "Ugyldig maskinnavn",
+      "message": "Maskinnavn må være lesbar tekst på høyst {maxLength} tegn.",
+      "action": "Bruk et kortere navn uten kontrolltegn, eller la det stå tomt for å fjerne det."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Bekreft e-posten din for å fortsette",
     "emailUnverifiedBody": "Logg inn med metoden du brukte opprinnelig, og bekreft deretter e-posten før du bruker denne innloggingsmetoden.",
+    "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
     "backToSignIn": "Tilbake til innlogging"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversikt",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile enheter"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,32 @@
         "loading": "Laster…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile enheter",
+      "description": "Administrer tilgang til tilkoblede datamaskiner, telefoner og nettbrett.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+      "teamSwitchError": "Kunne ikke bytte team. Prøv igjen.",
+      "loading": "Laster inn enheter…",
+      "empty": "Ingen enheter er registrert for dette teamet.",
+      "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden og prøv igjen.",
+      "retry": "Prøv igjen",
+      "mutationError": "Enhetsendringen kunne ikke fullføres.",
+      "revoke": "Tilbakekall tilgang",
+      "deviceId": "Enhet",
+      "revision": "Revisjon",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Tilbakekalt",
+      "relaySettings": "Relay-innstillinger",
+      "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
+      "saveRelaySettings": "Lagre relay-innstillinger"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gjør privat",
+      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
+      "cancelAction": "Avbryt"
     }
   },
   "community": {
@@ -1003,10 +1018,10 @@
       "targetTitle": "Feil vindu eller blokkert klikk",
       "targetBody": "Undersøk appen igjen og velg et gjeldende element. Hvis et annet vindu dekker målet, vis ønsket vindu og undersøk det før du prøver igjen. Ikke gjenbruk gamle koordinater eller indekser.",
       "productLink": "Oversikt over cmux Computer Use",
-    "copyTitle": "Kopier en Computer Use-ledetekst",
-    "copyPrompt": "Kopier ledetekst",
-    "copiedPrompt": "Kopiert",
-    "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
+      "copyTitle": "Kopier en Computer Use-ledetekst",
+      "copyPrompt": "Kopier ledetekst",
+      "copiedPrompt": "Kopiert",
+      "installPrompt": "Bruk ferdigheten $cmux-cua. Hvis den mangler, installer den med den vanlige installatøren. Ved manglende tillatelser ber du meg åpne cmux Innstillinger → Computer Use. Undersøk før handling og bekreft hver endring.\n\nOppgave: [beskriv oppgaven her]"
     },
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
@@ -1213,6 +1228,7 @@
           "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruker cmux en standardpalett som følger utseendet, med mindre et Ghostty-tema eller terminalfarger er konfigurert. Skrifttype og andre innstillinger beholdes. Når false, bruker Ghostty sin faste innebygde palett. Eksplisitte temaer og farger har alltid prioritet, inkludert theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalinnhold og den innebygde agentchatten. Angi false for å bruke hele rutens bredde.",
           "sessionContentAlignment": "Vannrett plassering av terminalinnhold og den innebygde agentchatten når sessionContentMaxWidth er aktivert.",
           "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
@@ -1327,7 +1343,7 @@
       "plusButtonScreenshotAlt": "Høyreklikkmenyen for cmux-plussknappen viser Worktree Agents, New Terminal og New Browser",
       "plusButtonScreenshotCaption": "Høyreklikkmenyen følger rekkefølgen fra ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Tilpassede handlinger for plussknappen",
-      "newWorkspaceButtonDesc": "Bruk <action>ui.newWorkspace.action</action> for å overstyre hva plussknappen gjør. Bruk <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) for å definere den ordnede høyreklikkmenyen. Menyoppføringer kan være handlings-ID-er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angitt, viser menyen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), hver med gjeldende snarvei. Skyvalg vises bare når Cloud Machines er aktivert.",
+      "newWorkspaceButtonDesc": "Bruk <action>ui.newWorkspace.action</action> for å overstyre hva plussknappen gjør. Bruk <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) for å definere den ordnede høyreklikkmenyen. Menyoppføringer kan være handlings-ID-er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angitt, viser menyen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), hver med gjeldende snarvei. Skyvalg vises bare når Cloud Machines er aktivert.",
       "newWorkspaceWorktreeNote": "Dette eksempelet gjør at et vanlig plussklikk kjører handlingen <action>worktree-agents</action>. Arbeidsområdekommandoen fra <commands>commands</commands> bruker en synlig oppsettsterminal til først å opprette Git-<worktree>worktree</worktree>. Codex og Claude starter samtidig, venter på den arbeidsområdespesifikke tilstandsfilen og går deretter inn i den opprettede mappen før exec.",
       "simpleCommands": "Enkle kommandoer",
       "simpleCommandsDesc": "En enkel kommando kjører en shell-kommando i den for øyeblikket fokuserte terminalen:",

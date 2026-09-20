@@ -37,12 +37,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
         lock.lock()
-        self.router = router
-        let queued = pending
+        // Enqueue the backlog before publishing the router. send() only queues
+        // work, so holding this lock performs no socket I/O. A concurrent key
+        // cannot overtake earlier input at the handoff boundary.
+        for input in pending { router.send(input) }
         pending.removeAll()
         discarded = false
+        self.router = router
         lock.unlock()
-        for input in queued { router.send(input) }
     }
 
     /// Drops queued input and stops forwarding: the request was cancelled or the
@@ -68,7 +70,10 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
 final class CloudTerminalPaneReservation {
     let workspaceID: UUID
     let panelID: UUID
-    let machine: SurfaceMachineID
+    let sourcePlacement: CloudTerminalSourcePlacement
+    /// An existing terminal's saved target, never the source tab of a new create.
+    let attachmentPlacement: SurfaceResourcePlacement?
+    let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
     /// When the pane was inserted. Adoption hands the elapsed wait to the
     /// attachment session so the connection card does not restart its grace.
@@ -82,15 +87,48 @@ final class CloudTerminalPaneReservation {
         workspaceID: UUID,
         panelID: UUID,
         machine: SurfaceMachineID,
+        sourcePlacement: CloudTerminalSourcePlacement? = nil,
+        attachmentPlacement: SurfaceResourcePlacement? = nil,
         inputRelay: CloudOptimisticInputRelay = CloudOptimisticInputRelay(),
         startedAt: ContinuousClock.Instant = .now
     ) {
         self.workspaceID = workspaceID
         self.panelID = panelID
-        self.machine = machine
+        self.sourcePlacement = sourcePlacement ?? CloudTerminalSourcePlacement(
+            machine: machine,
+            remoteWorkspaceID: attachmentPlacement?.remoteWorkspaceID,
+            remoteTabID: attachmentPlacement?.remoteTabID
+        )
+        self.attachmentPlacement = attachmentPlacement
         self.inputRelay = inputRelay
         self.startedAt = startedAt
     }
 
+    var machine: SurfaceMachineID { sourcePlacement.machine }
+    var remoteWorkspaceID: String? { sourcePlacement.remoteWorkspaceID }
+    var remoteTabID: String? { sourcePlacement.remoteTabID }
     var elapsed: Duration { ContinuousClock.now - startedAt }
+
+    /// Rechecks a saved view after attachment awaits and before any queued input is forwarded.
+    func validatedAttachmentPlacement(
+        resourceID: SurfaceResourceID,
+        remoteTabID: String?,
+        materializedPlacement: SurfaceRemotePlacement? = nil,
+        catalog: SurfaceCatalog
+    ) throws -> SurfaceRemotePlacement? {
+        guard let expected = attachmentPlacement else { return materializedPlacement }
+        guard resourceID == expected.resource, resourceID.machine == machine,
+              remoteTabID == nil || expected.remoteTabID == nil || remoteTabID == expected.remoteTabID else {
+            throw CloudDiagnosticFailure.placement
+        }
+        guard expected.remoteWorkspaceID != nil || expected.remoteTabID != nil else { return materializedPlacement }
+        guard let view = try? catalog.remoteView(
+            for: resourceID, tabID: expected.remoteTabID, workspaceID: expected.remoteWorkspaceID
+        ) else { throw CloudDiagnosticFailure.placement }
+        if let materializedPlacement,
+           materializedPlacement.workspaceID != view.workspace.id || materializedPlacement.tabID != view.tabID {
+            throw CloudDiagnosticFailure.placement
+        }
+        return materializedPlacement ?? SurfaceRemotePlacement(workspaceID: view.workspace.id, tabID: view.tabID)
+    }
 }

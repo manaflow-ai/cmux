@@ -31,8 +31,10 @@
 // reaches machines created from any existing snapshot. This driver-installed
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
+import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
 export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
 
@@ -45,6 +47,11 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+if [ "\${1:-}" = open-url ]; then
+  shift
+  exec ${GUEST_BROWSER_OPENER_PATH} "$@"
+fi
 
 # The daemon binary lives under the daemon's home, which depends on the image
 # layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
@@ -832,16 +839,19 @@ guest_agent_command() {
   esac
 }
 
+${GUEST_CODEROUTER_SHELL}
 guest_coderouter_command() {
   cmux_coderouter_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
   case "\$cmux_coderouter_sub" in
+    accounts|list|ls) guest_coderouter_accounts "\$@" ;;
+    org|organization|team) guest_coderouter_org "\$@" ;;
     status|auth) guest_auth_status "\$@" ;;
     usage|machines) guest_coderouter_usage "\$@" ;;
     models) guest_coderouter_models "\$@" ;;
     agent|run) guest_coderouter_agent "\$@" ;;
     help|--help|-h) guest_usage ;;
-    claude|accounts|login|logout)
+    claude|login|logout)
       die_message 2 accountHostOnly "\$cmux_coderouter_sub"
       ;;
     *) die_message 2 unknownCodeRouter "\$cmux_coderouter_sub" ;;
@@ -2766,6 +2776,7 @@ export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
   return [
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
+    guestBrowserInstallCommand(),
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `mv ${GUEST_CMUX_SHIM_PATH}.tmp ${GUEST_CMUX_SHIM_PATH}`,
   ].join(" && ");

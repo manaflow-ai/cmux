@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage, parseVmResourceUsage } from "./resourceUsage";
-import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
+import {
+  applyVmResourceUsage,
+  VM_RESOURCE_USAGE_KEY,
+  VM_RESOURCE_USAGE_MAX_AGE_MS,
+  shouldReadVmResourceStatsDirectly,
+} from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -535,7 +539,7 @@ function requireGoMetadataShape(planId: string, metadata: Record<string, unknown
   return requireGoShape(planId, hasVmResourceReservationMetadata(metadata) ? vmResourceReservationFromMetadata(metadata) : null);
 }
 
-export function createVm(input: {
+type CreateVmInput = {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
@@ -545,6 +549,8 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  /** Stored before provisioning so the first guest prompt already has its chosen name. */
+  readonly displayName?: string | null;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -573,7 +579,23 @@ export function createVm(input: {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
-}): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+};
+
+function createVmBeginInput(input: CreateVmInput): CreateVmInput {
+  if (!isPaidVmPlan(input.billingPlanId)) return input;
+  return {
+    ...input,
+    // Reserve the logical CPU and memory profile when memoryMb is present,
+    // while retaining the baked image's actual disk claim. A direct caller
+    // may instead provide only imageSize; in that form the image is the
+    // authoritative request.
+    resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go"
+      ? GO_VM_RESERVATION
+      : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })),
+  };
+}
+
+export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
     yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
@@ -581,19 +603,7 @@ export function createVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     // Record paid machine shapes for snapshot, fork, and resize recovery.
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        // Reserve the logical CPU and memory profile when memoryMb is present,
-        // while retaining the baked image's actual disk claim. A direct caller
-        // may instead provide only imageSize; in that form the image is the
-        // authoritative request.
-        resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({
-          memoryMb: input.memoryMb,
-          imageSize: input.imageSize,
-        })),
-      }
-      : input;
+    const beginInput = createVmBeginInput(input);
 
     // The owner's network row and the create row do not depend on each other,
     // so the request pays the slower of the two reads, not their sum. A network
@@ -683,7 +693,10 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        displayName: create.vm.slug ?? undefined,
+        // The display label is reserved with the row before provider work starts.
+        // Passing it here makes the first guest prompt correct and removes the
+        // blocking post-create rename on current backends.
+        displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
@@ -2980,31 +2993,22 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
-        // Local GCP dev backends do not share the production coderouter edge,
-        // so their baked guest reporter cannot authenticate its callback. Keep
-        // this explicit dev-only fallback behind an operator-set flag; release
-        // and staging continue to use the normal reporter metadata path.
-        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1") {
+        // The private development backend cannot receive production-edge reports.
+        // Production keeps the push path. Never probe non-awake machines, and
+        // prefer an existing fresh report over another guest round trip.
+        const fresh = reported.resourceSampledAt !== undefined
+          && reported.resourceSampledAt <= now
+          && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
           return Effect.succeed(reported);
         }
-        const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
-        return providers.exec(vm.provider, input.providerVmId, command).pipe(
-          Effect.map((result) => {
-            if (result.exitCode !== 0) return reported;
-            try {
-              const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
-              if (!usage) return reported;
-              return {
-                ...stats,
-                ...usage,
-                sampledAt: now,
-                resourceSampledAt: now,
-              };
-            } catch {
-              return reported;
-            }
-          }),
-          Effect.catchAll(() => Effect.succeed(reported)),
+        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+            [VM_RESOURCE_USAGE_KEY]: {
+              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+            },
+          }, input.providerVmId, Date.now()) : reported),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
         );
       }),
       Effect.mapError((error): VmWorkflowError => error),
@@ -3801,8 +3805,8 @@ function requireUserVm(input: ExistingVmAccessInput) {
 }
 
 function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRow): boolean {
-  const billingTeamId = vm.billingTeamId?.trim();
-  if (!billingTeamId) return true;
+  const billingTeamId = vm.ownerTeamId?.trim();
+  if (!billingTeamId) return false;
   if (billingTeamId === input.userId) return true;
   if (!input.teamIds) return false;
   return new Set(input.teamIds).has(billingTeamId);

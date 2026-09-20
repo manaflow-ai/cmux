@@ -6,59 +6,81 @@ struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+            MachineCreateLoadingContent(operation: operation, actions: .bound(coordinator: .shared))
+        } else {
+            baseContent
+        }
+    }
+
+    private var baseContent: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        TimelineView(schedule) { context in
+        return TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
             VStack(spacing: 14) {
                 switch panel.phase {
-                case .loading:
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
-                        .cmuxFont(size: 14, weight: .semibold)
-                        .foregroundStyle(.primary)
-                    CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
-                case .failed(let message, let failedElapsedSeconds):
-                    CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
-                    Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
-                        .cmuxFont(size: 14, weight: .semibold)
-                        .foregroundStyle(.primary)
-                    Text(message)
-                        .cmuxFont(size: 12)
+                case .loading(let loadingHeadline):
+                    if let loadingHeadline {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(loadingHeadline)
+                            .cmuxFont(size: 14, weight: .semibold)
+                            .foregroundStyle(.primary)
+                        Text(String(format: String(
+                            localized: "panel.cloudVM.loading.elapsed",
+                            defaultValue: "%ds elapsed"
+                        ), elapsedSeconds))
+                        .cmuxFont(size: 12, weight: .medium)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 460)
-                    HStack(spacing: 8) {
-                        Button {
-                            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                        } label: {
-                            Label(
-                                String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
-                                systemImage: "arrow.clockwise"
-                            )
-                            .cmuxFont(size: 12, weight: .semibold)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-
-                        Button {
-                            FeedbackComposerBridge().openComposer()
-                        } label: {
-                            Label(
-                                String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
-                                systemImage: "bubble.left.and.text.bubble.right"
-                            )
-                            .cmuxFont(size: 12, weight: .semibold)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
+                            .cmuxFont(size: 14, weight: .semibold)
+                            .foregroundStyle(.primary)
+                        CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
                     }
-                    Text(String(format: String(
-                        localized: "panel.cloudVM.loading.failed.elapsed",
-                        defaultValue: "Waited %ds before stopping."
-                    ), failedElapsedSeconds))
-                    .cmuxFont(size: 11)
-                    .foregroundStyle(.tertiary)
+                case .failed(let message, let failedElapsedSeconds):
+                        CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
+                        Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
+                            .cmuxFont(size: 14, weight: .semibold)
+                            .foregroundStyle(.primary)
+                        Text(message)
+                            .cmuxFont(size: 12)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 460)
+                        HStack(spacing: 8) {
+                            Button {
+                                _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+                            } label: {
+                                Label(
+                                    String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
+                                    systemImage: "arrow.clockwise"
+                                )
+                                .cmuxFont(size: 12, weight: .semibold)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+
+                            Button {
+                                FeedbackComposerBridge().openComposer()
+                            } label: {
+                                Label(
+                                    String(localized: "panel.cloudVM.loading.failed.feedback", defaultValue: "Send Feedback"),
+                                    systemImage: "bubble.left.and.text.bubble.right"
+                                )
+                                .cmuxFont(size: 12, weight: .semibold)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        Text(String(format: String(
+                            localized: "panel.cloudVM.loading.failed.elapsed",
+                            defaultValue: "Waited %ds before stopping."
+                        ), failedElapsedSeconds))
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.tertiary)
                 }
             }
             .padding(32)

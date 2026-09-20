@@ -150,6 +150,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let surface: ghostty_surface_t
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
         let presentationRetryCount: UInt8
+        var outputPresentation: (@MainActor @Sendable () -> Void)? = nil
 
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(token: token, generation: generation, kind: kind)
@@ -162,10 +163,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: kind,
                 surface: surface,
                 verifiedReplayRead: verifiedReplayRead,
-                presentationRetryCount: count
+                presentationRetryCount: count,
+                outputPresentation: outputPresentation
             )
         }
     }
+    /// Observation attached to the next ordinary render submission.
+    public var onOutputPresentation: (@MainActor @Sendable () -> Void)?
     var renderPresentationGate = TerminalRenderPresentationGate()
     var renderSubmission: RenderSubmission?
     var pendingRenderSubmission: RenderSubmission?
@@ -4324,6 +4328,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // dropping the request here. Ordinary and local-scroll submissions
         // remain pending and become eligible when the frozen replay is
         // revealed.
+        let outputPresentation = onOutputPresentation
+        onOutputPresentation = nil
         return enqueueRenderSubmission(
             RenderSubmission(
                 token: makeSurfaceOperationID(),
@@ -4331,7 +4337,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: .ordinary,
                 surface: surface,
                 verifiedReplayRead: nil,
-                presentationRetryCount: presentationRetryCount
+                presentationRetryCount: presentationRetryCount,
+                outputPresentation: outputPresentation
             )
         )
     }
@@ -4626,6 +4633,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 generation: submission.generation
             )
         guard action != .ignored else { return }
+        if presented { submission.outputPresentation?() }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
@@ -5373,7 +5381,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayRead: current.verifiedReplayRead,
             presentationRetryCount: countsAsRetry
                 ? current.presentationRetryCount &+ 1
-                : current.presentationRetryCount
+                : current.presentationRetryCount,
+            outputPresentation: current.outputPresentation
         )
         let replaced = replaceInFlightRenderSubmission(with: replacement)
         if replaced {

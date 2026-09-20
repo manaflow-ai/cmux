@@ -33,6 +33,8 @@ describe("VM timing helpers", () => {
     recorder.record("provider_create", 250);
     recorder.record("provider_create", 50);
     expect(recorder.serverTimingHeader()).toBe("auth;dur=12.35, provider_create;dur=300");
+    expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_started_at_ms")).toBe(true);
+    expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_ended_at_ms")).toBe(true);
   });
 
   test("finish is idempotent", () => {

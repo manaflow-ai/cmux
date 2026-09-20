@@ -685,21 +685,17 @@ struct IrxLiveQUICTests {
         #expect(await registry.activeSessionCount == 1)
 
         let retired = try #require(recovered)
-        let dialStartsBeforeRetirement =
-            journal.counterSnapshot()["dial-started"] ?? 0
-        #expect(
-            await engine.retire(
-                connection: retired.connection,
-                code: .explicitRedial
-            )
-        )
+        let dialStartsBeforeRetirement = journal.counterSnapshot()["dial-started"] ?? 0
+        let autoRedialsBeforeRetirement = journal.counterSnapshot()["auto-redial"] ?? 0
+        #expect(await engine.retire(connection: retired.connection, code: .explicitRedial))
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        _ = await retired.connection.termination()
         #expect(await engine.currentSession() == nil)
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0
                 == dialStartsBeforeRetirement
         )
+        #expect(journal.counterSnapshot()["auto-redial"] ?? 0 == autoRedialsBeforeRetirement)
 
         await engine.stop()
         serverLoop.cancel()

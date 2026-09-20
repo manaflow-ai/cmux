@@ -13,6 +13,9 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
@@ -179,9 +182,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
+        #if DEBUG
+        coordinator.releaseGateUIProbe?.terminalDidUnmount(surfaceID: coordinator.surfaceID)
+        #endif
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        #if DEBUG
+        var releaseGateUIProbe: MobileReleaseGateUIProbe?
+        var releaseGateSawNonblankFrame = false
+        #endif
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -384,6 +394,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
+            #if DEBUG
+            releaseGateSawNonblankFrame = false
+            #endif
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
             outputConsumerRestartTask?.cancel()
@@ -573,6 +586,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             )
                             continue
                         }
+                        let observedInput = frame.appliedInputSequence
+                        let observedReceipt = chunk.receivedAtNanos
+                        let observedStream = chunk.streamToken
+                        if chunk.latencyMetricsEligible {
+                            surfaceView.onOutputPresentation = { @MainActor @Sendable [weak store] in
+                                store?.terminalOutputDidPresent(
+                                    surfaceID: surfaceID,
+                                    streamToken: observedStream,
+                                    inputSequence: observedInput,
+                                    receivedAtNanos: observedReceipt,
+                                    latencyMetricsEligible: true
+                                )
+                            }
+                        } else {
+                            surfaceView.onOutputPresentation = nil
+                        }
                         let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -597,6 +626,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
+                            if let probe = self.releaseGateUIProbe {
+                                let containsText: Bool
+                                if self.releaseGateSawNonblankFrame {
+                                    containsText = true
+                                } else {
+                                    // Full and delta frames can both carry the
+                                    // first prompt. Inspect only the visible
+                                    // viewport-sized prefix, never scrollback.
+                                    containsText = frame.rowSpans.prefix(64).contains { span in
+                                        span.text.prefix(256).contains { !$0.isWhitespace }
+                                    }
+                                    if containsText {
+                                        self.releaseGateSawNonblankFrame = true
+                                    }
+                                }
+                                probe.recordTerminalFrame(
+                                surfaceID: surfaceID,
+                                containsText: containsText
+                                )
+                            }
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
@@ -705,6 +754,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             )
                             continue
                         }
+                    }
+                    let observedInput = chunk.sourceRenderGridFrame?.appliedInputSequence
+                    let observedReceipt = chunk.receivedAtNanos
+                    let observedStream = chunk.streamToken
+                    if chunk.latencyMetricsEligible {
+                        surfaceView.onOutputPresentation = { @MainActor @Sendable [weak store] in
+                            store?.terminalOutputDidPresent(
+                                surfaceID: surfaceID,
+                                streamToken: observedStream,
+                                inputSequence: observedInput,
+                                receivedAtNanos: observedReceipt,
+                                latencyMetricsEligible: true
+                            )
+                        }
+                    } else {
+                        surfaceView.onOutputPresentation = nil
                     }
                     #if DEBUG
                     surfaceView.markLatencyAppliedSequence(latencySequence)
@@ -989,6 +1054,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             activeViewportPolicy = .natural
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
+                #if DEBUG
+                releaseGateUIProbe?.terminalDidUnmount(surfaceID: surfaceID)
+                #endif
             }
         }
 

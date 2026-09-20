@@ -23,6 +23,11 @@
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
     },
+    "displayName": {
+      "title": "Nombre de máquina no válido",
+      "message": "El nombre de la máquina debe ser texto imprimible de como máximo {maxLength} caracteres.",
+      "action": "Usa un nombre más corto sin caracteres de control, o déjalo vacío para borrarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Las máquinas de {memory} GiB requieren cmux {plan}. Tu plan admite hasta {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica tu correo electrónico para continuar",
     "emailUnverifiedBody": "Inicia sesión con el método que usaste originalmente y verifica tu correo antes de usar este método de inicio de sesión.",
+    "signupPendingBody": "Si ya tienes una cuenta, inicia sesión con el método que usaste antes. Si acabas de crear una cuenta, verifica tu correo antes de iniciar sesión.",
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
     "backToSignIn": "Volver a iniciar sesión"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "vista general",
       "team": "equipo",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Dispositivos móviles"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,32 @@
         "loading": "Cargando…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Dispositivos móviles",
+      "description": "Administra el acceso a tus ordenadores, teléfonos y tabletas conectados.",
+      "team": "Equipo",
+      "teamSwitchError": "No se ha podido cambiar de equipo. Vuelve a intentarlo.",
+      "loading": "Cargando dispositivos…",
+      "empty": "No hay dispositivos registrados para este equipo.",
+      "unavailable": "No se han podido cargar tus dispositivos. Actualiza la página y vuelve a intentarlo.",
+      "retry": "Reintentar",
+      "mutationError": "No se ha podido completar el cambio del dispositivo.",
+      "revoke": "Revocar acceso",
+      "deviceId": "Dispositivo",
+      "revision": "Revisión",
+      "status": "Estado",
+      "active": "Activo",
+      "revoked": "Revocado",
+      "relaySettings": "Configuración de retransmisión",
+      "relaySettingsDescription": "Elige los servidores de retransmisión que usa este equipo. Introduce una URL por línea.",
+      "saveRelaySettings": "Guardar configuración de retransmisión"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Compartir con el equipo",
+      "makePrivate": "Hacer privado",
+      "privateImportHint": "Las cuentas nuevas son privadas. Comparte una cuenta para que esté disponible en las VM Cloud de este equipo.",
+      "description": "Las cuentas compartidas están disponibles para las VM Cloud de este equipo. Las cuentas privadas solo están disponibles para quien las añadió.",
+      "cancelAction": "Cancelar"
     }
   },
   "community": {
@@ -1003,10 +1018,10 @@
       "targetTitle": "Ventana incorrecta o clic bloqueado",
       "targetBody": "Inspecciona de nuevo la app y selecciona un elemento de su estado actual. Si otra ventana tapa el destino, muestra la ventana deseada e inspecciónala antes de reintentar. No reutilices coordenadas ni índices obsoletos.",
       "productLink": "Vista general de cmux Computer Use",
-    "copyTitle": "Copiar un prompt de Computer Use",
-    "copyPrompt": "Copiar prompt",
-    "copiedPrompt": "Copiado",
-    "installPrompt": "Usa la habilidad $cmux-cua para esta tarea. Si falta, instálala con tu instalador habitual. Si faltan permisos, pídeme abrir Ajustes de cmux → Computer Use. Inspecciona antes de actuar y verifica cada cambio.\n\nTarea: [describe aquí la tarea]"
+      "copyTitle": "Copiar un prompt de Computer Use",
+      "copyPrompt": "Copiar prompt",
+      "copiedPrompt": "Copiado",
+      "installPrompt": "Usa la habilidad $cmux-cua para esta tarea. Si falta, instálala con tu instalador habitual. Si faltan permisos, pídeme abrir Ajustes de cmux → Computer Use. Inspecciona antes de actuar y verifica cada cambio.\n\nTarea: [describe aquí la tarea]"
     },
     "remoteTmux": {
       "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH."
@@ -1213,6 +1228,7 @@
           "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Cuando es true (predeterminado), cmux proporciona una paleta predeterminada que se adapta a la apariencia, salvo que se configure un tema de Ghostty o colores del terminal. Se conservan la fuente y los demás ajustes. Cuando es false, Ghostty usa su paleta integrada fija. Los temas y colores explícitos siempre tienen prioridad, incluido theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Ancho máximo opcional, en puntos, para el contenido del terminal y del chat de agente integrado. Establece false para usar todo el ancho del panel.",
           "sessionContentAlignment": "Posición horizontal del contenido del terminal y del chat de agente integrado cuando sessionContentMaxWidth está activado.",
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
@@ -1327,7 +1343,7 @@
       "plusButtonScreenshotAlt": "Menú de clic derecho del botón más de cmux con Worktree Agents, New Terminal y New Browser",
       "plusButtonScreenshotCaption": "El menú de clic derecho sigue el orden de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Acciones personalizadas del botón de suma",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
       "newWorkspaceWorktreeNote": "Este ejemplo hace que el clic normal en el botón más ejecute la acción <action>worktree-agents</action>. El comando de espacio de trabajo de <commands>commands</commands> usa una terminal de preparación visible para crear primero el <worktree>worktree</worktree> de Git. Codex y Claude se inician al mismo tiempo, esperan el archivo de estado específico del espacio de trabajo y luego entran en el directorio creado antes de exec.",
       "simpleCommands": "Comandos simples",
       "simpleCommandsDesc": "Un comando simple ejecuta un comando de shell en el terminal actualmente enfocado:",
