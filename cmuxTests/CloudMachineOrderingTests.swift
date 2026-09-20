@@ -285,7 +285,7 @@ struct CloudMachineOrderingTests {
         defer { fixture.close() }
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [], snapshot: fixture.input.snapshot, localWorkspaces: [],
-            includeLocalMachine: false, pinnedMachineIDs: ["a"]
+            pinnedMachineIDs: ["a"], includeLocalMachine: false
         )
         let machine = try #require(nodes.first)
         #expect(machine.machineOrderID == "a")
