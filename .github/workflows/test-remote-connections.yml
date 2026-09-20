@@ -4,7 +4,8 @@ on:
   pull_request:
     paths:
       - "Packages/Shared/CmuxRemoteConnections/**"
-      - "ios/RemoteConnectionsTests.xcworkspace/**"
+      - "ios/RemoteConnectionsTests/**"
+      - "ios/RemoteConnectionsTests/project.yml"
       - "scripts/test-remote-connections-ios.sh"
       - ".github/workflows/test-remote-connections.yml"
   workflow_dispatch:

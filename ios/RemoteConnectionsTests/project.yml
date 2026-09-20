@@ -1,0 +1,51 @@
+name: RemoteConnectionsTests
+options:
+  minimumXcodeGenVersion: 2.45.3
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CmuxRemoteConnections:
+    path: ../../Packages/Shared/CmuxRemoteConnections
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  RemoteConnectionsTestHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.testhost
+        CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CMUXRemoteTestKeychainGroup: "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests"
+  RemoteConnectionsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests
+    dependencies:
+      - target: RemoteConnectionsTestHost
+      - package: CmuxRemoteConnections
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.tests
+        CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  RemoteConnectionsTests:
+    build:
+      targets:
+        RemoteConnectionsTestHost: all
+        RemoteConnectionsTests: [test]
+    test:
+      targets:
+        - name: RemoteConnectionsTests
+      parallelizable: false
+      gatherCoverageData: false

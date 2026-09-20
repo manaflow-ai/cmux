@@ -40,8 +40,8 @@ xcrun simctl boot "$simulator_id"
 xcrun simctl bootstatus "$simulator_id" -b
 cd "$root"
 xcodebuild test \
-  -workspace ios/RemoteConnectionsTests.xcworkspace \
-  -scheme CmuxRemoteConnections \
+  -project ios/RemoteConnectionsTests/RemoteConnectionsTests.xcodeproj \
+  -scheme RemoteConnectionsTests \
   -destination "platform=iOS Simulator,id=$simulator_id" \
   -derivedDataPath "$RUNNER_TEMP/cmux-remote-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
   -resultBundlePath "$evidence/RemoteConnections.xcresult" \
