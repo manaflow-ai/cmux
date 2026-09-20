@@ -73,13 +73,13 @@ class MachineSocket:
         if method == "surface.project":
             return {"workspace_id": self.workspace, "surface_id": "22222222-2222-4222-8222-222222222222"}
         if method == "workspace.cloud_vm_bind":
-            return {"workspace_id": self.workspace, "workspace_ref": "workspace:fixture",
+            return {"workspace_id": self.workspace, "workspace_ref": "workspace:73",
                     "window_id": self.window, "remote_workspace_id": self.bound_workspace}
         if method == "window.list":
             return {"windows": [{"id": self.window}, {"id": self.other_window}]}
         if method == "workspace.list":
             return {"workspaces": [] if params.get("window_id") == self.other_window else
-                    [{"id": self.workspace, "ref": "workspace:fixture", "window_id": self.window}]}
+                    [{"id": self.workspace, "ref": "workspace:73", "window_id": self.window}]}
         if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.current", "workspace.select"}:
             return {"workspace_id": self.workspace}
         raise AssertionError("Unexpected mutation: " + method)
@@ -110,7 +110,8 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
                 args += ["--window", window]
             if json_output:
                 args += ["--json"]
-            result = subprocess.run([cli, "--socket", server.path, *args, "--workspace", target or server.workspace, "--focus", "false"],
+            global_args = ["--id-format", "both"] if json_output else []
+            result = subprocess.run([cli, "--socket", server.path, *global_args, *args, "--workspace", target or server.workspace, "--focus", "false"],
                                     env=environment, capture_output=True, text=True, timeout=30)
         return result
 
@@ -129,13 +130,13 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
             self.assertEqual(project["resource"], server.machine + "/terminal/term-first")
 
     def test_app_receipt_resolves_cross_window_refs_and_uuid_targets(self):
-        for target in [MachineSocket.workspace, "workspace:fixture"]:
+        for target in [MachineSocket.workspace, "workspace:73"]:
             with self.subTest(target=target), MachineSocket() as server:
                 result = self.run_open(server, "open", target=target, window=server.other_window, json_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 receipt = json.loads(result.stdout)
                 self.assertEqual(receipt["workspace_id"], server.workspace)
-                self.assertEqual(receipt["workspace_ref"], "workspace:fixture")
+                self.assertEqual(receipt["workspace_ref"], "workspace:73")
                 self.assertEqual(receipt["window_id"], server.window)
                 self.assertNotIn("workspace.list", [r["method"] for r in server.requests])
 
@@ -160,7 +161,7 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
                 before_project = server.requests[:methods.index("surface.project")]
                 self.assertTrue(any(r["method"] == "workspace.cloud_vm_bind" and
                                     r["params"].get("remote_workspace_id") == "ws-first" for r in before_project))
-                self.assertIn("OK workspace=workspace:fixture", result.stdout)
+                self.assertIn("OK workspace=workspace:73", result.stdout)
 
     def test_failures_leave_the_owning_card_for_retry(self):
         for failure in ["vm.create", "surface.catalog", "surface.project"]:
