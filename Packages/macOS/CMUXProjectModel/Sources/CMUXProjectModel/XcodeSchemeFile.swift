@@ -12,8 +12,9 @@ struct XcodeSchemeFile {
     let runTarget: TargetReference?
     let testTargets: [TargetReference]
     let profileTarget: TargetReference?
-    /// The first build entry marked for archiving, falling back to the first
-    /// entry when the scheme does not declare archive intent.
+    /// The first build entry marked `buildForArchiving="YES"`. A scheme whose
+    /// entries never mention archiving archives its first entry, and one that
+    /// marks every entry "NO" archives nothing.
     let archiveTarget: TargetReference?
     let launchArguments: [String]
     let environmentVariables: [String: String]
@@ -40,10 +41,11 @@ struct XcodeSchemeFile {
         let buildEntries = scheme?.firstChild(named: "BuildAction")?
             .firstChild(named: "BuildActionEntries")?
             .elements(forName: "BuildActionEntry") ?? []
-        archiveTarget = (buildEntries
-            .first { $0.attribute(forName: "buildForArchiving")?.stringValue == "YES" }
-            ?? buildEntries.first)
-            .flatMap(Self.targetReference(in:))
+        let declaresArchiving = buildEntries.contains { $0.attribute(forName: "buildForArchiving") != nil }
+        let archiveEntry = declaresArchiving
+            ? buildEntries.first { $0.attribute(forName: "buildForArchiving")?.stringValue == "YES" }
+            : buildEntries.first
+        archiveTarget = archiveEntry.flatMap(Self.targetReference(in:))
 
         launchArguments = launch?.firstChild(named: "CommandLineArguments")?
             .elements(forName: "CommandLineArgument")

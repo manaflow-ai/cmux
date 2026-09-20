@@ -243,6 +243,32 @@ struct XcodeProjectAdapterFixtureTests {
     }
 
     @Test
+    func archiveTargetFollowsBuildForArchiving() throws {
+        let fixture = try Fixture()
+        func entry(_ blueprint: String, archiving: String?) -> String {
+            let attribute = archiving.map { " buildForArchiving=\"\($0)\"" } ?? ""
+            return """
+            <BuildActionEntry\(attribute)>
+              <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="\(blueprint)" BuildableName="x" BlueprintName="-" ReferencedContainer="container:Fixture.xcodeproj"/>
+            </BuildActionEntry>
+            """
+        }
+        let schemes = fixture.projectURL.appendingPathComponent("xcshareddata/xcschemes")
+        for (name, entries) in [
+            ("SecondIsArchived", entry("T1", archiving: "NO") + entry("T3", archiving: "YES")),
+            ("NoneArchived", entry("T1", archiving: "NO") + entry("T3", archiving: "NO")),
+            ("Undeclared", entry("T1", archiving: nil) + entry("T3", archiving: nil)),
+        ] {
+            let xml = "<Scheme><BuildAction><BuildActionEntries>\(entries)</BuildActionEntries></BuildAction></Scheme>"
+            try Data(xml.utf8).write(to: schemes.appendingPathComponent("\(name).xcscheme"))
+        }
+        let archived = Dictionary(uniqueKeysWithValues: try fixture.load().schemes.map { ($0.name, $0.archiveTargetID?.rawValue) })
+        #expect(archived["SecondIsArchived"] == "T3")
+        #expect(archived["NoneArchived"] == .some(nil))
+        #expect(archived["Undeclared"] == "T1")
+    }
+
+    @Test
     func workspaceEmbeddedInAProjectBundleLoadsThatProject() throws {
         let fixture = try Fixture()
         let embedded = fixture.projectURL.appendingPathComponent("project.xcworkspace")
