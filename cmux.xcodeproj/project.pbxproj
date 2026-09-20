@@ -34,6 +34,7 @@
 		C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */; };
 		C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */; };
 		C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */; };
+		7D0FD60552EE4D3313CD83EE /* AgentChatSessionRegistry+ProcessExitRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A3095668372CDEEC7365DEB /* AgentChatSessionRegistry+ProcessExitRetry.swift */; };
 		ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */; };
 		C7A51F000000000000000002 /* AgentChatSessionRegistryClaudeObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51F000000000000000001 /* AgentChatSessionRegistryClaudeObservationTests.swift */; };
 		C7A51C000000000000000002 /* AgentChatSessionRegistryHookStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A51C000000000000000001 /* AgentChatSessionRegistryHookStoreTests.swift */; };
@@ -1441,13 +1442,21 @@
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
 		C7A50C000000000000000003 /* CmuxTopProcessArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000004 /* CmuxTopProcessArgumentsTests.swift */; };
 		906901000000000000000002 /* CmuxTopProcessAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000001 /* CmuxTopProcessAttribution.swift */; };
+		17B466F022929A67A20013DD /* CmuxTopProcessCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D542F660F18A3AA7D63E888 /* CmuxTopProcessCapture.swift */; };
 		C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */; };
 		C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */; };
 		C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */; };
 		C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */; };
+		E3963264188C49057DCE049E /* CmuxTopProcessFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */; };
+		C524C9E20285BD22E1A965B3 /* CmuxTopProcessInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */; };
 		90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000009 /* CmuxTopProcessOwner.swift */; };
+		C4B97983B7DC09D78DEA68E1 /* CmuxTopProcessReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75B25477A4921E57A4EC314D /* CmuxTopProcessReader.swift */; };
+		FCA6B7D51CDA25BE9AFADC42 /* CmuxTopProcessReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFBF40BF38E04B9F4B30DC39 /* CmuxTopProcessReading.swift */; };
+		BD851D146EDC5373B7CE9E7A /* CmuxTopProcessSampler+Enrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855D3501F90E309B47A7F1F5 /* CmuxTopProcessSampler+Enrichment.swift */; };
+		6616B19B5A18036FCB0C24E9 /* CmuxTopProcessSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233884D956BA614BAE101FF /* CmuxTopProcessSampler.swift */; };
 		0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */; };
 		C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */; };
+		C7A509000000000000000003 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000004 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift */; };
 		C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A501000000000000000001 /* CmuxTopSnapshot.swift */; };
 		C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */; };
 		C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */; };
@@ -2499,6 +2508,7 @@
 		C0DEA771000000000000000B /* ProBadgeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA771000000000000000C /* ProBadgeStyle.swift */; };
 		F0ACC0DE000000000000000D /* ProcessDetectedResumeIndexes.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */; };
 		C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */; };
+		0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */; };
 		D75280010000000000000001 /* ProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280010000000000000002 /* ProfilingSignposts.swift */; };
 		A5C0DE0000000000000000BA /* ProjectBuildSettingsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */; };
 		A5C0DE0000000000000000B6 /* ProjectFilesTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */; };
@@ -2701,6 +2711,7 @@
 		C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */; };
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */; };
+		A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */; };
 		C6711A020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
 		F54100A0A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */; };
@@ -2854,6 +2865,7 @@
 		D36090010000000000000003 /* SettingsWindowPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090010000000000000004 /* SettingsWindowPresenterTests.swift */; };
 		D10000000000000000A0001E /* SettingsWorkspaceColorsBehaviorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */; };
 		D96970000000000000000008 /* setup-pam-tid.sh in Copy CLI */ = {isa = PBXBuildFile; fileRef = D96971000000000000000003 /* setup-pam-tid.sh */; };
+		91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */; };
 		F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */; };
 		F0ACC0DF0000000000000001 /* SharedLiveAgentIndexAgentLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */; };
 		F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */; };
@@ -3231,6 +3243,7 @@
 		BA741B057707470F9D617D61 /* SurfaceTransferRejection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
 		F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000F /* SyntheticKeyEventFactory.swift */; };
+		372153DEDA910ADC47F88E87 /* SyntheticProcessSnapshotReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E4BCCFBEFDD1E77E23E7D94 /* SyntheticProcessSnapshotReader.swift */; };
 		A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206A020000000000000001 /* SystemAppearanceObserver.swift */; };
 		A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */; };
 		A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */; };
@@ -3381,6 +3394,8 @@
 		D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
+		A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */; };
+		55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */; };
 		A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */; };
 		C12813000000000000000511 /* TerminalController+RemoteSessionParked.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12813000000000000000502 /* TerminalController+RemoteSessionParked.swift */; };
 		812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */; };
@@ -4109,6 +4124,7 @@
 		C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+Lifecycle.swift"; sourceTree = "<group>"; };
 		C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+LiveAgentPID.swift"; sourceTree = "<group>"; };
 		C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ObserveScan.swift"; sourceTree = "<group>"; };
+		2A3095668372CDEEC7365DEB /* AgentChatSessionRegistry+ProcessExitRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ProcessExitRetry.swift"; sourceTree = "<group>"; };
 		ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry.swift"; sourceTree = "<group>"; };
 		C7A51F000000000000000001 /* AgentChatSessionRegistryClaudeObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryClaudeObservationTests.swift; sourceTree = "<group>"; };
 		C7A51C000000000000000001 /* AgentChatSessionRegistryHookStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatSessionRegistryHookStoreTests.swift; sourceTree = "<group>"; };
@@ -5402,13 +5418,21 @@
 		B35750000000000000000003 /* CmuxTopProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArguments.swift; sourceTree = "<group>"; };
 		C7A50C000000000000000004 /* CmuxTopProcessArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArgumentsTests.swift; sourceTree = "<group>"; };
 		906901000000000000000001 /* CmuxTopProcessAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessAttribution.swift; sourceTree = "<group>"; };
+		4D542F660F18A3AA7D63E888 /* CmuxTopProcessCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessCapture.swift"; sourceTree = "<group>"; };
 		C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTests.swift; sourceTree = "<group>"; };
 		C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTracker.swift; sourceTree = "<group>"; };
 		C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessDetails.swift; sourceTree = "<group>"; };
 		C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessEnumeration.swift; sourceTree = "<group>"; };
+		88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessFields.swift"; sourceTree = "<group>"; };
+		CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessInfo.swift"; sourceTree = "<group>"; };
 		906901000000000000000009 /* CmuxTopProcessOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessOwner.swift; sourceTree = "<group>"; };
+		75B25477A4921E57A4EC314D /* CmuxTopProcessReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessReader.swift"; sourceTree = "<group>"; };
+		AFBF40BF38E04B9F4B30DC39 /* CmuxTopProcessReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessReading.swift"; sourceTree = "<group>"; };
+		855D3501F90E309B47A7F1F5 /* CmuxTopProcessSampler+Enrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSampler+Enrichment.swift"; sourceTree = "<group>"; };
+		8233884D956BA614BAE101FF /* CmuxTopProcessSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSampler.swift"; sourceTree = "<group>"; };
 		0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSnapshot+PromptAgentDetection.swift"; sourceTree = "<group>"; };
 		C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCache.swift; sourceTree = "<group>"; };
+		C7A509000000000000000004 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCaptureCoordinatorTests.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
 		C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCacheTests.swift; sourceTree = "<group>"; };
@@ -6445,6 +6469,7 @@
 		C0DEA771000000000000000C /* ProBadgeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProBadgeStyle.swift; sourceTree = "<group>"; };
 		F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessDetectedResumeIndexes.swift; sourceTree = "<group>"; };
 		C47110010000000000000002 /* ProcessPipeReadCrashRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessPipeReadCrashRegressionTests.swift; sourceTree = "<group>"; };
+		4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ProcessSnapshotMeasurement.swift"; sourceTree = "<group>"; };
 		D75280010000000000000002 /* ProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilingSignposts.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B9 /* ProjectBuildSettingsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectBuildSettingsTabView.swift; sourceTree = "<group>"; };
 		A5C0DE0000000000000000B5 /* ProjectFilesTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectFilesTabView.swift; sourceTree = "<group>"; };
@@ -6643,6 +6668,7 @@
 		C0A710140000000000000001 /* RestorableAgentSession+ComputerUse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/RestorableAgentSession+ComputerUse.swift"; sourceTree = "<group>"; };
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
+		008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ProcessCensus.swift"; sourceTree = "<group>"; };
 		C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexCodexWeakRecordTests.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
 		F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionStalePIDTests.swift; sourceTree = "<group>"; };
@@ -6795,6 +6821,7 @@
 		D36090010000000000000004 /* SettingsWindowPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWindowPresenterTests.swift; sourceTree = "<group>"; };
 		D10000000000000000A0001F /* SettingsWorkspaceColorsBehaviorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsWorkspaceColorsBehaviorUITests.swift; sourceTree = "<group>"; };
 		D96971000000000000000003 /* setup-pam-tid.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "scripts/setup-pam-tid.sh"; sourceTree = SOURCE_ROOT; };
+		226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedLiveAgentIndex+ScheduledHibernation.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndex.swift; sourceTree = "<group>"; };
 		F0ACC0DF0000000000000002 /* SharedLiveAgentIndexAgentLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexAgentLivenessTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLiveAgentIndexLoader.swift; sourceTree = "<group>"; };
@@ -7164,6 +7191,7 @@
 		45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTransferRejection.swift; sourceTree = "<group>"; };
 		9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTestingAssertions.swift; sourceTree = "<group>"; };
 		F1100000000000000000000F /* SyntheticKeyEventFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticKeyEventFactory.swift; sourceTree = "<group>"; };
+		6E4BCCFBEFDD1E77E23E7D94 /* SyntheticProcessSnapshotReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SyntheticProcessSnapshotReader.swift"; sourceTree = "<group>"; };
 		A7206A020000000000000001 /* SystemAppearanceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserver.swift; sourceTree = "<group>"; };
 		A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverEnvironment.swift; sourceTree = "<group>"; };
 		A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverTests.swift; sourceTree = "<group>"; };
@@ -7314,6 +7342,8 @@
 		D1FF00010000000000000001 /* TerminalController+MobileWorkspaceChanges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceChanges.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
+		C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnostics.swift"; sourceTree = "<group>"; };
+		68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+ProcessDiagnosticsAsync.swift"; sourceTree = "<group>"; };
 		A19F4C0D0000000000000001 /* TerminalController+RemoteRelayAuthorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteRelayAuthorization.swift"; sourceTree = "<group>"; };
 		C12813000000000000000502 /* TerminalController+RemoteSessionParked.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteSessionParked.swift"; sourceTree = "<group>"; };
 		81260000000000000000000A /* TerminalController+RemoteTerminalTransportErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTerminalTransportErrors.swift"; sourceTree = "<group>"; };
@@ -8230,6 +8260,7 @@
 					C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */,
 					C7A52D200000000000000001 /* AgentChatSessionRegistry+LiveAgentPID.swift */,
 					C7A52D000000000000000001 /* AgentChatSessionRegistry+ObserveScan.swift */,
+					2A3095668372CDEEC7365DEB /* AgentChatSessionRegistry+ProcessExitRetry.swift */,
 					C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */,
 					C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */,
 					C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */,
@@ -9726,6 +9757,16 @@
 				906901000000000000000009 /* CmuxTopProcessOwner.swift */,
 				C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */,
 				C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */,
+				008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */,
+				68C322D616635F4FE8BADC8B /* TerminalController+ProcessDiagnosticsAsync.swift */,
+				C73B29F22CCC610EAEED4C0C /* TerminalController+ProcessDiagnostics.swift */,
+				855D3501F90E309B47A7F1F5 /* CmuxTopProcessSampler+Enrichment.swift */,
+				8233884D956BA614BAE101FF /* CmuxTopProcessSampler.swift */,
+				AFBF40BF38E04B9F4B30DC39 /* CmuxTopProcessReading.swift */,
+				75B25477A4921E57A4EC314D /* CmuxTopProcessReader.swift */,
+				CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */,
+				88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */,
+				4D542F660F18A3AA7D63E888 /* CmuxTopProcessCapture.swift */,
 				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
 				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
 				C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */,
@@ -10476,6 +10517,7 @@
 				11295000000000000000000B /* SurfaceResumeCommandCanonicalizer+Fork.swift */,
 				11295000000000000000000D /* ControlSurfaceResumeTarget+ContinuationRecord.swift */,
 				F0ACC0DE0000000000000012 /* SharedLiveAgentIndex.swift */,
+				226DDE616BF03D38B4845245 /* SharedLiveAgentIndex+ScheduledHibernation.swift */,
 				F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */,
 				C0DEF0D30000000000000002 /* AgentForkExecutableIdentityResolver.swift */,
 				C0DEF0C30000000000000002 /* AgentForkCapabilityProbeCache.swift */,
@@ -11715,6 +11757,9 @@
 				C79010000000000000000006 /* NotificationScrollRestoreTestSupport.swift */,
 				D78976000000000000000002 /* GhosttyCurrentDirectoryActionDispatcherTests.swift */,
 				C7A509000000000000000001 /* CmuxTopSnapshotScopeTests.swift */,
+				C7A509000000000000000004 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift */,
+				4587EDAC6B63EF4846FB24A6 /* ProcessSnapshotMeasurement.swift */,
+				6E4BCCFBEFDD1E77E23E7D94 /* SyntheticProcessSnapshotReader.swift */,
 				C7A5090000000000000005A1 /* CmuxTopSnapshotScopeCacheTests.swift */,
 				906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */,
 				C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */,
@@ -12685,6 +12730,7 @@
 					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
 					C7A52D200000000000000002 /* AgentChatSessionRegistry+LiveAgentPID.swift in Sources */,
 					C7A52D000000000000000002 /* AgentChatSessionRegistry+ObserveScan.swift in Sources */,
+				7D0FD60552EE4D3313CD83EE /* AgentChatSessionRegistry+ProcessExitRetry.swift in Sources */,
 					ACA7C4A70000000000000007 /* AgentChatSessionRegistry.swift in Sources */,
 				C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
@@ -13419,10 +13465,17 @@
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
 				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
 				906901000000000000000002 /* CmuxTopProcessAttribution.swift in Sources */,
+				17B466F022929A67A20013DD /* CmuxTopProcessCapture.swift in Sources */,
 				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
 				C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */,
 				C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */,
+				E3963264188C49057DCE049E /* CmuxTopProcessFields.swift in Sources */,
+				C524C9E20285BD22E1A965B3 /* CmuxTopProcessInfo.swift in Sources */,
 				90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */,
+				C4B97983B7DC09D78DEA68E1 /* CmuxTopProcessReader.swift in Sources */,
+				FCA6B7D51CDA25BE9AFADC42 /* CmuxTopProcessReading.swift in Sources */,
+				BD851D146EDC5373B7CE9E7A /* CmuxTopProcessSampler+Enrichment.swift in Sources */,
+				6616B19B5A18036FCB0C24E9 /* CmuxTopProcessSampler.swift in Sources */,
 				0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */,
 				C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
@@ -14254,6 +14307,7 @@
 				C0A710140000000000000002 /* RestorableAgentSession+ComputerUse.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */,
+				A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				C7C5FAF3145342F395DB4C40 /* RestoredAgentCompletedGeneration.swift in Sources */,
 				F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */,
@@ -14355,6 +14409,7 @@
 				D37777030000000000000001 /* SettingsWindowGeometry.swift in Sources */,
 				D37777070000000000000001 /* SettingsWindowNavigationDelivery.swift in Sources */,
 				D36090010000000000000001 /* SettingsWindowPresenter.swift in Sources */,
+				91C2053A2732340DD329CD30 /* SharedLiveAgentIndex+ScheduledHibernation.swift in Sources */,
 				F0ACC0DE0000000000000011 /* SharedLiveAgentIndex.swift in Sources */,
 				F0ACC0DE0000000000000007 /* SharedLiveAgentIndexLoader.swift in Sources */,
 				121580061215800612158006 /* SharedLiveAgentIndexRefreshOutcome.swift in Sources */,
@@ -14745,6 +14800,8 @@
 				D1FF00010000000000000002 /* TerminalController+MobileWorkspaceChanges.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
+				A049D3EEEF099C2E793679D0 /* TerminalController+ProcessDiagnostics.swift in Sources */,
+				55229F2B073AB7FC8D606848 /* TerminalController+ProcessDiagnosticsAsync.swift in Sources */,
 				A19F4C0D0000000000000002 /* TerminalController+RemoteRelayAuthorization.swift in Sources */,
 				C12813000000000000000511 /* TerminalController+RemoteSessionParked.swift in Sources */,
 				812600000000000000000009 /* TerminalController+RemoteTerminalTransportErrors.swift in Sources */,
@@ -15876,6 +15933,7 @@
 					906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */,
 					C7A50C000000000000000003 /* CmuxTopProcessArgumentsTests.swift in Sources */,
 					C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */,
+					C7A509000000000000000003 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift in Sources */,
 					C7A5090000000000000005A2 /* CmuxTopSnapshotScopeCacheTests.swift in Sources */,
 					C7A509000000000000000002 /* CmuxTopSnapshotScopeTests.swift in Sources */,
 				D01100800000000000000008 /* CmuxTuiSurfaceProviderRegistryDiscoveryTests.swift in Sources */,
@@ -16150,6 +16208,7 @@
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				0A327C88E531C7E407CEF58C /* ProcessSnapshotMeasurement.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				5C0C4A1E0000000000000003 /* RCChannelIdentityTests.swift in Sources */,
 				5C0C4A1E0000000000000005 /* RCChannelSuiteTests.swift in Sources */,
@@ -16357,6 +16416,7 @@
 				A10020000000000000000009 /* SurfaceSelectionTests.swift in Sources */,
 				97003C82A6CDC90F8D20503F /* SurfaceSocketCommandTests.swift in Sources */,
 				9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */,
+				372153DEDA910ADC47F88E87 /* SyntheticProcessSnapshotReader.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,
