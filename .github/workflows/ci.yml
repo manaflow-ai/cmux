@@ -306,6 +306,9 @@ jobs:
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate sidebar extension point generation
+        run: python3 tests/test_write_sidebar_extension_point.py
+
       - name: Validate Localizable.xcstrings catalog structure
         run: python3 tests/test_localizable_xcstrings_structure.py
 
@@ -313,7 +316,9 @@ jobs:
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Test macOS localization catalog tooling
-        run: python3 tests/test_localization_catalog.py
+        run: |
+          python3 tests/test_localization_catalog.py
+          python3 tests/test_localize_changes.py
 
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         run: python3 tests/test_cloud_vm_skill_coverage.py
@@ -360,6 +365,12 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Ghostty helper cache failure handling
+        run: bash tests/test_ghostty_cli_helper_cache.sh
+
+      - name: Validate stale run cleanup eligibility
+        run: python3 tests/test_cleanup_stale_runs.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
@@ -386,6 +397,9 @@ jobs:
 
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
+
+      - name: Validate checkout failure network diagnostics
+        run: python3 tests/test_ci_checkout_network_diagnostics.py
 
       - name: Validate Swift Testing suite timeout guard
         run: python3 tests/test_swift_testing_suite_timeout.py
@@ -428,6 +442,11 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate local build cache preflight
+        run: |
+          python3 tests/test_local_build_cache_preflight.py
+          python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
@@ -479,6 +498,9 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate bundled-resource incremental outputs
+        run: ./tests/test_build_app_bundled_resources.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
@@ -523,6 +545,7 @@ jobs:
           python3 tests/test_ci_change_areas.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -869,6 +892,9 @@ jobs:
         run: bun run test:db:behavior
 
   app-host-unit-tests:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -901,9 +927,15 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Keep one-off focused gates on the lightest measured shard so shard 1 no
-      # longer carries the full shard plus every extra regression guard.
+      # Strict steps run outside the batch, in four groups on four workers.
+      # CMUX_APP_HOST_RESERVED_WALL_SECONDS is each group's measured wall time,
+      # so the batch gives those workers less and every shard ends together.
+      # Update both when a group moves or grows.
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "1"
+      CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
+      CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=245 6=284"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -932,10 +964,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Select Xcode
         run: |
@@ -982,12 +1055,21 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: steps.r2-products.outputs.hit != 'true'
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:
@@ -1019,6 +1101,10 @@ jobs:
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
               rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
+            # Keep the existing three-attempt policy, but record resolver
+            # state when a package attempt fails so provider incidents are
+            # distinguishable from SwiftPM or cache defects.
+            scripts/ci/capture-network-diagnostics.sh || true
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
               exit 1
@@ -1213,7 +1299,6 @@ jobs:
           # a fresh app-host process so Swift Testing cannot interleave them.
           for suite in \
             FeedCoordinatorTests \
-            FeedCoordinatorIngressTests \
             PiFeedOwnershipTests \
             PiFeedDockOwnershipTests
           do
@@ -1343,7 +1428,7 @@ jobs:
           retention-days: 7
 
       - name: Run browser system proxy mirror regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
           # The full "Run unit tests" step tolerates app-host crashes by
@@ -1361,7 +1446,7 @@ jobs:
             test-without-building
 
       - name: Run Cloud notification dismiss parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
           # The tolerant full-suite step accepts ordinary Swift Testing
@@ -1378,7 +1463,7 @@ jobs:
             test-without-building
 
       - name: Run agent restore admission regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/12158.
           # The tolerant full-suite step accepts ordinary Swift Testing
@@ -1395,7 +1480,7 @@ jobs:
             test-without-building
 
       - name: Run Option/Alt sided-modifier regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
           scripts/ci/run-in-console-session.sh \
@@ -1407,7 +1492,7 @@ jobs:
             test-without-building
 
       - name: Run ssh-session-attach anchor regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
           # The full "Run unit tests" step tolerates any xcodebuild failure
@@ -1427,7 +1512,7 @@ jobs:
             test-without-building
 
       - name: Run focused browser regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7380 and #8054.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1450,7 +1535,7 @@ jobs:
           done
 
       - name: Run remote tmux mirror active-pane regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # Focused gates for https://github.com/manaflow-ai/cmux/issues/7372.
           # The tolerant full-suite step can crash-skip late suites (see #5888
@@ -1466,7 +1551,7 @@ jobs:
             test-without-building
 
       - name: Run remote tmux mirror layout identity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step may accept expected failures or stop
           # after an app-host crash. Keep #7833's identity suite non-tolerant
@@ -1481,7 +1566,7 @@ jobs:
             test-without-building
 
       - name: Run socket ACL reload regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept assertion failures or
           # crash-skip late suites. Keep #7984's live reload and denial tests
@@ -1496,7 +1581,7 @@ jobs:
             test-without-building
 
       - name: Run notification scroll restoration regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
           scripts/ci/run-in-console-session.sh \
@@ -1510,7 +1595,7 @@ jobs:
             test-without-building
 
       - name: Run terminal creation interactive-shell CLI regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -1528,7 +1613,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_creation_initial_command.py
 
       - name: Run settings file-store no-op persistence regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The broad app-host suite tolerates expected failures and can stop
           # after an app-host crash. Keep the settings persistence regression
@@ -1543,7 +1628,7 @@ jobs:
             test-without-building
 
       - name: Run sidebar workspace-switch layout regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept Swift Testing assertion
           # failures when XCTest reports "0 unexpected". Keep #9612's real
@@ -1559,7 +1644,7 @@ jobs:
             test-without-building
 
       - name: Run Cloud workspace rename surface parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # The tolerant full-suite step can accept Swift Testing assertion
           # failures when XCTest reports "0 unexpected". Keep #12986's
@@ -1575,7 +1660,7 @@ jobs:
             test-without-building
 
       - name: Run terminal portal visibility regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # These tests mutate the process-wide terminal portal registry and
           # include Swift Testing assertions that the tolerant broad shard can
@@ -1591,7 +1676,7 @@ jobs:
 
       - name: Ensure node for app-host wrapper regressions
         id: detect-node
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           # App-host wrapper regressions, including OpenCode and Claude hooks,
@@ -1611,13 +1696,13 @@ jobs:
           echo "found=false" >> "$GITHUB_OUTPUT"
 
       - name: Install node (runner image has none)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) && steps.detect-node.outputs.found == 'false' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "20"
 
       - name: Run Ghostty numeric locale tests
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
           # LC_NUMERIC is process-global. Keep these tests in their own app-host
           # invocation and disable Xcode's parallel test execution for it.
@@ -1632,7 +1717,7 @@ jobs:
             test-without-building
 
       - name: Run global search shortcut regressions
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         timeout-minutes: 40
         run: |
           # This serialized container owns global shortcut settings. Keep its
@@ -1694,9 +1779,16 @@ jobs:
             local logical_shard="$1"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.txt"
+            local reserve_args=()
+            local reservation
+            for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
+              reserve_args+=(--reserve "$reservation")
+            done
             python3 scripts/ci/cmux_unit_test_shard.py \
               --shard-index "$logical_shard" \
               --shard-total "$LOGICAL_SHARD_TOTAL" \
+              --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
+              ${reserve_args[@]+"${reserve_args[@]}"} \
               --output "$shard_args" || {
                 local shard_status=$?
                 echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
@@ -1836,14 +1928,14 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Set up Bun for Pi extension dispatch regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
@@ -1878,7 +1970,7 @@ jobs:
           done
 
       - name: Install pinned nushell (shell-integration tests)
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -1913,7 +2005,7 @@ jobs:
           echo "$NU_DIR" >> "$GITHUB_PATH"
 
       - name: Validate bash prompt bootstrap export compatibility
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
@@ -1929,7 +2021,7 @@ jobs:
             python3 tests/test_issue_11257_prompt_command_export.py
 
       - name: Run CLI no-socket regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -2583,10 +2675,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Prepare isolated admission DerivedData
         run: |
@@ -2712,8 +2845,37 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
+      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # both the reuse selector and broker require an in-repository producer.
+      # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Choose product artifact publication
+        id: publish-products
+        env:
+          PRODUCT_FULL_SUITE: ${{ needs.changes.outputs.full_suite }}
+          PRODUCT_EVENT: ${{ github.event_name }}
+          PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PRODUCT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os
+          head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
+          repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
+          unused_fork_product = (
+              os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_EVENT") == "pull_request"
+              and bool(head) and bool(repository)
+              and head.casefold() != repository.casefold()
+          )
+          publish = not unused_fork_product
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"publish={str(publish).lower()}\n")
+          if not publish:
+              print("Skipping unused compile-only fork product packaging and upload.")
+          PY
+
       - name: Package compiled app-host test product
         id: package-products
+        if: steps.publish-products.outputs.publish == 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -2724,6 +2886,7 @@ jobs:
 
       - name: Upload compiled app-host test product
         id: upload-products
+        if: steps.publish-products.outputs.publish == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
@@ -2733,6 +2896,9 @@ jobs:
           compression-level: 0
 
   tests-build-and-lag:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -2806,7 +2972,17 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
+        if: steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}

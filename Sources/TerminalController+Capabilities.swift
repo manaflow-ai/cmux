@@ -146,6 +146,7 @@ extension TerminalController {
             "vm.tunnel_down",
             "vm.tunnel_wait",
             "surface.catalog",
+            "current.list",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",
