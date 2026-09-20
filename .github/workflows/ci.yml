@@ -438,7 +438,9 @@ jobs:
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
       - name: Validate local build cache preflight
-        run: python3 tests/test_local_build_cache_preflight.py
+        run: |
+          python3 tests/test_local_build_cache_preflight.py
+          python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
