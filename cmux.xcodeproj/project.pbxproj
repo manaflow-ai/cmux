@@ -2815,6 +2815,7 @@
 		FE003102 /* SessionIndexView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003002 /* SessionIndexView.swift */; };
 		8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */; };
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000010 /* SessionNotificationSnapshot.swift */; };
+		A12980000000000000000001 /* SessionPanelSnapshot+TerminalTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12980000000000000000002 /* SessionPanelSnapshot+TerminalTitle.swift */; };
 		0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */; };
 		481D7BF878AB38DA5642D1C9 /* SessionPersistence+Todos.swift in Sources */ = {isa = PBXBuildFile; fileRef = 769F7D1FD3622B7D06998B0F /* SessionPersistence+Todos.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
@@ -6769,6 +6770,7 @@
 		FE003002 /* SessionIndexView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexView.swift; sourceTree = "<group>"; };
 		42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexViewTests.swift; sourceTree = "<group>"; };
 		A5F100000000000000000010 /* SessionNotificationSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionNotificationSnapshot.swift; sourceTree = "<group>"; };
+		A12980000000000000000002 /* SessionPanelSnapshot+TerminalTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPanelSnapshot+TerminalTitle.swift"; sourceTree = "<group>"; };
 		0A1208090000000000000002 /* SessionPersistedVaultAgentRegistration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistedVaultAgentRegistration.swift; sourceTree = "<group>"; };
 		769F7D1FD3622B7D06998B0F /* SessionPersistence+Todos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionPersistence+Todos.swift"; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
@@ -10397,6 +10399,7 @@
 				A74770010000000000000008 /* SessionConfigFrameRing.swift */,
 				A74770010000000000000004 /* SessionDisplaySnapshot.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				A12980000000000000000002 /* SessionPanelSnapshot+TerminalTitle.swift */,
 				87590000000000000000000A /* MainThreadHangCaptureStore.swift */,
 				87590000000000000000000C /* MainThreadHangSampleRunner.swift */,
 				875900000000000000000004 /* MainThreadHangWatchdog.swift */,
@@ -14373,6 +14376,7 @@
 				850000000000000000000026 /* SessionIndexTableView.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */,
+				A12980000000000000000001 /* SessionPanelSnapshot+TerminalTitle.swift in Sources */,
 				0A1208090000000000000001 /* SessionPersistedVaultAgentRegistration.swift in Sources */,
 				481D7BF878AB38DA5642D1C9 /* SessionPersistence+Todos.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
