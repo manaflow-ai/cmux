@@ -1300,7 +1300,9 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     # The job that may cancel runs must come from the default branch, where a
     # queued pull request cannot edit it, and must not run repository code.
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested]" in watcher
+    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested, in_progress]" in watcher
+    assert "  group: merge-group-fail-fast-${{ github.event.workflow_run.id }}" in watcher
+    assert "  cancel-in-progress: true" in watcher
     assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
