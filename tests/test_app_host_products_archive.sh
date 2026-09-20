@@ -41,7 +41,7 @@ assert_real_file() {
 derived="$WORK/producer/derived data"
 products="$derived/Build/Products"
 debug="$products/Debug"
-outside="$WORK/outside"
+outside="$derived/Build/Intermediates.noindex/ArchiveInputs"
 
 # Regular files, an executable, and a bundle path containing a space.
 mkdir -p "$debug/cmux DEV.app/Contents/MacOS" "$derived/Build/Intermediates.noindex"
@@ -74,7 +74,7 @@ ln -s A "$outside/frameworks/Linked.framework/Versions/Current"
 ln -s Versions/Current/Linked "$outside/frameworks/Linked.framework/Linked"
 printf 'outside file' > "$outside/file.txt"
 ln -s "$outside/frameworks" "$debug/PackageFrameworks"
-ln -s ../../../../../outside/file.txt "$debug/escaping.txt"
+ln -s ../../Intermediates.noindex/ArchiveInputs/file.txt "$debug/escaping.txt"
 ln -s ../Debug/CmuxCore.o "$debug/sibling.o"
 ln -s "$WORK/missing" "$debug/dangling-absolute"
 

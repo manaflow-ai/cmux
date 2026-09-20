@@ -7,7 +7,9 @@
 # and has no `..` component, because such a link can only resolve below its own
 # directory and therefore inside Build/Products. `pack` replaces every other
 # resolvable link (absolute, or climbing with `..`) with a copy of its target,
-# in place, so the archive never depends on files outside the archived tree.
+# only after checking that all reachable targets belong to Build/Products or
+# Build/Intermediates.noindex. Other inputs must be staged explicitly first.
+# The archive never depends on files outside the archived tree.
 # Dangling unportable links are dropped because they cannot be useful to the
 # restored product and could resolve against paths on the consuming runner.
 set -euo pipefail
@@ -45,6 +47,37 @@ is_portable_link_target() {
 
 materialize_unportable_links() {
   local root="$1" links link target copy
+  # Validate the complete reachable tree before cp -RL can dereference nested
+  # links or before any producer link is replaced. A relative link is not safe
+  # merely because its own spelling is portable: another link can redirect it.
+  python3 - "$root" <<'PY_VALIDATE'
+import os
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+allowed = (root, root.parent / "Intermediates.noindex")
+
+def inspect(path, ancestors):
+    target = os.readlink(path) if path.is_symlink() else None
+    resolved = path.resolve()
+    if not any(resolved.is_relative_to(base) for base in allowed):
+        # The shell drops these unusable links rather than archiving them.
+        portable = target and not target.startswith("/") and ".." not in Path(target).parts
+        if target is not None and not portable and not path.exists():
+            return
+        raise ValueError(f"link target outside build roots: {path} -> {resolved}")
+    if path.is_dir():
+        if resolved in ancestors:
+            raise ValueError(f"cyclic product directory link: {path}")
+        for child in path.iterdir():
+            inspect(child, ancestors | {resolved})
+
+try:
+    inspect(root, set())
+except (OSError, RuntimeError, ValueError) as error:
+    sys.exit(f"app-host-products-archive: {error}")
+PY_VALIDATE
   links="$(mktemp "${TMPDIR:-/tmp}/app-host-products-links.XXXXXX")"
   find "$root" -type l -print0 > "$links"
   while IFS= read -r -d '' link; do
