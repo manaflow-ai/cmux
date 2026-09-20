@@ -1179,7 +1179,7 @@ jobs:
           # repaired selector strict, including a nonzero execution count.
           set -euo pipefail
           failed=0
-          for selector in \
+          for suite in \
             AgentChatTranscriptServiceLifetimeTests \
             CompositorBlurWindowLifetimeTests \
             SidebarWorkspaceDragDelegateTests \
@@ -1192,6 +1192,7 @@ jobs:
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasDoesNotFallbackForGenericHTTP404
           do
+            selector="$suite"
             test_log="$RUNNER_TEMP/cmux-lifecycle-${selector//\//-}.txt"
             if ! scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
