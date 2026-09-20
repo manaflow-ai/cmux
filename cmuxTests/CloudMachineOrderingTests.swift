@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloudMachines
+import Observation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -275,5 +276,25 @@ struct CloudMachineOrderingTests {
         #expect(cell.accessibilityCustomActions()?.isEmpty == true)
         fixture.store.setPinned(false, machineID: "a")
         #expect(cell.accessibilityCustomActions()?.count == 2)
+    }
+
+    @Test("Both panels observe moves through the existing pin/order store")
+    func sharedOrderObservation() async throws {
+        let fixture = CloudMachineOrderingFixture()
+        defer { fixture.close() }
+        let second = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
+            machinePinStore: fixture.store, catalogProvider: { fixture.input.snapshot }
+        )
+        second.localWorkspacesProvider = { [] }
+        second.readCatalog()
+        let actions = try #require(fixture.coordinator.machineActions.ordering)
+        await confirmation("Both order readers invalidate", expectedCount: 2) { changed in
+            withObservationTracking { _ = fixture.model.sidebarMachines } onChange: { changed() }
+            withObservationTracking { _ = second.sidebarMachines } onChange: { changed() }
+            #expect(actions.move("d", .top) != nil)
+        }
+        #expect(fixture.model.sidebarMachines.map(\.id) == ["d", "a", "b", "c"])
+        #expect(second.sidebarMachines.map(\.id) == ["d", "a", "b", "c"])
     }
 }

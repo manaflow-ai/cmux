@@ -24,22 +24,6 @@ import Observation
 @MainActor
 @Observable
 public final class CloudMachinePinStore {
-    /// A relative move among machines in the same pin tier. The neighboring
-    /// identity is resolved at mutation time so a stale row offset can never
-    /// move a different machine after a refresh.
-    public enum Move: Equatable, Sendable {
-        /// Move before the previous visible machine in the same pin tier.
-        case up
-        /// Move after the next visible machine in the same pin tier.
-        case down
-        /// Move to the start of the existing pin tier.
-        case top
-        /// Move before the named machine without crossing pin tiers.
-        case before(String)
-        /// Move after the named machine without crossing pin tiers.
-        case after(String)
-    }
-
     /// The `UserDefaults` key holding every scope's pins and remembered order.
     /// Pins are independent of ``DefaultCloudMachineStore``: the Cmd+Y default
     /// machine is a routing preference, a pin is a sidebar priority.
@@ -158,7 +142,7 @@ public final class CloudMachinePinStore {
     ///   - machineID: The immutable source machine identity.
     ///   - machineIDs: Current visible identities; missing targets are rejected.
     /// - Returns: Whether the same request would be accepted by ``move(_:machineID:machineIDs:)``.
-    public func canMove(_ move: Move, machineID: String, machineIDs: [String]) -> Bool {
+    public func canMove(_ move: CloudMachineMove, machineID: String, machineIDs: [String]) -> Bool {
         guard let scope = activeScope, scope == scopeIdentifier else { return false }
         return (scopes[scope] ?? CloudMachinePinStoreState()).moving(move, machineID: machineID, visible: machineIDs) != nil
     }
@@ -173,7 +157,7 @@ public final class CloudMachinePinStore {
     ///   - machineIDs: Current visible identities; this may be a partial list.
     /// - Returns: True only when the visible order changed.
     @discardableResult
-    public func move(_ move: Move, machineID: String, machineIDs: [String]) -> Bool {
+    public func move(_ move: CloudMachineMove, machineID: String, machineIDs: [String]) -> Bool {
         syncScope()
         guard let scope = activeScope,
               let next = (scopes[scope] ?? CloudMachinePinStoreState())

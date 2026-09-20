@@ -5,7 +5,7 @@ import CmuxCloudMachines
 /// AppKit. All input paths share the same scoped store action and presentation.
 extension CloudTreeOutlineView.Coordinator {
     @discardableResult
-    func moveMachine(_ id: String, move: CloudMachinePinStore.Move, using actions: CloudMachineOrderingActions) -> Bool {
+    func moveMachine(_ id: String, move: CloudMachineMove, using actions: CloudMachineOrderingActions) -> Bool {
         guard let machines = actions.move(id, move) else { return false }
         applyMachineOrder(machines)
         return true
@@ -23,7 +23,7 @@ extension CloudTreeOutlineView.Coordinator {
         return true
     }
 
-    private var machineMoveOptions: [(String, CloudMachinePinStore.Move)] {
+    private var machineMoveOptions: [(String, CloudMachineMove)] {
         [
             (String(localized: "contextMenu.moveUp", defaultValue: "Move Up"), .up),
             (String(localized: "contextMenu.moveDown", defaultValue: "Move Down"), .down),

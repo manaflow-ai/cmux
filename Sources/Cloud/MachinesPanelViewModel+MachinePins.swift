@@ -34,7 +34,7 @@ extension MachinesPanelViewModel {
             guard isCurrent() else { return nil }
             return self?.setMachinePinned(pinned, id: id)
         }
-        let canMove: @MainActor (String, CloudMachinePinStore.Move) -> Bool = { [weak self, weak machinePinStore] id, move in
+        let canMove: @MainActor (String, CloudMachineMove) -> Bool = { [weak self, weak machinePinStore] id, move in
             guard isCurrent(), let self, let machinePinStore,
                   machinePinStore.isPinned(id) == pinned.contains(id) else { return false }
             return machinePinStore.canMove(move, machineID: id, machineIDs: self.currentMachineOrderIDs)
@@ -44,7 +44,6 @@ extension MachinesPanelViewModel {
             move: { [weak self, weak machinePinStore] id, move in
                 guard canMove(id, move), let self, let machinePinStore,
                       machinePinStore.move(move, machineID: id, machineIDs: self.currentMachineOrderIDs) else { return nil }
-                self.objectWillChange.send()
                 // Catalog reads are frozen while dragging; membership validation
                 // must still use the latest scoped catalog, never frozen rows.
                 return self.orderedMachines(

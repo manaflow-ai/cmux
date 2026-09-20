@@ -5,7 +5,7 @@ import CmuxCloudMachines
 /// are hover targets for their machine's trailing edge, never new parents.
 struct CloudMachineReorderDrop {
     let machineID: String
-    let move: CloudMachinePinStore.Move
+    let move: CloudMachineMove
     let childIndex: Int
 
     init?(
@@ -36,7 +36,7 @@ struct CloudMachineReorderDrop {
         let index = min(max(proposedIndex, first), last + 1)
         let peers = peerIndices.map { nodes[$0] }
         let remaining = peers.filter { $0.id != sourceID }
-        let move: CloudMachinePinStore.Move
+        let move: CloudMachineMove
         var preview = remaining.map(\.id)
         if let next = peerIndices.first(where: { $0 >= index && nodes[$0].id != sourceID }),
            let target = nodes[next].machineOrderID,

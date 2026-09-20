@@ -1,19 +1,13 @@
 import AppKit
-import CmuxCloudMachines
 
 /// Converts AppKit's hierarchy-relative proposal into a move among displayed
 /// siblings. Stable IDs route to the existing descendant or machine order owner.
 struct CloudSidebarOrganizationDrop {
-    enum Operation {
-        case organization(CloudSidebarOrganizationAction)
-        case machine(String, CloudMachinePinStore.Move)
-    }
-
     let sourceID: String
     let parent: CloudTreeNode?
     let children: [CloudTreeNode]
     let childIndex: Int
-    let operation: Operation
+    let operation: CloudSidebarDropOperation
 
     init?(
         sourceID: String,

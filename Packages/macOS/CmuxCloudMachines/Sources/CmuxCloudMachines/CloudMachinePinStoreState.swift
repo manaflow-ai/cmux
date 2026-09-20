@@ -17,7 +17,7 @@ struct CloudMachinePinStoreState: Codable, Equatable {
 
     /// Plans the same mutation for drag validation and commit without writing
     /// during hover. Absent identities keep their relative order.
-    func moving(_ move: CloudMachinePinStore.Move, machineID: String, visible: [String]) -> Self? {
+    func moving(_ move: CloudMachineMove, machineID: String, visible: [String]) -> Self? {
         let current = ordered(visible)
         let peers = current.filter { pinned.contains($0) == pinned.contains(machineID) }
         guard !machineID.isEmpty, let index = peers.firstIndex(of: machineID) else { return nil }
