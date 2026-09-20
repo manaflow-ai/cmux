@@ -19,6 +19,20 @@ SPEC.loader.exec_module(MODULE)
 
 
 class CacheRestoreReceiptTests(unittest.TestCase):
+    def test_contract_runs_when_its_inspected_files_change(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cache-receipts.yml").read_text())
+        events = workflow.get("on", workflow.get(True))
+        inspected = {
+            ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
+            ".github/workflows/ci.yml", ".github/workflows/nightly.yml",
+            ".github/workflows/ci-cache-receipts.yml", "scripts/check-test-determinism.py",
+            "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
+            "tests/test_ci_pull_request_caches_are_read_only.py",
+        }
+        for event in ("pull_request", "push"):
+            with self.subTest(event=event):
+                self.assertTrue(inspected.issubset(set(events[event]["paths"])))
+
     def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)
