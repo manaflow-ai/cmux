@@ -6,6 +6,10 @@ on:
       - 'CLI/**'
       - 'tests/test_cli_broken_pipe_writes.py'
       - 'tests/test_cli_socket_operation_deadline.py'
+      - 'tests/test_cli_cloud_hostname.py'
+      - 'tests/fixtures/cloud-hostname-resolver-tripwire.m'
+      - 'tests/fixtures/CloudHostnameFixture.swift'
+      - 'Sources/Cloud/CloudTuiClientPaths.swift'
       - 'cmux.xcodeproj/**'
       - 'Packages/macOS/CmuxFoundation/**'
       - '.github/workflows/cli-pipe-regressions.yml'
@@ -79,6 +83,14 @@ jobs:
           export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
           python3 tests/test_cli_broken_pipe_writes.py 2>&1 | tee "$RUNNER_TEMP/cli-pipes.log"
 
+      - name: Exercise Cloud naming without hostname resolution
+        run: |
+          set -euo pipefail
+          CMUX_CLI_PRODUCTS="$CMUX_CLI_DERIVED/Build/Products/Debug"
+          export CMUX_CLI_BIN="$CMUX_CLI_PRODUCTS/cmux"
+          export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
+          python3 tests/test_cli_cloud_hostname.py 2>&1 | tee "$RUNNER_TEMP/cloud-hostname.log"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -87,4 +99,5 @@ jobs:
             ${{ runner.temp }}/cli-revision.txt
             ${{ runner.temp }}/cli-build.log
             ${{ runner.temp }}/cli-pipes.log
+            ${{ runner.temp }}/cloud-hostname.log
           retention-days: 7
