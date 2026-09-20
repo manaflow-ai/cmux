@@ -72,6 +72,8 @@ extension ControlCommandCoordinator {
             switch seam.controlWorkspaceList(routing: self.routingSelectors(params)) {
             case .tabManagerUnavailable:
                 return .tabManagerUnavailable
+            case .relayOwnerUnavailable:
+                return .relayOwnerUnavailable
             case .relayWorkspace(let id, let title):
                 return .relayWorkspace(id: id, title: title)
             case .resolved(let windowID, let workspaces, let selectedIndex):
@@ -87,6 +89,12 @@ extension ControlCommandCoordinator {
         switch outcome {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .relayOwnerUnavailable:
+            return .err(
+                code: "remote_relay_workspace_denied",
+                message: "Relay owner workspace is not active",
+                data: nil
+            )
         case .relayWorkspace(let id, let title):
             return .ok(.object([
                 "scope": .string("remote_workspace"),

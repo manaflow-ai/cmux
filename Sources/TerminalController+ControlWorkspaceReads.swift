@@ -35,7 +35,7 @@ extension TerminalController {
             // workspace's summary or the owner's daemon/connection payload.
             guard let workspace = tabManager.tabs.first(where: { $0.id == owner }),
                   remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else {
-                return .tabManagerUnavailable
+                return .relayOwnerUnavailable
             }
             return .relayWorkspace(id: owner, title: workspace.title)
         }

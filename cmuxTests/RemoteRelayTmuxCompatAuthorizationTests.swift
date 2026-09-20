@@ -50,10 +50,21 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
         ])
         #expect(input.errorResponse != nil)
         fixture.workspace.activeRemoteSessionControllerID = UUID()
-        guard case .err? = coordinator.handleSocketWorkerV2(admitted.request, context: TerminalController.shared) else {
+        guard case let .err(code, message, _)? = coordinator.handle(admitted.request) else {
             Issue.record("Retired relay still enumerated a workspace")
             return
         }
+        #expect(code == "remote_relay_workspace_denied")
+        #expect(message == "Relay owner workspace is not active")
+        #expect(!message.contains("TabManager"))
+        guard case let .err(workerCode, workerMessage, _)? = coordinator.handleSocketWorkerV2(
+            admitted.request, context: TerminalController.shared
+        ) else {
+            Issue.record("Retired relay still enumerated a workspace on the worker lane")
+            return
+        }
+        #expect(workerCode == code)
+        #expect(workerMessage == message)
     }
 
     @Test
