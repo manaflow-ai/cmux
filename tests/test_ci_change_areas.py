@@ -952,6 +952,12 @@ def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
+    block = workflow_job_block("macos-compile-admission")
+    early = block.index("      - name: Run early CLI binary smoke checks")
+    package = block.index("      - name: Package compiled app-host test product")
+    upload = block.index("      - name: Upload compiled app-host test product")
+    assert early < package < upload
+
     script = workflow_job_step_script("macos-compile-admission", "Run early CLI binary smoke checks")
     for failed_probe in ("version", "help", None, "missing-binary"):
         with tempfile.TemporaryDirectory() as directory:
