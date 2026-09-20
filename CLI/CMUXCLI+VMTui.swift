@@ -395,7 +395,12 @@ extension CMUXCLI {
         // Background creates preserve navigation even if the user visited the
         // loading card while provisioning. Adoption keeps its native tab identity.
         let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let paneFocus = options.focus
+        // A background open must never move selection to another workspace, but
+        // an already-selected target may keep pane focus. This preserves the
+        // user's current input owner while avoiding focus theft.
+        let paneFocus = options.focus || requestedTarget.map {
+            !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
+        } ?? false
         let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
             let ready = try prepareVMTuiTargetWorkspace(
