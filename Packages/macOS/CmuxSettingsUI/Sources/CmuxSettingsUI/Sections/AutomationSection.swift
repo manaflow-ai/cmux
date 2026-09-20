@@ -26,7 +26,7 @@ public struct AutomationSection: View {
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var ampInstallState: AgentIntegrationInstallState = .checking
     @State private var ampActionInFlight = false
-    @State private var ampActionTask: Task<Void, Never>?
+    @State private var ampPendingAction: AgentIntegrationInstallAction?
     @State private var ampActionMessage: String?
     @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var socketPasswordDraft: String = ""
@@ -423,7 +423,10 @@ public struct AutomationSection: View {
                 HStack(spacing: 8) {
                     ForEach(presentation.availableActions, id: \.self) { action in
                         Button(ampActionTitle(action)) {
-                            performAmpAction(action)
+                            guard !ampActionInFlight else { return }
+                            ampActionInFlight = true
+                            ampActionMessage = nil
+                            ampPendingAction = action
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -446,9 +449,12 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."))
         }
         .task { await refreshAmpInstallState() }
+        .task(id: ampPendingAction) {
+            guard let action = ampPendingAction else { return }
+            await performAmpAction(action)
+        }
         .onDisappear {
-            ampActionTask?.cancel()
-            ampActionTask = nil
+            ampPendingAction = nil
             ampActionInFlight = false
         }
     }
@@ -480,23 +486,18 @@ public struct AutomationSection: View {
         ampInstallState = state
     }
 
-    private func performAmpAction(_ action: AgentIntegrationInstallAction) {
-        guard !ampActionInFlight else { return }
-        ampActionTask?.cancel()
-        ampActionInFlight = true
-        ampActionMessage = nil
-        ampActionTask = Task { @MainActor in
-            let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
-            guard !Task.isCancelled else { return }
-            if result.succeeded {
-                await refreshAmpInstallState()
-            } else {
-                ampActionMessage = result.message
-            }
-            guard !Task.isCancelled else { return }
-            ampActionInFlight = false
-            ampActionTask = nil
+    private func performAmpAction(_ action: AgentIntegrationInstallAction) async {
+        guard !Task.isCancelled else { return }
+        let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
+        guard !Task.isCancelled else { return }
+        if result.succeeded {
+            await refreshAmpInstallState()
+        } else {
+            ampActionMessage = result.message
         }
+        guard !Task.isCancelled else { return }
+        ampActionInFlight = false
+        ampPendingAction = nil
     }
 
     @ViewBuilder
