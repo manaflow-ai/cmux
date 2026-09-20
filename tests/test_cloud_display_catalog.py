@@ -132,6 +132,39 @@ class CloudDisplayCatalogTests(unittest.TestCase):
             finally:
                 service.shutdown.set()
 
+    def test_novnc_recovery_does_not_terminate_guest_desktop(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+        number = 2
+
+        class Process:
+            def __init__(self):
+                self.terminated = False
+
+            def terminate(self):
+                self.terminated = True
+
+        x_server = Process()
+        old_websockify = Process()
+        new_websockify = Process()
+        service.processes[number] = [x_server]
+        service.websockify_processes[number] = old_websockify
+        environment = {"DISPLAY": ":2"}
+        runtime = self.root / "runtime" / "2"
+        runtime.mkdir(parents=True)
+
+        with mock.patch.object(display, "ready", return_value=False), \
+             mock.patch.object(display, "rfb_ready", return_value=True), \
+             mock.patch.object(display, "novnc_ready", return_value=False), \
+             mock.patch.object(display.shutil, "which", return_value="/usr/bin/websockify"), \
+             mock.patch.object(display.subprocess, "Popen", return_value=new_websockify), \
+             mock.patch.object(service, "wait_for_port", return_value=True):
+            service.start_components(number, environment, runtime)
+
+        self.assertFalse(x_server.terminated)
+        self.assertTrue(old_websockify.terminated)
+        self.assertIs(service.websockify_processes[number], new_websockify)
+        service.shutdown.set()
+
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         request = str(uuid.uuid4())

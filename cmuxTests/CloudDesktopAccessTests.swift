@@ -265,6 +265,21 @@ struct CloudDesktopAccessTests {
         #expect(state.resourceID == display)
         state.leave()
         #expect(state.resourceID == nil)
+        #expect(!state.retainsCloudResourceForDuplication)
+    }
+
+    @Test("An unavailable Cloud placeholder retains its resource for duplication")
+    func unavailableCloudRetainsResourceIdentity() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:1")
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!, resourceID: display)
+        state.showUnavailable("display unavailable")
+        #expect(state.resourceID == display)
+        #expect(state.retainsCloudResourceForDuplication)
+        state.leave()
+        #expect(state.resourceID == nil)
     }
 
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
