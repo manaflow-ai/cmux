@@ -5,6 +5,7 @@ import Observation
 @MainActor
 @Observable
 public final class ComputerUseOnboardingStore {
+    /// Legacy preference key considered only during scoped migration.
     public static let legacyCompletionKey = "cmux.computerUse.directCapture.ready"
     private let defaults: UserDefaults
     private let scope: String
@@ -13,17 +14,21 @@ public final class ComputerUseOnboardingStore {
     private var verificationID = UUID()
     private var pendingVerificationID: UUID?
     @ObservationIgnored private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    /// Whether the durable completion record has been committed.
     public private(set) var completionCommitted = false
+    /// Current runtime-owned setup phase.
     public private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false) {
         didSet { if oldValue != phase { statusChanged() } }
     }
 
+    /// Creates a store backed by an injected preferences suite and runtime scope.
     public init(defaults: UserDefaults, scope: String) {
         self.defaults = defaults
         self.scope = scope
     }
 
     /// Coalesced snapshot invalidations for Settings and other observers.
+    /// Publishes coalesced state invalidations for observers such as Settings.
     public func updates() -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let id = UUID()
@@ -35,10 +40,12 @@ public final class ComputerUseOnboardingStore {
         }
     }
 
+    /// Notifies observers after daemon or permission evidence changes.
     public func statusChanged() {
         for continuation in subscribers.values { continuation.yield() }
     }
 
+    /// Applies a synchronous phase transition.
     public func apply(_ event: ComputerUseRuntimePermissionPhase.Event) {
         let next = phase.applying(event)
         guard next != phase else { return }
@@ -48,6 +55,7 @@ public final class ComputerUseOnboardingStore {
     }
 
     /// Restores evidence only for this runtime scope and helper identity.
+    /// Restores evidence only when the scope and helper identity match.
     public func restore(for identity: String) {
         guard helperIdentity != identity else { return }
         verificationID = UUID()
@@ -72,12 +80,14 @@ public final class ComputerUseOnboardingStore {
     }
 
     /// Invalidates evidence before replacing or re-provisioning a helper.
+    /// Invalidates evidence before replacing the helper bundle.
     public func invalidateHelper() {
         invalidateCompletion()
         helperIdentity = nil
     }
 
     /// Revocation or failed publication invalidates saved and in-flight evidence.
+    /// Invalidates the durable record and all in-flight verification attempts.
     public func invalidateCompletion() {
         verificationID = UUID()
         pendingVerificationID = nil
@@ -87,6 +97,7 @@ public final class ComputerUseOnboardingStore {
         defaults.removeObject(forKey: Self.legacyCompletionKey)
     }
 
+    /// Starts a verification generation for the current helper identity.
     public func beginVerification() -> UUID? {
         guard helperIdentity != nil else { return nil }
         if case .disabled = phase { return nil }

@@ -3,12 +3,15 @@ import Security
 
 /// The signing digest changes whenever the helper's signed code or resources change.
 public struct ComputerUseHelperIdentity: Sendable {
+    /// The installed helper bundle whose signature is being checked.
     public let bundleURL: URL
 
+    /// Creates an identity reader for one installed helper bundle.
     public init(bundleURL: URL) {
         self.bundleURL = bundleURL
     }
 
+    /// Returns the code-signing unique digest, or `nil` when it cannot be read.
     public func read() -> String? {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(bundleURL as CFURL, [], &code) == errSecSuccess,
