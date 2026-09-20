@@ -79,6 +79,37 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "true",
         })
 
+    def test_cloud_skill_and_its_known_test_keep_only_the_owning_guard(self):
+        paths = [
+            "skills/cmux-cloud-vm/SKILL.md",
+            "skills/cmux-cloud-vm/references/agent-workflows.md",
+            "skills/cmux-cloud-vm/references/commands.md",
+            "skills/cmux-cloud-vm/references/guest.md",
+            "tests/test_cloud_vm_skill_coverage.py",
+        ]
+        expected = {name: "true" if name == "linux_guard_tests" else "false"
+                    for name in JOBS}
+        for changed in [[path] for path in paths] + [paths]:
+            with self.subTest(changed=changed):
+                outputs = route(changed)
+                self.assertEqual(outputs, expected)
+                results = {job: "success" if outputs[name] == "true" else "skipped"
+                           for name, job in JOBS.items()}
+                result = run_linux_preflight(linux_preflight_needs(
+                    outputs=outputs, results=results,
+                ))
+                self.assertEqual(result.returncode, 0, result.stderr)
+        for unknown in ("tests/test_new_cloud_contract.py",
+                        "skills/cmux-cloud-vm/references/new-contract.md",
+                        "skills/cmux-cloud-vm/scripts/check.py"):
+            with self.subTest(unknown=unknown):
+                self.assertEqual(route(paths + [unknown]), dict.fromkeys(JOBS, "true"))
+        self.assertEqual(route(paths + ["Sources/Settings.swift"], macos="true"), {
+            "linux_guard_tests": "true", "linux_guard_history": "false",
+            "linux_guard_cli": "false", "linux_guard_source": "true",
+            "ghosttykit_release": "true",
+        })
+
     def test_web_edit_skips_native_history_cli_and_binary_download(self):
         outputs = route(["web/app/page.tsx"])
         self.assertEqual(outputs, {
@@ -105,7 +136,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
     def test_executable_docs_and_unknown_inputs_never_take_docs_shortcut(self):
         for path in (
             "skills/cmux-cua/AGENTS.md", "docs/cli-contract.md",
-            "skills/cmux-cloud-vm/SKILL.md", "ghostty", ".gitmodules",
+            "skills/unknown/SKILL.md", "ghostty", ".gitmodules",
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ghosttykit-checksums.txt",
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
             "tests/test_ci_linux_guard_routing.py", "new-area/input",
