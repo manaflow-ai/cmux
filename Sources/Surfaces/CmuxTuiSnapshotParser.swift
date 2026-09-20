@@ -1753,7 +1753,9 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// publish them: SSH (22), the cmux-tui daemon (1337), the VNC server
     /// (5901) and its noVNC front end (6901, the Desktop surface), and the
     /// image's internal 8080 listener.
-    static let internalPorts: Set<Int> = [22, 1337, 5901, 6901, 8080]
+    /// Guest display slots use these private RFB/noVNC ports; they are owned by
+    /// the display catalog and must never become generic forwarded-port rows.
+    static let internalPorts: Set<Int> = Set([22, 1337, 8080] + Array(5901...5916) + Array(6901...6916))
 
     static let desktopPort = 6901
 
