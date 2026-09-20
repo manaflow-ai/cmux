@@ -54,7 +54,7 @@ import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { guestCliDistributionCommand } from "../guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
-import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
+import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -1722,7 +1722,11 @@ export class FreestyleProvider implements VMProvider {
   private async ensureGuestCli(vm: Vm, vmId: string): Promise<void> {
     const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
     const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && ${guestCliDistributionCommand(true)}`);
-    if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
+    if (current?.exitCode === 0) {
+      await this.execResult(vm, guestBrowserMimeReconcileCommand);
+      return;
+    }
+    await this.installGuestCli(vm, vmId);
   }
 
   /**

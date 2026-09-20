@@ -6,6 +6,7 @@ extension AppDelegate {
     /// the newly-selected team.
     @MainActor
     func prepareCloudVMAccessForTeamSwitch() {
+        SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.cancelAll()
         CloudVMActionLauncher.shared.cancelAllForAuthTransition()
         let detail = String(
             localized: "machines.teamSwitch.disconnectedDetail",

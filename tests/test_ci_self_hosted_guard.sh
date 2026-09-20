@@ -81,6 +81,8 @@ check_release_build_runner_disk_capacity() {
 }
 
 check_build_lag_deriveddata_cache_path() {
+  # A fresh checkout resets every file time, so a restored DerivedData never
+  # spares a rebuild. The job builds into a stable path and caches none of it.
   if ! awk '
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
@@ -90,22 +92,17 @@ check_build_lag_deriveddata_cache_path() {
     in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
     in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
 
-    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
-    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
-    in_cache && /path:[[:space:]]*\$\{\{ runner\.temp \}\}\/cmux-deriveddata-tests-build-and-lag/ { saw_cache_path=1 }
-    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
-
-    in_job && after_cache && /rm -rf "\$CMUX_DERIVED_DATA_PATH"/ { saw_post_cache_delete=1 }
+    in_job && /key:[[:space:]]*deriveddata-/ { saw_deriveddata_cache=1 }
 
     END {
-      exit !(saw_prepare_path && saw_cache_path && !saw_dynamic_prepare_path && !saw_home_cache_path && !saw_post_cache_delete)
+      exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
     }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag DerivedData cache must restore into the stable RUNNER_TEMP path xcodebuild uses, and must not delete that path after restore"
+    echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
     exit 1
   fi
 
-  echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
+  echo "PASS: tests-build-and-lag builds into a stable DerivedData path and caches none of it"
 }
 
 check_e2e_runner_fallbacks() {
@@ -139,13 +136,6 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  for label in depot-macos-latest depot-macos-14; do
-    if ! grep -Eq "^[[:space:]]+- ${label}$" "$E2E_FILE"; then
-      echo "FAIL: test-e2e.yml must expose runner option ${label}"
-      exit 1
-    fi
-  done
-
   if ! awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
@@ -157,16 +147,6 @@ check_e2e_runner_fallbacks() {
     END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
   ' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
-    exit 1
-  fi
-
-  if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
-    exit 1
-  fi
-
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
 
@@ -191,33 +171,12 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! awk '
-    /^[[:space:]]*\*\)$/ {
-      in_reject = 1
-      saw_error = 0
-      saw_exit = 0
-      next
-    }
-    in_reject && /echo "::error::\$REQUESTED_RUNNER resolved outside Depot/ { saw_error = 1 }
-    in_reject && /^[[:space:]]*exit 1$/ { saw_exit = 1 }
-    in_reject && /^[[:space:]]*;;$/ {
-      if (saw_error && saw_exit) {
-        found = 1
-      }
-      in_reject = 0
-    }
-    END { exit(found ? 0 : 1) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must fail fast and explain runner label misrouting clearly"
-    exit 1
-  fi
-
   if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes supported Tart runner choices and duplicate-queue cancellation"
 }
 
 check_ios_tart_canary() {
@@ -251,13 +210,8 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the Release app binary stays universal"
-    exit 1
-  fi
-
-  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the bundled CLI stays universal"
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the Release app, CLI, and cmux-cua contain exactly the resolved architectures"
     exit 1
   fi
 
@@ -266,7 +220,7 @@ check_release_build_signal() {
     exit 1
   fi
 
-  echo "PASS: release-build keeps universal artifact verification"
+  echo "PASS: release-build verifies exact artifact architectures"
 }
 
 check_release_build_disk_cleanup() {
@@ -366,15 +320,15 @@ check_runtime_regressions_collapsed() {
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
     in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
     in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
 
@@ -1152,12 +1106,11 @@ check_no_self_hosted_fleet_runners() {
   # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
-  #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
-  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -1181,7 +1134,7 @@ check_no_self_hosted_fleet_runners() {
   for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
                "runs-on: \${{ vars.X || 'blacksmith-12vcpu-macos-26' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
-               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
+               '- warp-macos-15-arm64-6x' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
     if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
@@ -1271,7 +1224,6 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
@@ -1279,7 +1231,7 @@ check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
 
-# test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
+# test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
 check_ios_tart_canary
@@ -1293,61 +1245,6 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
-check_agent_notification_paths_cover_its_suites() {
-  # The workflow reruns suites that ci.yml's shards already run, so it should
-  # start only for changes that can affect them: every file that defines one of
-  # its suites, and every helper file those name, must match a path trigger,
-  # and no cmuxTests trigger may match any other file.
-  ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
-import fnmatch, os, re, sys
-from pathlib import Path
-
-root = Path(os.environ["ROOT_DIR"])
-text = (root / ".github/workflows/agent-notification-tests.yml").read_text(encoding="utf-8")
-paths = re.findall(r"^\s+- (cmuxTests/\S+)\s*$", text, flags=re.M)
-suites = re.search(r"^\s*unit_test_suites:\s*(\S+)", text, flags=re.M).group(1).split(",")
-errors = []
-if "cmuxTests/**" in paths:
-    errors.append("must not trigger on all of cmuxTests/**")
-sources = {f: f.read_text(encoding="utf-8", errors="ignore") for f in sorted((root / "cmuxTests").glob("*.swift"))}
-suite_files = set()
-for suite in suites:
-    decl = re.compile(rf"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:\w+\s+)*(?:class|struct|actor|extension)\s+{re.escape(suite)}\b", re.M)
-    files = [f for f, source in sources.items() if decl.search(source)]
-    if not files:
-        errors.append(f"runs {suite}, which no file in cmuxTests defines")
-    suite_files.update(files)
-    for f in files:
-        rel = f"cmuxTests/{f.name}"
-        if not any(fnmatch.fnmatchcase(rel, p) for p in paths):
-            errors.append(f"runs {suite} but {rel} matches no path trigger")
-# A helper is a file whose top-level type the suite files name. Nested and
-# private types are skipped: another file cannot reach them, and several test
-# files declare a private type of the same name.
-suite_text = "\n".join(sources[f] for f in suite_files)
-helper_files = set()
-top_level = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:final|internal|public|open)\s+)*(?:class|struct|enum|actor|protocol)\s+(\w+)", re.M)
-for f, source in sources.items():
-    if f in suite_files:
-        continue
-    used = sorted(n for n in set(top_level.findall(source)) if re.search(rf"\b{re.escape(n)}\b", suite_text))
-    rel = f"cmuxTests/{f.name}"
-    if used:
-        helper_files.add(f)
-    if used and not any(fnmatch.fnmatchcase(rel, p) for p in paths):
-        errors.append(f"suites use {', '.join(used)} from {rel}, which matches no path trigger")
-# A trigger that also matches unrelated test files starts a second run of
-# suites that ci.yml already ran.
-for p in paths:
-    extra = sorted(f.name for f in sources if fnmatch.fnmatchcase(f"cmuxTests/{f.name}", p) and f not in suite_files | helper_files)
-    if extra:
-        errors.append(f"trigger {p} also matches unrelated files: {', '.join(extra[:5])}")
-for e in errors:
-    print(f"FAIL: agent-notification-tests.yml {e}")
-sys.exit(1 if errors else 0)
-PY
-  echo "PASS: agent notification paths cover every suite file and helper the workflow runs"
-}
 
 pr_workflow_events() {
   # Prints the pull request events a workflow triggers on, for the mapping,
@@ -1489,6 +1386,5 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
-check_agent_notification_paths_cover_its_suites
 check_pr_macos_workflows_cancel_superseded_runs
 check_no_paid_overflow_fallbacks

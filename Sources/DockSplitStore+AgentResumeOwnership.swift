@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension DockSplitStore {
@@ -33,7 +34,8 @@ extension DockSplitStore {
             panelId: panelId,
             recordedProcess: recordedProcess,
             liveIndex: SharedLiveAgentIndex.shared.index,
-            foregroundProcessID: (panels[panelId] as? TerminalPanel)?.surface.foregroundProcessID()
+            foregroundProcessID: (panels[panelId] as? TerminalPanel)?.surface.foregroundProcessID(),
+            foregroundProcessIdentity: { AgentPIDProcessIdentity(pid: $0) }
         )
     }
 
