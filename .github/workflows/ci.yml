@@ -1219,6 +1219,7 @@ jobs:
           done
 
       - name: Run remote tmux mirror detach and placement regressions
+        id: remote-tmux-mirror
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Closing a mirrored workspace must never kill the remote tmux session,
@@ -1237,6 +1238,7 @@ jobs:
           # host exited, crashed, or timed out. An assertion failure never earns
           # a rerun, and a second crash still fails the shard.
           set -euo pipefail
+          rm -f -- "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
             RemoteTmuxMirrorFocusPolicyTests \
@@ -1266,6 +1268,71 @@ jobs:
               exit "$suite_status"
             done
           done
+
+      - name: Collect RemoteTmuxMirror crash diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -u
+          diagnostics="$RUNNER_TEMP/cmux-remote-tmux-mirror-diagnostics"
+          rm -rf -- "$diagnostics"
+          mkdir -p "$diagnostics"
+
+          # XCTest runs with an isolated HOME. Preserve its reports before the
+          # always-running app-host cleanup removes that home.
+          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
+            # The console account owns the isolated home on runners where the
+            # GitHub agent is a different user. Validate the published identity
+            # before using its resolved path, then fall back to passwordless
+            # sudo only for this exact authenticated run scope.
+            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
+            # shellcheck source=scripts/ci/app-host-isolation.sh
+            source "$ci_script_dir/app-host-isolation.sh"
+            if cmux_validate_published_app_host_identity_values; then
+              crash_reports="$CMUX_RESOLVED_APP_HOST_HOME/.local/state/cmux/crash"
+              reports_present=0
+              if [ -d "$crash_reports" ] \
+                || sudo -n test -d "$crash_reports" 2>/dev/null; then
+                reports_present=1
+              fi
+              if [ "$reports_present" -eq 1 ]; then
+                copied=0
+                if cp -R "$crash_reports" "$diagnostics/crash-reports" 2>/dev/null; then
+                  copied=1
+                elif sudo -n true 2>/dev/null; then
+                  rm -rf -- "$diagnostics/crash-reports"
+                  if sudo -n cp -R "$crash_reports" "$diagnostics/crash-reports" \
+                    && sudo -n chown -R "$(id -u):$(id -g)" "$diagnostics/crash-reports"; then
+                    copied=1
+                  fi
+                fi
+                if [ "$copied" -ne 1 ]; then
+                  echo "::warning::unable to read isolated app-host crash reports" >&2
+                fi
+              fi
+            else
+              echo "::warning::app-host identity validation failed; crash reports not collected" >&2
+            fi
+          fi
+
+          shopt -s nullglob
+          suite_logs=("$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt)
+          if [ "${#suite_logs[@]}" -gt 0 ]; then
+            cp "${suite_logs[@]}" "$diagnostics/" || true
+          fi
+
+          find "$diagnostics" -type f -print || true
+
+      - name: Upload RemoteTmuxMirror crash diagnostics
+        if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-remote-tmux-mirror-diagnostics-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-remote-tmux-mirror-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
