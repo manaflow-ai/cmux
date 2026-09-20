@@ -556,6 +556,12 @@ else
   xcrun simctl install "$SIMULATOR_ID" "$IOS_APP"
 fi
 
+# Retained simulators must never contribute a prior run's report or UI image.
+DATA_CONTAINER="$(xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
+rm -f "$DATA_CONTAINER/Library/Caches/$REPORT_FILENAME" \
+  "$DATA_CONTAINER/Library/Caches/cmux-iroh-ui-workspaces.png" \
+  "$DATA_CONTAINER/Library/Caches/cmux-iroh-ui-terminal.png"
+
 [[ -d "$MAC_APP" ]] || { echo "error: tagged Mac app is missing: $MAC_APP" >&2; exit 1; }
 "$SCRIPT_DIR/lib/verify-iroh-release-gate-builds.sh" \
   --mac-app "$MAC_APP" \
