@@ -72,6 +72,7 @@ extension CmuxTuiSurfaceProvider {
             guard let self, let browser else { return }
             Task { @MainActor in
                 guard self.isRegisteredInCatalog() else { return }
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
                 await self.catalog.refresh(machine: self.machine, force: true)
                 guard let resource = self.catalog.snapshot.resources.first(where: { $0.id == resourceID }) else {
                     browser.cloudAccess.showUnavailable(String(

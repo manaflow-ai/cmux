@@ -260,7 +260,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
             let linkError: String? = isAwake ? "cloud_api_unavailable" : nil
-            portState = isAwake ? .unavailable(.transport) : .unavailable(.machineAsleep)
+            portState = supportsPortPreviews ? (isAwake ? .unavailable(.transport) : .unavailable(.machineAsleep)) : .unsupported
             info = Self.info(
                 from: summary,
                 linkState: linkState,
