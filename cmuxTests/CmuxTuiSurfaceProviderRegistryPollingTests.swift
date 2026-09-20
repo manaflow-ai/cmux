@@ -39,6 +39,19 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         return predicate()
     }
 
+    private func waitUntilAsync(
+        timeout: Duration = .seconds(5),
+        _ predicate: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await predicate() { return true }
+            await Task.yield()
+        }
+        return await predicate()
+    }
+
     @Test("fleet polling starts only when background Cloud work is allowed, and follows the toggle at runtime")
     @MainActor
     func pollingFollowsTheActivationPolicy() async {
@@ -218,11 +231,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         allowed.isOn = true
         #expect(await registry.refresh(force: true))
         #expect(await received(firstAttempt))
-        for _ in 0..<2_000 {
-            if await h.hub.status().lastError != nil { break }
-            await Task.yield()
-        }
-        #expect(await h.hub.status().lastError != nil)
+        #expect(await waitUntilAsync { await h.hub.status().lastError != nil })
         #expect(await attempts.value == 1)
 
         // Later empty-fleet reads reuse the completed preparation task. They must
@@ -248,11 +257,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(registry.isPolling == false)
         allowed.isOn = true
         #expect(await registry.refresh(force: true))
-        for _ in 0..<2_000 {
-            if await attempts.value == 3 { break }
-            await Task.yield()
-        }
-        #expect(await attempts.value == 3)
+        #expect(await waitUntilAsync { await attempts.value == 3 })
         await registry.accessDidEnd()
     }
 
