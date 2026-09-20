@@ -27,15 +27,23 @@ struct CloudMachineWorkspaceAdoptionTests {
         }
     }
 
-    @Test("Dismissal preserves an adopted terminal")
-    func adoptedWorkspaceIsNotDisposable() async throws {
+    @Test("Cleanup preserves ordinary content and removes only its loading card")
+    func userPanesAreNotDisposable() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
-            defer { app.tearDown() }
+            defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
+            let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
             let panel = try #require(app.workspace.focusedTerminalPanel)
             NewMachineSheetPresenter.closeReservedWorkspace(app.workspace.id)
             #expect(app.manager.tabs.contains { $0.id == app.workspace.id })
             #expect(app.workspace.panels[panel.id] === panel)
+            let pane = try #require(pending.bonsplitController.allPaneIds.first)
+            let command = try #require(pending.newTerminalSurface(inPane: pane, focus: false,
+                initialCommand: "echo first-command", autoRefreshMetadata: false))
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            #expect(app.manager.tabs.contains { $0.id == pending.id })
+            #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
+            #expect(command.surface.initialCommand?.contains("first-command") == true)
         }
     }
 
@@ -74,6 +82,8 @@ struct CloudMachineWorkspaceAdoptionTests {
             #expect(pending.cloudVMBinding?.remoteWorkspaceID == "ws-first")
             #expect(pending.title == "workspace-1")
             #expect(manager.selectedTabId == selection)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            #expect(manager.tabs.contains { $0.id == pending.id }, "an adopted projection is no longer disposable")
 
             let repeated = try await open(pending, provider: provider, catalog: catalog)
             #expect(repeated == first)

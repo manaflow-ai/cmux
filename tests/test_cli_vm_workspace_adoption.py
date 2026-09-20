@@ -20,6 +20,7 @@ class MachineSocket:
         self.fail_at = fail_at
         self.requests = []
         self.errors = []
+        self.stopping = threading.Event()
 
     def __enter__(self):
         self.root = tempfile.TemporaryDirectory(prefix="cmux-adopt-", dir="/tmp")
@@ -48,7 +49,8 @@ class MachineSocket:
                         stream.write(json.dumps(response).encode() + b"\n")
                     stream.flush()
         except Exception as error:
-            self.errors.append(error)
+            if not self.stopping.is_set():
+                self.errors.append(error)
 
     def response(self, method):
         if method == "vm.create":
@@ -68,6 +70,11 @@ class MachineSocket:
         raise AssertionError("Unexpected mutation: " + method)
 
     def __exit__(self, *_):
+        self.stopping.set()
+        try:
+            self.listener.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self.listener.close()
         self.thread.join(timeout=5)
         self.root.cleanup()
