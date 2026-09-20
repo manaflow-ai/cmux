@@ -1733,6 +1733,9 @@ struct SurfaceCatalogExport: Sendable {
     /// This preserves cursor/raw-snapshot equality while making offline state
     /// explicit to agents.
     var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Existing stable local owner IDs, captured beside this read's runtime projections.
+    /// Missing owners remain unknown; these values never become resource or mutation IDs.
+    var projectionIdentities: [SurfaceProjection: SurfaceProjectionIdentity] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane

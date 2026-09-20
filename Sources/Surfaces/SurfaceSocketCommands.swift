@@ -925,7 +925,13 @@ extension TerminalController {
 
     @MainActor
     private static func surfaceCatalogQuery(catalog: SurfaceCatalog) -> SurfaceCatalogQueryService {
-        SurfaceCatalogQueryService(catalog: catalog) { machineID in
+        SurfaceCatalogQueryService(catalog: catalog, projectionIdentities: { projections in
+            let owners = AppDelegate.shared?.workspacesForRead(tabIds: Set(projections.map(\.workspaceID))) ?? [:]
+            return SurfaceProjectionIdentity.capture(
+                projections: projections,
+                workspacesByID: owners
+            )
+        }) { machineID in
             _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
         }
     }
@@ -1116,7 +1122,9 @@ extension TerminalController {
         return [
             "machines": machines.map(surfaceMachinePayload),
             "resources": resources.map { surfaceResourcePayload($0, projections: openPanels[$0.id] ?? []) },
-            "projections": projections.map(surfaceProjectionPayload),
+            "projections": projections.map {
+                surfaceProjectionPayload($0, identity: export.projectionIdentities[$0])
+            },
             "cloud_states": cloudStates.map { state in
                 surfaceCloudStatePayload(
                     state,
@@ -1184,12 +1192,17 @@ extension TerminalController {
         ]
     }
 
-    nonisolated static func surfaceProjectionPayload(_ projection: SurfaceProjection) -> [String: Any] {
+    nonisolated static func surfaceProjectionPayload(
+        _ projection: SurfaceProjection,
+        identity: SurfaceProjectionIdentity? = nil
+    ) -> [String: Any] {
         [
             "resource": projection.resource.rawValue,
             "workspace_id": projection.workspaceID.uuidString,
             "panel_id": projection.panelID.uuidString,
             "surface_id": projection.panelID.uuidString,
+            "stable_surface_id": identity?.stableSurfaceID.uuidString ?? NSNull(),
+            "stable_workspace_id": identity?.stableWorkspaceID.uuidString ?? NSNull(),
             "remote_workspace_id": projection.remoteWorkspaceID ?? NSNull(),
             "remote_tab_id": projection.remoteTabID ?? NSNull(),
         ]
