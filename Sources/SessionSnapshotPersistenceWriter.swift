@@ -14,13 +14,20 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
 
     private let store: Store
     private let queue: DispatchQueue
+    private let targetQueue: DispatchQueue
 
     init(
         store: Store,
         queue: DispatchQueue
     ) {
         self.store = store
-        self.queue = queue
+        self.targetQueue = queue
+        // Own serial ordering even if the supplied scheduling target is concurrent.
+        self.queue = DispatchQueue(
+            label: "com.cmuxterm.app.sessionPersistence.writer",
+            qos: .utility,
+            target: queue
+        )
     }
 
     var snapshotStore: Store { store }
@@ -56,7 +63,9 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
         }
 
         if synchronously {
-            writeBlock()
+            // Calling from this executor or its target would deadlock the drain.
+            dispatchPrecondition(condition: .notOnQueue(targetQueue))
+            queue.sync(execute: writeBlock)
         } else {
             queue.async(execute: writeBlock)
         }
