@@ -12,7 +12,8 @@ struct CloudMachinesBetaSettingAction {
     }
 
     func setEnabled(_ enabled: Bool) {
-        model.set(enabled)
-        notificationCenter.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+        model.set(enabled) { [notificationCenter] in
+            notificationCenter.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+        }
     }
 }

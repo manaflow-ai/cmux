@@ -206,6 +206,34 @@ the provider's accepted graph retains the old name while the catalog's
 presentation snapshot intentionally overlays the pending rename. The test now
 checks both rather than expecting the accepted name from the optimistic view.
 
+## Dogfood follow-up: Settings activation and Feature Flags crash
+
+On the fresh tag, both Cloud preferences were enabled and authentication was
+valid, but the hub still had no configuration or account claim. The actual Beta
+Settings action called `DefaultsValueModel.set` and immediately posted
+`rightSidebarBetaFeatureDidChange`. That model updates the toggle optimistically
+and saves asynchronously. The host reads `UserDefaults` in its notification
+handler, so the notification could announce the previous value. Enabling could
+miss preparation; disabling could miss stopping the helper.
+
+The Settings action now uses the existing `set(_:afterCommit:)` path and posts
+only after the store accepts the write. A regression exercises the production
+action with an isolated settings store and notification center, checking both
+enable and disable. The existing runtime-flag AND Beta gate, policy checks and
+override rules are unchanged. Registry restart also cancels stale discovery
+and polling tasks before starting a new authentication epoch, preventing an
+old task from occupying the new epoch's first discovery slot.
+
+The fresh app also crashed on macOS 26.4.1 at 18:45:11 PDT with an uncaught
+`NSRangeException`: the SwiftUI segmented control selected index 2 while its
+AppKit cell contained zero segments. The stack runs through lazy scroll-view
+prefetch. The Feature Flags inspector's selections all have matching tags;
+its small, bounded list now uses an eager stack to avoid this lazy
+materialization path. This incurs upfront construction of the inspector rows
+when that window opens. No picker choices or flag semantics change. The crash
+fix requires GUI verification on the reporting OS; a source-shape assertion
+would not prove it.
+
 ## Remaining verification limits
 
 The current cloud-mac provisioner has no controller scheduling path and still
