@@ -1090,8 +1090,8 @@ validate_app_bundle() {
   fi
 }
 
-# Prints the quoted rm -rf targets that hold a tag's build. A DerivedData that is
-# not the tag's own may hold other tags, so only the tag's app is removed from it.
+# Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
+# that is not the tag's own may hold other tags, so only the tag's app is removed from it.
 tag_build_cleanup_paths() {
   local tag="$1" derived="${2:-}"
   local own="" link="/tmp/cmux-${tag}"
@@ -1100,10 +1100,21 @@ tag_build_cleanup_paths() {
     derived="$(readlink "$link" 2>/dev/null || true)"
   fi
   if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
-    printf '"%s" ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
     [[ -d "$own" ]] || return 0
   fi
-  printf '"%s" ' "$own"
+  printf '%q ' "$own"
+}
+
+# Prints the commands that remove one tag's build and state. They are meant to be pasted
+# into a shell, and a DerivedData, symlink target, or HOME can hold any character, so every
+# argument is escaped with %q instead of being wrapped in quotes.
+print_tag_cleanup_commands() {
+  local tag="$1" derived="${2:-}"
+  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
+  printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
+  printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
 }
 
 print_tag_cleanup_reminder() {
@@ -1123,6 +1134,10 @@ print_tag_cleanup_reminder() {
       continue
     fi
     if [[ "$tag" == "$current_slug" ]]; then
+      continue
+    fi
+    # Anyone can create a name under /tmp. Only a tag slug names a build of ours.
+    if [[ ! "$tag" =~ ^[A-Za-z0-9_-]+$ ]]; then
       continue
     fi
     # Only surface stale debug tag builds.
@@ -1153,17 +1168,11 @@ print_tag_cleanup_reminder() {
     done
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
-      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf $(tag_build_cleanup_paths "$tag")\"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
-      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
-      echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
+      print_tag_cleanup_commands "$tag"
     done
   fi
   echo "After you verify current tag, cleanup command:"
-  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf $(tag_build_cleanup_paths "$current_slug" "$current_derived")\"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
-  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
-  echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
+  print_tag_cleanup_commands "$current_slug" "$current_derived"
 }
 
 while [[ $# -gt 0 ]]; do
