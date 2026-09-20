@@ -1800,6 +1800,9 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.cloudtree.spacing":
+            v2MainSync { CloudSidebarDebugLabWindowController.shared.show() }
+            return v2Ok(id: request.id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.cloudtree.gallery":
             // `{style?: id, show?: bool}`: optionally select a Cloud tree style
             // preset, then (by default) present the side-by-side gallery window.
@@ -1957,7 +1960,8 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery" {
+                || request.method == "debug.cloudtree.gallery"
+                || request.method == "debug.cloudtree.spacing" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
