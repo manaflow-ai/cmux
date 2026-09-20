@@ -10,6 +10,8 @@ export type CloudAxiomConfiguration = {
   readonly errorsDataset: string;
   readonly environment: string;
   readonly revision: string;
+  readonly tag?: string;
+  readonly sourceSha256?: string;
 };
 
 export function cloudAxiomConfiguration(env = process.env): CloudAxiomConfiguration | null {
@@ -19,13 +21,26 @@ export function cloudAxiomConfiguration(env = process.env): CloudAxiomConfigurat
   const origin = trustedAxiomOrigin(env.CMUX_CLOUD_AXIOM_ORIGIN);
   if (!origin) return null;
   const production = env.VERCEL_ENV === "production";
+  const development = isDevelopmentBuild(env);
   return {
     origin, token, identityKey,
-    tracesDataset: production ? "cmux-prod-otel-traces" : "cmux-preview-otel-traces",
-    errorsDataset: production ? "cmux-cloud-errors-prod" : "cmux-cloud-errors-preview",
+    tracesDataset: telemetryDataset(development, production, false),
+    errorsDataset: telemetryDataset(development, production, true),
     environment: production ? "production" : env.VERCEL_ENV === "preview" ? "preview" : "development",
-    revision: env.VERCEL_GIT_COMMIT_SHA?.match(/^[0-9a-f]{7,64}$/)?.[0] ?? "unknown",
+    tag: development ? env.CMUX_DEV_BUILD_TAG : undefined,
+    sourceSha256: development ? env.CMUX_DEV_BUILD_SOURCE_SHA256?.match(/^[0-9a-f]{64}$/)?.[0] : undefined,
+    revision: (development ? env.CMUX_DEV_BUILD_COMMIT : env.VERCEL_GIT_COMMIT_SHA)?.match(/^[0-9a-f]{7,64}$/)?.[0] ?? "unknown",
   };
+}
+
+function isDevelopmentBuild(env: NodeJS.ProcessEnv): boolean {
+  return !env.VERCEL_ENV && !!env.CMUX_DEV_BUILD_TAG?.trim();
+}
+
+function telemetryDataset(development: boolean, production: boolean, errors: boolean): string {
+  if (development) return "cmux-dev-otel-traces";
+  if (production) return errors ? "cmux-cloud-errors-prod" : "cmux-prod-otel-traces";
+  return errors ? "cmux-cloud-errors-preview" : "cmux-preview-otel-traces";
 }
 
 export async function exportCloudDiagnostics(
@@ -42,8 +57,11 @@ export async function exportCloudDiagnostics(
     client_version: row.payload.client.version,
     client_build: row.payload.client.build,
     client_revision: row.payload.client.revision,
+    record_type: "cloud_error",
     backend_environment: configuration.environment,
-    backend_revision: configuration.revision,
+    backend_tag: row.payload.backend?.tag,
+    backend_source_sha256: row.payload.backend?.sourceSha256,
+    backend_revision: row.payload.backend?.revision ?? "unknown",
     account_key: createHmac("sha256", configuration.identityKey).update(row.userId).digest("hex"),
     source: row.payload.source ?? "client",
     event_id: row.eventId, operation_id: row.payload.span.operationId,
@@ -89,7 +107,9 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
     "service.name": row.payload.source === "server" ? "cmux-web" : "cmux-mac", "service.version": row.payload.source === "server" ? configuration.revision : client.version,
     "cmux.client.version": client.version,
     "deployment.environment.name": configuration.environment,
-    "cmux.backend.revision": configuration.revision,
+    "cmux.backend.revision": row.payload.backend?.revision ?? "unknown",
+    "cmux.backend.tag": row.payload.backend?.tag,
+    "cmux.backend.source_sha256": row.payload.backend?.sourceSha256,
     "cmux.client.channel": client.channel, "cmux.client.build": client.build,
     "cmux.client.revision": client.revision,
     "os.version": row.payload.source === "server" ? undefined : client.osVersion,
