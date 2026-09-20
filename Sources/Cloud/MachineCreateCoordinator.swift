@@ -228,7 +228,6 @@ final class MachineCreateCoordinator {
             return Finished(operation: operation, outcome: result.outcome)
         }
         let cancelledHandles = transition.cancelOperationIDs.compactMap { handles.removeValue(forKey: $0) }
-        var didSelectCreatedWorkspace = false
         if let finished {
             lastFinished = finished
             let id = finished.operation.id
@@ -245,7 +244,7 @@ final class MachineCreateCoordinator {
             if case .created(_, let workspaceID) = finished.outcome {
                 resumeWaiter(id, workspaceID: workspaceID)
                 if let workspaceID {
-                    didSelectCreatedWorkspace = selectWorkspace(workspaceID, finished.operation.request)
+                    _ = selectWorkspace(workspaceID, finished.operation.request)
                 }
             } else {
                 resumeWaiter(id, workspaceID: nil)
