@@ -37,6 +37,11 @@ final class CloudWorkspaceCreationSidebarFixture {
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowID.uuidString)")
         AppDelegate.shared = app
+        // This fixture owns a short-lived app delegate and exercises Cloud
+        // projections only. Keep session autosave disabled so an async
+        // persistence block cannot become the last owner of `app` and run its
+        // main-actor service deinitializers on the persistence worker queue.
+        app.isTerminatingApp = true
         app.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
         app.registerMainWindow(window, windowId: windowID, tabManager: manager,
@@ -52,6 +57,7 @@ final class CloudWorkspaceCreationSidebarFixture {
     }
 
     func close() {
+        app.isTerminatingApp = true
         provider.beforeRefresh = nil
         provider.beforeMaterialize = nil
         provider.beforeCreate = nil
