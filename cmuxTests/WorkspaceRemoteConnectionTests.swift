@@ -6310,7 +6310,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                       method == "surface.trigger_flash" else {
                     return false
                 }
-                return method == "workspace.current" || method == "surface.trigger_flash"
+                return true
             },
             "A stale caller must not flash the user's foreground workspace, saw \(state.commands)"
         )
