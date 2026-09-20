@@ -1465,15 +1465,16 @@ jobs:
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
-      - name: Run Cloud machine ordering acceptance
+      - name: Run Cloud lifecycle acceptance
         if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
           # suite cannot mask a miswired or accidentally empty selector.
           set -euo pipefail
-          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
-            test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests \
+            CloudOperationRecorderTests CloudReadRequestCoordinatorTests VMClientReadCoalescingTests; do
+            test_log="$RUNNER_TEMP/cmux-cloud-acceptance-${suite}.txt"
             scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
