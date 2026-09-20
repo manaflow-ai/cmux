@@ -5,7 +5,8 @@ import Foundation
 @MainActor
 final class VMResourceStatsStore {
     private var entries: [String: Entry] = [:]
-    private var insertionOrder: [String] = []
+    private var fleetMachineIDs: Set<String> = []
+    private var unlistedInsertionOrder: [String] = []
     private var observers: [UUID: VMResourceStatsSubscription] = [:]
     private let now: () -> Date
 
@@ -64,20 +65,22 @@ final class VMResourceStatsStore {
         notify([request.machineID])
     }
 
-    /// The fleet is authoritative for retention; removed machines cannot reappear
-    /// when an outstanding request completes. The hard bound also covers CLI-only reads.
+    /// Retain the entire authoritative fleet, including teams larger than the
+    /// CLI cache bound. Removed machines cannot reappear from outstanding reads.
     func retain(machineIDs: Set<String>) {
+        fleetMachineIDs = machineIDs
+        unlistedInsertionOrder.removeAll()
         let removed = Set(entries.keys).subtracting(machineIDs)
         guard !removed.isEmpty else { return }
         entries = entries.filter { machineIDs.contains($0.key) }
-        insertionOrder.removeAll { !machineIDs.contains($0) }
         notify(removed)
     }
 
     func reset() {
         let removed = Set(entries.keys)
         entries.removeAll()
-        insertionOrder.removeAll()
+        fleetMachineIDs.removeAll()
+        unlistedInsertionOrder.removeAll()
         notify(removed)
     }
 
@@ -93,14 +96,18 @@ final class VMResourceStatsStore {
 
     private func entry(for id: String) -> Entry {
         if let existing = entries[id] { return existing }
-        if insertionOrder.count >= 256 {
-            let removed = insertionOrder.removeFirst()
-            entries.removeValue(forKey: removed)
-            notify([removed])
+        // Visible fleet state scales with the server-owned list. Only extra
+        // CLI reads compete for the bounded cache, never listed machines.
+        if !fleetMachineIDs.contains(id) {
+            if unlistedInsertionOrder.count >= 256 {
+                let removed = unlistedInsertionOrder.removeFirst()
+                entries.removeValue(forKey: removed)
+                notify([removed])
+            }
+            unlistedInsertionOrder.append(id)
         }
         let entry = Entry()
         entries[id] = entry
-        insertionOrder.append(id)
         return entry
     }
 
