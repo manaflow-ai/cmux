@@ -1188,7 +1188,7 @@ struct CodexAppServerSessionTests {
         expectEqual(failures.count, 1)
         expectEqual(failures.first!, "unsupported initialize")
         expectEqual(output.last?.0, "stderr")
-        expectEqual(output.last?.1, "Codex app-server request failed.")
+        expectEqual(output.last?.1, "The Codex request failed. Try again.")
         await expectThrowsErrorAsync {
             try await session.submit("later prompt")
         }

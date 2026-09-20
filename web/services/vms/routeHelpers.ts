@@ -1,9 +1,11 @@
+import { cloudOperationId, CloudOperationProgress } from "../observability/cloudOperationProgress";
 import type { Span } from "@opentelemetry/api";
 import { trace } from "@opentelemetry/api";
 import { after } from "next/server";
 import {
   activeTraceIds,
   forceFlushTraces,
+  setSpanAttributes,
   recordSpanError,
   spanTraceIds,
   withApiRouteSpan,
@@ -20,6 +22,7 @@ import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
   resolveVmEntitlements,
+  upgradePlanForMemory,
   type VmEntitlements,
 } from "./entitlements";
 import {
@@ -36,6 +39,7 @@ import {
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { goCapacityConstraint } from "./goUsage";
 import {
   captureVmRequestOutcome,
   isPolledVmOperation,
@@ -50,11 +54,17 @@ import {
   type VmRequestContext,
 } from "./requestContext";
 import {
+  vmArtifactUnavailableCopy,
+  vmDisplayNameCopy,
   vmRequestLocale,
   vmRequiresProCopy,
+  vmMemoryErrorCopy,
+  vmGoLimitCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
+import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
+import { ProviderArtifactUnavailableError } from "./drivers/types";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -148,6 +158,19 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
+        if (requestContext.operationId && !isPolledVmOperation(operation)) {
+          requestContext.progress = new CloudOperationProgress(user.id, requestContext.operationId);
+          try { after(() => requestContext.progress!.flush()); } catch { /* Script calls have no request lifecycle. */ }
+        }
+        setSpanAttributes(span, {
+          "cmux.operation_id": requestContext.operationId,
+          "cmux.client.channel": requestContext.client.channel === "stable" ? "production" : requestContext.client.channel,
+          "cmux.client.revision": requestContext.client.revision,
+          "cmux.client.build": requestContext.client.build,
+          "deployment.environment.name": process.env.VERCEL_ENV ?? "development",
+          "cmux.backend.revision": process.env.VERCEL_GIT_COMMIT_SHA,
+        });
         // The caller's default billing scope. Routes that resolve entitlements
         // refine it (a requested team, the normalized plan) through
         // resolveVmAccountScope below.
@@ -453,18 +476,81 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
 }
 
 /**
+ * The 400 for a create or rename whose `displayName` fails `normalizedDisplayName`.
+ * A person typed that name, so the copy comes from the `vmErrors.displayName`
+ * catalog in the request locale; `details.field`/`maxLength` stay machine-readable.
+ */
+export async function invalidVmDisplayNameResponse(request: Request): Promise<Response> {
+  const copy = await vmDisplayNameCopy(vmRequestLocale(request), { maxLength: DISPLAY_NAME_MAX_LENGTH });
+  return vmErrorResponse({
+    error: "vm_invalid_request",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    details: { field: "displayName", maxLength: DISPLAY_NAME_MAX_LENGTH },
+  });
+}
+
+/**
+ * A machine size the ladder offers but the caller's plan does not include
+ * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
+ * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
+ * plus the plan that unlocks the size, and it is never silently coerced.
+ */
+export async function vmMemoryUnavailableResponse(maxMemoryMb: number, locale: Locale): Promise<Response> {
+  const copy = await vmMemoryErrorCopy("memoryUnavailable", locale, { max: maxMemoryMb / 1024 });
+  return vmErrorResponse({ error: "vm_memory_unavailable", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing" });
+}
+
+export async function vmMemoryRequiresPlanResponse(input: {
+  readonly memoryMb: number;
+  readonly maxMemoryMb: number;
+  readonly planId: string;
+  readonly upgradePlanId: string;
+}, locale: Locale = "en"): Promise<Response> {
+  const memoryGb = Math.round(input.memoryMb / 1024);
+  const maxGb = Math.round(input.maxMemoryMb / 1024);
+  const upgradeName = input.upgradePlanId.charAt(0).toUpperCase() + input.upgradePlanId.slice(1);
+  const upgradeUrl = `https://cmux.com/api/billing/checkout?plan=${encodeURIComponent(input.upgradePlanId)}&cmux_source=vm_memory_limit`;
+  const copy = await vmMemoryErrorCopy("memoryPlan", locale, {
+    memory: memoryGb, max: maxGb, plan: upgradeName, planId: input.upgradePlanId, upgradeUrl,
+  });
+  return vmErrorResponse({
+    error: "vm_memory_requires_plan",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: "billing",
+    retryable: false,
+    details: { requestedMemoryMb: input.memoryMb, maxMemoryMb: input.maxMemoryMb, upgradePlanId: input.upgradePlanId },
+    extra: {
+      upgradeRequired: true,
+      upgradeUrl,
+      upgradePlanId: input.upgradePlanId,
+      planId: input.planId,
+      memoryMb: input.memoryMb,
+      maxMemoryMb: input.maxMemoryMb,
+    },
+  });
+}
+
+/**
  * One response for every provisioning verb that hits the active-VM limit. On a free plan the
  * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
  * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
  * an error. Paid plans keep operational guidance — their cap is a safety rail, not a paywall.
  */
-export function vmActiveLimitExceededResponse(input: {
+export async function vmActiveLimitExceededResponse(input: {
   readonly limit: number;
   readonly planId: string;
   readonly retryAction: string;
   readonly phase?: VmLifecyclePhase;
-}): Response {
+  readonly locale?: Locale;
+}): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
+  if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
     return vmErrorResponse({
@@ -565,8 +651,9 @@ export function vmCreateLikeErrorResponders(input: {
         action: `Retry with a fresh ${input.operation}. If it fails again, copy the details and contact support.`,
         details: { idempotencyKeySet: !!error.idempotencyKey },
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId: input.planId,
         retryAction: input.retryAction,
@@ -629,7 +716,32 @@ export function vmModelPlaneErrorResponse(
  * overrides win over these. Entries returning `null` have no shared contract:
  * the create-family errors need plan and operation copy only the route knows.
  */
+export async function goLimitResponse(
+  kind: "saved" | "active" | "hours",
+  locale: Locale,
+): Promise<Response> {
+  const copy = await vmGoLimitCopy(kind, locale);
+  return vmErrorResponse({
+    error: kind === "hours" ? "vm_hours_limit_reached" : kind === "saved" ? "vm_saved_limit_reached" : "vm_active_limit_exceeded",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    phase: "billing",
+    retryable: false,
+    extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+  });
+}
+
 export const vmWorkflowErrorResponders = {
+  VmMemoryPlanError: async (error, context) => {
+    if (error.memoryMb === null) {
+      const copy = await vmMemoryErrorCopy("memoryUnknown", context.locale);
+      return vmErrorResponse({ error: "vm_memory_size_unknown", status: 409, message: copy.message, action: copy.action, displayTitle: copy.title, phase: "billing", retryable: false });
+    }
+    const upgradePlanId = upgradePlanForMemory(error.memoryMb, error.planId);
+    if (!upgradePlanId) return vmMemoryUnavailableResponse(error.maxMemoryMb, context.locale);
+    return vmMemoryRequiresPlanResponse({ ...error, memoryMb: error.memoryMb, upgradePlanId }, context.locale);
+  },
   VmOperationUnsupportedError: (error, context) => vmUnsupportedOperationResponse(error, context.locale),
   VmProviderOperationError: (error, context) => {
     // A driver may report "unsupported" from inside a provider call; that is
@@ -637,6 +749,9 @@ export const vmWorkflowErrorResponders = {
     const nested = vmWorkflowErrorCause(error.cause);
     if (nested && isVmOperationUnsupportedError(nested)) {
       return vmUnsupportedOperationResponse(nested, context.locale);
+    }
+    if (providerArtifactUnavailable(error.cause)) {
+      return vmArtifactUnavailableResponse(error, context.locale);
     }
     return vmProviderOperationErrorResponse(error);
   },
@@ -668,21 +783,34 @@ export const vmWorkflowErrorResponders = {
   },
   VmModelPlaneError: (error) => vmModelPlaneErrorResponse(error),
   VmResizeInvalidError: (error) => {
-    const requested = Math.round(error.requestedMb / 1024);
-    const current = Math.round(error.currentMb / 1024);
-    const max = Math.round(error.maxMb / 1024);
+    const resource = error.resource ?? "storage";
+    const divisor = resource === "cpu" ? 1 : 1024;
+    const unit = resource === "cpu" ? "vCPUs" : "GiB";
+    const name = resource === "storage" ? "disk" : resource === "memory" ? "memory" : "CPU";
+    const requested = Math.round(error.requestedMb / divisor);
+    const current = Math.round(error.currentMb / divisor);
+    const max = Math.round(error.maxMb / divisor);
     return vmErrorResponse({
       error: "vm_resize_invalid",
       status: 400,
       message: error.reason === "below_current"
-        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
-        : `Cloud VM disk cannot exceed ${max} GiB.`,
-      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+        ? `Cloud VM ${name} can only grow. It is already ${current} ${unit}.`
+        : `Cloud VM ${name} cannot exceed ${max} ${unit}.`,
+      action: `Request a ${name} size between ${current} ${unit} and ${max} ${unit}.`,
       phase: "resize",
       retryable: false,
       details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
     });
   },
+  VmResizePlanLimitError: (error) => vmErrorResponse({
+    error: "vm_resize_plan_limit",
+    status: 403,
+    message: `Your ${error.planId} plan cannot resize ${error.resource} beyond ${error.resource === "cpu" ? error.max : `${Math.round(error.max / 1024)} GiB`}.`,
+    action: error.upgradePlanId ? `Upgrade to ${error.upgradePlanId} to use larger VM sizes.` : "Choose a smaller VM size.",
+    phase: "resize",
+    retryable: false,
+    details: { resource: error.resource, requested: error.requested, max: error.max, planId: error.planId, upgradePlanId: error.upgradePlanId ?? null },
+  }),
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",
@@ -766,8 +894,10 @@ export const vmWorkflowErrorResponders = {
       phase: "create",
       retryable: true,
     }),
-  VmDatabaseError: (error) =>
-    vmErrorResponse({
+  VmDatabaseError: (error, context) => {
+    const limit = goCapacityConstraint(error.cause);
+    if (limit && limit !== "period") return goLimitResponse(limit, context.locale);
+    return vmErrorResponse({
       error: "vm_cloud_state_unavailable",
       status: 503,
       message: "Cloud VM state is temporarily unavailable.",
@@ -778,7 +908,8 @@ export const vmWorkflowErrorResponders = {
       displayTitle: "Cloud VM state is unavailable",
       displayMessage: "Retrying is safe. The VM state database did not answer this request.",
       details: { operation: error.operation },
-    }),
+    });
+  },
   VmBillingError: (error) =>
     vmErrorResponse({
       error: "vm_billing_unavailable",
@@ -802,6 +933,17 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
+  VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
+  VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
+  VmGoShapeError: async (_error, context) => {
+    const copy = await vmGoLimitCopy("shape", context.locale);
+    return vmErrorResponse({
+      error: "vm_resources_require_pro", status: 402, phase: "billing",
+      message: copy.message,
+      action: copy.action,
+      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+    });
+  },
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,
@@ -833,6 +975,32 @@ export async function vmWorkflowErrorResponse(
   const error = vmWorkflowErrorCause(err);
   if (!error) return null;
   return respondVmWorkflowError(error, { locale: options.locale ?? "en" }, options.overrides);
+}
+
+/** Match typed artifact failures even when the provider wraps the original cause. */
+function providerArtifactUnavailable(cause: unknown): boolean {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderArtifactUnavailableError) return true;
+    current = typeof current === "object" ? (current as { cause?: unknown }).cause : undefined;
+  }
+  return false;
+}
+
+/** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
+async function vmArtifactUnavailableResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
+  const copy = await vmArtifactUnavailableCopy(locale);
+  return vmErrorResponse({
+    error: "vm_artifact_unavailable",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: false,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: false },
+  });
 }
 
 function vmProviderOperationErrorResponse(error: VmProviderOperationError): Response {

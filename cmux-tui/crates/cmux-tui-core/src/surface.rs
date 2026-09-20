@@ -5,6 +5,9 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+mod directory;
+use directory::PublishedDirectory;
+
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -65,6 +68,17 @@ pub enum GuardedMouseEncode {
     /// Terminal parsing currently owns a required lock. The caller may retry
     /// after the next surface update without changing the pointer route.
     Contended,
+}
+
+/// Delivery classification for receipted terminal input.
+///
+/// `Known` means the implementation proved no bytes were submitted to the
+/// authoritative PTY owner. `Indeterminate` means bytes may have crossed a
+/// local writer or terminal-host socket before the failure became visible.
+#[derive(Debug)]
+pub(crate) enum ConfirmedInputFailure {
+    Known(std::io::Error),
+    Indeterminate(std::io::Error),
 }
 
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
@@ -231,6 +245,11 @@ pub struct TerminalColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
     pub cursor: Option<Rgb>,
+    /// Application-authored special colors, separate from shared embedder
+    /// defaults so byte viewers can retain their own configured themes.
+    pub fg_override: Option<Rgb>,
+    pub bg_override: Option<Rgb>,
+    pub cursor_override: Option<Rgb>,
     pub selection_bg: Option<Rgb>,
     pub selection_fg: Option<Rgb>,
     pub cursor_style: Option<CursorShape>,
@@ -247,6 +266,9 @@ impl Default for TerminalColors {
             fg: None,
             bg: None,
             cursor: None,
+            fg_override: None,
+            bg_override: None,
+            cursor_override: None,
             selection_bg: None,
             selection_fg: None,
             cursor_style: None,
@@ -265,6 +287,9 @@ impl TerminalColors {
             fg,
             bg,
             cursor,
+            fg_override: overrides.foreground,
+            bg_override: overrides.background,
+            cursor_override: overrides.cursor,
             selection_bg: defaults.selection_bg,
             selection_fg: defaults.selection_fg,
             palette: overrides.palette,
@@ -377,6 +402,21 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
+}
+
+#[cfg(unix)]
+fn is_targeted_host_response(kind: MessageKind) -> bool {
+    matches!(
+        kind,
+        MessageKind::Capability
+            | MessageKind::ResizeAck
+            | MessageKind::CellPixelSizeAck
+            | MessageKind::KittyGraphicsLimitsAck
+            | MessageKind::ClearHistoryAck
+            | MessageKind::TerminateAck
+            | MessageKind::DetachAck
+            | MessageKind::InputAck
+    )
 }
 
 #[cfg(unix)]
@@ -1480,6 +1520,11 @@ pub struct PtyTerminalRuntime {
     dirty: AtomicBool,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
+    published_directory: Mutex<PublishedDirectory>,
+    directory_pending: AtomicBool,
+    /// A shell has reported a directory at least once; only then is a later
+    /// absent report a clear rather than the still-unreported launch directory.
+    directory_reported: AtomicBool,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
@@ -1604,6 +1649,7 @@ pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 // Kitty associated-text encoding can expand each ASCII input byte to a
 // three-digit codepoint plus one separator. The extra key-text budget covers
 // the fixed CSI-u fields without making fallback writes unbounded.
@@ -1644,45 +1690,6 @@ impl ClearHistoryFailure {
 }
 
 #[cfg(unix)]
-struct NonblockingFdGuard {
-    fd: std::os::fd::RawFd,
-    original_flags: libc::c_int,
-    restored: bool,
-}
-
-#[cfg(unix)]
-impl NonblockingFdGuard {
-    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
-        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if original_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(Self { fd, original_flags, restored: false })
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        if self.restored {
-            return Ok(());
-        }
-        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.restored = true;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-impl Drop for NonblockingFdGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-#[cfg(unix)]
 fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
     let error = anyhow::Error::from(error);
     if delivered == 0 {
@@ -1705,73 +1712,13 @@ pub(crate) fn write_clear_history_fallback(
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
-        let mut nonblocking = NonblockingFdGuard::install(fd)
-            .map_err(|error| clear_history_write_failure(error, 0))?;
-        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
-        let mut delivered = 0;
-        while delivered < bytes.len() {
-            let written = unsafe {
-                libc::write(
-                    fd,
-                    bytes[delivered..].as_ptr().cast(),
-                    bytes.len().saturating_sub(delivered),
-                )
-            };
-            if written > 0 {
-                delivered = delivered.saturating_add(written as usize);
-                continue;
-            }
-            if written == 0 {
-                let error =
-                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
-                return Err(clear_history_write_failure(error, delivered));
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            if error.kind() != std::io::ErrorKind::WouldBlock {
-                return Err(clear_history_write_failure(error, delivered));
-            }
-
-            let now = Instant::now();
-            if now >= deadline {
-                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
-                return Err(if delivered == 0 {
-                    ClearHistoryFailure::known_not_delivered(error)
-                } else {
-                    ClearHistoryFailure::ambiguous(error)
-                });
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            let timeout_ms = remaining
-                .as_nanos()
-                .saturating_add(999_999)
-                .checked_div(1_000_000)
-                .unwrap_or(u128::MAX)
-                .clamp(1, i32::MAX as u128) as libc::c_int;
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if ready > 0 {
-                if poll_fd.revents & libc::POLLNVAL != 0 {
-                    let error =
-                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
-                    return Err(clear_history_write_failure(error, delivered));
-                }
-                continue;
-            }
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(clear_history_write_failure(error, delivered));
-            }
-        }
-        if let Err(error) = nonblocking.restore() {
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        return Ok(());
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
     }
 
     #[cfg(test)]
@@ -2479,6 +2426,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 #[cfg(test)]
@@ -2598,9 +2548,7 @@ impl Surface {
                                     mux.emit_terminal_title(surface.id, title.into());
                                 }
                             }
-                            if let Some(pwd) = term.pwd() {
-                                *pty.pwd.lock().unwrap() = Some(pwd);
-                            }
+                            pty.record_directory(term.pwd());
                             if before != after {
                                 scroll_changed = Some(after);
                                 broadcast_render_scroll_locked(pty, after);
@@ -2622,6 +2570,7 @@ impl Surface {
                             pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
                         drop(journal_update);
+                        surface.publish_pending_directory();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -2976,7 +2925,10 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
+                directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
+                published_directory: Mutex::new(PublishedDirectory::Unreported),
+                directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(PtyGeometry {
                     cols: snapshot.cols,
                     rows: snapshot.rows,
@@ -3064,15 +3016,9 @@ impl Surface {
                             Ok(Some(frame)) => frame,
                             Ok(None) | Err(_) => break,
                         };
-                        if matches!(
-                            frame.kind,
-                            MessageKind::Capability
-                                | MessageKind::CellPixelSizeAck
-                                | MessageKind::KittyGraphicsLimitsAck
-                                | MessageKind::ClearHistoryAck
-                                | MessageKind::TerminateAck
-                                | MessageKind::DetachAck
-                        ) && frame.request_id != 0
+                        // Targeted responses must be consumed before live staging:
+                        // HostedFrameStager intentionally rejects every nonzero request id.
+                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -3192,9 +3138,7 @@ impl Surface {
                                         *pty.title.lock().unwrap() = title.clone();
                                         title_update = Some(title);
                                     }
-                                    if let Some(pwd) = term.pwd() {
-                                        *pty.pwd.lock().unwrap() = Some(pwd);
-                                    }
+                                    pty.record_directory(term.pwd());
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
@@ -3211,6 +3155,7 @@ impl Surface {
                                     pty.journal_output_if_open(journal_target, journal_output);
                                 }
                                 drop(journal_update.take());
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3330,7 +3275,7 @@ impl Surface {
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
-                                    *pty.pwd.lock().unwrap() = pwd;
+                                    pty.record_directory(pwd);
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
                                     applied_color_revision = term.color_revision();
@@ -3356,6 +3301,7 @@ impl Surface {
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 };
                                 drop(geometry);
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -3630,7 +3576,7 @@ impl Surface {
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
-                            *pty.pwd.lock().unwrap() = pwd;
+                            pty.record_directory(pwd);
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
@@ -3721,6 +3667,7 @@ impl Surface {
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
+                        surface.publish_pending_directory();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -4021,6 +3968,9 @@ impl Surface {
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(PtyGeometry {
                     cols,
                     rows,
@@ -4258,6 +4208,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
@@ -4444,9 +4397,60 @@ impl Surface {
         }
     }
 
+    /// Write receipted input bytes and wait for authoritative PTY-owner delivery.
+    ///
+    /// Hosted input registers and writes its targeted request while holding the
+    /// short runtime lock, then releases that lock before waiting for `InputAck`.
+    /// Other receipted writes can therefore enter the host channel while an
+    /// earlier caller is waiting. Interactive input continues to use `write_bytes`.
+    pub(crate) fn write_bytes_confirmed(&self, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "browser surface does not accept PTY bytes",
+            )));
+        };
+        let mut runtime = pty.runtime.lock().unwrap();
+        match &mut *runtime {
+            PtyRuntime::Local { writer, .. } => writer
+                .write_all(bytes)
+                .and_then(|()| writer.flush())
+                .map_err(ConfirmedInputFailure::Indeterminate),
+            #[cfg(unix)]
+            PtyRuntime::Hosted(host) => {
+                let receipt = host.begin_input_confirmed(bytes)?;
+                drop(runtime);
+                receipt.wait().map_err(ConfirmedInputFailure::Indeterminate)
+            }
+            #[cfg(unix)]
+            PtyRuntime::ExitedHosted => Err(ConfirmedInputFailure::Known(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                "terminal has no live PTY owner for receipted input",
+            ))),
+        }
+    }
+
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
     pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, None)
+    }
+
+    /// Write a paste with a bounded local PTY write for daemon-owned uploads.
+    ///
+    /// Hosted attachments already enforce their socket write deadline. Local
+    /// PTY masters are switched to nonblocking mode for this operation and
+    /// polled until the same two-second bound, so a full PTY cannot retain an
+    /// image-paste reservation indefinitely.
+    pub(crate) fn write_paste_bounded(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT))
+    }
+
+    fn write_paste_with_timeout(
+        &self,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -4473,17 +4477,43 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };
+        #[cfg(not(unix))]
+        let _ = master;
+        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
         if bracketed {
-            writer.write_all(b"\x1b[200~")?;
+            payload.extend_from_slice(b"\x1b[200~");
         }
-        writer.write_all(bytes)?;
+        payload.extend_from_slice(bytes);
         if bracketed {
-            writer.write_all(b"\x1b[201~")?;
+            payload.extend_from_slice(b"\x1b[201~");
         }
+        #[cfg(unix)]
+        if let Some(timeout) = timeout
+            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+        {
+            return crate::pty_write::write_bounded(
+                fd,
+                &payload,
+                timeout,
+                "PTY paste write timed out",
+            )
+            .map_err(|failure| failure.error);
+        }
+        writer.write_all(&payload)?;
         writer.flush()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
+        let pty = self.as_pty().expect("input test requires a terminal");
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("input test requires the in-process test runtime");
+        };
+        *writer = replacement;
     }
 
     /// Run `f` with exclusive access to the terminal state.
@@ -5467,19 +5497,20 @@ impl Surface {
             }
             Surface::Browser(_) => false,
         };
+        // A hosted terminal's OSC 7 report counts only when it names this host
+        // (the same rule its published directory follows); a local PTY may also
+        // report a hostless URL or a plain path. Anything else falls back to the
+        // authenticated launch directory below.
         let terminal_pwd_to_local_path = if hosted {
             platform::terminal_pwd_to_local_path
         } else {
             platform::local_terminal_pwd_to_local_path
         };
-        let terminal_cwd = if hosted {
-            None
-        } else {
-            self.pwd()
-                .as_deref()
-                .and_then(terminal_pwd_to_local_path)
-                .map(|path| path.to_string_lossy().into_owned())
-        };
+        let terminal_cwd = self
+            .pwd()
+            .as_deref()
+            .and_then(terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned());
         terminal_cwd.or_else(|| {
             self.spawn_cwd()
                 .as_deref()
@@ -5490,7 +5521,9 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
-        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
+        let pty = self.as_pty().expect("test PTY surface");
+        pty.record_directory(pwd);
+        pty.directory_pending.store(true, Ordering::Release);
     }
 
     pub fn process_id(&self) -> Option<u32> {
@@ -5650,7 +5683,11 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]
         pty.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
+        // Byte mirrors render in their own libghostty with their own theme.
+        // A palette-including replay would pin every one of the 256 entries
+        // (and the default fg/bg) to this process's colors; the sparse
+        // `colors` sidecar below carries only what the PTY authored.
+        let replay = term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
@@ -6529,7 +6566,7 @@ impl PtySurface {
                 return;
             }
         }
-        let replay = match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+        let replay = match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
             Ok(replay) => replay,
             Err(_) => {
                 let mut taps = self.taps.lock().unwrap();
@@ -6889,7 +6926,7 @@ impl PtySurface {
         let replay = if has_attach_taps {
             #[cfg(test)]
             self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-            match term.vt_replay_bounded(VT_REPLAY_MAX_BYTES) {
+            match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
                 Ok(replay) => Some(replay),
                 Err(_) => {
                     // Budget failure was already ruled out under this same
@@ -7376,6 +7413,27 @@ mod tests {
             .expect("macOS surface PTY spawn failed");
     }
 
+    struct PartialWouldBlockWriter {
+        accepted_prefix: bool,
+    }
+
+    impl Write for PartialWouldBlockWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if !self.accepted_prefix && !bytes.is_empty() {
+                self.accepted_prefix = true;
+                return Ok(1);
+            }
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                "synthetic partial local PTY write",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Clone, Default)]
     struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -7420,6 +7478,43 @@ mod tests {
             panic!("test surface unexpectedly uses a terminal host");
         };
         *writer = replacement;
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn receipted_input_rejects_an_exited_host_before_effect() {
+        let mux = Mux::new_for_test("receipted-input-exited-host", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        {
+            let mut runtime = pty.runtime.lock().unwrap();
+            *runtime = PtyRuntime::ExitedHosted;
+        }
+
+        let error = surface.write_bytes_confirmed(b"must-not-drop").unwrap_err();
+        let ConfirmedInputFailure::Known(error) = error else {
+            panic!("exited-host rejection became indeterminate");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected);
+        assert!(error.to_string().contains("no live PTY owner"));
+    }
+
+    #[test]
+    fn receipted_input_local_partial_would_block_is_indeterminate() {
+        let mux = Mux::new_for_test("receipted-input-local-partial", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        replace_local_writer(
+            &surface,
+            Box::new(PartialWouldBlockWriter { accepted_prefix: false }),
+        );
+
+        let error = surface.write_bytes_confirmed(b"ab").unwrap_err();
+        let ConfirmedInputFailure::Indeterminate(error) = error else {
+            panic!("partial local PTY write was incorrectly classified as known-not-delivered");
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
     }
 
     #[test]
@@ -8115,6 +8210,62 @@ mod tests {
         assert_eq!(received, expected);
     }
 
+    fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|window| window == needle)
+    }
+
+    /// Byte mirrors (the native Cloud pane, `cmux-tui` remote views) render in
+    /// their own libghostty with their own theme. The attach replay must not
+    /// re-author this process's 256-entry palette or default fg/bg as OSC
+    /// state; only PTY-authored colors travel, in the sparse sidecar.
+    #[test]
+    fn byte_attach_replays_are_theme_portable_and_palette_rides_the_sidecar() {
+        let mux = Mux::new("theme-portable-attach", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let pty = surface.as_pty().unwrap();
+        pty.term
+            .lock()
+            .unwrap()
+            .vt_write(b"\x1b]4;1;#112233\x07\x1b]10;#eeeeee\x07\x1b[31mred\x1b[m");
+        let forbidden: [&[u8]; 4] = [b"\x1b]4;", b"\x1b]10;", b"\x1b]11;", b"\x1b]12;"];
+
+        let attach = surface.attach_stream().unwrap();
+        assert!(bytes_contain(&attach.replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&attach.replay, sequence),
+                "attach replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(attach.colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+        assert_eq!(attach.colors.fg, Some(Rgb { r: 0xee, g: 0xee, b: 0xee }));
+        assert!(
+            attach
+                .colors
+                .palette
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| index == 1 || entry.is_none()),
+            "unauthored palette entries must stay unset so the renderer keeps its theme"
+        );
+
+        surface.resize(100, 30).unwrap();
+        let AttachFrame::ResizedWithColors { replay, colors, .. } =
+            attach.stream.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected a resize replay with colors");
+        };
+        assert!(bytes_contain(&replay, b"red"));
+        for sequence in forbidden {
+            assert!(
+                !bytes_contain(&replay, sequence),
+                "resize replay pinned host colors with {sequence:?}"
+            );
+        }
+        assert_eq!(colors.palette[1], Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+    }
+
     #[test]
     fn resized_replay_payload_is_shared_across_attach_taps() {
         let mux = Mux::new("shared-resize-replay", SurfaceOptions::default());
@@ -8164,6 +8315,78 @@ mod tests {
             Err(RecvTimeoutError::Disconnected)
         ));
         assert!(attachment.lifecycle.is_canceled());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
+        let mux = Mux::new_for_test("hosted-input-ack-pipeline", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(1))).unwrap();
+        let read_input = |host: &mut std::os::unix::net::UnixStream| {
+            let frame = crate::terminal_host_protocol::read_frame(
+                host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe submitted input while the earlier ACK is withheld")
+            .expect("hosted connection remains open while awaiting input ACKs");
+            assert_eq!(frame.kind, MessageKind::Input);
+            frame
+        };
+
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-a"));
+            let first_request = read_input(&mut host);
+            assert_eq!(first_request.payload, b"pipeline-a");
+            assert_ne!(first_request.request_id, 0);
+
+            let second = scope.spawn(|| surface.write_bytes_confirmed(b"pipeline-b"));
+            let second_request = read_input(&mut host);
+            assert_eq!(second_request.payload, b"pipeline-b");
+            assert_ne!(second_request.request_id, 0);
+            assert_ne!(first_request.request_id, second_request.request_id);
+
+            let interactive = scope.spawn(|| surface.write_bytes(b"pipeline-interactive"));
+            let interactive_request = read_input(&mut host);
+            assert_eq!(interactive_request.payload, b"pipeline-interactive");
+            assert_eq!(interactive_request.request_id, 0);
+            interactive.join().unwrap().unwrap();
+            assert!(!first.is_finished());
+            assert!(!second.is_finished());
+
+            let mut second_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            second_ack.request_id = second_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &second_ack).unwrap();
+            second.join().unwrap().unwrap();
+            assert!(!first.is_finished(), "B's ACK must leave A pending");
+
+            let mut first_ack = Frame::new(MessageKind::InputAck, Vec::new());
+            first_ack.request_id = first_request.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &first_ack).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[cfg(unix)]

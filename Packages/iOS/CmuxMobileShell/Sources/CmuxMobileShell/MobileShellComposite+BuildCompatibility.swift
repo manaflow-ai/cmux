@@ -35,7 +35,8 @@ extension MobileShellComposite {
         guard let violation = macCompatPolicy.violation(
             iosVersion: versionGateIOSAppVersion,
             channel: channel,
-            macAppVersion: macAppVersion
+            macAppVersion: macAppVersion,
+            buildType: versionGateBuildType
         ) else {
             return .allowed
         }
@@ -58,12 +59,13 @@ extension MobileShellComposite {
               let violation = macCompatPolicy.violation(
                   iosVersion: versionGateIOSAppVersion,
                   channel: channel,
-                  macAppVersion: authenticatedMacAppVersion
+                  macAppVersion: authenticatedMacAppVersion,
+                  buildType: versionGateBuildType
               ) else {
             return
         }
         let macDeviceID = connectedMacDeviceID ?? activeTicket?.macDeviceID
-        noteMacVersionUpdateRequired(for: macDeviceID ?? "")
+        noteMacVersionUpdateRequired(for: macDeviceID ?? "", instanceTag: activeMacInstanceTag)
         disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
         applyPairingFailure(
             .macAppVersionTooOld(

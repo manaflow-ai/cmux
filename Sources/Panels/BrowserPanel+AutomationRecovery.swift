@@ -80,22 +80,7 @@ extension BrowserPanel {
             )
         }
 
-        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
-        case .request(let request):
-            navigateWithoutInsecureHTTPPrompt(
-                request: request,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .urlOnly:
-            navigate(
-                to: targetURL,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .disabled:
-            navigationStarted(nil)
-        case nil:
+        if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
             if let navigation = reload() {
                 navigationStarted(navigation)
             } else {
@@ -142,12 +127,34 @@ extension BrowserPanel {
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
     ) -> CmuxWebView {
+        let replacementStore: WKWebsiteDataStore
+        if cloudAccess.model?.usesBrowserProxy == true {
+            if let endpoint = cloudAccess.model?.browserProxy,
+               let address = cloudAccess.model?.target.host {
+                websiteDataStore.proxyConfigurations = [
+                    CloudBrowserRouting.configuration(endpoint: endpoint, address: address)
+                ]
+                replacementStore = websiteDataStore
+            } else {
+                // Keep the Cloud store unused until its first network session
+                // can be created with the authenticated proxy already set.
+                replacementStore = .nonPersistent()
+            }
+        } else {
+            replacementStore = websiteDataStore
+        }
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: replacementStore
         )
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
+        }
+        if cloudAccess.model?.usesBrowserProxy == true, let host = cloudAccess.remoteURL?.host {
+            replacement.configuration.userContentController.addUserScript(WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
+                injectionTime: .atDocumentStart, forMainFrameOnly: false
+            ))
         }
         return replacement
     }

@@ -3,6 +3,9 @@ name: Run tests on Depot
 on:
   workflow_call:
     inputs:
+      runner:
+        type: string
+        default: ""
       ref:
         type: string
         default: ""
@@ -23,6 +26,11 @@ on:
         default: "120"
   workflow_dispatch:
     inputs:
+      runner:
+        description: Optional hosted macOS runner label
+        required: false
+        default: ""
+        type: string
       ref:
         description: Branch or SHA to test
         required: false
@@ -52,7 +60,7 @@ on:
 
 jobs:
   tests:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -83,8 +91,13 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Forward tool PATH into XCTest hosts
+        run: echo "TEST_RUNNER_PATH=$PATH" >> "$GITHUB_ENV"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Download pre-built GhosttyKit.xcframework
         env:
@@ -145,71 +158,118 @@ jobs:
         if: ${{ !inputs.skip_unit_tests }}
         env:
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
+          TEST_RESULTS_ROOT: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$TEST_RESULTS_ROOT"
           run_unit_suite() {
+            local output_path="$1"
+            shift
+            local result_dir
+            result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
             scripts/ci/xcodebuild_noninteractive.py \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" "$@" test 2>&1
+              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
+          }
+          report_unit_suite() {
+            local output_path="$1"
+            local suite="$2"
+            local suite_status="$3"
+            # Reporting is deliberately non-gating; the caller still owns the
+            # xcodebuild status and the positive-summary execution guard.
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              python3 scripts/ci/classify-app-host-test-output.py \
+                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose \
+                | tee -a "$GITHUB_STEP_SUMMARY" || true
+            else
+              python3 scripts/ci/classify-app-host-test-output.py \
+                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose || true
+            fi
           }
           run_unit_tests() {
             if [ -z "$UNIT_TEST_SUITES" ]; then
-              run_unit_suite
-              return $?
+              local output_path="$TEST_RESULTS_ROOT/full-suite.log"
+              local suite_status=0
+              set +e
+              run_unit_suite "$output_path"
+              suite_status=$?
+              set -e
+              cat "$output_path"
+              report_unit_suite "$output_path" "full" "$suite_status"
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$output_path"; then
+                echo "::error title=Pre-test suite failure::No tests executed; the app-host/build did not reach assertions" >&2
+                return 1
+              fi
+              return "$suite_status"
             fi
             IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
+            local failed=0
             for suite in "${suites[@]}"; do
               if [[ ! "$suite" =~ ^[A-Za-z0-9_]+$ ]]; then
                 echo "Invalid unit suite identifier" >&2
                 return 1
               fi
-              local suite_output suite_status=0
-              suite_output=$(run_unit_suite "-only-testing:cmuxTests/$suite") || suite_status=$?
-              printf '%s\n' "$suite_output"
-              if [ "$suite_status" -ne 0 ]; then return "$suite_status"; fi
-              # A pipeline here makes `set -o pipefail` treat grep's normal
-              # early exit as a printf SIGPIPE when the xcodebuild log is
-              # large. Feed grep with a here-string so a passing suite cannot
-              # be reported as empty because of that logging artifact.
-              if ! grep -Eq 'Test run with [1-9][0-9]* tests|Executed [1-9][0-9]* tests' <<<"$suite_output"; then
-                echo "No tests executed for $suite" >&2
+              local suite_status=0
+              local output_path="$TEST_RESULTS_ROOT/$suite.log"
+              set +e
+              run_unit_suite "$output_path" "-only-testing:cmuxTests/$suite"
+              suite_status=$?
+              set -e
+              cat "$output_path"
+              report_unit_suite "$output_path" "$suite" "$suite_status"
+              # Require a positive framework summary before continuing. A
+              # compile, setup, app-host, or filter failure must never look
+              # like a passing semantic suite.
+              if ! grep -Eq 'Test run with [1-9][0-9]* tests?([[:space:]]|$)|Executed [1-9][0-9]* tests?([[:space:],]|$)' "$output_path"; then
+                echo "::error title=Pre-test suite failure::No tests executed for $suite; the app-host/build did not reach assertions" >&2
                 return 1
               fi
+              # Collect every assertion failure in one hosted build. A suite
+              # that never ran (build/launch failure) still stops above.
+              if [ "$suite_status" -ne 0 ]; then failed=1; fi
             done
+            return "$failed"
           }
 
+          TEST_OUTPUT="$TEST_RESULTS_ROOT/all-suites.log"
           set +e
-          OUTPUT=$(run_unit_tests)
-          EXIT_CODE=$?
+          run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail with
           # "Could not resolve package dependencies". Retry once after clearing
           # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            : > "$TEST_OUTPUT"
             set +e
-            OUTPUT=$(run_unit_tests)
-            EXIT_CODE=$?
+            run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
+            EXIT_CODE=${PIPESTATUS[0]}
             set -e
           fi
 
-          echo "$OUTPUT"
           if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
             exit "$EXIT_CODE"
           fi
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            DIAGNOSIS=$(python3 scripts/ci/classify-app-host-test-output.py \
+              "$TEST_OUTPUT" --exit-code "$EXIT_CODE" --diagnose)
+            echo "$DIAGNOSIS"
+            # The expected-failure exception applies only to a run that both
+            # executed tests and recorded an actual XCTest failure. A clean
+            # summary cannot override a nonzero app-host/build exit.
+            if echo "$DIAGNOSIS" | grep -q "category=test assertion failure" \
+              && grep -Eq 'Executed [1-9][0-9]* tests?,[[:space:]]+with[[:space:]]+[1-9][0-9]* failures?[[:space:]]+\(0 unexpected\)' "$TEST_OUTPUT"; then
               echo "All failures are expected, treating as pass"
             else
               echo "Unexpected test failures detected"
-              exit 1
+              exit "$EXIT_CODE"
             fi
           fi
 
@@ -235,3 +295,12 @@ jobs:
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
             "$ONLY_TESTING" test
+
+      - name: Upload unit test results
+        if: ${{ always() && !inputs.skip_unit_tests }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7

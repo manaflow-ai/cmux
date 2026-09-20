@@ -34,6 +34,11 @@ struct MobileSettingsView: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
+    /// Re-evaluates the scanner entrypoint after the replay picker changes the
+    /// connection method. Unlike ``startPairingScanner``, this callback is
+    /// intentionally not capability-gated at construction time, because the
+    /// selected method can make pairing available while the replay is open.
+    var startTailscalePairing: (() -> Void)? = nil
     /// Opens the Computers screen (the host dismisses or swaps this sheet
     /// first). `nil` hides the Connection section's All Computers row.
     var showComputers: (() -> Void)? = nil
@@ -70,6 +75,10 @@ struct MobileSettingsView: View {
 
     var body: some View {
         @Bindable var displaySettings = displaySettings
+        #if DEBUG
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        #endif
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
@@ -268,6 +277,15 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    NavigationLink {
+                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
+                            systemImage: "rectangle.stack"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
                     Button {
                         showingToastGallery = true
                     } label: {
@@ -439,7 +457,8 @@ struct MobileSettingsView: View {
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true
+                            macAccountMismatch: store?.connectionRequiresReauth == true,
+                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
                         ),
                         phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
@@ -476,6 +495,11 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
+                    if store?.phonePushKeyExchangeFailed == true {
+                        MobilePushSecuritySetupFailureView(
+                            onRetry: retrySecurePushSetup
+                        )
+                    }
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
                         applyEnabledIntent: setPhonePushEnabledIntent
@@ -508,7 +532,10 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                MobileSettingsDiagnosticsSection()
+                MobileSettingsDiagnosticsSection(
+                    store: store,
+                    connectedHostName: connectedHostName
+                )
 
                 MobileSettingsLegalSupportSection()
 
@@ -574,7 +601,7 @@ struct MobileSettingsView: View {
                     onRetryConnection: retryAutomaticConnection,
                     onStartTailscalePairing: {
                         showingOnboarding = false
-                        startPairingScanner?()
+                        (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
                         await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
@@ -754,6 +781,8 @@ struct MobileSettingsView: View {
             return await store?.updatePhonePushSettings(
                 forwardingEnabled: true
             ) == true
+        case .retrySecurePushSetup:
+            return store?.retryPhonePushKeyExchange() == true
         case .waitForDeviceToken, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .rebuildMatchingApps:
             return false
@@ -792,6 +821,11 @@ struct MobileSettingsView: View {
             )
         }
         return stage
+    }
+
+    @MainActor
+    private func retrySecurePushSetup() async -> Bool {
+        store?.retryPhonePushKeyExchange() == true
     }
 
     private static var crashReportingEnabled: Bool {
@@ -883,14 +917,19 @@ struct MobileSettingsView: View {
 /// (simulator, browser, composer, lifecycle), and the connection diagnostics
 /// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
+    let store: CMUXMobileShellStore?
+    let connectedHostName: String
     @State private var isPreparingExport = false
     @State private var logExportTask: Task<Void, Never>?
     @State private var logExportTaskID: UUID?
     @State private var presentationHost: UIViewController?
     @State private var exportErrorMessage: String?
+    @State private var didCopyDebugInformation = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -899,6 +938,21 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
+            Button {
+                copyDebugInformation()
+            } label: {
+                Label(
+                    didCopyDebugInformation
+                        ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                        : L10n.string(
+                            "mobile.settings.diagnostics.copyDebugInfo",
+                            defaultValue: "Copy Debug Information"
+                        ),
+                    systemImage: didCopyDebugInformation ? "checkmark" : "doc.on.clipboard"
+                )
+            }
+            .accessibilityIdentifier("MobileSettingsCopyDebugInformation")
+
             if appLog != nil {
                 Button {
                     startLogExport()
@@ -1047,6 +1101,33 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
             }
             await prepareLogExport()
+        }
+    }
+
+    @MainActor
+    private func copyDebugInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            email: authManager.currentUser?.primaryEmail,
+            hexclaveAuthID: authManager.currentUser?.id,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            analyticsClientID: analyticsClientID,
+            connectedHost: connectedHostName.isEmpty ? nil : connectedHostName,
+            connectionState: store.map { String(describing: $0.connectionState) },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopyDebugInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopyDebugInformation = false
         }
     }
 
