@@ -19,6 +19,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
+    /// Immutable counts supplied by the owning workspace, without a store scan.
+    let terminalWorkPopulation: TerminalWorkContext
     let fontSize: Float32
     let terminalPresentationIsActive: Bool
     /// Whether the mounted surface should grab the keyboard when it attaches to
