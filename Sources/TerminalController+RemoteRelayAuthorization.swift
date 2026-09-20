@@ -208,9 +208,28 @@ extension TerminalController {
     func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? {
         guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil else { return nil }
         guard case .string(let ownerRaw)? = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
-              let owner = UUID(uuidString: ownerRaw),
-              let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
+              let owner = UUID(uuidString: ownerRaw) else {
+            return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+        }
+        guard let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
               params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] == .string(snapshot.connectionID.uuidString) else {
+            // `workspace.list` owns its stale-owner response shaping. Let the
+            // authoritative app-side read path distinguish a retired/unknown
+            // owner from local socket authentication without exposing local
+            // TabManager details. Every other method remains fail-closed here.
+            if method == "workspace.list" {
+                switch RemoteRelayAuthorizationPolicy().validate(
+                    method: method,
+                    parameters: params.mapValues(\.foundationObject),
+                    ownerWorkspaceID: owner,
+                    surfaceIDs: []
+                ) {
+                case .allowed:
+                    return nil
+                case .denied(let code, let message):
+                    return .err(code: code, message: message, data: nil)
+                }
+            }
             return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
         }
         switch RemoteRelayAuthorizationPolicy().validate(method: method,
