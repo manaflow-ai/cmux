@@ -130,10 +130,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.browserPolicy = browserPolicy
-        let displayClient = VMClient.shared
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
-            guard let displayClient else { throw ProviderError.notSignedIn }
-            return try await displayClient.exec(id: summary.id, command: command, timeoutMs: timeout)
+            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
         }
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()

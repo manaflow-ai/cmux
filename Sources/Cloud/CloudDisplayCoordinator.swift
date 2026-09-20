@@ -28,10 +28,13 @@ final class CloudDisplayCoordinator {
         let task = Task { [weak self, execute] in
             do {
                 let response = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
+                guard response.exitCode == 0 else {
+                    throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+                }
                 let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
                 guard let self, token == self.generation, !Task.isCancelled else { return }
                 self.snapshot = snapshot
-                self.isAvailable = response.exitCode == 0
+                self.isAvailable = true
             } catch {
                 guard let self, token == self.generation else { return }
                 self.snapshot = nil
