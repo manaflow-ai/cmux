@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RELOAD_ORIGINAL_ARGS=("$@")
 export SWIFTPM_MIRROR_CONFIG="${SWIFTPM_MIRROR_CONFIG:-$SCRIPT_DIR/../config/swiftpm/mirrors.json}"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
@@ -1280,6 +1281,13 @@ if [[ -n "$TAG" ]]; then
   fi
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
+  # Serialize the complete reload, including cleanup and log publication.
+  # Xcode's database lock alone is too late: a losing reload's cleanup can
+  # delete the active build's generated app before it finishes signing.
+  if [[ "${CMUX_RELOAD_TAG_LOCK_OWNER:-}" != "$PPID" ]]; then
+    exec python3 "$SCRIPT_DIR/lib/tagged-reload-lock.py" \
+      "$TAG_SLUG" "$0" "${RELOAD_ORIGINAL_ARGS[@]}"
+  fi
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux DEV ${TAG_SLUG}"
   fi
