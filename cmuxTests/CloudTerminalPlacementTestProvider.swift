@@ -8,12 +8,13 @@ import Testing
 
 /// Holds every create behind a barrier so pending-pane races need no timing guesses.
 @MainActor
-final class CloudTerminalPlacementTestProvider: SurfaceProvider {
+final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     let machine = SurfaceMachineID.cloud("placement-\(UUID().uuidString)")
     let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
     let release = CloudLinkFirstValue<Bool>()
     private(set) var requestedWorkspaces: [String?] = []
     private(set) var materialized: [SurfaceProjection] = []
+    private(set) var layoutSources: [(tabID: String, direction: SurfaceSplitDirection?)] = []
     var returnedWorkspaceID: String?
     var projectedWorkspaceID: String?
     var projectedMachine: SurfaceMachineID?
@@ -51,6 +52,11 @@ final class CloudTerminalPlacementTestProvider: SurfaceProvider {
         let created = resource(key: key, workspace: workspace)
         SurfaceCatalog.shared.upsert(created, from: self)
         return created
+    }
+
+    func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?) async throws -> SurfaceResource {
+        layoutSources.append((nearTabID, splitDirection))
+        return try await createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remote.id)
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

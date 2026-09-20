@@ -33,12 +33,12 @@ struct CloudTerminalPlacementTests {
                 app.tearDown()
             }
             let before = Set(workspace.panels.keys)
-            // The provider is held, so every request overlaps the previous create.
-            // Focus alternates between the original and newly reserved surfaces.
+            // All eight independent requests target the same confirmed source.
+            // Their remote creates overlap regardless of executor scheduling.
             await withTaskGroup(of: Void.self) { group in
-                for index in 0..<8 {
+                for _ in 0..<8 {
                     group.addTask { @MainActor in
-                        if index.isMultiple(of: 3) { workspace.focusPanel(sourceID) }
+                        workspace.focusPanel(sourceID)
                         perform(action, workspace: workspace)
                     }
                 }
@@ -68,6 +68,78 @@ struct CloudTerminalPlacementTests {
             #expect(workspace.focusedPanelId == sourceID)
             #expect(workspace.cloudPendingCreations.isEmpty)
         }
+    }
+
+    @Test("Pending child operations wait for their own parent's remote tab")
+    func chainedCreatesPreserveRemoteGeometry() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let provider = CloudTerminalPlacementTestProvider()
+            let sourceID = try installSource(in: workspace, provider: provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                SurfaceCatalog.shared.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.newTerminalSplitOutcome(from: sourceID, orientation: .horizontal).isAccepted)
+            let pendingB = try #require(workspace.focusedPanelId)
+            #expect(pendingB != sourceID)
+            #expect(workspace.newTerminalSplitOutcome(from: pendingB, orientation: .vertical).isAccepted)
+            let pendingC = try #require(workspace.focusedPanelId)
+            let paneC = try #require(workspace.paneId(forPanelId: pendingC))
+            #expect(workspace.newTerminalSurfaceOutcome(inPane: paneC, focus: true).isAccepted)
+            #expect(workspace.cloudPendingCreations.count == 3)
+            try await settled { provider.requestedWorkspaces.count == 1 }
+            #expect(provider.layoutSources.map(\.tabID) == ["tab-source"])
+            provider.release.resolve(true)
+            try await settled { provider.materialized.count == 3 && !workspace.cloudPaneCreationFailureStore.hasActiveRequests }
+            #expect(provider.layoutSources.map(\.tabID) == ["tab-source", "tab-created-0", "tab-created-1"])
+            #expect(provider.layoutSources.map(\.direction) == [.right, .down, nil])
+            #expect(provider.materialized.allSatisfy {
+                $0.resource.machine == provider.machine && $0.remoteWorkspaceID == provider.remote.id
+            })
+        }
+    }
+
+    @Test("Closing a pending parent settles its child visibly without a local fallback")
+    func cancelledParentFailsChild() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let provider = CloudTerminalPlacementTestProvider()
+            let sourceID = try installSource(in: workspace, provider: provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                SurfaceCatalog.shared.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.newTerminalSplitOutcome(from: sourceID, orientation: .horizontal).isAccepted)
+            let parentID = try #require(workspace.focusedPanelId)
+            #expect(workspace.newTerminalSplitOutcome(from: parentID, orientation: .vertical).isAccepted)
+            let childID = try #require(workspace.focusedPanelId)
+            try await settled { provider.requestedWorkspaces.count == 1 }
+            #expect(workspace.closePanel(parentID, force: true))
+            try await settled { workspace.cloudMaterializationFailures[childID] != nil }
+            #expect(provider.requestedWorkspaces.count == 1)
+            #expect(workspace.machineOwningSurface(childID) == provider.machine)
+            #expect(workspace.terminalPanel(for: childID)?.surface.ioMode == .manualMirror)
+            #expect(SurfaceCatalog.shared.projection(forPanel: childID) == nil)
+        }
+    }
+
+    private func installSource(in workspace: Workspace, provider: CloudTerminalPlacementTestProvider) throws -> UUID {
+        let sourceID = try #require(workspace.focusedPanelId)
+        let resource = provider.resource(key: "source")
+        SurfaceCatalog.shared.register(provider)
+        SurfaceCatalog.shared.upsert(resource, from: provider)
+        SurfaceCatalog.shared.record(SurfaceProjection(
+            resource: resource.id, workspaceID: workspace.id, panelID: sourceID,
+            remoteWorkspaceID: provider.remote.id, remoteTabID: "tab-source"
+        ))
+        return sourceID
     }
 
     @Test("Genuine local sources retain their local creation path", arguments: ["tab", "split", "button", "socketTab", "socketSplit"])

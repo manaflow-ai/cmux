@@ -60,7 +60,7 @@ extension Workspace {
         sourcePlacement: CloudTerminalSourcePlacement? = nil
     ) -> CloudTerminalPaneReservation? {
         guard !isRetiredFromOwningTabManager,
-              sourcePlacement == nil || sourcePlacement?.machine == machine,
+              sourcePlacement.map({ $0.machine == machine }) ?? true,
               surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
@@ -119,6 +119,9 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        if let resource = SurfaceCatalog.shared.resource(forPanel: adoptedPanelID) {
+            reservation.creationReceipt.finish(.success(resource))
+        }
         reservation.retry = nil
         reservation.cancel = nil
         if adoptedPanelID != reservation.panelID {
@@ -133,6 +136,7 @@ extension Workspace {
     /// explain inside it, with Reconnect wired to the same request's retry.
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        reservation.creationReceipt.finish(.failure(error))
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -161,6 +165,7 @@ extension Workspace {
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
         reservation.inputRelay.discard()
+        reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
         reservation.cancel = nil
         reservation.retry = nil
@@ -174,6 +179,7 @@ extension Workspace {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
         reservation.inputRelay.discard()
+        reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
         reservation.cancel = nil
         reservation.retry = nil

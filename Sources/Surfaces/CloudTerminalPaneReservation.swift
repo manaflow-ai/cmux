@@ -71,6 +71,7 @@ final class CloudTerminalPaneReservation {
     let workspaceID: UUID
     let panelID: UUID
     let sourcePlacement: CloudTerminalSourcePlacement
+    let creationReceipt = CloudTerminalCreationReceipt()
     let inputRelay: CloudOptimisticInputRelay
     /// When the pane was inserted. Adoption hands the elapsed wait to the
     /// attachment session so the connection card does not restart its grace.

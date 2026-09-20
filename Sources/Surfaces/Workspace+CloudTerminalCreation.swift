@@ -54,7 +54,12 @@ extension Workspace {
                 remoteWorkspaceID: remoteWorkspaceID, remoteTabID: record.remoteTabID
             )
         }
-        if let reservation = cloudPendingCreations[panelID] { return reservation.sourcePlacement }
+        if let reservation = cloudPendingCreations[panelID] {
+            return CloudTerminalSourcePlacement(
+                machine: reservation.machine, remoteWorkspaceID: reservation.remoteWorkspaceID,
+                pendingCreation: reservation.creationReceipt
+            )
+        }
         // A disconnected provider may remove its graph while the native remote
         // transport remains. Absence of graph metadata is not local ownership.
         if let machineID = (panels[panelID] as? TerminalPanel)?.cloudAttachment?.machineID {
@@ -186,10 +191,11 @@ extension Workspace {
         }
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
+                let resolvedSource = try await source.resolved()
                 guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
                 try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                 let created: SurfaceResource
-                if let sourceTabID = source.remoteTabID,
+                if let sourceTabID = resolvedSource.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     let direction: SurfaceSplitDirection?
                     if case .split(_, _, let requested) = destination { direction = requested }
@@ -199,7 +205,7 @@ extension Workspace {
                     )
                 } else {
                     let workingDirectory: String?
-                    if let resource = source.resource { workingDirectory = await provider.currentWorkingDirectory(of: resource) }
+                    if let resource = resolvedSource.resource { workingDirectory = await provider.currentWorkingDirectory(of: resource) }
                     else { workingDirectory = nil }
                     guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
                     try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
@@ -331,9 +337,22 @@ extension Workspace {
         store.run(
             machine: reservation.machine,
             requestID: requestID,
-            create: create,
+            create: {
+                do {
+                    let created = try await create()
+                    try Task.checkCancellation()
+                    try reservation.sourcePlacement.validate(created: created)
+                    reservation.creationReceipt.finish(.success(created))
+                    return created
+                } catch {
+                    let failure: Error = CloudDiagnosticFailure.classify(error) == .cancelled ? CloudDiagnosticFailure.placement : error
+                    reservation.creationReceipt.finish(.failure(failure))
+                    throw error
+                }
+            },
             project: project,
             onStart: { [weak self, reservation] in
+                reservation.creationReceipt.beginAttempt()
                 onStart()
                 self?.restartReservedCloudTerminalPane(reservation)
             },
