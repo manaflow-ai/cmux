@@ -873,6 +873,7 @@ jobs:
           python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
       - name: Prepare isolated app-host home
+        id: prepare-app-host-home
         run: scripts/ci/prepare-app-host-home.sh
 
       - name: Resolve Swift packages
@@ -1466,7 +1467,7 @@ jobs:
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
       - name: Run Cloud machine ordering acceptance
-        if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
@@ -1794,7 +1795,23 @@ jobs:
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
-        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+        env:
+          CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
+        run: |
+          # Checkout may have failed before these scripts existed. Once setup
+          # starts, even partial or cancelled preparation still needs cleanup.
+          case "$CMUX_APP_HOST_PREPARATION_OUTCOME" in
+            skipped|"")
+              echo "App-host preparation did not start; no isolated home to clean."
+              ;;
+            success|failure|cancelled)
+              scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+              ;;
+            *)
+              echo "::error::Unexpected app-host preparation outcome: $CMUX_APP_HOST_PREPARATION_OUTCOME"
+              exit 1
+              ;;
+          esac
 
   tests:
     name: tests

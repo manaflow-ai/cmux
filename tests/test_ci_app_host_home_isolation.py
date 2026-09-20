@@ -233,6 +233,12 @@ def main() -> int:
     )
     if cleanup_step.get("if") != "${{ always() }}":
         raise SystemExit("FAIL: app-host home cleanup must run after failures")
+    preparation_id = setup_step.get("id")
+    if not preparation_id or cleanup_step.get("env", {}).get(
+        "CMUX_APP_HOST_PREPARATION_OUTCOME"
+    ) != "${{ steps." + preparation_id + ".outcome }}":
+        raise SystemExit("FAIL: cleanup must receive the actual preparation outcome")
+
     # Execute the workflow body with no checkout, as on a failed checkout job.
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.
