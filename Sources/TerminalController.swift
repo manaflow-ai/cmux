@@ -1719,6 +1719,27 @@ class TerminalController {
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "system.socket_capability_lease":
+            guard let socketPath = currentSocketPathForRemoteRestore(),
+                  !socketPath.isEmpty else {
+                return v2Error(
+                    id: request.id,
+                    code: "socket_unavailable",
+                    message: String(
+                        localized: "cli.localContainer.invalidLease",
+                        defaultValue: "The cmux socket did not return a usable local-container lease"
+                    )
+                )
+            }
+            let lease = SocketClientCapabilityLease(
+                socketPath: socketPath,
+                capability: socketClientCapabilityAuthority.issueCapability()
+            )
+            return v2Ok(id: request.id, result: [
+                "socket_path": lease.socketPath,
+                "capability": lease.capability,
+                "protocol": lease.protocolName,
+            ])
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
@@ -3117,6 +3138,7 @@ class TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "system.socket_capability_lease",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",

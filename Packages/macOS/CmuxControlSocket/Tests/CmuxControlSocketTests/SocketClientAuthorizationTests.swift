@@ -65,6 +65,29 @@ struct SocketClientAuthorizationTests {
         ) == nil)
     }
 
+    @Test func localContainerLeaseAuthorizesSameUIDReparentedPeer() throws {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        let lease = SocketClientCapabilityLease(
+            socketPath: "/tmp/cmux.sock",
+            capability: authority.issueCapability(
+                nonce: Data(repeating: 0x5A, count: SocketClientCapabilityAuthority.secureByteCount)
+            )
+        )
+        let envelope = try #require(SocketClientCapabilityEnvelope(capability: lease.capability))
+
+        #expect(authorization.authorizedCommand(
+            envelope.wrap("notify --title done"),
+            accessMode: .cmuxOnly,
+            peerProcessID: 999,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false }
+        ) == "notify --title done")
+    }
+
     @Test func cmuxOnlyRejectsCapabilityFromDifferentUser() throws {
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),

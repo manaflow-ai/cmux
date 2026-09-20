@@ -6372,6 +6372,9 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "local-container":
+            try runLocalContainerCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "ai-accounts":
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
@@ -18061,6 +18064,8 @@ struct CMUXCLI {
             return Self.vmAgentUsage.replacingOccurrences(of: "cmux vm agent", with: "cmux agent")
         case "remotes", "remote":
             return Self.remotesUsage
+        case "local-container":
+            return Self.localContainerUsage
         case "todo":
             return Self.todoUsage
         case "comments":
@@ -41161,6 +41166,7 @@ export default CMUXSessionRestore;
           \(localizedCoderouterCommands())
           vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
+          local-container lease [--json]
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
           \(simulatorCommandUsageLine)
