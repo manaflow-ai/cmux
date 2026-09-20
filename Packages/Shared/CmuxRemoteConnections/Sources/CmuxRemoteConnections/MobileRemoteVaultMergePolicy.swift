@@ -80,7 +80,7 @@ public actor MobileRemoteVaultMergePolicy {
         }
         guard let member = members[revision.writerDeviceID],
               !member.revoked,
-              member.keyEpoch <= keyEpoch,
+              member.keyEpoch == keyEpoch,
               member.role == .owner || member.role == .editor else {
             throw MobileRemoteVaultMergeError.writerNotAuthorized
         }
