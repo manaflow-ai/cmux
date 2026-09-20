@@ -30,10 +30,10 @@ struct CloudVMLoadingPanelView: View {
                         Text(loadingHeadline)
                             .cmuxFont(size: 14, weight: .semibold)
                             .foregroundStyle(.primary)
-                        Text(String(
+                        Text(String(format: String(
                             localized: "panel.cloudVM.loading.elapsed",
-                            defaultValue: "\(elapsedSeconds)s elapsed"
-                        ))
+                            defaultValue: "%ds elapsed"
+                        ), elapsedSeconds))
                         .cmuxFont(size: 12, weight: .medium)
                         .foregroundStyle(.secondary)
                     } else {
@@ -79,10 +79,10 @@ struct CloudVMLoadingPanelView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                        Text(String(
+                        Text(String(format: String(
                             localized: "panel.cloudVM.loading.failed.elapsed",
-                            defaultValue: "Waited \(failedElapsedSeconds)s before stopping."
-                        ))
+                            defaultValue: "Waited %ds before stopping."
+                        ), failedElapsedSeconds))
                         .cmuxFont(size: 11)
                         .foregroundStyle(.tertiary)
                 }
@@ -98,10 +98,10 @@ private struct CloudVMLoadingStatusView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text(String(
+            Text(String(format: String(
                 localized: "panel.cloudVM.loading.elapsed",
-                defaultValue: "\(elapsedSeconds)s elapsed"
-            ))
+                defaultValue: "%ds elapsed"
+            ), elapsedSeconds))
             .cmuxFont(size: 12, weight: .medium)
             .foregroundStyle(.secondary)
 

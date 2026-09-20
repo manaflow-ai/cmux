@@ -21,10 +21,10 @@ struct MachineCreateLoadingContent: View {
             Text(operation.statusLabel)
                 .cmuxFont(size: 13, weight: .medium)
                 .foregroundStyle(.secondary)
-            Text(String(
+            Text(String(format: String(
                 localized: "panel.cloudVM.loading.elapsed",
-                defaultValue: "\(elapsedSeconds)s elapsed"
-            ))
+                defaultValue: "%ds elapsed"
+            ), elapsedSeconds))
             .cmuxFont(size: 11)
             .foregroundStyle(.tertiary)
             if let output = operation.failureOutput {
