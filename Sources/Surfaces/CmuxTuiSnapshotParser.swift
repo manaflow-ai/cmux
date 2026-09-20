@@ -196,7 +196,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                 terminalID: terminalID,
                 state: state,
                 source: nonEmptyString(raw["source"]),
-                agent: nonEmptyString(raw["agent"])
+                agent: nonEmptyString((raw["extra"] as? [String: Any])?["agent"])
+                    ?? nonEmptyString(raw["agent"])
                     ?? nonEmptyString(raw["agent_type"])
                     ?? nonEmptyString(raw["provider"])
             )
@@ -1028,7 +1029,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             terminalID: terminalID,
             state: state,
             source: nonEmptyString(value["source"]),
-            agent: nonEmptyString(value["agent"])
+            agent: nonEmptyString((value["extra"] as? [String: Any])?["agent"])
+                ?? nonEmptyString(value["agent"])
                 ?? nonEmptyString(value["agent_type"])
                 ?? nonEmptyString(value["provider"])
         )
@@ -1435,7 +1437,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             agentByTerminal[terminalID] = SurfaceAgentBadge(
                 state: state,
                 source: agent["source"] as? String,
-                agent: (agent["agent"] as? String)
+                agent: (agent["extra"] as? [String: Any])?["agent"] as? String
+                    ?? (agent["agent"] as? String)
                     ?? (agent["agent_type"] as? String)
                     ?? (agent["provider"] as? String)
             )

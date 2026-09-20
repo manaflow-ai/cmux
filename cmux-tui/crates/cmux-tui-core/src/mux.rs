@@ -1384,6 +1384,7 @@ fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::A
 
 #[derive(Debug, Clone)]
 struct TerminalAgentRecord {
+    agent: Option<String>,
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
@@ -2303,10 +2304,6 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     machine_usage: Mutex<Option<MachineUsage>>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    /// Ephemeral provider identity from foreground-process detection. The
-    /// durable state remains the generic `detected` source; a fresh scanner
-    /// observation repopulates this map after restart.
-    detected_agent_by_terminal: Mutex<HashMap<TerminalPublicId, String>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2726,7 +2723,6 @@ impl Mux {
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             machine_usage: Mutex::new(None),
             agent_records: Mutex::new(agent_records),
-            detected_agent_by_terminal: Mutex::new(HashMap::new()),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
@@ -5871,6 +5867,7 @@ impl Mux {
             Some(marker),
             true,
             Some(DurableHookReport { state: hook_state, journal_sequence: sequence }),
+            None,
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5911,36 +5908,24 @@ impl Mux {
             .collect()
     }
 
-    /// Returns the ephemeral provider identity detected for one terminal.
-    pub(crate) fn detected_agent_for_terminal(
-        &self,
-        terminal_id: &TerminalPublicId,
-    ) -> Option<String> {
-        self.detected_agent_by_terminal.lock().unwrap().get(terminal_id).cloned()
-    }
-
-    /// Records one screen-detected transition through the existing agent
-    /// projection path. The provider identity is kept beside the generic
-    /// source so the public snapshot can brand the terminal.
+    /// Commit provider identity with the agent state so snapshots and event
+    /// deltas expose the same revision, including after a daemon restart.
     pub(crate) fn append_screen_detect_event(
         &self,
         emission: &crate::screen_detect::ScreenDetectEmission,
     ) {
         let Ok(terminal_id) = TerminalPublicId::parse(&emission.terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
-        let Ok(record) = self.report_agent(surface, emission.state, AgentSource::Detected, None)
-        else {
-            return;
-        };
-        if emission.state == AgentState::Done {
-            self.detected_agent_by_terminal.lock().unwrap().remove(&record.terminal_id);
-        } else {
-            self.detected_agent_by_terminal
-                .lock()
-                .unwrap()
-                .insert(record.terminal_id, emission.agent.clone());
-        }
-        self.publish_resource_event();
+        let identity = (emission.state != AgentState::Done).then(|| emission.agent.clone());
+        let _ = self.report_agent_with_sequence_lock(
+            surface,
+            emission.state,
+            AgentSource::Detected,
+            None,
+            false,
+            None,
+            Some(identity),
+        );
     }
 
     pub(crate) fn journal_events_caused_by_hooks(
@@ -9751,9 +9736,10 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None)
+        self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -9762,6 +9748,7 @@ impl Mux {
         session: Option<String>,
         sequence_lock_held: bool,
         hook: Option<DurableHookReport>,
+        provider_update: Option<Option<String>>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -9785,6 +9772,7 @@ impl Mux {
             sequence_lock_held,
             hook.as_ref().map(|hook| &hook.state),
             hook.as_ref().map(|hook| hook.journal_sequence),
+            provider_update,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9825,6 +9813,7 @@ impl Mux {
             false,
             None,
             None,
+            None,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9845,6 +9834,7 @@ impl Mux {
         sequence_lock_held: bool,
         hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
         journal_sequence: Option<u64>,
+        provider_update: Option<Option<String>>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
@@ -9952,6 +9942,9 @@ impl Mux {
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
             _ => TerminalAgentRecord {
+                agent: provider_update.unwrap_or_else(|| {
+                    records.get(&terminal_id).and_then(|record| record.agent.clone())
+                }),
                 state: agent_state,
                 source,
                 session: source_session,
@@ -9977,6 +9970,10 @@ impl Mux {
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.or(record.session.clone()),
         });
+        let mut value = value;
+        if let Some(provider) = &record.agent {
+            value["extra"] = serde_json::json!({"agent": provider});
+        }
         let mut public_value = value.clone();
         public_value["source_session"] = serde_json::json!(record.session);
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
@@ -10031,7 +10028,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: None,
+            agent: record.agent,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -10073,7 +10070,6 @@ impl Mux {
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
-        self.detected_agent_by_terminal.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
@@ -10123,7 +10119,7 @@ impl Mux {
                     .or_else(|| {
                         state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
                     })?;
-                let agent = self.detected_agent_for_terminal(&terminal_id);
+                let agent = record.agent;
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -18971,6 +18967,40 @@ mod tests {
         assert_eq!(error.code, "selector.wrong_parent");
         assert_eq!(error.details["scope"], "terminal");
         assert_eq!(error.details["actual_parent"], "<none>");
+    }
+
+    #[test]
+    fn detected_agent_identity_matches_snapshot_and_delta_contract() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("agent-detection".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().to_string();
+        let before = mux.with_state(|state| state.resource_revision);
+        mux.append_screen_detect_event(&crate::screen_detect::ScreenDetectEmission {
+            terminal_id,
+            agent: "codex".into(),
+            state: AgentState::Idle,
+        });
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        crate::resource_router::validate_operation_outcome(
+            ResourceOperation::SessionSnapshot,
+            Ok(snapshot.clone()),
+        )
+        .expect("detected agent identity is part of the public schema");
+        let agent = &snapshot["agents"][0];
+        assert_eq!(agent["extra"]["agent"], "codex");
+        let batches = mux.resource_events_after(before).unwrap().batches;
+        let delta = batches
+            .iter()
+            .flat_map(|batch| batch.changes.as_array().unwrap())
+            .find(|change| change["resource"] == "agent")
+            .unwrap();
+        assert_eq!(&delta["value"], agent, "incremental clients see the same identity");
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).unwrap();
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(
+            snapshot["agents"][0]["extra"]["agent"], "codex",
+            "hooks preserve provider identity"
+        );
     }
 
     #[test]

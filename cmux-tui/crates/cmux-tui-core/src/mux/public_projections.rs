@@ -116,6 +116,7 @@ pub(super) fn restore_public_projections(
         let previous = agent_records.insert(
             agent.terminal_id.clone(),
             TerminalAgentRecord {
+                agent: agent.agent,
                 state,
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
@@ -231,6 +232,7 @@ mod tests {
                 read_by: vec![],
             }],
             agents: vec![RegistryAgentProjection {
+                agent: None,
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
                 terminal_id: terminal.clone(),
                 state: "working".into(),
@@ -313,6 +315,7 @@ mod tests {
         let projections = RegistryPublicProjections {
             notifications: Vec::new(),
             agents: vec![RegistryAgentProjection {
+                agent: None,
                 id: AgentPublicId::parse("agent_00000000000000000000000000000009").unwrap(),
                 terminal_id: terminal.clone(),
                 state: "done".into(),
@@ -335,6 +338,7 @@ mod tests {
         let projections = RegistryPublicProjections {
             notifications: Vec::new(),
             agents: vec![RegistryAgentProjection {
+                agent: None,
                 id: AgentPublicId::parse("agent_00000000000000000000000000000010").unwrap(),
                 terminal_id: terminal.clone(),
                 state: "working".into(),
@@ -357,6 +361,7 @@ mod tests {
         let projections = RegistryPublicProjections {
             notifications: Vec::new(),
             agents: vec![RegistryAgentProjection {
+                agent: None,
                 id: AgentPublicId::parse("agent_00000000000000000000000000000011").unwrap(),
                 terminal_id: terminal.clone(),
                 state: "done".into(),
