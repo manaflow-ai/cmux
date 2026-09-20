@@ -82,6 +82,12 @@ password, multi-round keyboard-interactive, software and hardware keys,
 certificates, agent forwarding, SFTP, and forwarding. A Swift API may wrap a
 maintained C SSH library; a Swift package does not require rewriting SSH crypto.
 
+The shared SSH boundary makes account identity, host-key challenge, and lazy
+credential loading explicit. A connector must complete host-key negotiation and
+receive the trust decision before it calls the credential source. The same gate
+will bootstrap Mosh and ET, while their post-bootstrap transport state machines
+remain separate.
+
 ## Storage and sync boundaries
 
 All remote-profile content is private: host addresses, usernames, labels,

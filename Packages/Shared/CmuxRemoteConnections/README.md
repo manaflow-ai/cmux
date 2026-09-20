@@ -28,6 +28,9 @@ Current behavior:
 - Signed X25519 key envelopes transfer one vault epoch key from an approved
   device to an exact device or organization recovery recipient. The server can
   relay ciphertext but cannot substitute the recipient or decrypt the key.
+- The SSH boundary requires account authentication and host-key approval before
+  it invokes a lazy credential source. Mosh and ET adapters must reuse this
+  bootstrap ordering while implementing their own session protocols.
 
 This is not a complete encrypted vault. Signing, device enrollment, recovery,
 key rotation, membership, whole-database rollback protection, SSH, account
