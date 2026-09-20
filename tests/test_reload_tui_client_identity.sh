@@ -206,4 +206,28 @@ install_snapshot "$TEST_DIR/SecondReload.app" "$SECOND_SNAPSHOT" --allow-unattes
 cmp -s "$TEST_DIR/SecondReload.app/Contents/Resources/bin/cmux-tui" "$SERVE/$COMMIT_TWO/cmux-tui-aarch64-apple-darwin" \
   || fail "second reload did not install its own resolved client"
 
+# Both successful and failed reloads release only their own private snapshot.
+finalize_snapshot() (
+  local status="$1"
+  RELOAD_TUI_CLIENT_TMP_DIR="$(dirname "$2")"
+  RELOAD_START_TIME="$(date +%s)"
+  RELOAD_LOG="$TEST_DIR/finalize.log"
+  XCODEBUILD_STARTED=0
+  TAG_APP_STAGING_PATH=""; APP_PATH=""; CMUX_DEV_ORIGIN=""; CLI_PATH=""
+  LAUNCH=0
+  reload_phase_finished() { :; }
+  eval "$(awk '/^reload_finalize\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+  exec 3>"$TEST_DIR/finalize-output" 4>&3
+  trap reload_finalize EXIT
+  exit "$status"
+)
+finalize_snapshot 0 "$FIRST_SNAPSHOT"
+[[ ! -e "$FIRST_SNAPSHOT" && -f "$SECOND_SNAPSHOT" ]] || fail "successful reload cleaned the wrong snapshot"
+if finalize_snapshot 7 "$SECOND_SNAPSHOT"; then
+  fail "cleanup hid a failed reload's exit status"
+else
+  [[ "$?" -eq 7 ]] || fail "cleanup changed a failed reload's exit status"
+fi
+[[ ! -e "$SECOND_SNAPSHOT" ]] || fail "failed reload left its snapshot behind"
+
 echo "PASS: reload cmux-tui client identity follows the client content"

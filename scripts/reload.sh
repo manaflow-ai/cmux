@@ -1340,6 +1340,7 @@ XCODEBUILD_SOURCE_APP_PATH=""
 XCODEBUILD_TAG_APP_PATH=""
 TAG_APP_FINAL_PATH=""
 TAG_APP_STAGING_PATH=""
+RELOAD_TUI_CLIENT_TMP_DIR=""
 if [[ -n "$DERIVED_DATA" ]]; then
   BUILD_PRODUCTS_DEBUG_DIR="${DERIVED_DATA}/Build/Products/Debug"
   if [[ -n "$TAG" ]]; then
@@ -1359,6 +1360,9 @@ exec >>"$RELOAD_LOG" 2>&1
 reload_finalize() {
   local rc=$?
   trap - EXIT
+  if [[ -n "$RELOAD_TUI_CLIENT_TMP_DIR" ]]; then
+    rm -rf "$RELOAD_TUI_CLIENT_TMP_DIR" || true
+  fi
   exec 1>&3 2>&4
   local elapsed=$(( $(date +%s) - RELOAD_START_TIME ))
   if [[ "$rc" -ne 0 ]]; then
@@ -1736,7 +1740,10 @@ XCODEBUILD_OUTPUT_VALID=1
 # itself; when it cannot be resolved, redo the post-build work. The manifest behind
 # the identity is kept so the install below bundles exactly the client it describes.
 RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
-RELOAD_TUI_CLIENT_MANIFEST="$RELOAD_RECEIPT_DIR/cmux-tui-manifest.json"
+# Receipts are shared by tag, but a manifest belongs to this invocation until
+# installation completes. Another reload must not replace or delete it.
+RELOAD_TUI_CLIENT_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-reload-manifest.XXXXXX")"
+RELOAD_TUI_CLIENT_MANIFEST="$RELOAD_TUI_CLIENT_TMP_DIR/manifest.json"
 RELOAD_TUI_CLIENT_RESOLVED=1
 RELOAD_TUI_CLIENT_IDENTITY="$(reload_incremental_tui_client_identity \
   "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH" "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
