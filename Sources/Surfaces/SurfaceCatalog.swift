@@ -652,7 +652,7 @@ final class SurfaceCatalog {
                     machineID: loadingReservation.machineID
                 )
             }
-            try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
+            try claimCompletedMaterializationIfNeeded(projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
             if resource.kind != .terminal,
                let provider = providers[id.machine] as? CmuxTuiSurfaceProvider,
@@ -891,17 +891,16 @@ final class SurfaceCatalog {
         inFlightProjects[key] = nil
     }
 
-    private func claimCompletedMaterializationIfNeeded(
-        _ key: MaterializationKey,
-        projection: SurfaceProjection
-    ) throws {
-        guard let inFlight = inFlightProjects[key],
-              let completedProjection = inFlight.completedProjection,
-              completedProjection.resource == projection.resource,
-              completedProjection.panelID == projection.panelID else { return }
+    private func claimCompletedMaterializationIfNeeded(projection: SurfaceProjection) throws {
+        let matchingKey = inFlightProjects.first { candidateKey, inFlight in
+            guard let completedProjection = inFlight.completedProjection else { return false }
+            return completedProjection.resource == projection.resource
+                && completedProjection.panelID == projection.panelID
+        }?.key
+        guard let matchingKey, let inFlight = inFlightProjects[matchingKey] else { return }
         guard !Task.isCancelled else { throw CancellationError() }
         inFlight.completionCleanupTask?.cancel()
-        inFlightProjects[key] = nil
+        inFlightProjects[matchingKey] = nil
     }
 
     private func cancelCompletedMaterialization(_ key: MaterializationKey, waiterID: UUID) {
