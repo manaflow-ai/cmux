@@ -65,7 +65,7 @@ final class CloudBrowserAccessState {
     }
 
     private func startDeadline() {
-        guard isDesktop else { return }
+        guard isDesktop, !connectionDeadline.isScheduled else { return }
         connectionDeadline.schedule(after: .seconds(45)) { [weak self] in
             guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
             self.desktopFailure = String(localized: "cloud.display.connectionTimedOut", defaultValue: "The Cloud display did not connect within 45 seconds. Retry to reconnect.")
@@ -251,6 +251,7 @@ final class CloudBrowserAccessState {
         dismissedFailure = nil
         desktopConnected = false
         activeNavigationID = nil
+        connectionDeadline.cancel()
         startDeadline()
         model?.retry()
         observeRoute()

@@ -68,6 +68,25 @@ struct CloudDesktopAccessTests {
         await model.retire()
     }
 
+    @Test("Automatic reconnect attempts do not extend the display deadline")
+    func reconnectDoesNotResetDeadline() async throws {
+        let clock = CloudCommandDeadlineClock()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState(clock: clock)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.desktopConnectionIsConnecting(url: url)
+        await clock.waitUntilSleeping()
+        state.desktopConnectionIsConnecting(url: url)
+        clock.advance(by: .seconds(46))
+        #expect(await wait { state.showsFailureAlert })
+        await model.retire()
+    }
+
     @Test("A cancelled old navigation cannot cancel a newer display attempt")
     func cancellationUsesNavigationIdentity() async throws {
         let old = NSObject(), current = NSObject()

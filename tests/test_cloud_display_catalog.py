@@ -106,11 +106,16 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         def launch(_command, **_options):
             return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'\nDBUS_SESSION_BUS_PID=1\n")
 
+        readiness_calls = {}
+        def readiness(number):
+            readiness_calls[number] = readiness_calls.get(number, 0) + 1
+            return readiness_calls[number] > 1
+
         with mock.patch.object(display.subprocess, "Popen", side_effect=spawn), \
              mock.patch.object(display.subprocess, "run", side_effect=launch), \
              mock.patch.object(display.shutil, "which", side_effect=lambda name: name), \
              mock.patch.object(service, "wait_for_port", return_value=True), \
-             mock.patch.object(display, "ready", return_value=True):
+             mock.patch.object(display, "ready", side_effect=readiness):
             try:
                 first = service.handle({"action": "create", "request": str(uuid.uuid4())})
                 second = service.handle({"action": "create", "request": str(uuid.uuid4())})
@@ -130,7 +135,7 @@ class CloudDisplayCatalogTests(unittest.TestCase):
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         request = str(uuid.uuid4())
-        with mock.patch.object(display.subprocess, "run", side_effect=OSError("starter unavailable")), mock.patch.object(display, "ready", return_value=True):
+        with mock.patch.object(display.subprocess, "run", side_effect=OSError("starter unavailable")), mock.patch.object(display, "ready", return_value=False):
             try:
                 result = service.handle({"action": "create", "request": request})
                 retried = service.handle({"action": "create", "request": request})
