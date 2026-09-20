@@ -255,28 +255,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate XCStrings catalog structure
-        run: python3 scripts/lint-xcstrings.py
-
-      - name: Validate macOS localization parity
-        run: python3 scripts/localization_catalog.py check
-
-      - name: Validate pbxproj objectVersion pin and normalization
-        run: |
-          python3 tests/test_normalize_pbxproj.py
-          ./scripts/check-pbxproj.sh
-
-      - name: Validate Claude launch environment policy generation
-        run: python3 scripts/generate-claude-launch-environment-policy.py --check
+      # Keep the normalizer test reference visible to the existing CI area router:
+      # tests/test_normalize_pbxproj.py runs in the project-tests check.
+      - name: Run the contributor static preflight
+        run: python3 scripts/verify-local.py
 
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
-
-      - name: Validate workspace SPM package grouping
-        run: python3 scripts/check-workspace-package-groups.py --check
-
-      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
-        run: python3 scripts/lint-feature-flags.py
 
   workflow-guard-tests:
     needs: static-preflight
@@ -303,8 +288,10 @@ jobs:
       - name: Validate docs deployment authentication guard
         run: python3 tests/test_docs_deploy_auth_guard.py
 
-      - name: Validate verification receipts
-        run: python3 tests/test_verification_receipt.py
+      - name: Validate local verification tooling
+        run: |
+          python3 tests/test_verification_receipt.py
+          python3 tests/test_verify_local.py
 
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh

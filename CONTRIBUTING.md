@@ -61,13 +61,21 @@
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
 
-## Verification receipts
+## Fast checks before building or pushing
 
-`python3 scripts/verification_receipt.py local` runs the existing docs deployment
-auth guard tests and prints a versioned JSON receipt with source observations,
-executed checks and explicit artifact/review qualifications. This portable check
-does not compile or launch the app. See [verification receipts](docs/verification-receipts.md)
-for CI import, example replay and the exact limits of the source evidence.
+Run `python3 scripts/verify-local.py` to run the same static checks as CI locally,
+without Xcode, package installs, submodules or an app build. It checks localization,
+project configuration, generated policy, test-target wiring, package grouping and
+feature flags, and runs the project normalizer's tests. Failures show the diagnostic
+and a command to rerun just that check, for example:
+
+```sh
+python3 scripts/verify-local.py --only project --only test-wiring
+```
+
+These are static sanity checks, not Swift compilation or app tests. Add
+`--receipt /tmp/cmux-preflight.json` when handing the result to another contributor.
+See [local verification](docs/verification-receipts.md) for scope and receipt limits.
 
 ## Team dogfood setup
 

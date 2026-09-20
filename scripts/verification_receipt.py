@@ -65,6 +65,8 @@ def unittest_summary(log):
 
 def assess(result):
     """Conservative derived qualifications, never a replacement for provider conclusions."""
+    if result.get("schema_version") != "cmux-verification/v1":
+        raise ValueError("unsupported receipt schema_version")
     reasons = []
     for c in result["checks"]:
         if c["status"] not in STATES:
@@ -80,7 +82,9 @@ def assess(result):
     if not before or not after or before.get("clean") is not True or after.get("clean") is not True:
         reasons.append("dirty_or_unknown_source")
     tc = check(result, "tests")
-    if tc["status"] == "passed" and not (result["tests"]["executed"] or 0) > 0:
+    if tc.get("reported_status", tc["status"]) == "passed" and not (result["tests"]["executed"] or 0) > 0:
+        tc["reported_status"] = "passed"
+        tc["status"] = "failed"
         reasons.append("no_observed_executed_tests")
     review = result["review"]
     current = review["current_head"]
@@ -110,7 +114,7 @@ def observe(repo):
         return {"commit": git("rev-parse", "HEAD"), "tree": git("rev-parse", "HEAD^{tree}"),
                 "clean": not bool(status), "tracked_diff_sha256": digest(diff),
                 "status_sha256": digest(status.encode())}
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, OSError):
         return {"commit": None, "tree": None, "clean": None}
 
 

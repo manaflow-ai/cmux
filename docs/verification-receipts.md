@@ -1,131 +1,121 @@
-# CMUX verification handoff, first slice
+# Fast local verification
 
-[Owner #83](https://github.com/teamleaderleo/Tact/issues/83), coordinated with
-[rollout reporting #82](https://github.com/teamleaderleo/Tact/issues/82).
-Python 3 standard library; no service, scheduler, GitHub token, Glaeda or Stensibly
-needed to replay the committed evidence. From the CMUX repository root:
+Run this before spending time on a native build or pushing a change to CI:
 
 ```sh
-python3 tests/test_verification_receipt.py
-python3 scripts/verification_receipt.py replay-ci tests/fixtures/verification_receipt/examples/ci-input.json
-python3 scripts/verification_receipt.py local > /tmp/cmux-verification.json
+python3 scripts/verify-local.py
 ```
 
-The last command executes CMUX's existing supported recipe, unchanged:
-`python3 tests/test_docs_deploy_auth_guard.py`. It checks the docs deployment
-workflow's pinned CLI/auth policy, docs-only Vercel configuration, and daily auth
-health workflow. It does **not** call Vercel or validate credentials. Use a trusted
-CMUX checkout: this executes its test file. Python 3 and Git must be available.
-The adapter invokes this single recipe, not arbitrary caller-supplied shell code.
-Pass `--repo /path/to/cmux` to observe another checkout. Local receipt output contains no checkout path, diff contents, environment dump,
-or raw failure traceback. A failure can be investigated by rerunning the original
-CMUX command. The adapter exit status reports this tests scope, never merge readiness.
+This is a **local pre-build/pre-CI static sanity check**. It runs the existing
+production checks from CI's `static-preflight` job. CI calls the same command,
+so there is one recipe list. No Xcode, downloads, dependency installation,
+app launch or provider credentials are needed. Python 3, Bash, Git, and standard
+Unix tools must be available. Run only in a trusted CMUX checkout: the command
+executes that checkout's existing scripts.
 
-## Observed examples
+It catches malformed localization catalogs, stale generated policy, project
+configuration errors, Swift tests omitted from their Xcode target, package
+layout mistakes and feature-flag policy violations. For example, adding
+`cmuxTests/NewTests.swift` without target membership fails immediately with the
+filename, before an expensive build or a misleading zero-test run.
 
-- `tests/fixtures/verification_receipt/examples/local.json`: actual Mac arm64/Python recipe, three tests executed,
-  zero skipped, exit 0, observed HEAD `2889b72b866edfef0ac260f922fd2cf9f88906a3`.
-  Before/after HEADs matched, with dirty source observations; exact source throughout execution is still
-  **not established**. Repository identity is caller-supplied, not remote-attested.
-- `tests/fixtures/verification_receipt/examples/ci-input.json`: content-minimised REST run/job records plus a bounded
-  checkout/step log excerpt from [run 35523305193, job 106111086646](https://github.com/manaflow-ai/cmux/actions/runs/35523305193/job/106111086646),
-  attempt 1, September 20, 2026. `tests/fixtures/verification_receipt/examples/ci.json` is deterministically derived.
-  Three docs-auth tests passed; job success and **workflow failure** are preserved.
-  PR head `e0deb0e897e58de722015e714700b2ec6c220bc6` differs from checkout merge
-  `25930fe8a91012ad178343016774d6850d5fd3db`. The log identifies the checkout,
-  but has no post-test source observation. Neither workflow revision nor clean
-  execution throughout is inferred from the run API's head SHA.
-
-Both receipts explicitly say no artifact was produced or launched. There is no
-runnable Mac app associated with these Python checks. The native artifact case
-is a synthetic fixture, not a claim of real UI verification.
-
-To import another result of this same CI recipe, use GitHub's existing records:
+## Iterate on a smaller scope
 
 ```sh
-gh api repos/manaflow-ai/cmux/actions/runs/RUN_ID > /tmp/run.json
-gh api repos/manaflow-ai/cmux/actions/jobs/JOB_ID > /tmp/job.json
-gh api --allow-escape-sequences repos/manaflow-ai/cmux/actions/jobs/JOB_ID/logs > /tmp/job.log
-python3 scripts/verification_receipt.py ci --run /tmp/run.json --job /tmp/job.json --log /tmp/job.log
+python3 scripts/verify-local.py --list
+python3 scripts/verify-local.py --only project --only test-wiring
+python3 scripts/verify-local.py --only localization
+python3 scripts/verify-local.py --receipt /tmp/cmux-preflight.json
 ```
 
-Keep raw downloads private. The adapter emits only allowlisted summary lines,
-identities, statuses and hashes. `log_sha256` hashes the supplied log bytes (the
-committed example hashes the minimised excerpt, not the original full log).
-Provider records/logs are caller-supplied evidence, not authenticated attestations;
-the importer checks run/job linkage and one exact recipe step, not log authenticity.
-Expired/inaccessible logs cannot be replaced by a bare green job conclusion.
+| Check ID | Existing validation |
+| --- | --- |
+| `xcstrings` | Localization catalog structure |
+| `localization` | macOS localization parity |
+| `project-tests` | Five project normalizer unit tests at the demonstrated revision; counts are read from each execution |
+| `project` | Xcode project version pin and normalization |
+| `launch-policy` | Generated Claude launch policy is current |
+| `test-wiring` | Every Swift test file belongs to the Xcode test target |
+| `package-groups` | Workspace Swift package grouping |
+| `feature-flags` | Flag names, ownership, expiry, defaults, single evaluation and retired keys |
 
-## Small contract shared with #82
+Each failure prints a bounded diagnostic tail and an exact `--only` rerun command.
+The default runs all eight checks so one pass reveals independent failures.
+`--only` runs the named subset and says which checks actually ran; it does not
+infer affected tests from a diff. `--repo` targets another checkout. Each check
+has a 60-second deadline, adjustable with `--timeout`; Ctrl-C stops the active
+process group and marks the remaining checks skipped.
 
-The existing `workflow-guard-tests` job runs `python3 tests/test_verification_receipt.py`.
+Exit 0 means the selected static checks passed. Failure, missing tools,
+interruption, or observed source drift returns nonzero. Unchanged dirty-source
+observations retain their qualification. A zero-test unittest success is a failed
+test claim, including when assessing a previously supplied receipt.
 
-`schema_version: cmux-verification/v1` describes evidence, with no acceptance,
-dispatch, cache-reuse or merge authority. Null means unknown/not observed, never zero.
+**This does not compile or typecheck Swift, run native app tests, package an app,
+or verify UI behavior.** For Swift/UI changes, continue with the normal tagged
+native build/test workflow in CONTRIBUTING.md. A passing preflight is not merge
+readiness. Existing CI policy and native execution owners remain authoritative.
+
+## Evidence for handoff
+
+`--receipt` writes `cmux-verification/v1` JSON. Keep the file outside the checkout.
+It records each command's status, exit code, script/output hashes, duration,
+source observations and available test counts. Raw logs, environment variables
+and checkout paths are not copied into it. Human diagnostics remain local to
+this invocation. The committed `tests/fixtures/verification_receipt/examples/preflight.json`
+is a real full local run: eight passing checks and five executed normalizer tests,
+with dirty-source qualification. It is one observation, not a performance benchmark.
 
 | Field | Meaning |
 | --- | --- |
-| `recipe` | Existing argv, named claim class, recipe content hash locally or observed checkout SHA in CI. |
-| `source` | Repository, PR/head/base/merge/tree when known, execution semantics, before/after observations, exact materialised identity when established. |
-| `checks` | Separate preparation, parsing, typechecking, tests, packaging, live phases; status plus whether execution was observed and its evidence reference. |
-| `tests` | Selection expressions, selected/discovered/executed counts, unittest runner total and skips, baseline references. |
-| `evidence` | Existing provider run/attempt/job/step identities, original conclusions, bounded summaries/log hashes. |
-| `environment` | Platform/architecture/toolchain/configuration/build-input identity; unknown values stay null. CI runner labels do not imply an observed architecture/toolchain. |
-| `artifacts` | Separate produced/launched identities; content hash, tag, bundle ID and source identity must all match for a positive match. |
-| `review` | Provider availability/status, reviewed head, separately observed current head and evidence. |
-| `integrations` | Reserved existing Glaeda request/run and Stensibly run/settlement references, never newly invented executions. |
-| `assessment` | Derived source/review/artifact qualifications; not an authoritative acceptance verdict. |
+| `recipe` | Named scope, recipe revision and invocation |
+| `source` | Repository, PR/head/checkout/base/merge/tree identities when known, before/after observations, source semantics |
+| `checks` | Separate static analysis, preparation, parsing, typechecking, tests, packaging and live status |
+| `tests` | Selection expressions and selected/discovered/executed counts; null means unknown, not zero |
+| `evidence` | Per-command executions locally; original run/job/step identities and conclusions for CI imports |
+| `artifacts` | Separate produced/launched identities; null means not observed, not proof that no artifact exists |
+| `review` | Reviewed/current head and availability; unsupported for these local checks |
+| `assessment` | Source/review/artifact qualifications, not acceptance authority |
 
-Statuses are `passed`, `failed`, `skipped`, `unsupported`, `interrupted`.
-`executed` is a separate boolean. Skipped phases were not requested by this
-recipe; unsupported means this adapter/provider cannot establish that evidence.
-An incomplete/cancelled/timed-out CI step stays interrupted. Provider conclusions
-are retained even when a purported success lacks a usable test summary.
+Statuses remain `passed`, `failed`, `skipped`, `unsupported`, `interrupted`, with
+an independent `executed` boolean. `outcome` summarizes this preflight's selected
+scope. Test counts come from a single terminal unittest summary: runner total
+minus skipped tests. No independent selected/discovered inventory is invented.
+A subset containing only lints has no test-execution claim.
 
-Unittest's `Ran N tests` counts runner invocations, including skipped tests;
-`executed = N - skipped`. This recipe supplies no separate discovery/selection
-inventory, so `selected` and `discovered` remain null. A selected file is not a
-selected test count. An OK exit with zero executed tests is a failed tests claim.
-Counts also remain unknown if a summary is missing, inconsistent or ambiguous.
+Before/after observations are not an atomic snapshot or lock. Matching HEADs and
+even clean observations cannot rule out transient edits, untracked content,
+ignored files or external input changes. `exact_verification` stays false.
+Observed source drift interrupts the overall preflight result and asks for a rerun.
 
-Source observations reuse Glaeda's `commit`/`clean` vocabulary and add Git tree,
-tracked-diff/status hashes locally. They are sequential observations, not an
-atomic snapshot or source lock. Untracked content, ignored files, submodules,
-reverted transient edits and external dependencies are not fully attested.
-Even clean equal HEADs retain `exact_snapshot_not_established`.
-This adapter cannot establish `exact_snapshot`; `exact_verification` is always
-false in this slice. An exact-source adapter needs a separate validated immutable
-materialisation boundary, not a flag that promotes matching HEADs.
+## Existing CI result import
 
-## Fixtures and integration boundaries
-
-`tests/fixtures/verification_receipt/fixtures/` contains explicit synthetic inputs for zero tests, source drift,
-stale review head, and a different tagged artifact being launched. Inspect one:
+The original narrow docs-auth recipe adapter remains available for compatibility:
 
 ```sh
-python3 scripts/verification_receipt.py assess tests/fixtures/verification_receipt/fixtures/wrong-artifact.json
+python3 scripts/verification_receipt.py local
+python3 scripts/verification_receipt.py replay-ci tests/fixtures/verification_receipt/examples/ci-input.json
+python3 scripts/verification_receipt.py ci --run /tmp/run.json --job /tmp/job.json --log /tmp/job.log
 ```
 
-Tests also exercise actual temporary-Git source mutation with unchanged HEAD,
-skipped counts, cancellation, unavailable evidence, preparation/parsing versus
-failed typechecking, and the real CI merge-head mismatch. Synthetic `passed`
-inputs remain reported inputs; derived qualifications expose their contradictions.
+`local` on this lower-level adapter runs only `tests/test_docs_deploy_auth_guard.py`;
+use `verify-local.py` for the full preflight. The CI importer accepts GitHub's
+existing run/job JSON and job log for that docs-auth step. Keep raw downloads
+private. The committed example preserves three passing tests inside a failed
+workflow, with checkout merge `25930fe8a91012ad178343016774d6850d5fd3db` different
+from PR head `e0deb0e897e58de722015e714700b2ec6c220bc6`. Missing source/workflow
+observations stay unknown. Caller-supplied logs are evidence, not authenticated
+attestations; the example's log hash covers its minimised excerpt.
 
-Inspection before implementation covered CMUX `check-native.sh`, tagged
-reload/debug commands, the workflow-guard-tests CI recipe, and Glaeda
-`last-run.json` (`source_before/after`, `validation`, `authority`, `state`, `run_id`).
-[Glaeda #1048](https://github.com/teamleaderleo/glaeda/pull/1048) keeps latest-checkout
-on-demand/coalescing semantics and developer-observation authority.
-[Stensibly #1834](https://github.com/teamleaderleo/stensibly/issues/1834) keeps its
-existing reservation/receipt/settlement ownership. Their execution adapters are
-not implemented here; references are reserved for future evidence imports.
-Native execution remains with the existing machine/build owner. #79 and #80
-were informed that #83 reserved no slot and executed no native build.
+## Tests
 
-Remaining #83 acceptance: real tagged build plus content-bound launch evidence;
-immutable exact-source execution; real selected/discovered test inventory;
-submission-to-execution branch switch; physical worker-interruption reconciliation;
-provider review import/current-head refresh; authoritative merge-group integration;
-and the five-change second-contributor product experiment. Fixtures demonstrate
-qualifications, not completion of those physical cases. #82 retains its separate
-cohort/cache/cost report. Existing CI and merge owners retain authority.
+```sh
+python3 tests/test_verification_receipt.py
+python3 tests/test_verify_local.py
+```
+
+Temporary-Git tests exercise real subprocesses, an actual unwired-test failure
+and repair, zero-test success, source drift, missing executables, bounded failure
+diagnostics and interruption. Stale review/wrong tagged artifact cases remain
+synthetic fixtures. Neither adapter establishes a real native artifact handoff
+or immutable exact-source execution.
