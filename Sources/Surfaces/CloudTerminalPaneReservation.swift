@@ -176,7 +176,10 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                         self.remoteInputFinished(epoch: epoch)
                         continue
                     }
-                    try await sink.sender.sendTuiCommandAndAwaitAck(arguments: request)
+                    // Input uses the persistent channel's checked untracked
+                    // write path. The single barrier below fences the whole
+                    // FIFO once, instead of paying one network RTT per key.
+                    try await sink.sender.sendUntrackedTuiCommand(arguments: request)
                     self.remoteInputFinished(epoch: epoch)
                 } catch let error as CloudTuiSendError {
                     let requeueInput: Bool
@@ -190,20 +193,36 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                 } catch let error as CloudMachineLink.LinkError {
                     let requeueInput: Bool
                     switch error {
-                    case .clientMissing, .spawnFailed:
-                        requeueInput = true
-                    case .inputTooLarge, .timedOut, .exited:
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited:
                         requeueInput = false
                     }
-                    self.remoteInputFailed(
-                        epoch: epoch,
-                        input: item,
-                        requeueInput: requeueInput
-                    )
+                    if case .clientMissing = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else if case .spawnFailed = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else if case .inputTooLarge = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else {
+                        self.remoteInputFailed(epoch: epoch, input: item, requeueInput: requeueInput)
+                    }
                     break
                 } catch {
                     self.remoteInputFailed(epoch: epoch, input: item, requeueInput: false)
                     break
+                }
+            }
+            if let self,
+               let sink = self.remoteSinkForDelivery(epoch: epoch) {
+                do {
+                    try await sink.sender.sendTuiCommandAndAwaitAck(
+                        arguments: CloudTuiRequests.snapshotArguments(socketPath: "")
+                    )
+                } catch {
+                    self.remoteInputFailed(
+                        epoch: epoch,
+                        input: .bytes(Data()),
+                        requeueInput: false
+                    )
                 }
             }
             self?.remoteWorkerFinished(epoch: epoch, token: token)
@@ -295,6 +314,23 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteBindingPending = true
             state.remoteInFlight = false
             startRemoteRebindLocked(&state)
+        }
+    }
+
+    private func remoteInputTerminalFailure(epoch: UInt64, input: TerminalManualInput) {
+        state.withLock { state in
+            guard !state.discarded, epoch == state.remoteEpoch else { return }
+            state.pending.append(input)
+            if !remoteQueueIsEmptyLocked(state) {
+                state.pending.append(contentsOf: state.remoteQueue[state.remoteQueueHead...])
+            }
+            clearRemoteQueueLocked(&state)
+            state.remoteSink = nil
+            state.remoteBindingPending = false
+            state.remoteBindingToken = nil
+            state.remoteRebind = nil
+            state.remoteInFlight = false
+            promoteRequestedRouterIfReadyLocked(&state)
         }
     }
 
