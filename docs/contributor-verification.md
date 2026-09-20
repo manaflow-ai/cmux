@@ -34,35 +34,42 @@ after; push both commits together when that proof is available locally. Use CI f
 CI-only reproductions and retain final-head checks. Do not describe an infrastructure failure as the expected
 regression failure.
 
-## Automatic push checks
+## Trust boundary
 
-Install once in an existing clone without running a build:
+Run the fast recipe first, before committing or paying for a build, **on a
+reviewed checkout**. Static analysis describes what the checks examine; the
+Python/shell analyzers and normalizer tests are still executable repository code.
+`--repo` chooses whose scripts run, not a data-only input. Even help/list commands
+load repository Python modules. Inspect unfamiliar code without executing it.
 
-```bash
-./scripts/install-git-hooks.sh
-```
+There is deliberately no automatic pre-push checker. A pushed branch or tag can
+contain a replaced checker, imported helper, shell script, or package lifecycle
+hook. A temporary Git snapshot is not a security sandbox. Nor is a trusted
+wrapper sufficient if it invokes candidate-controlled children. The existing
+pre-commit project normalizer also requires a trusted checkout; tracked Git hooks
+are not a stable trust anchor across arbitrary branch changes.
 
-`setup.sh` already calls this installer. It preserves the existing pre-commit
-normalizer and enables pre-push checks. It refuses to hide another configured
-hooks directory or executable default hook; integrate the tracked hook with the
-existing setup, preserving all four-field lines on its stdin.
+The default fast recipe installs no dependencies and invokes no package-manager
+lifecycle scripts. Dependency installation and app/test execution remain explicit
+separate steps. Before automatically analyzing untrusted source, use a reviewed,
+fixed analyzer that treats candidate files only as data, or a meaningful execution
+boundary without host credentials, host-write access, network access, or writable
+caches shared with trusted release jobs. No such sandbox is supplied by this PR.
+Required CI remains required; a local pass is not a supply-chain safety attestation.
 
-The hook reads Git's proposed ref updates, resolves annotated tags to commits,
-and runs the same `verify-local.py` default recipe from each distinct pushed tip.
-Each check uses a temporary snapshot under `.local/cmux-pre-push`, with its own
-index and detached HEAD and read-only access to the repository's object store.
-It does not switch branches, stage edits, fetch dependencies, or inspect dirty
-files as if they were committed. Snapshots are removed on success and failure.
-There is no cached pass: every push rechecks its tips. Deletion-only pushes skip
-verification. Non-commit objects and tips without the shared recipe are rejected
-with an explanation rather than reported as passing.
+## PR check progression
 
-On failure, fix the named branch, run `python3 scripts/verify-local.py`, commit,
-and push again. Git's explicit `git push --no-verify` remains available when an
-intentional bypass is required; it bypasses local checks, not required CI. Hooks
-cannot protect API-based ref updates or an unconfigured clone, so CI remains
-mandatory. Committed-source isolation does not extend verification beyond the
-static recipe: no native build, UI check or test-suite execution is implied.
+Run the local command first on trusted code. On a PR, the existing workflow runs
+Fast static checks before workflow guards and routed Linux checks; the Linux
+preflight gate precedes applicable macOS compile admission and native checks.
+There is no need to add a second workflow scheduler. Required checks, review and
+the merge queue retain their existing authority.
+
+Apply the repository's maintainer-approval policy before untrusted workflow runs
+where configured. The effective GitHub fork-approval setting was not verifiable
+in this audit; it is not claimed enabled. Passing cheap checks does not make
+candidate code trusted. Do not run candidate code with privileged
+`pull_request_target` credentials or reuse its writable caches in release jobs.
 
 ## 2. Test the owning package
 

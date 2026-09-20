@@ -289,7 +289,7 @@ jobs:
         run: |
           python3 tests/test_verification_receipt.py
           python3 tests/test_verify_local.py
-          python3 tests/test_verify_push.py
+          python3 tests/test_preflight_trust.py
 
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh

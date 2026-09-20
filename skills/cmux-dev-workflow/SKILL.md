@@ -14,12 +14,8 @@ their scoped checks without an unrelated app build.
 
 For native app or build-input changes, follow the current root `AGENTS.md`
 build routing and capacity owner. Setup (`./scripts/setup.sh`) initializes
-submodules, builds GhosttyKit and installs project-normalization and pre-push hooks;
+submodules, builds GhosttyKit and installs the project-normalization hook;
 it is not a prerequisite for portable static checks.
-
-For automatic static checks on push, run `./scripts/install-git-hooks.sh` once.
-The hook checks committed tips without touching dirty files. See the
-[push-check contract](../../docs/contributor-verification.md#automatic-push-checks).
 
 ## Tagged local development
 

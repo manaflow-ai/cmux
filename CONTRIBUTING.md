@@ -7,7 +7,7 @@ maintainer runner access or shared backend credentials.
 ## Prerequisites
 
 These prerequisites are for native app development. For documentation or portable
-contributor tooling, start with [fast checks](#fast-checks-before-building-or-pushing)
+contributor tooling, start with [fast checks](#fast-checks-before-committing-or-building)
 and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
 
 - macOS 14+
@@ -69,18 +69,18 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
 
-## Fast checks before building or pushing
+<a id="fast-checks-before-building-or-pushing"></a>
 
-Run all fast checks with `python3 scripts/verify-local.py`. For automatic checks on
-`git push`, run `./scripts/install-git-hooks.sh` once (also included in setup).
-Existing custom hooks are preserved; the installer explains how to integrate them.
+## Fast checks before committing or building
 
-The hook checks each distinct commit tip being pushed, including other branches
-and annotated tags, in temporary snapshots inside the project. Dirty files stay
-untouched. A failing check blocks the push; deletion-only pushes skip checks.
-Branches without the shared recipe and non-commit tags are explicitly unsupported.
-This runs static checks only, with no native build, network setup or submodules.
-See the [push-check contract](docs/contributor-verification.md#automatic-push-checks).
+First run `python3 scripts/verify-local.py` on your reviewed checkout. This is the
+early localization, project structure, package grouping, generated-policy and
+feature-flag gate; it does not install dependencies or build the app.
+
+The command executes repository Python/shell checkers and tests. Do not run it,
+including with `--repo`, against untrusted source on your credentialed host.
+Git push does not automatically execute candidate code. See the
+[trust boundary](docs/contributor-verification.md#trust-boundary).
 
 For edited Swift, use `python3 scripts/verify-local.py --swift-changed` to discover
 staged, unstaged and untracked files automatically. Add a base ref, such as
@@ -89,7 +89,8 @@ staged, unstaged and untracked files automatically. Add a base ref, such as
 [command guide](docs/verification-receipts.md) also covers explicit files, piped
 NUL-delimited paths and JSON stdout. Parsing does not replace typechecking or tests.
 
-The shared recipe needs no Xcode or package installs. It checks localization,
+Run `python3 scripts/verify-local.py` to run the same static checks as CI locally,
+without Xcode, package installs, submodules or an app build. It checks localization,
 project configuration, generated policy, test-target wiring, package grouping and
 feature flags, and runs the project normalizer's tests. Failures show the diagnostic
 and a command to rerun just that check, for example:

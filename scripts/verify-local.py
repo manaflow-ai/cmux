@@ -309,7 +309,7 @@ Details and examples: docs/verification-receipts.md""")
     composition.add_argument("--receipt", type=Path, help="Write JSON to this file (outside the source tree), or - for stdout")
     execution = parser.add_argument_group("execution")
     execution.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1],
-                           help="Target checkout (default: the checkout containing this script)")
+                           help="Trusted target checkout; its scripts execute locally (default: this checkout)")
     execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
     args = parser.parse_args()
     if args.list:
