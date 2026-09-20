@@ -306,6 +306,9 @@ jobs:
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate sidebar extension point generation
+        run: python3 tests/test_write_sidebar_extension_point.py
+
       - name: Validate Localizable.xcstrings catalog structure
         run: python3 tests/test_localizable_xcstrings_structure.py
 
@@ -313,7 +316,9 @@ jobs:
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Test macOS localization catalog tooling
-        run: python3 tests/test_localization_catalog.py
+        run: |
+          python3 tests/test_localization_catalog.py
+          python3 tests/test_localize_changes.py
 
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         run: python3 tests/test_cloud_vm_skill_coverage.py
@@ -360,6 +365,12 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Ghostty helper cache failure handling
+        run: bash tests/test_ghostty_cli_helper_cache.sh
+
+      - name: Validate stale run cleanup eligibility
+        run: python3 tests/test_cleanup_stale_runs.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
@@ -386,6 +397,9 @@ jobs:
 
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
+
+      - name: Validate checkout failure network diagnostics
+        run: python3 tests/test_ci_checkout_network_diagnostics.py
 
       - name: Validate Swift Testing suite timeout guard
         run: python3 tests/test_swift_testing_suite_timeout.py
@@ -428,6 +442,11 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate local build cache preflight
+        run: |
+          python3 tests/test_local_build_cache_preflight.py
+          python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
@@ -479,6 +498,9 @@ jobs:
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate bundled-resource incremental outputs
+        run: ./tests/test_build_app_bundled_resources.sh
+
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
 
@@ -523,6 +545,7 @@ jobs:
           python3 tests/test_ci_change_areas.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -938,10 +961,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Select Xcode
         run: |
@@ -989,11 +1053,10 @@ jobs:
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Download compiled app-host test product
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:
@@ -1025,6 +1088,10 @@ jobs:
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
               rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
+            # Keep the existing three-attempt policy, but record resolver
+            # state when a package attempt fails so provider incidents are
+            # distinguishable from SwiftPM or cache defects.
+            scripts/ci/capture-network-diagnostics.sh || true
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
               exit 1
@@ -2596,10 +2663,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Prepare isolated admission DerivedData
         run: |
@@ -2725,8 +2833,37 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
 
+      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # both the reuse selector and broker require an in-repository producer.
+      # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Choose product artifact publication
+        id: publish-products
+        env:
+          PRODUCT_FULL_SUITE: ${{ needs.changes.outputs.full_suite }}
+          PRODUCT_EVENT: ${{ github.event_name }}
+          PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          PRODUCT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import os
+          head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
+          repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
+          unused_fork_product = (
+              os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_EVENT") == "pull_request"
+              and bool(head) and bool(repository)
+              and head.casefold() != repository.casefold()
+          )
+          publish = not unused_fork_product
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"publish={str(publish).lower()}\n")
+          if not publish:
+              print("Skipping unused compile-only fork product packaging and upload.")
+          PY
+
       - name: Package compiled app-host test product
         id: package-products
+        if: steps.publish-products.outputs.publish == 'true'
         run: |
           set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -2737,6 +2874,7 @@ jobs:
 
       - name: Upload compiled app-host test product
         id: upload-products
+        if: steps.publish-products.outputs.publish == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
