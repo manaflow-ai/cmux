@@ -1,25 +1,26 @@
 import CmuxFoundation
 import Foundation
 
-// App-target composition for this process's fixed local host/effective-user scope.
-// One actor owns the census across every snapshot consumer. No data is persisted.
-nonisolated let cmuxProcessSnapshots = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
-    capture: { try CmuxTopProcessSampler().capture() },
-    enrich: { try CmuxTopProcessSampler().enrich($0, fields: $1) }
-)
-
 extension CmuxTopProcessSnapshot {
+    /// Builds the app-scoped process census authority at the composition root.
+    static func makeProcessSnapshotService() -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
+        ProcessSnapshotService(
+            capture: { try CmuxTopProcessSampler().capture() },
+            enrich: { try CmuxTopProcessSampler().enrich($0, fields: $1) }
+        )
+    }
+
     /// Enumerates after this request. An older diagnostic census cannot authorize
     /// lifecycle decisions merely because its enrichment finished more recently.
     static func capture(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
         includeResources: Bool = true,
-        service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> = cmuxProcessSnapshots
+        service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> CmuxTopProcessSnapshot {
         await capture(
             fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope, resources: includeResources),
-            freshness: .afterRequest, service: service
+            freshness: .afterRequest, service: service ?? defaultProcessSnapshotService()
         )
     }
 
@@ -29,11 +30,11 @@ extension CmuxTopProcessSnapshot {
         includeCMUXScope: Bool = true,
         includeResources: Bool = true,
         maximumAge: TimeInterval,
-        service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> = cmuxProcessSnapshots
+        service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>? = nil
     ) async -> CmuxTopProcessSnapshot {
         await capture(
             fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope, resources: includeResources),
-            freshness: .maximumAge(.seconds(max(0, maximumAge))), service: service
+            freshness: .maximumAge(.seconds(max(0, maximumAge))), service: service ?? defaultProcessSnapshotService()
         )
     }
 
@@ -58,5 +59,9 @@ extension CmuxTopProcessSnapshot {
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) async -> [CmuxTopProcessInfo] {
         let snapshot = await capture(includeProcessDetails: includeProcessDetails, includeCMUXScope: includeCMUXScope, includeResources: false)
         return Array(snapshot.processesByPID.values)
+    }
+
+    private static func defaultProcessSnapshotService() -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
+        AppDelegate.shared?.processSnapshotService ?? makeProcessSnapshotService()
     }
 }

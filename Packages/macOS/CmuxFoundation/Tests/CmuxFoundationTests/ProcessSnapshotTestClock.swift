@@ -6,6 +6,8 @@ final class ProcessSnapshotTestClock: Sendable {
     private let state = OSAllocatedUnfairLock(initialState: ProcessSnapshotTestClockState())
     private let reads = AsyncStream<Int>.makeStream()
 
+    deinit {}
+
     func now() -> ContinuousClock.Instant {
         let (instant, count) = state.withLock { value in
             value.reads += 1

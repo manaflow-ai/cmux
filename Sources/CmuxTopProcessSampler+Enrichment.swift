@@ -14,6 +14,7 @@ extension CmuxTopProcessSampler {
         var records: [CmuxTopProcessInfo] = []
         records.reserveCapacity(capture.snapshot.processesByPID.count)
         var missingCount = capture.snapshot.enumerationMissingProcessCount
+        let readsIdentitySensitiveData = missing.contains(.details) || missing.contains(.scope)
         for bsd in capture.listing.processes {
             try Task.checkCancellation()
             let pid = Int(bsd.pbi_pid)
@@ -21,7 +22,7 @@ extension CmuxTopProcessSampler {
             let resources = missing.contains(.resources) ? resourcesByPID[pid] : process
             guard let resources else { missingCount += 1; continue }
             let key = CmuxTopProcessSnapshot.scopeCacheKey(from: bsd)
-            guard reader.matches(pid: pid, key: key) else {
+            guard !readsIdentitySensitiveData || reader.matches(pid: pid, key: key) else {
                 missingCount += 1
                 continue
             }
@@ -29,7 +30,7 @@ extension CmuxTopProcessSampler {
                 ? reader.processName(pid: pid, fallback: process.name) : process.name
             let path = missing.contains(.details) ? reader.processPath(pid: pid) : process.path
             let scope = missing.contains(.scope) ? reader.scope(for: pid, key: key) : nil
-            guard reader.matches(pid: pid, key: key) else {
+            guard !readsIdentitySensitiveData || reader.matches(pid: pid, key: key) else {
                 missingCount += 1
                 continue
             }

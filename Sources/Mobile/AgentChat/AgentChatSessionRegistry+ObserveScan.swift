@@ -208,7 +208,10 @@ extension AgentChatSessionRegistry {
             in: snapshot,
             onlySurfaceIDs: surfaceIDs,
             preferredCodexSessionIDBySurfaceID: preferredCodexSessionIDBySurfaceID,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
+            processArgumentsAndEnvironment: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            },
             codexRolloutPaths: openCodexRolloutPaths(pid:)
         )
     }

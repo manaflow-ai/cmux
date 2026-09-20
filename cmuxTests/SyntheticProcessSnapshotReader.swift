@@ -23,6 +23,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
     }
     struct State {
         var counts = Counts()
+        var instant = ContinuousClock.now
         var replacedPID: Int?
         var missingPID: Int?
         var complete = true
@@ -39,10 +40,19 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
 
     init(count: Int = 4096) { self.count = count }
 
+    deinit {}
+
     func now() -> ContinuousClock.Instant {
-        let read = state.withLock { $0.reads += 1; return $0.reads }
+        let (read, instant) = state.withLock { value in
+            value.reads += 1
+            return (value.reads, value.instant)
+        }
         admissions.continuation.yield(read)
-        return ContinuousClock.now
+        return instant
+    }
+
+    func advance(_ duration: Duration) {
+        state.withLock { $0.instant = $0.instant.advanced(by: duration) }
     }
 
     func waitForAdmissions(_ count: Int) async {

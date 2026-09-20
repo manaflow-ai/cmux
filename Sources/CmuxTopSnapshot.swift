@@ -619,7 +619,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processName: process.name,
             processPath: process.path
         ) else { return nil }
-        return processArgumentsAndEnvironment(for: process.pid)
+        return processArgumentsAndEnvironment(for: process)
     }
 
     private struct CmuxProgramProcessAggregate {

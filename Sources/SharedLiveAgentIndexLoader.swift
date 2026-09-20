@@ -52,7 +52,14 @@ struct SharedLiveAgentIndexLoader {
     #endif
     static func loadFreshResult() async -> LoadResult {
         let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
-        return SharedLiveAgentIndexLoader(processSnapshotProvider: { snapshot }).loadResultSynchronously()
+        return SharedLiveAgentIndexLoader(
+            processSnapshotProvider: { snapshot },
+            capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
+            processArgumentsProvider: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
+        ).loadResultSynchronously()
     }
 
     func loadSynchronously() -> RestorableAgentSessionIndex {

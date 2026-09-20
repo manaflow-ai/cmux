@@ -5,4 +5,6 @@ final class ProcessSnapshotTestValue: Sendable {
         self.generation = generation
         self.fields = fields
     }
+
+    deinit {}
 }

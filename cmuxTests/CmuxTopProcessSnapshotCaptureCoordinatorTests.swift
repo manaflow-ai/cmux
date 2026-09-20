@@ -110,6 +110,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let reader = SyntheticProcessSnapshotReader(count: 100)
         let sampler = CmuxTopProcessSampler(reader: reader)
         let service = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
+            now: reader.now,
             capture: { try sampler.capture() }, enrich: { try sampler.enrich($0, fields: $1) }
         )
         let value = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, service: service)
@@ -122,6 +123,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         reader.state.withLock { $0.hasScope = false }
         let sampler = CmuxTopProcessSampler(reader: reader)
         let service = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
+            now: reader.now,
             capture: { try sampler.capture() }, enrich: { try sampler.enrich($0, fields: $1) }
         )
         let first = await CmuxTopProcessSnapshot.capture(service: service)

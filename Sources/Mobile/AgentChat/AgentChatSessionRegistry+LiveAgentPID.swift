@@ -42,7 +42,10 @@ extension AgentChatSessionRegistry {
             in: snapshot, surfaceID: surfaceID, kind: kind,
             matchingSessionIDs: expectedSessionIDs,
             allowUnidentifiedFallback: allowUnidentifiedFallback,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+            processArgumentsAndEnvironment: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
         ) else { return .notFound }
         return .found(livePID)
     }
@@ -70,7 +73,10 @@ extension AgentChatSessionRegistry {
             kind: kind,
             matchingSessionIDs: expectedSessionIDs,
             allowUnidentifiedFallback: allowUnidentifiedFallback,
-            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+            processArgumentsAndEnvironment: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
         )
     }
 

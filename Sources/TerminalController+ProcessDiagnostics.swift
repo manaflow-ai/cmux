@@ -5,6 +5,7 @@ import Foundation
 /// Process-backed diagnostic adapters; census ownership is shared off-main.
 extension TerminalController {
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
+        try Task.checkCancellation()
         v2RefreshKnownRefs()
 
         let identifyPayload = v2Identify(params: [:])

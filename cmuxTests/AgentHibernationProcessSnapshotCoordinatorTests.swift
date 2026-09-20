@@ -104,6 +104,9 @@ struct AgentHibernationProcessSnapshotCoordinatorTests {
         let processes = (101...133).map { processID in
             CmuxTopProcessInfo(
                 pid: processID,
+                processIdentity: AgentPIDProcessIdentity(
+                    pid: pid_t(processID), startSeconds: Int64(processID), startMicroseconds: 1
+                ),
                 parentPID: 1,
                 name: "test",
                 path: nil,

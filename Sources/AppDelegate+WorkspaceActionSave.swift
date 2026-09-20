@@ -174,13 +174,17 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        Task {
-            await presentSaveWorkspaceActionDialog(
+        guard saveWorkspaceActionTasks[context.windowId] == nil else { return }
+        let task = Task { @MainActor [weak self, weak context] in
+            guard let self, let context else { return }
+            defer { self.saveWorkspaceActionTasks[context.windowId] = nil }
+            await self.presentSaveWorkspaceActionDialog(
                 workspace: workspace,
                 cmuxConfigStore: cmuxConfigStore,
                 window: window
             )
         }
+        saveWorkspaceActionTasks[context.windowId] = task
     }
 
     private func presentSaveWorkspaceActionDialog(
@@ -188,7 +192,14 @@ extension AppDelegate {
         cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
     ) async {
-        guard let snapshot = await workspace.captureConfigActionSnapshot() else { return }
+        let snapshot: WorkspaceConfigActionSnapshot
+        do {
+            snapshot = try await workspace.captureConfigActionSnapshot()
+        } catch {
+            guard window.isVisible, !Task.isCancelled else { return }
+            presentSaveWorkspaceActionCaptureError(error, for: window)
+            return
+        }
         guard window.isVisible, !Task.isCancelled else { return }
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
@@ -309,6 +320,21 @@ extension AppDelegate {
             format: messageFormat,
             Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
         )
+        alert.addButton(withTitle: String(
+            localized: "dialog.saveWorkspaceLayout.ok",
+            defaultValue: "OK"
+        ))
+        alert.beginSheetModal(for: window)
+    }
+
+    private func presentSaveWorkspaceActionCaptureError(_ error: Error, for window: NSWindow) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.saveWorkspaceLayout.failedTitle",
+            defaultValue: "Couldn't Save Workspace Layout"
+        )
+        alert.informativeText = error.localizedDescription
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.ok",
             defaultValue: "OK"

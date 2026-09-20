@@ -82,7 +82,7 @@ extension Workspace {
     /// Captures the live split tree, per-panel directories, browser URLs, and
     /// detected agent CLIs into a `CmuxWorkspaceDefinition` that
     /// `applyCustomLayout` can recreate.
-    func captureConfigActionSnapshot() async -> WorkspaceConfigActionSnapshot? {
+    func captureConfigActionSnapshot() async throws -> WorkspaceConfigActionSnapshot {
         var skippedPanelCount = 0
         let workspaceCwd = Self.configCaptureAbbreviatedPath(currentDirectory)
         // Panel identity comes from the workspace's own tty registry; the
@@ -95,14 +95,9 @@ extension Workspace {
             }
         }
         let layoutSnapshot = bonsplitController.treeSnapshot()
-        let liveCommandsByTTY: [Int64: String]
-        do {
-            liveCommandsByTTY = try await TerminalForegroundCommandCapture.liveCommands(
-                forTTYDevices: Set(ttyDeviceByPanelId.values)
-            )
-        } catch {
-            return nil
-        }
+        let liveCommandsByTTY = try await TerminalForegroundCommandCapture.liveCommands(
+            forTTYDevices: Set(ttyDeviceByPanelId.values)
+        )
         var liveCommands: [UUID: String] = [:]
         for (panelId, device) in ttyDeviceByPanelId {
             if let command = liveCommandsByTTY[device] {

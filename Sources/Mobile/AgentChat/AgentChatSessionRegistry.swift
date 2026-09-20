@@ -46,7 +46,7 @@ final class AgentChatSessionRegistry {
     /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
     /// event source, not a timer, and is cancellable.
     private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
-    var processExitRetryTasks: [String: Task<Void, Never>] = [:]
+    var processExitRetryTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
     /// Creates a registry.
     ///
