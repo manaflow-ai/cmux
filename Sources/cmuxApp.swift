@@ -496,11 +496,17 @@ struct cmuxApp: App {
                     browserFocusModeMenuRevision &+= 1
                 }
                 // The Settings toggle writes the gate straight to defaults, so
-                // the defaults notification is needed as well as the gate's own.
+                // the defaults notification is needed as well as the gate's own,
+                // and the CLI writes it from another process (caught on
+                // activation at the latest). Matches what the affordance
+                // tracking modifier watches, so menus and buttons agree.
                 .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
                     browserAvailabilityMenuRevision &+= 1
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                    browserAvailabilityMenuRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                     browserAvailabilityMenuRevision &+= 1
                 }
         }
@@ -871,7 +877,7 @@ struct cmuxApp: App {
                     }
                 }
 
-                if offersBrowserWorkspaceMenuItem {
+                if offersBrowserMenuItems {
                     splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
                         if let appDelegate = AppDelegate.shared {
                             appDelegate.performNewBrowserWorkspaceAction(
@@ -1091,49 +1097,51 @@ struct cmuxApp: App {
             }
             Divider()
             surfaceNavigationCommandButtons()
-            splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
-                _ = performFocusedBrowserAction(.back)
-            }
+            if offersBrowserMenuItems {
+                splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
+                    _ = performFocusedBrowserAction(.back)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
-                _ = performFocusedBrowserAction(.forward)
-            }
+                splitCommandButton(title: String(localized: "menu.view.forward", defaultValue: "Forward"), shortcut: menuShortcut(for: .browserForward)) {
+                    _ = performFocusedBrowserAction(.forward)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
-                _ = performFocusedBrowserAction(.reload)
-            }
+                splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
+                    _ = performFocusedBrowserAction(.reload)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
-                if !performFocusedBrowserAction(.toggleDeveloperTools) {
-                    NSSound.beep()
+                splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
+                    if !performFocusedBrowserAction(.toggleDeveloperTools) {
+                        NSSound.beep()
+                    }
                 }
-            }
-            splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
-                if !performFocusedBrowserAction(.showJavaScriptConsole) {
-                    NSSound.beep()
+                splitCommandButton(title: String(localized: "menu.view.showJSConsole", defaultValue: "Show JavaScript Console"), shortcut: menuShortcut(for: .showBrowserJavaScriptConsole)) {
+                    if !performFocusedBrowserAction(.showJavaScriptConsole) {
+                        NSSound.beep()
+                    }
                 }
-            }
-            splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
-                if !performFocusedBrowserAction(.toggleReactGrab) {
-                    NSSound.beep()
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
+                    if !performFocusedBrowserAction(.toggleReactGrab) {
+                        NSSound.beep()
+                    }
                 }
-            }
-            splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
-                if !performFocusedBrowserAction(
-                    .toggleDesignMode(reason: "viewMenu")
-                ) {
-                    NSSound.beep()
+                splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
+                    if !performFocusedBrowserAction(
+                        .toggleDesignMode(reason: "viewMenu")
+                    ) {
+                        NSSound.beep()
+                    }
                 }
-            }
-            let browserFocusModeMenu = browserFocusModeMenuSnapshot
-            Button(browserFocusModeMenu.title) {
-                if !performFocusedBrowserAction(
-                    .toggleFocusMode(reason: "viewMenu")
-                ) {
-                    NSSound.beep()
+                let browserFocusModeMenu = browserFocusModeMenuSnapshot
+                Button(browserFocusModeMenu.title) {
+                    if !performFocusedBrowserAction(
+                        .toggleFocusMode(reason: "viewMenu")
+                    ) {
+                        NSSound.beep()
+                    }
                 }
+                .disabled(!browserFocusModeMenu.canToggle)
             }
-            .disabled(!browserFocusModeMenu.canToggle)
             splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
                 if activeBrowserActionTarget != nil {
                     _ = performFocusedBrowserAction(.zoomIn)
@@ -1158,14 +1166,16 @@ struct cmuxApp: App {
                 }
             }
 
-            Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
-                BrowserHistoryStore.shared.clearHistory()
-            }
+            if offersBrowserMenuItems {
+                Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
+                    BrowserHistoryStore.shared.clearHistory()
+                }
 
-            Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
-                // Defer modal presentation until after AppKit finishes menu tracking.
-                DispatchQueue.main.async {
-                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
+                    // Defer modal presentation until after AppKit finishes menu tracking.
+                    DispatchQueue.main.async {
+                        BrowserDataImportCoordinator.shared.presentImportDialog()
+                    }
                 }
             }
 
@@ -1205,12 +1215,14 @@ struct cmuxApp: App {
                 performSplitFromMenu(direction: .down)
             }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
-                performBrowserSplitFromMenu(direction: .right)
-            }
+            if offersBrowserMenuItems {
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
 
-            splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
-                performBrowserSplitFromMenu(direction: .down)
+                splitCommandButton(title: String(localized: "menu.view.splitBrowserDown", defaultValue: "Split Browser Down"), shortcut: menuShortcut(for: .splitBrowserDown)) {
+                    performBrowserSplitFromMenu(direction: .down)
+                }
             }
 
             paneSizingCommandButtons()
@@ -1312,9 +1324,15 @@ struct cmuxApp: App {
         notificationStore.notificationMenuSnapshot
     }
 
-    /// Whether the File menu offers its browser entry. Reads the revision so
-    /// the menu re-evaluates when the availability gate changes.
-    private var offersBrowserWorkspaceMenuItem: Bool {
+    /// Whether the menus offer their browser-only entries. Reads the revision
+    /// so they re-evaluate when the availability gate changes.
+    ///
+    /// Guards the File menu's browser workspace item and the View menu's
+    /// browser-only items. Items that merely *prefer* a browser but fall back
+    /// to another surface (the zoom commands, which zoom a focused text file
+    /// preview when no browser is focused) stay ungated: hiding those would
+    /// take away a working non-browser command (#10866).
+    private var offersBrowserMenuItems: Bool {
         let _ = browserAvailabilityMenuRevision
         return BrowserAvailabilitySettings.offersBrowserAffordance(
             isEnabled: BrowserAvailabilitySettings.isEnabled()

@@ -2825,6 +2825,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
+    private var browserAvailabilityObservers: [NSObjectProtocol] = []
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -4321,6 +4322,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
+        // The availability gate is mutated from several entrypoints that
+        // signal differently: the palette and MDM policy post the gate's own
+        // notification, Settings writes defaults directly, and the CLI writes
+        // from another process (caught on activation at the latest). The tab
+        // bar watches all three so its globe button cannot go stale while the
+        // other affordances update.
+        browserAvailabilityObservers = [
+            BrowserAvailabilitySettings.didChangeNotification,
+            UserDefaults.didChangeNotification,
+            NSApplication.didBecomeActiveNotification,
+        ].map { name in
+            NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isRetiredFromOwningTabManager else { return }
+                    self.reapplySurfaceTabBarButtonsForFeatureFlags()
+                }
+            }
+        }
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
@@ -4338,6 +4361,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
+        }
+        for observer in browserAvailabilityObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
         deferredAgentResumeIndexTask?.cancel()
         activeRemoteSessionControllerID = nil
@@ -4371,8 +4397,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Whether a built-in tab bar button should be drawn at all.
     ///
-    /// Named and static so the gate is testable without standing up a
-    /// workspace.
+    /// The globe button creates a browser surface, so it resolves against the
+    /// same availability gate its action already consults: a disabled browser
+    /// left the button drawn and only beeping (#10866). Named and static so
+    /// the gate is testable without standing up a workspace.
     static func surfaceTabBarBuiltInActionIsAvailable(
         _ action: CmuxSurfaceTabBarBuiltInAction
     ) -> Bool {
@@ -4380,6 +4408,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         case .mobileConnect: return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
         case .newAgentChat: return CmuxFeatureFlags.shared.isAgentChatUIEnabled
         case .newSimulator: return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .newBrowser:
+            return BrowserAvailabilitySettings.offersBrowserAffordance(
+                isEnabled: BrowserAvailabilitySettings.isEnabled()
+            )
         default: return true
         }
     }
@@ -10519,6 +10551,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
         }
+        for observer in browserAvailabilityObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        browserAvailabilityObservers = []
         teardownAllPanels(retireDock: true)
         teardownRemoteConnection()
         owningTabManager = nil
