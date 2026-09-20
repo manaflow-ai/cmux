@@ -9,6 +9,8 @@ on:
       - "scripts/test-remote-connections-ios.sh"
       - "scripts/verify-remote-native-tests.py"
       - "tests/test_remote_native_results.py"
+      - "tests/ssh_native/**"
+      - "scripts/test-libssh-swift-host.sh"
       - ".github/workflows/test-remote-connections.yml"
   workflow_dispatch:
 
@@ -36,6 +38,8 @@ jobs:
         run: swift test --package-path Packages/Shared/CmuxRemoteConnections
       - name: Test native SSH package behavior
         run: swift test --package-path Packages/Shared/CmuxSSHNative
+      - name: Test native Swift SSH fixture
+        run: /bin/bash scripts/test-libssh-swift-host.sh
       - name: Test native result verification
         run: python3 -m unittest discover -s tests -p test_remote_native_results.py
       - name: Test iOS package and native Keychain
