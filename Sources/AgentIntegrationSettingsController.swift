@@ -3,7 +3,7 @@ import CmuxSettingsUI
 import Foundation
 import OSLog
 
-private let agentIntegrationSettingsLogger = Logger(
+nonisolated private let agentIntegrationSettingsLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "AgentIntegrationSettings"
 )
@@ -78,7 +78,7 @@ struct AgentIntegrationSettingsController: Sendable {
         case .openInstructions:
             return AgentIntegrationActionResult(
                 succeeded: false,
-                message: "Open-instructions is handled by the app host."
+                message: String(localized: "settings.automation.integration.instructions.hostRequired", defaultValue: "Open the integration instructions from Settings.")
             )
         }
 

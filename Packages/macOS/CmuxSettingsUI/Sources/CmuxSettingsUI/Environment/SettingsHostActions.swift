@@ -372,7 +372,7 @@ public extension SettingsHostActions {
         return AgentIntegrationActionResult(
             succeeded: false,
             message: String(
-                localized: "settings.automation.integration.install.unavailable",
+                localized: "settings.automation.integration.install.hostUnavailable",
                 defaultValue: "Hook installation is unavailable in this settings host."
             )
         )
