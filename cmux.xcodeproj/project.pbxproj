@@ -780,6 +780,8 @@
 		056D049E52C84DE4BAEA363C /* CloudMachineResourcePresentation+MachineSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7134CF3EB1C4101B13E787E /* CloudMachineResourcePresentation+MachineSnapshot.swift */; };
 		0F5C2DDC1A39436E867D28BB /* CloudMachinesFeature.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9143D900F124494A55F859F /* CloudMachinesFeature.swift */; };
 		A1B2C3D4E5F6071827364951 /* CloudMachineSurfacePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071827364950 /* CloudMachineSurfacePresentation.swift */; };
+		FA6C4245C2494ABC8040976C /* CloudMachineWorkspaceAdoptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4905E394B4947A1ADEFA562 /* CloudMachineWorkspaceAdoptionTests.swift */; };
+		05D21B3D166A4BEEBCA8787C /* CloudMachineWorkspaceTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5798066BEDA24148AFD551DB /* CloudMachineWorkspaceTestProvider.swift */; };
 		FA0000000000000000000001 /* CloudManualInputOptionBackspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000002 /* CloudManualInputOptionBackspaceTests.swift */; };
 		C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */; };
 		A014F45D702B4F71A5E9FB18 /* CloudManualMirrorPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163D243E14A149278220D4E6 /* CloudManualMirrorPresentation.swift */; };
@@ -4828,6 +4830,8 @@
 		E7134CF3EB1C4101B13E787E /* CloudMachineResourcePresentation+MachineSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CloudMachineResourcePresentation+MachineSnapshot.swift"; sourceTree = "<group>"; };
 		D9143D900F124494A55F859F /* CloudMachinesFeature.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachinesFeature.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071827364950 /* CloudMachineSurfacePresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudMachineSurfacePresentation.swift; sourceTree = "<group>"; };
+		D4905E394B4947A1ADEFA562 /* CloudMachineWorkspaceAdoptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineWorkspaceAdoptionTests.swift"; sourceTree = "<group>"; };
+		5798066BEDA24148AFD551DB /* CloudMachineWorkspaceTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudMachineWorkspaceTestProvider.swift"; sourceTree = "<group>"; };
 		FA0000000000000000000002 /* CloudManualInputOptionBackspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualInputOptionBackspaceTests.swift; sourceTree = "<group>"; };
 		C11324820000000000000001 /* CloudManualMirrorMaterialization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorMaterialization.swift; sourceTree = "<group>"; };
 		163D243E14A149278220D4E6 /* CloudManualMirrorPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudManualMirrorPresentation.swift; sourceTree = "<group>"; };
@@ -11302,6 +11306,8 @@
 				F92AB6D1CB714189A8F167E5 /* SetAutoTitleSocketTests.swift */,
 				10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */,
 				C12542000000000000000001 /* CloudInitialWorkspaceNamingTests.swift */,
+				D4905E394B4947A1ADEFA562 /* CloudMachineWorkspaceAdoptionTests.swift */,
+				5798066BEDA24148AFD551DB /* CloudMachineWorkspaceTestProvider.swift */,
 				C12986000000000000000001 /* CloudWorkspaceRenameSurfaceParityTests.swift */,
 				20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */,
 				F9A7787BF0744F3981CFD375 /* CloudNameAuthorityFixture.swift */,
@@ -15699,6 +15705,8 @@
 				A1308600000000000000000E /* CloudMachineOrderingFixture.swift in Sources */,
 				A13086000000000000000014 /* CloudMachineOrderingTestPanel.swift in Sources */,
 				A13086000000000000000010 /* CloudMachineOrderingTests.swift in Sources */,
+				FA6C4245C2494ABC8040976C /* CloudMachineWorkspaceAdoptionTests.swift in Sources */,
+				05D21B3D166A4BEEBCA8787C /* CloudMachineWorkspaceTestProvider.swift in Sources */,
 				FA0000000000000000000001 /* CloudManualInputOptionBackspaceTests.swift in Sources */,
 				C12376010000000000000001 /* CloudManualMirrorPresentationTests.swift in Sources */,
 				95E93CB008517B3E2ABDC326 /* CloudManualMirrorSocketFixture.swift in Sources */,

@@ -226,9 +226,6 @@ import Testing
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
-        #expect(VMRemoteWorkspaceResolver().remoteWorkspaceName(
-            "ws-id", machine: "vivid-newt", in: ["machines": [machine]]
-        ) == "other")
         #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
         let unfocused: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "connected", "remote_workspaces": [["id": "ws-a"], ["id": "ws-b"]]]], "resources": [[String: Any]]()]
         #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: unfocused) == .unavailable)

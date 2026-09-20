@@ -24,36 +24,6 @@ struct CloudInitialWorkspaceNamingTests {
         }
     }
 
-    @Test("The first remote workspace receipt adopts the optimistic local placeholder once")
-    func firstWorkspaceReceiptAdoptsPlaceholder() async throws {
-        try await withUnboundFixture { fixture in
-            fixture.catalog.bindCloudWorkspace(
-                localWorkspaceID: fixture.workspace.id,
-                machine: fixture.provider.machine,
-                remoteWorkspaceID: "a",
-                generatedTitle: "Cloud VM",
-                remoteWorkspaceName: "workspace-1"
-            )
-
-            #expect(fixture.workspace.title == "workspace-1")
-            #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
-            #expect(fixture.provider.writes.isEmpty, "adoption acknowledges the daemon name; it does not rename it back")
-
-            // A duplicate receipt is idempotent and cannot create another local
-            // workspace or replay a remote rename.
-            fixture.catalog.bindCloudWorkspace(
-                localWorkspaceID: fixture.workspace.id,
-                machine: fixture.provider.machine,
-                remoteWorkspaceID: "a",
-                generatedTitle: "Cloud VM",
-                remoteWorkspaceName: "workspace-1"
-            )
-            #expect(fixture.manager.tabs.count == 1)
-            #expect(fixture.workspace.title == "workspace-1")
-            #expect(fixture.provider.writes.isEmpty)
-        }
-    }
-
     @Test("Discovery after binding replaces the placeholder without a second create")
     func discoveryReconcilesAlreadyBoundWorkspace() async throws {
         try await withUnboundFixture { fixture in
@@ -103,8 +73,7 @@ struct CloudInitialWorkspaceNamingTests {
         try await withUnboundFixture { fixture in
             #expect(fixture.workspace.setCustomTitle("Cloud VM", source: .user))
             fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
-                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM",
-                remoteWorkspaceName: "workspace-1")
+                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
             try await fixture.settle()
             try fixture.expectParity("terminal", workspaceName: "Cloud VM")
             #expect(fixture.provider.writes.map { $0.1 } == ["Cloud VM"])
@@ -157,20 +126,6 @@ struct CloudInitialWorkspaceNamingTests {
         #expect(created.effectiveCustomTitleSource == .auto)
         #expect(created.setCustomTitle("Cloud VM", source: .user))
         #expect(created.effectiveCustomTitleSource == .user)
-    }
-
-    @Test("Provider ids do not flash as local Cloud workspace names")
-    func providerIDIsNotAWorkspaceLabel() {
-        let machine = SurfaceMachineID.cloud("vm-123")
-        let info = SurfaceMachineInfo(
-            id: machine, name: machine.rawValue, status: "running", image: nil,
-            hasDesktop: true, memoryMb: nil, diskMb: nil,
-            linkState: .connecting, linkError: nil,
-            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
-        )
-        let snapshot = SurfaceCatalogSnapshot(machines: [info], resources: [], projections: [])
-
-        #expect(CloudTreeNodeActions.resolvedMachineName(machine, snapshot: snapshot) == "Cloud VM")
     }
 
     @Test("Creation completion selects only the initiating window workspace")
