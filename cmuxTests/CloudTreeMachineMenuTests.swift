@@ -221,6 +221,53 @@ struct CloudTreeMachineMenuTests {
         _ = container
     }
 
+    @Test("Double-clicking machines and remote workspaces routes to their rename actions")
+    func doubleClickRenamesCloudRows() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-double-click-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+
+        let machineNode = Self.machineNode()
+        let workspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "Build", index: 0, focused: true)
+        let workspaceNode = CloudTreeNode(
+            id: "workspace-row",
+            kind: .workspace(
+                .cloud(Self.machineID), workspace,
+                terminalCount: 0, hiddenTabCount: 0, openIn: nil
+            )
+        )
+        coordinator.apply(nodes: [machineNode, workspaceNode])
+        let outline = try #require(coordinator.outlineView)
+        #expect(outline.doubleAction == #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:)))
+
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: machineNode)), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedMachines.count == 1)
+        #expect(recorder.renamedMachines.first?.0 == Self.machineID)
+        #expect(recorder.renamedMachines.first?.1 == "Big Machine")
+
+        let workspaceRow = outline.row(forItem: workspaceNode)
+        outline.selectRowIndexes(IndexSet(integer: workspaceRow), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedWorkspaces.count == 1)
+        #expect(recorder.renamedWorkspaces.first?.0 == .cloud(Self.machineID))
+        #expect(recorder.renamedWorkspaces.first?.1.0 == "workspace-1")
+        #expect(recorder.renamedWorkspaces.first?.1.1 == "Build")
+    }
+
     @Test("Repeated navigation activation shares one keyed Cloud operation")
     func keyedNavigationIsIdempotent() async {
         let controller = CloudWorkspaceOperationController(isAvailable: { true })
@@ -425,7 +472,7 @@ struct CloudTreeMachineMenuTests {
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append($0) },
-            promptRename: { _, _ in },
+            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
@@ -446,7 +493,9 @@ struct CloudTreeMachineMenuTests {
             newWorkspace: { _ in },
             closeTerminal: { _ in },
             closeWorkspace: { _, _ in },
-            renameWorkspace: { _, _ in },
+            renameWorkspace: { machine, workspace in
+                recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
+            },
             renameTerminal: { _, _ in },
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
@@ -472,4 +521,6 @@ private final class CloudTreeMenuVerbRecorder {
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
     var pinChanges: [(String, Bool)] = []
+    var renamedMachines: [(String, String)] = []
+    var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
 }
