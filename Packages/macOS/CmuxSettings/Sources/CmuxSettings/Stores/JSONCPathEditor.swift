@@ -35,12 +35,12 @@ struct JSONCPathEditor: Sendable {
         guard !path.isEmpty, rootObject(in: source) != nil else {
             throw EditError.malformedObject
         }
-        guard property(at: path, in: source) != nil else { return source }
+        guard parentAndPropertyIndex(at: path, in: source, selectingLast: false) != nil else { return source }
 
         var updated = source
         // A parsed JSON object resolves duplicate keys to the last occurrence.
         // Remove every duplicate leaf so reset cannot expose a shadowed value.
-        while property(at: path, in: updated) != nil {
+        while parentAndPropertyIndex(at: path, in: updated, selectingLast: false) != nil {
             let next = try removingProperty(at: path, in: updated)
             guard next != updated else { break }
             updated = next
@@ -265,23 +265,30 @@ struct JSONCPathEditor: Sendable {
         in source: String,
         selectingLast: Bool = true
     ) -> (ObjectRange, Int)? {
-        guard !path.isEmpty, var object = rootObject(in: source) else { return nil }
-        for component in path.dropLast() {
-            let property = selectingLast
-                ? object.property(named: component)
-                : object.properties.first { $0.key == component }
-            guard let property else { return nil }
-            let valueStart = skipWhitespaceAndComments(in: source, from: property.valueStart)
-            guard valueStart < source.endIndex,
-                  source[valueStart] == "{",
-                  let child = parseObject(in: source, at: valueStart) else { return nil }
-            object = child
+        guard !path.isEmpty, let root = rootObject(in: source) else { return nil }
+        func find(in object: ObjectRange, components: ArraySlice<String>) -> (ObjectRange, Int)? {
+            guard let component = components.first else { return nil }
+            let indices = object.properties.indices.filter { object.properties[$0].key == component }
+            if components.count == 1 {
+                guard let index = selectingLast ? indices.last : indices.first else { return nil }
+                return (object, index)
+            }
+            // Reset visits every duplicate ancestor, including ones shadowed
+            // by another object or a scalar. It must not leave a leaf that a
+            // decoder with different duplicate-key behavior can expose later.
+            let candidates = selectingLast ? Array(indices.suffix(1)) : indices
+            for index in candidates {
+                let property = object.properties[index]
+                let start = skipWhitespaceAndComments(in: source, from: property.valueStart)
+                guard start < source.endIndex, source[start] == "{",
+                      let child = parseObject(in: source, at: start) else { continue }
+                if let result = find(in: child, components: components.dropFirst()) {
+                    return result
+                }
+            }
+            return nil
         }
-        let index = selectingLast
-            ? object.properties.lastIndex { $0.key == path.last }
-            : object.properties.firstIndex { $0.key == path.last }
-        guard let index else { return nil }
-        return (object, index)
+        return find(in: root, components: ArraySlice(path))
     }
 
     private func property(at path: [String], in source: String) -> PropertyRange? {
