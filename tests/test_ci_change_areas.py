@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GUARD_JOBS = (
+    "static-preflight",
     "workflow-guard-tests",
     "workflow-guard-history",
     "workflow-guard-cli-scripts",
@@ -586,6 +587,7 @@ def linux_preflight_needs(
         route_outputs.update(outputs)
     job_results = {
         "changes": "success",
+        "static-preflight": "success",
         "workflow-guard-tests": "success",
         "workflow-guard-history": "success",
         "workflow-guard-cli-scripts": "success",
