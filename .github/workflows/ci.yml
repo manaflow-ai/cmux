@@ -2416,11 +2416,8 @@ jobs:
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
     runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
-    # A cold DerivedData cache (any project.pbxproj or Package.resolved change
-    # mints a new cache key with no restore-keys fallback) forces a full
-    # cmux build whose Swift codegen alone can run 20+ min. Project/package
-    # changes from the sidebar extension kit pushed this full build plus the
-    # CA, lag, and UI regressions beyond 35 min before the cache could repopulate.
+    # Every run is a full cmux build whose Swift codegen alone can run 20+ min,
+    # followed by the CA, lag, and UI regressions.
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
