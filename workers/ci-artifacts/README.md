@@ -99,9 +99,17 @@ that job's Actions-read token, never a personal token. Both server secrets are
 removed during cleanup along with the run's Worker and exact R2 copy;
 a bucket created by that run is deleted only if empty.
 
-One cold fill and one warm read run on the configured Linux CI runner, with
+Before transferring an artifact, the verifier checks a fixed authenticated
+readiness route through the same enabled/expiry/token gate. That route performs
+no broker, GitHub or R2 work. Readiness probes have a sixty-second overall bound;
+a marked access-gate rejection stops immediately. Safe response-stage markers
+separate wrapper rejection from an unmarked endpoint response without recording
+credentials, raw headers or response bodies.
+
+One cold fill and one warm read then run on the configured Linux CI runner, with
 streamed local SHA-256 verification and separate network/total/hash timings.
-Cold failure stops the trial; there is no retry loop or paid Mac dependency.
+Cold failure stops the trial; artifact transfers are never retried. Readiness
+attempts are recorded separately and are not counted as artifact performance.
 These timings exclude ZIP extraction and cannot be presented as a like-for-like
 comparison to the existing complete GitHub download action. The allowlisted
 artifact expires on 2026-09-23; an expired artifact requires another reviewed
