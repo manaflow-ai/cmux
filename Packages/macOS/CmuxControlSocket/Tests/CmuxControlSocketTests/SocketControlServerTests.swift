@@ -4,7 +4,6 @@ import Darwin
 import Foundation
 import os
 import Testing
-
 /// Thread-safe recorder for the server's event seam.
 private final class ServerEventRecorder: Sendable {
     struct FailureEvent {
@@ -422,6 +421,7 @@ struct SocketControlServerLifecycleTests {
         #expect(stat(harness.socketPath, &info) == 0)
         #expect(info.st_mode & 0o777 == 0o600)
     }
+
 }
 
 @MainActor

@@ -1,4 +1,4 @@
-import type { StackServerApp } from "@stackframe/stack";
+import type { StackServerApp } from "@hexclave/next";
 import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 

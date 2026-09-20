@@ -9,6 +9,7 @@ actor CloudTuiPersistentResourceConnection {
         let continuation: CheckedContinuation<Data, Error>
         let request: CloudTuiRequest
         let deadline: Task<Void, Never>
+        let isExpired: @Sendable () -> Bool
     }
     private struct Subscription {
         let continuation: AsyncStream<Data>.Continuation
@@ -75,7 +76,16 @@ actor CloudTuiPersistentResourceConnection {
     }
 
     func request(_ request: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
+        // Explicit `self.` is required: the compiler declines to open the
+        // existential when the argument is an implicit-self stored property.
+        try await performRequest(request, timeout: timeout, clock: self.clock)
+    }
+
+    private func performRequest<RequestClock: Clock>(
+        _ request: CloudTuiRequest, timeout: Duration, clock: RequestClock
+    ) async throws -> Data where RequestClock.Duration == Duration {
         try Task.checkCancellation()
+        guard timeout > .zero else { throw CloudMachineLink.LinkError.timedOut }
         try await start()
         try Task.checkCancellation()
         guard !closed else { throw Self.protocolFailure }
@@ -85,20 +95,27 @@ actor CloudTuiPersistentResourceConnection {
         let id = nextID()
         let encoded = try request.envelope(id: id)
         guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
-        return try await withTaskCancellationHandler(operation: {
+        let expiresAt = clock.now.advanced(by: timeout)
+        let result: Data = try await withTaskCancellationHandler(operation: {
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
-                let clock = self.clock
+                // A genuine request deadline, owned and cancelled with its pending entry.
                 let deadline = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: timeout) } catch { return }
+                    do { try await clock.sleep(until: expiresAt, tolerance: nil) } catch { return }
                     await self?.retire(id, error: CloudMachineLink.LinkError.timedOut)
                 }
-                pending[id] = Pending(continuation: continuation, request: request, deadline: deadline)
+                pending[id] = Pending(
+                    continuation: continuation, request: request, deadline: deadline,
+                    isExpired: { clock.now >= expiresAt }
+                )
                 connection.send(line: encoded + Data([0x0A]))
             }
         }, onCancel: { [weak self] in
             Task { await self?.retire(id, error: CancellationError()) }
         })
+        // The cancellation handler's actor hop can arrive after a successful response.
+        try Task.checkCancellation()
+        return result
     }
 
     private func retire(_ id: String, error: Error) {
@@ -159,12 +176,18 @@ actor CloudTuiPersistentResourceConnection {
         }
         guard let id = root["id"] as? String,
               let ok = root["ok"] as? NSNumber, CFGetTypeID(ok) == CFBooleanGetTypeID() else { close(); return }
-        guard let entry = pending.removeValue(forKey: id) else {
+        guard let entry = pending[id] else {
             // Responses to cancellation and retired requests are harmless.
             guard id.hasPrefix("request-\(namespace)-"), let suffix = id.split(separator: "-").last,
                   let issued = UInt64(suffix), issued > 0, issued <= sequence else { close(); return }
             return
         }
+        // After suspend/resume, the socket reader may run before the deadline task.
+        guard !entry.isExpired() else {
+            retire(id, error: CloudMachineLink.LinkError.timedOut)
+            return
+        }
+        pending.removeValue(forKey: id)
         entry.deadline.cancel()
         if !entry.request.raw && (root["protocol"] as? String != "cmux.protocol/2" || root["type"] as? String != "response") {
             entry.continuation.resume(throwing: Self.protocolFailure); close(); return

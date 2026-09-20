@@ -3,6 +3,10 @@ import Foundation
 /// The catalog as one value: what the sidebar renders, what `surface.catalog` and
 /// `cmux vm tree --json` print. Machines are ordered local first, then by name.
 struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
+    /// Workspaces admitted for deletion but not yet confirmed by the daemon,
+    /// per machine. Nil when nothing is pending, so socket readers on older
+    /// builds keep decoding the same document.
+    var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>]? = nil
     var machines: [SurfaceMachineInfo]
     var resources: [SurfaceResource]
     var projections: [SurfaceProjection]
@@ -26,11 +30,12 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 
 extension SurfaceCatalogSnapshot {
     private enum CodingKeys: String, CodingKey {
-        case machines, resources, projections, staleMachineIDs
+        case pendingWorkspaceDeletions, machines, resources, projections, staleMachineIDs
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        pendingWorkspaceDeletions = try values.decodeIfPresent([SurfaceMachineID: Set<String>].self, forKey: .pendingWorkspaceDeletions)
         machines = try values.decode([SurfaceMachineInfo].self, forKey: .machines)
         resources = try values.decode([SurfaceResource].self, forKey: .resources)
         projections = try values.decode([SurfaceProjection].self, forKey: .projections)
