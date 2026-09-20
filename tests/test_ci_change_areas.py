@@ -579,6 +579,11 @@ def linux_preflight_needs(
     results: dict[str, str] | None = None,
 ) -> dict[str, object]:
     route_outputs = {
+        "linux_guard_tests": "true",
+        "linux_guard_history": "true",
+        "linux_guard_cli": "true",
+        "linux_guard_source": "true",
+        "ghosttykit_release": "true",
         "macos": "true",
         "web": "true",
         "agent_session_web": "true",
