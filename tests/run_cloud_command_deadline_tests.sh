@@ -23,6 +23,14 @@ for name in CloudTuiPersistentResourceConnection CloudTuiPersistentRequestBuilde
     CloudTuiManualIOFrame CloudTuiManualIOFrameDecoder CloudTuiRemoteColors; do
     cp "$ROOT/Sources/Cloud/$name.swift" "$DEST/Sources/CloudCommandFixture/"
 done
+# CloudTuiManualIOCommand is now backed by the schema-generated Swift SDK and
+# the presence model aliases. Keep this isolated fixture on the same source
+# closure as the app target so the command deadline tests compile the real
+# typed transport boundary.
+cp "$ROOT/Sources/Cloud/CloudPresenceEntry.swift" "$DEST/Sources/CloudCommandFixture/"
+for generated in "$ROOT"/cmux-tui/bindings/swift/generated/*.swift; do
+    cp "$generated" "$DEST/Sources/CloudCommandFixture/"
+done
 cp "$ROOT/tests/fixtures/cloud-command-deadlines/StandaloneDependencies.swift" "$DEST/Sources/CloudCommandFixture/"
 for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
