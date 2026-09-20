@@ -151,10 +151,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let displayIdentityChanged = self.summary.id != summary.id
             || self.summary.provider != summary.provider
             || self.summary.image != summary.image
+            || self.summary.resolvedKind != summary.resolvedKind
         let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
-        if displayIdentityChanged { displayCoordinator.invalidate() }
+        if displayIdentityChanged {
+            displayCoordinator.invalidate()
+            for resource in catalog.snapshot.resources(on: machine) where resource.kind == .display {
+                catalog.remove(resource.id, from: self)
+            }
+        }
         self.summary = summary
         if !supportsPortPreviews {
             portsCache = nil

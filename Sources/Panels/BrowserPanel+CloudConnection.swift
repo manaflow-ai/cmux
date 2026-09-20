@@ -52,28 +52,36 @@ extension BrowserPanel {
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
         case .privateDirect(let raw):
             if let url = URL(string: raw) {
-                let configured = provider.configureBrowser(
-                    self,
-                    url: Self.cloudRestoredURL(pendingCloudRestoreURL, on: url),
-                    resourceID: resource
-                )
+                let configured = provider.configureBrowser(self,
+                    url: Self.cloudRestoredURL(pendingCloudRestoreURL, on: url, isDisplay: resource.kind == .display),
+                    resourceID: resource)
                 if configured { pendingCloudRestoreURL = nil }
             }
         case .unsupported(let message): cloudAccess.showUnavailable(message)
         }
     }
 
-    private static func cloudRestoredURL(_ preferred: URL?, on target: URL) -> URL {
+    private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
         guard let preferred, var components = URLComponents(url: target, resolvingAgainstBaseURL: false),
               let saved = URLComponents(url: preferred, resolvingAgainstBaseURL: false) else { return target }
         components.path = saved.path.isEmpty ? components.path : saved.path
-        components.query = saved.query
-        components.fragment = saved.fragment
+        if isDisplay {
+            let allowed = Set(["path", "autoconnect", "resize", "reconnect", "reconnect_delay"])
+            let safeItems = (saved.queryItems ?? []).filter { allowed.contains($0.name.lowercased()) }
+            if !safeItems.isEmpty { components.queryItems = safeItems }
+        } else {
+            components.query = saved.query
+            components.fragment = saved.fragment
+        }
         return components.url ?? target
     }
 
     func cloudRestoreURL(on target: URL) -> URL {
-        Self.cloudRestoredURL(pendingCloudRestoreURL ?? currentURLForTabDuplication, on: target)
+        Self.cloudRestoredURL(
+            pendingCloudRestoreURL ?? currentURLForTabDuplication,
+            on: target,
+            isDisplay: cloudResourceForDuplication?.kind == .display
+        )
     }
 
     /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.
