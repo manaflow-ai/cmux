@@ -86,7 +86,8 @@ extension Workspace {
     }
 
     /// Routes a Cmd+D-style split from a cloud-projected panel to its machine.
-    /// Returns false when the source panel is not a cloud projection (create locally).
+    /// False means no request was accepted. The caller checks Cloud ownership first
+    /// and returns a failure without entering its local-creation path.
     func routeCloudPaneTerminalSplit(
         from panelID: UUID,
         orientation: SplitOrientation,
@@ -122,7 +123,8 @@ extension Workspace {
     }
 
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
-    /// resource to that machine. Returns false when the pane is not cloud-anchored.
+    /// resource to that machine. False reports rejection; the caller's prior Cloud
+    /// ownership check prevents a rejected request from entering local creation.
     func routeCloudPaneTerminalTab(inPane paneID: PaneID, focus: Bool) -> Bool {
         guard let selectedTab = bonsplitController.selectedTab(inPane: paneID),
               let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
