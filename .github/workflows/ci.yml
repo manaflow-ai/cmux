@@ -18,12 +18,14 @@ on:
           - default
           - github
           - warp
+          - r2
 
 permissions:
   contents: read
 
 env:
   SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -38,7 +40,9 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
+      compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
@@ -182,6 +186,50 @@ jobs:
           fi
           python3 scripts/ci/choose_ci_suite.py "${args[@]}"
 
+      # A push that changes nothing the Xcode build reads (a guard test, another
+      # workflow, docs, a merge of main that only moved web) has nothing new to
+      # compile. Each pull request run publishes its build-input fingerprint as
+      # an artifact name, and a compile-only run whose fingerprint an earlier run
+      # of the same in-org branch already compiled skips compile admission. Runs
+      # with the full suite always compile, because the shards need the product.
+      # The artifact name carries the run attempt, so a pass only vouches for the
+      # fingerprint published in its own attempt. These steps are an optimization:
+      # any of them failing leaves compile_admitted unset, which compiles.
+      - name: Fingerprint the build inputs
+        id: inputs
+        continue-on-error: true
+        if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' }}
+        env:
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+        run: |
+          set -euo pipefail
+          fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "$fingerprint" > "$RUNNER_TEMP/build-inputs.txt"
+
+      - name: Publish the build-input fingerprint
+        continue-on-error: true
+        if: ${{ steps.inputs.outputs.fingerprint != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-inputs-${{ steps.inputs.outputs.fingerprint }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/build-inputs.txt
+          retention-days: 7
+          overwrite: true
+
+      - name: Look for an earlier run that compiled these inputs
+        id: admitted
+        continue-on-error: true
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+          FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
+            --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
+
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
@@ -210,6 +258,9 @@ jobs:
 
       - name: Validate docs deployment authentication guard
         run: python3 tests/test_docs_deploy_auth_guard.py
+
+      - name: Validate reload shared DerivedData default
+        run: ./tests/test_reload_shared_derived_data.sh
 
       - name: Validate Localizable.xcstrings catalog structure
         run: python3 tests/test_localizable_xcstrings_structure.py
@@ -279,6 +330,9 @@ jobs:
 
       - name: Validate pull request caches are read-only
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate the R2 cache store script
+        run: bash tests/test_ci_r2_cache.sh
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
@@ -917,6 +971,7 @@ jobs:
           python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
       - name: Prepare isolated app-host home
+        id: prepare-app-host-home
         run: scripts/ci/prepare-app-host-home.sh
 
       - name: Resolve Swift packages
@@ -1543,7 +1598,7 @@ jobs:
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
       - name: Run Cloud machine ordering acceptance
-        if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         timeout-minutes: 10
         run: |
           # Separate invocations prove each selector executed tests; a healthy
@@ -1803,8 +1858,6 @@ jobs:
             exit 1
           fi
 
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_open_device_target.py
@@ -1873,7 +1926,23 @@ jobs:
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
-        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+        env:
+          CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
+        run: |
+          # Checkout may have failed before these scripts existed. Once setup
+          # starts, even partial or cancelled preparation still needs cleanup.
+          case "$CMUX_APP_HOST_PREPARATION_OUTCOME" in
+            skipped|"")
+              echo "App-host preparation did not start; no isolated home to clean."
+              ;;
+            success|failure|cancelled)
+              scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+              ;;
+            *)
+              echo "::error::Unexpected app-host preparation outcome: $CMUX_APP_HOST_PREPARATION_OUTCOME"
+              exit 1
+              ;;
+          esac
 
   tests:
     name: tests
@@ -1921,7 +1990,12 @@ jobs:
               sys.exit(1)
 
           admission = needs["macos-compile-admission"]
-          if macos == "true" and admission["result"] != "success":
+          # A compile-only run may skip admission when an earlier run of the
+          # same branch already compiled identical build inputs.
+          already_admitted = not full_suite and changes.get("outputs", {}).get("compile_admitted") == "true"
+          if already_admitted and admission["result"] == "skipped":
+              pass
+          elif macos == "true" and admission["result"] != "success":
               print(
                   f"macOS compile admission did not pass: {admission['result']}",
                   file=sys.stderr,
@@ -2383,7 +2457,7 @@ jobs:
     # build products and run test-without-building, so a compiler failure
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.compile_admitted != 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     outputs:
@@ -2483,8 +2557,7 @@ jobs:
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
 
-      - name: Package compiled app-host test product
-        id: package-products
+      - name: Stage compiled package frameworks
         run: |
           set -euo pipefail
           products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
@@ -2500,6 +2573,24 @@ jobs:
           mkdir -p "$products/PackageFrameworks"
           rsync -aL "$framework_root/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+
+      # These no-socket probes take seconds and need only the compiled CLI.
+      # Fail admission before allocating app-host shards or the runtime job.
+      - name: Run early CLI binary smoke checks
+        run: |
+          set -euo pipefail
+          CLI_BIN="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug/cmux"
+          if [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary missing from this admission build" >&2
+            exit 1
+          fi
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+
+      - name: Package compiled app-host test product
+        id: package-products
+        run: |
+          set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
           tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
