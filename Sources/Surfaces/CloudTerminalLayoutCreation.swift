@@ -23,7 +23,8 @@ struct CloudTerminalLayoutCreation: Sendable {
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
         idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())",
-        correlationKey: String? = nil
+        correlationKey: String? = nil,
+        expectedWorkspaceID: String? = nil
     ) async throws -> CloudTerminalLayoutCreationResult {
         var attempt = 0
         while true {
@@ -39,6 +40,11 @@ struct CloudTerminalLayoutCreation: Sendable {
             guard let pane = state.lookupIndex.pane(id: tab.paneID),
                   let screen = state.lookupIndex.screen(id: pane.screenID) else {
                 throw CmuxTuiSurfaceProvider.ProviderError.remotePlacementUnavailable(nearTabID)
+            }
+            // The revision fence protects this comparison through the mutation.
+            // A conflict retry must recheck placement, never follow a moved tab.
+            if let expectedWorkspaceID, screen.workspaceID != expectedWorkspaceID {
+                throw CloudDiagnosticFailure.placement
             }
             let arguments = CloudTuiRequests.paneCreate(
                 paneID: pane.id, direction: splitDirection?.rawValue,

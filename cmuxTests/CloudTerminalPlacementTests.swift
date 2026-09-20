@@ -84,7 +84,83 @@ struct CloudTerminalPlacementTests {
         }
     }
 
-    private func perform(_ action: String, workspace: Workspace) {
+    @Test("Unavailable Cloud source fails visibly without a local replacement", arguments: ["tab", "split", "button", "socketTab", "socketSplit"])
+    func unavailableSource(action: String) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let workspace = app.workspace
+            let sourceID = try #require(workspace.focusedPanelId)
+            let machine = SurfaceMachineID.cloud("unavailable-\(UUID())")
+            let catalog = SurfaceCatalog.shared
+            catalog.record(SurfaceProjection(
+                resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "source"),
+                workspaceID: workspace.id, panelID: sourceID,
+                remoteWorkspaceID: "ws-source", remoteTabID: "tab-source"
+            ))
+            defer { catalog.endProjections(panelID: sourceID, reason: .replaced) }
+            let before = Set(workspace.panels.keys)
+            perform(action, workspace: workspace, expectsAcceptance: false)
+            #expect(Set(workspace.panels.keys) == before)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+            #expect(workspace.cloudPaneCreationFailureStore.failure?.machine == machine)
+        }
+    }
+
+    @Test("Wrong creation or materialization receipts are never accepted", arguments: ["creationWorkspace", "projectionWorkspace", "projectionMachine"])
+    func mismatchedReceipt(kind: String) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let provider = CloudTerminalPlacementTestProvider()
+            let catalog = SurfaceCatalog.shared
+            let workspace = app.workspace
+            catalog.register(provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                catalog.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            if kind == "creationWorkspace" { provider.returnedWorkspaceID = "other-workspace" }
+            if kind == "projectionWorkspace" { provider.projectedWorkspaceID = "other-workspace" }
+            if kind == "projectionMachine" { provider.projectedMachine = .local }
+            #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
+            let pendingID = try #require(workspace.cloudPendingCreations.keys.first)
+            provider.release.resolve(true)
+            try await settled { workspace.cloudMaterializationFailures[pendingID] != nil }
+            #expect(catalog.projection(forPanel: pendingID) == nil)
+            #expect(workspace.machineOwningSurface(pendingID) == provider.machine)
+            #expect(workspace.terminalPanel(for: pendingID)?.surface.ioMode == .manualMirror)
+            #expect(workspace.cloudPendingCreations[pendingID] != nil)
+            #expect(provider.materialized.count == (kind == "creationWorkspace" ? 0 : 1))
+        }
+    }
+
+    @Test("Cloud launch overrides fail closed instead of creating local terminals")
+    func launchOverrides() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let provider = CloudTerminalPlacementTestProvider()
+            let workspace = app.workspace
+            SurfaceCatalog.shared.register(provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                SurfaceCatalog.shared.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
+            let source = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.paneId(forPanelId: source))
+            let before = Set(workspace.panels.keys)
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: pane, initialCommand: "echo must-not-run-locally").isAccepted)
+            #expect(!workspace.newTerminalSplitOutcome(from: source, orientation: .horizontal, workingDirectory: "/tmp").isAccepted)
+            #expect(Set(workspace.panels.keys) == before)
+            #expect(workspace.cloudPaneCreationFailureStore.failure?.machine == provider.machine)
+        }
+    }
+
+    private func perform(_ action: String, workspace: Workspace, expectsAcceptance: Bool = true) {
         guard let sourceID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: sourceID) else {
             Issue.record("Source pane is missing")
@@ -97,9 +173,9 @@ struct CloudTerminalPlacementTests {
         TerminalController.withSocketCommandPolicyStack([true]) {
             switch action {
             case "tab":
-                #expect(workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: true).isAccepted)
+                #expect(workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: true).isAccepted == expectsAcceptance)
             case "split":
-                #expect(workspace.newTerminalSplitOutcome(from: sourceID, orientation: .horizontal, focus: true).isAccepted)
+                #expect(workspace.newTerminalSplitOutcome(from: sourceID, orientation: .horizontal, focus: true).isAccepted == expectsAcceptance)
             case "button":
                 #expect(workspace.bonsplitController.splitPane(paneID, orientation: .horizontal) != nil)
             case "socketTab":
@@ -109,7 +185,8 @@ struct CloudTerminalPlacementTests {
                     remoteContextRaw: nil, startupEnvironment: [:], requestedPaneID: paneID.id, requestedFocus: true
                 ))
                 switch result {
-                case .created, .routedToRemote: break
+                case .created, .routedToRemote: #expect(expectsAcceptance)
+                case .createFailed: #expect(!expectsAcceptance)
                 default: Issue.record("Create failed: \(result)")
                 }
             default:
@@ -120,7 +197,8 @@ struct CloudTerminalPlacementTests {
                     requestedFocus: true, initialDividerPosition: nil
                 ))
                 switch result {
-                case .created, .routedToRemote: break
+                case .created, .routedToRemote: #expect(expectsAcceptance)
+                case .createFailed: #expect(!expectsAcceptance)
                 default: Issue.record("Split failed: \(result)")
                 }
             }

@@ -200,6 +200,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
+                let target = Result { try destination(.tab) }
                 // A cloud machine gets its pane at once; the sidebar shares the
                 // shortcut routes' optimistic path. The local machine and a missing
                 // workspace keep the awaited create below.
@@ -218,7 +219,7 @@ struct CloudTreeNodeActions {
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: try destination(.tab),
+                        into: try target.get(),
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)

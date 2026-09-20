@@ -126,15 +126,32 @@ struct CloudTerminalLayoutCreationTests {
         #expect(requests[2].params["pane"] as? String == "pane_moved")
     }
 
+    @Test("A source moved to another workspace cannot redirect a captured create", arguments: [false, true])
+    func movedWorkspaceFailsBeforeMutation(afterConflict: Bool) async throws {
+        var responses: [Result<Data, CloudMachineLink.LinkError>] = []
+        if afterConflict {
+            responses = [.success(try Self.snapshot()), .failure(.exited(status: 1, output: "revision.conflict"))]
+        }
+        responses.append(.success(try Self.snapshot(revision: "11", workspaceID: "ws_other")))
+        let runner = LayoutCreationRunner(responses: responses)
+        await #expect(throws: CloudDiagnosticFailure.placement) {
+            try await operation(runner).run(
+                nearTabID: "tab_source", splitDirection: .right, expectedWorkspaceID: "ws_target"
+            )
+        }
+        let commands = await runner.commands
+        #expect(commands.filter { $0.operation == "pane.split" }.count == (afterConflict ? 1 : 0))
+    }
+
     private func operation(_ runner: LayoutCreationRunner) -> CloudTerminalLayoutCreation {
         CloudTerminalLayoutCreation(machine: Self.machine, socketPath: Self.socketPath, commandRunner: runner)
     }
 
-    private static func snapshot(revision: String = "10", paneID: String = "pane_target") throws -> Data {
+    private static func snapshot(revision: String = "10", paneID: String = "pane_target", workspaceID: String = "ws_target") throws -> Data {
         try JSONSerialization.data(withJSONObject: [
             "cursor": ["generation": "fixture", "revision": revision],
-            "workspaces": [["id": "ws_focused", "focused": true], ["id": "ws_target", "focused": false]],
-            "screens": [["id": "screen_target", "workspace_id": "ws_target"]],
+            "workspaces": [["id": "ws_focused", "focused": true], ["id": workspaceID, "focused": false]],
+            "screens": [["id": "screen_target", "workspace_id": workspaceID]],
             "panes": [["id": paneID, "screen_id": "screen_target"]],
             "tabs": [["id": "tab_source", "pane_id": paneID, "content_kind": "terminal", "content_id": "term_source"]],
             "terminals": [["id": "term_source", "lifecycle": "running"]],

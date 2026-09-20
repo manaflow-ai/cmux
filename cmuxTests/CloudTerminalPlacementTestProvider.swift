@@ -16,6 +16,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceProvider {
     private(set) var materialized: [SurfaceProjection] = []
     var returnedWorkspaceID: String?
     var projectedWorkspaceID: String?
+    var projectedMachine: SurfaceMachineID?
 
     var info: SurfaceMachineInfo {
         SurfaceMachineInfo(
@@ -61,8 +62,10 @@ final class CloudTerminalPlacementTestProvider: SurfaceProvider {
         focus: Bool, adopting reservation: CloudTerminalPaneReservation?
     ) async throws -> SurfaceProjection {
         let reservation = try #require(reservation)
+        var identity = resource.id
+        identity.machine = projectedMachine ?? resource.machine
         let projection = SurfaceProjection(
-            resource: resource.id, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
+            resource: identity, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
             remoteWorkspaceID: projectedWorkspaceID ?? remoteView?.workspace.id,
             remoteTabID: remoteView?.tabID
         )

@@ -29,7 +29,8 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             nearTabID: nearTabID,
             splitDirection: splitDirection,
             idempotencyKey: request.attemptKey,
-            correlationKey: request.correlationArgument
+            correlationKey: request.correlationArgument,
+            expectedWorkspaceID: request.remoteWorkspaceID
         )
         return recordCreatedTerminal(result.created, workspaceID: result.workspaceID, name: nil, cwd: nil)
     }

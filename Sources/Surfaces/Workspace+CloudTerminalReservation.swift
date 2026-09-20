@@ -38,6 +38,11 @@ extension Workspace {
                 workspaceID: id,
                 panelID: panelID,
                 machine: projection.resource.machine,
+                sourcePlacement: CloudTerminalSourcePlacement(
+                    machine: projection.resource.machine,
+                    remoteWorkspaceID: projection.remoteWorkspaceID,
+                    remoteTabID: projection.remoteTabID
+                ),
                 inputRelay: relay
             )
             return panelID
@@ -51,9 +56,11 @@ extension Workspace {
     func reserveCloudTerminalPane(
         machine: SurfaceMachineID,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        sourcePlacement: CloudTerminalSourcePlacement? = nil
     ) -> CloudTerminalPaneReservation? {
         guard !isRetiredFromOwningTabManager,
+              sourcePlacement == nil || sourcePlacement?.machine == machine,
               surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
@@ -61,24 +68,23 @@ extension Workspace {
             keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
-        let panelID: UUID
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: id, panelID: panel.id, machine: machine,
+            sourcePlacement: sourcePlacement, inputRelay: relay
+        )
+        // Insertion can synchronously publish focus/selection. Establish Cloud
+        // identity first so a reentrant action cannot observe a local surface.
+        cloudPendingCreations[panel.id] = reservation
         do {
-            // Creation is asynchronous, but the pane is already usable as a
-            // terminal surface. Keep the tab strip quiet while the remote
-            // attachment resolves; failures are rendered in the pane itself.
-            panelID = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
+            _ = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
         } catch {
-            #if DEBUG
-            cmuxDebugLog("cloud.pane.reserveFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
-            #endif
+            cloudPendingCreations.removeValue(forKey: panel.id)
+            relay.discard()
+            panel.close()
             return nil
         }
-        // A focused creation is user input demand. Start its local manual
-        // renderer before remote creation; keep hidden/restored reservations
-        // on normal admission so a restore cannot eagerly allocate every pane.
+        guard cloudPendingCreations[panel.id] === reservation else { return nil }
         if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
-        let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
-        cloudPendingCreations[panelID] = reservation
         return reservation
     }
 
@@ -93,6 +99,7 @@ extension Workspace {
     ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
         guard !isRetiredFromOwningTabManager,
               cloudPendingCreations[reservation.panelID] === reservation,
+              attachment.machineID == reservation.machine.cloudMachineID,
               let panel = panels[reservation.panelID] as? TerminalPanel,
               panel.surface.ioMode == .manualMirror else { return nil }
         Self.bindCloudManualMirrorCallbacks(

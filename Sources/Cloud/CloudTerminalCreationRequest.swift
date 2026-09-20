@@ -8,12 +8,14 @@ import Foundation
 @MainActor
 final class CloudTerminalCreationRequest {
     let id: UUID
+    let remoteWorkspaceID: String?
     let correlationKey: String
     private(set) var attemptKey: String
     private var submitted = false
 
-    init(id: UUID = UUID()) {
+    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil) {
         self.id = id
+        self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
         attemptKey = key
@@ -52,6 +54,7 @@ final class CloudTerminalCreationRequest {
         ) else { throw CloudDiagnosticFailure.response }
         switch resolution {
         case .created(let terminal):
+            if let remoteWorkspaceID, terminal.workspaceID != remoteWorkspaceID { throw CloudDiagnosticFailure.placement }
             return terminal
         case .sameAttempt:
             return nil
