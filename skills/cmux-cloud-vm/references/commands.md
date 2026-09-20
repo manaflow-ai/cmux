@@ -1,6 +1,6 @@
 # cmux Cloud CLI reference
 
-Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). Verbs that exist only in an open PR are listed at the end under [In flight](#in-flight) and nowhere else, so nothing above that heading is something you cannot run today. `tests/test_cloud_vm_skill_coverage.py` fails CI when this file and `CLI/cmux.swift` disagree.
+Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). The app-side file-transfer endpoint is prepared through the socket method `vm.scp_info`. Verbs that exist only in an open PR are listed at the end under [In flight](#in-flight) and nowhere else, so nothing above that heading is something you cannot run today. `tests/test_cloud_vm_skill_coverage.py` fails CI when this file and `CLI/cmux.swift` disagree.
 
 ## Conventions
 
@@ -628,6 +628,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | Method | CLI verb |
 |---|---|
 | `vm.list` | `vm ls` |
+| `vm.diagnostics` | `cmux rpc vm.diagnostics '{"show":true}'`; read-only Cloud operation diagnostics, optionally opening the Cloud Diagnostics panel |
 | `vm.create` | `vm new`, and `vm run` / `vm route --provision` / `vm agent` when they provision |
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
@@ -870,11 +871,12 @@ cmux vm push <id> <local-path> [remote-path]        # file or directory (tarball
 cmux vm push <id> ./site --exclude dist             # extra excludes on top of defaults
 cmux vm push <id> ./repo --no-default-excludes      # include .git, node_modules, ...
 cmux vm pull <id> <remote-path> [local-path]        # file or directory back to local disk
+# vm push obtains its short-lived loopback SSH endpoint and host key via the app socket method vm.scp_info
 cmux vm push --secret <id> ./id_ed25519 ~/.ssh/id_ed25519 [--mode 600]   # ONE file that must never transit exec: over the machine's link into `cmux file receive` (0600 by default, 256 KiB cap)
 cmux vm push <id> ./site work/site --watch [--interval 1]              # keep copying on change (mtime/size scan, same excludes); remote-only files are preserved; Ctrl-C exits 0
 ```
 
-Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunked base64, 256 MB cap; directories travel as tarballs and merge into the destination. Remote paths are relative to the work user's home (on the persistent volume). `--secret` is the exception: like `vm env set`, it goes Mac → app → the machine's cmux-tui link → a receiver terminal (`cmux file receive <path>`) that turns echo off before it reads, writes to a temp file next to the destination and moves it into place atomically. Nothing appears in a command line, the control plane, the provider API, a screen or scrollback. It refuses directories and `--exclude`; use it for keys, tokens, kubeconfigs, `.npmrc` and the like.
+Aliases: `upload` / `download`. Regular transfers use the app socket method `vm.scp_info` to obtain a short-lived loopback SSH endpoint and verified host key, then send data with OpenSSH/SFTP over the private link; they do not put file contents in the control API or command arguments. Directories travel as tarballs and merge into the destination. Remote paths are relative to the work user's home (on the persistent volume). `--secret` is the exception: like `vm env set`, it goes Mac → app → the machine's cmux-tui link → a receiver terminal (`cmux file receive <path>`) that turns echo off before it reads, writes to a temp file next to the destination and moves it into place atomically. Nothing appears in a command line, the control plane, the provider API, a screen or scrollback. It refuses directories and `--exclude`; use it for keys, tokens, kubeconfigs, `.npmrc` and the like.
 
 ## Layouts (the shape of a machine workspace)
 
