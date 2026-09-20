@@ -36,7 +36,7 @@ extension CloudTreeNodeActions {
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
         host suppliedHost: CloudWorkspaceCreationHost? = nil,
-        validateOperation: @MainActor () throws -> Void = { try Task.checkCancellation() },
+        validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() },
         reuseFailedCreation: Bool = false
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,

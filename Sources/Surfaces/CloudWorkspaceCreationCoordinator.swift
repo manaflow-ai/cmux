@@ -105,8 +105,12 @@ final class CloudWorkspaceCreationCoordinator {
             operation.ownsRemoteWorkspace = true
             operation.ownsRemoteTerminal = receipt.terminal != nil
         }
-        try check(operation, catalog: catalog)
+        // Retain the provider's identity receipt before the next cancellation
+        // fence. A provider may return a committed remote resource after the
+        // task was cancelled; cleanup must still know exactly which IDs this
+        // operation owns.
         operation.receipt = receipt
+        try check(operation, catalog: catalog)
         if let host = operation.host, operation.reservation == nil {
             let title = CloudTreeNodeActions.localWorkspaceTitle(
                 hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
@@ -229,7 +233,7 @@ final class CloudWorkspaceCreationCoordinator {
     private func cleanupRemoteResources(_ operation: CloudWorkspaceCreationOperation) async {
         guard !operation.remoteCleanupStarted else { return }
         operation.remoteCleanupStarted = true
-        if operation.ownsRemoteTerminal, let terminal = operation.terminal {
+        if operation.ownsRemoteTerminal, let terminal = operation.terminal ?? operation.receipt?.terminal {
             try? await operation.provider.closeTerminal(terminal.id)
         }
         if operation.ownsRemoteWorkspace, let workspace = operation.receipt?.workspace {

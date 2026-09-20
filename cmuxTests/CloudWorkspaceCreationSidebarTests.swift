@@ -97,6 +97,29 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    @Test("Cancellation after a remote receipt returns closes the owned workspace and starter")
+    func cancellationAfterReceiptCleansOwnedRemoteResources() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            fixture.provider.beforeCreate = {
+                withUnsafeCurrentTask { $0?.cancel() }
+            }
+            await #expect(throws: CancellationError.self) {
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            let workspace = try #require(fixture.provider.createdWorkspaces.first)
+            #expect(fixture.provider.closedWorkspaceIDs == [workspace.id])
+            #expect(fixture.provider.closedTerminalIDs == [fixture.provider.terminal(in: workspace).id])
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+            #expect(fixture.manager.tabs.count == 1)
+        }
+    }
+
     @Test("Failed attachment or starter creation retries the same workspace and pending pane", arguments: [false, true], [false, true])
     func failedCreateRetainsItsReceiptForRetry(terminalFailure: Bool, retryFromAction: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

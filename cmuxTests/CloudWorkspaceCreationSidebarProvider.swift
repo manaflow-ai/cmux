@@ -23,6 +23,8 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var refreshes = 0
     var createdWorkspaces: [SurfaceRemoteWorkspace] = []
     var adoptedPanels: [UUID] = []
+    var closedTerminalIDs: [SurfaceResourceID] = []
+    var closedWorkspaceIDs: [String] = []
 
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
@@ -73,6 +75,14 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         terminalRequests.append(request.id)
         return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        closedTerminalIDs.append(id)
+    }
+
+    func closeRemoteWorkspace(id: String) async throws {
+        closedWorkspaceIDs.append(id)
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
