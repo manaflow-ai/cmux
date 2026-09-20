@@ -1177,7 +1177,12 @@ jobs:
             source "$ci_script_dir/app-host-isolation.sh"
             if cmux_validate_published_app_host_identity_values; then
               crash_reports="$CMUX_RESOLVED_APP_HOST_HOME/.local/state/cmux/crash"
-              if [ -d "$crash_reports" ]; then
+              reports_present=0
+              if [ -d "$crash_reports" ] \
+                || sudo -n test -d "$crash_reports" 2>/dev/null; then
+                reports_present=1
+              fi
+              if [ "$reports_present" -eq 1 ]; then
                 copied=0
                 if cp -R "$crash_reports" "$diagnostics/crash-reports" 2>/dev/null; then
                   copied=1
