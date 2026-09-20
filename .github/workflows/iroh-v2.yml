@@ -14,6 +14,12 @@ on:
       - .github/workflows/iroh-v2.yml
   workflow_dispatch:
 
+# A new push cancels the previous run for the same pull request. Other events
+# key on the run id, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

@@ -18,6 +18,12 @@ on:
       - scripts/ci/classify-app-host-test-output.py
       - Sources/AgentJournalLifecycleCenter*.swift
       - .github/workflows/agent-notification-tests.yml
+# A new push cancels the previous run for the same pull request. Other events
+# key on the run id, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 jobs:
