@@ -17,7 +17,7 @@ export const cloudPhases = [
 export const cloudFailures = [
   "authentication", "session_refresh", "permission", "plan", "rate_limit", "conflict",
   "network", "timeout", "server", "response", "unsupported", "process", "protocol",
-  "not_found", "resource_limit", "storage", "cancelled", "unknown",
+  "not_found", "placement", "resource_limit", "storage", "cancelled", "unknown",
 ] as const;
 
 export type CloudTelemetrySpan = {
