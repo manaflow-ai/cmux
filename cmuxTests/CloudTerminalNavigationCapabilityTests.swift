@@ -71,9 +71,15 @@ struct CloudTerminalNavigationCapabilityTests {
     @Test("Deletion admission before or during layout fetch cancels without opening", arguments: [1, 2])
     func checksDeletionAcrossSuspension(check: Int) async {
         let fixture = CloudTerminalNavigationFixture()
-        fixture.checkFailureAt = check
+        fixture.checkFailureAt = check == 1 ? 1 : nil
+        fixture.delayLayout = check == 2
         let navigation = fixture.makeNavigation()
         navigation.open(machine: fixture.machine, group: fixture.group, resource: fixture.resource, view: fixture.view, openIn: nil)
+        if check == 2 {
+            for await _ in fixture.layoutStarted.stream { break }
+            fixture.checkFailureAt = 2
+            fixture.releaseLayout()
+        }
         await fixture.wait()
         #expect(fixture.events == (check == 1 ? ["check"] : ["check", "lookup", "layout", "check"]))
         #expect(fixture.failures.count == 1)

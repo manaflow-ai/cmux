@@ -18,6 +18,9 @@ final class CloudTerminalNavigationFixture: CloudTerminalNavigationCatalog, Clou
     var checkFailureAt: Int?
     var failure: (any Error)?
     var cancelAfterOpen = false
+    var delayLayout = false
+    let layoutStarted = AsyncStream<Void>.makeStream()
+    private var layoutWaiter: CheckedContinuation<Void, Never>?
     var restoredProjections: [SurfaceProjection]?
     var events: [String] = []
     var failures: [any Error] = []
@@ -76,6 +79,11 @@ final class CloudTerminalNavigationFixture: CloudTerminalNavigationCatalog, Clou
 
     func wait() async { for task in tasks { await task.value } }
 
+    func releaseLayout() {
+        layoutWaiter?.resume()
+        layoutWaiter = nil
+    }
+
     func checkCloudWorkspaceNavigation(machine: SurfaceMachineID, workspaceID: String) throws {
         events.append("check")
         checks += 1
@@ -97,6 +105,12 @@ final class CloudTerminalNavigationFixture: CloudTerminalNavigationCatalog, Clou
 
     func terminalWorkspaceLayout(machine: SurfaceMachineID, workspaceID: String) async -> SurfaceProjectionLayout? {
         events.append("layout")
+        if delayLayout {
+            await withCheckedContinuation { continuation in
+                layoutWaiter = continuation
+                layoutStarted.continuation.yield(())
+            }
+        }
         return layout
     }
 
