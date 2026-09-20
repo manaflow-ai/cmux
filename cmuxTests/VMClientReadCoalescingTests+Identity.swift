@@ -8,6 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
 extension VMClientReadCoalescingTests {
     @Test("Reads without a transition identity fail before HTTP and recover for the next account", arguments: ["list", "stats", "usage"])
     func nilIdentityAdmission(operation: String) async throws {
