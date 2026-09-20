@@ -163,7 +163,11 @@ struct WatcherRegistrationLifecycleTests {
     }
 
     @Test func simultaneousPanelsPreserveOneInstalledWatcherAndConsumer() async throws {
-        let path = FileManager.default.temporaryDirectory.path
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-watcher-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let path = directoryURL.path
         let host = RecordingSidebarGitHost()
         let first = host.addWorkspace(panelDirectory: path)
         let second = host.addWorkspace(panelDirectory: path)
