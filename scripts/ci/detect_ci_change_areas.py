@@ -233,7 +233,14 @@ def is_macos_neutral(path: str) -> bool:
         )
     ):
         return True
-    return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
+    if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
+        return True
+    # Agent instructions at any depth, and skill documentation. The app bundles
+    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # executable inputs, so only Markdown outside that folder is neutral.
+    if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
+        return True
+    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
 
 
 def is_macos_change(path: str) -> bool:
