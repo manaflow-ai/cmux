@@ -410,6 +410,160 @@ struct CLIOmpHookBindingTests {
         #expect(sessions[currentSessionId] != nil)
     }
 
+    @Test
+    func ompSubagentStartDispatchesFeedPushAndChildJournal() throws {
+        let context = try Harness.makeContext(name: "omp-subagent-start")
+        defer { context.cleanup() }
+        let parentSessionId = "omp-subagent-parent"
+        let childId = "kid-7"
+        let childLabel = "Probe child"
+        try Self.writePriorSession(
+            to: context.root.appendingPathComponent("omp-hook-sessions.json"),
+            sessionId: parentSessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_OMP_PID"] = String(Self.ompPID)
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "omp", "subagent-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","agent_id":"\#(childId)","description":"\#(childLabel)","hook_event_name":"SubagentStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+
+        let event = try #require(Self.feedPushEvent(in: context, hookEventName: "SubagentStart"))
+        #expect(event["_opencode_request_id"] as? String == childId)
+        #expect((event["tool_input"] as? [String: Any])?["description"] as? String == childLabel)
+        #expect(event["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(event["surface_id"] as? String == Self.liveSurfaceId)
+        let workstream = try #require(event["session_id"] as? String)
+        let components = try #require(Self.decodeWorkstream(rawValue: workstream))
+        #expect(components.agent == "omp")
+        #expect(components.session == parentSessionId)
+
+        let journal = try #require(
+            AgentJournalAppendCapture.first(
+                in: context.state.snapshot(),
+                kind: "agent.child.spawned",
+                agentKey: "omp"
+            )
+        )
+        #expect(journal.isSubagent)
+        #expect(journal.workspaceId == Self.liveWorkspaceId)
+        #expect(journal.surfaceId == Self.liveSurfaceId)
+    }
+
+    @Test
+    func piSubagentStopDispatchesFeedPushAndChildJournal() throws {
+        let context = try Harness.makeContext(name: "pi-subagent-stop")
+        defer { context.cleanup() }
+        let parentSessionId = "pi-subagent-parent"
+        let childId = "kid-9"
+        try Self.writePriorSession(
+            to: context.root.appendingPathComponent("pi-hook-sessions.json"),
+            sessionId: parentSessionId,
+            workspaceId: Self.liveWorkspaceId,
+            surfaceId: Self.liveSurfaceId,
+            cwd: context.root.path
+        )
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId),
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = context.root.path
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/pi"
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/pi"])
+        environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: [
+                "hooks", "pi", "subagent-stop",
+                "--workspace", Self.liveWorkspaceId,
+                "--surface", Self.liveSurfaceId,
+            ],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(parentSessionId)","agent_id":"\#(childId)","hook_event_name":"SubagentStop"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        let targetOutput = try #require(Self.jsonObject(result.stdout))
+        #expect(targetOutput["workspace_id"] as? String == Self.liveWorkspaceId)
+        #expect(targetOutput["surface_id"] as? String == Self.liveSurfaceId)
+
+        let event = try #require(Self.feedPushEvent(in: context, hookEventName: "SubagentStop"))
+        #expect(event["_opencode_request_id"] as? String == childId)
+        #expect(event["tool_input"] == nil)
+        let workstream = try #require(event["session_id"] as? String)
+        let components = try #require(Self.decodeWorkstream(rawValue: workstream))
+        #expect(components.agent == "pi")
+        #expect(components.session == parentSessionId)
+
+        let journal = try #require(
+            AgentJournalAppendCapture.first(
+                in: context.state.snapshot(),
+                kind: "agent.child.completed",
+                agentKey: "pi"
+            )
+        )
+        #expect(journal.isSubagent)
+        #expect(journal.workspaceId == Self.liveWorkspaceId)
+        #expect(journal.surfaceId == Self.liveSurfaceId)
+    }
+
+    private static func feedPushEvent(
+        in context: Harness.Context,
+        hookEventName: String
+    ) -> [String: Any]? {
+        let requests = context.state.snapshot().compactMap(Self.jsonObject)
+        for request in requests {
+            guard request["method"] as? String == "feed.push",
+                  let params = request["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any],
+                  event["hook_event_name"] as? String == hookEventName
+            else { continue }
+            return event
+        }
+        return nil
+    }
+
+    private static func decodeWorkstream(rawValue: String) -> (agent: String, session: String)? {
+        let prefix = "cmux-feed-v1:"
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        let parts = rawValue.dropFirst(prefix.count).split(separator: ":", maxSplits: 1)
+        guard parts.count == 2,
+              let agentData = Data(base64Encoded: String(parts[0])),
+              let agent = String(data: agentData, encoding: .utf8),
+              let sessionData = Data(base64Encoded: String(parts[1])),
+              let session = String(data: sessionData, encoding: .utf8)
+        else { return nil }
+        return (agent, session)
+    }
+
     private static func writePriorSession(
         to storeURL: URL,
         sessionId: String,
