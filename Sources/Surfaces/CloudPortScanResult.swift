@@ -6,7 +6,7 @@ struct CloudPortScanResult: Equatable, Sendable {
     let hadListeners: Bool
     let hadLoopbackOnlyListeners: Bool
 
-    var emptyReason: CloudPortDiscoveryState.EmptyReason? {
+    var emptyReason: CloudPortDiscoveryEmptyReason? {
         guard ports.isEmpty else { return nil }
         return hadLoopbackOnlyListeners ? .loopbackOnly : .noListeningService
     }

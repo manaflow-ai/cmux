@@ -4,16 +4,9 @@ import Foundation
 /// list or route. The model is independent of AppKit so the state matrix stays
 /// testable without constructing an outline view.
 struct CloudPortsStatusPresentation: Equatable {
-    enum Action: Equatable {
-        case none
-        case refresh
-        case openMachine
-        case openShell
-    }
-
     let title: String
     let message: String
-    let action: Action
+    let action: CloudPortsStatusAction
     let actionTitle: String?
 
     static func make(info: SurfaceMachineInfo) -> Self {

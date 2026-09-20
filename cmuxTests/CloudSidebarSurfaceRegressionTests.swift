@@ -194,7 +194,7 @@ struct CloudSidebarSurfaceRegressionTests {
 
     @Test("Ports project distinct discovery and route reasons with actionable copy")
     func portStatusMatrix() {
-        let cases: [(CloudPortDiscoveryState, CloudPortsStatusPresentation.Action, String)] = [
+        let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
             (.loading, .none, "Discovering ports"),
             (.empty(.noListeningService), .refresh, "No service is listening"),
             (.empty(.loopbackOnly), .refresh, "loopback"),

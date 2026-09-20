@@ -9,26 +9,13 @@ enum CloudPortDiscoveryState: Hashable, Codable, Sendable {
     /// A completed scan found at least one reachable service.
     case available
     /// A completed scan found no service that cmux can reach.
-    case empty(EmptyReason)
+    case empty(CloudPortDiscoveryEmptyReason)
     /// The scan or the route could not be used to produce a trustworthy result.
-    case unavailable(UnavailableReason)
+    case unavailable(CloudPortDiscoveryUnavailableReason)
     /// The last graph is retained, but a reconnect or refresh no longer proves it current.
     case stale
     /// The provider does not advertise Cloud port discovery or preview support.
     case unsupported
-
-    enum EmptyReason: String, Codable, Hashable, Sendable {
-        case noListeningService
-        case loopbackOnly
-    }
-
-    enum UnavailableReason: String, Codable, Hashable, Sendable {
-        case link
-        case transport
-        case privateAddress
-        case machineAsleep
-        case hub
-    }
 
     /// Whether the Ports group should keep a status row after real port rows.
     var keepsStatusAlongsideRows: Bool {
