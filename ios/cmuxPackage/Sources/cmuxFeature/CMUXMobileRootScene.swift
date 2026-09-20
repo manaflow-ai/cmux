@@ -39,6 +39,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let analyticsClientID: String?
     private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
@@ -144,6 +145,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
@@ -166,6 +168,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
@@ -204,6 +207,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
@@ -212,6 +216,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
@@ -363,7 +368,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             .environment(macListAuthState)
             .analytics(analytics)
-            .analyticsClientID(analytics.anonymousID)
+            .analyticsClientID(analyticsClientID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)

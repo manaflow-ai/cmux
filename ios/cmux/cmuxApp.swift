@@ -162,6 +162,7 @@ struct cmuxApp: App {
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
+            analyticsClientID: Self.root.analytics.anonymousID,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
