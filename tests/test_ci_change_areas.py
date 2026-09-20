@@ -978,7 +978,11 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
             "if: ${{ !cancelled() && "
             + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
             + " && needs.changes.outputs.macos == 'true'"
-            + ("" if job_name == "macos-compile-admission" else " && needs.changes.outputs.full_suite == 'true'")
+            + (
+                " && needs.changes.outputs.compile_admitted != 'true'"
+                if job_name == "macos-compile-admission"
+                else " && needs.changes.outputs.full_suite == 'true'"
+            )
             + " }}"
         )
         assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
@@ -996,10 +1000,14 @@ def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
     )
 
 
-def tests_gate_needs(full_suite: str | None, app_host: str, admission: str = "success") -> dict:
+def tests_gate_needs(
+    full_suite: str | None, app_host: str, admission: str = "success", compile_admitted: str | None = None
+) -> dict:
     outputs = {"macos": "true"}
     if full_suite is not None:
         outputs["full_suite"] = full_suite
+    if compile_admitted is not None:
+        outputs["compile_admitted"] = compile_admitted
     return {
         "changes": {"result": "success", "outputs": outputs},
         "linux-preflight": {"result": "success"},
@@ -1015,6 +1023,79 @@ def test_compile_only_runs_pass_the_tests_gate_without_the_suite() -> None:
     # Compile admission still has to pass, and a suite job that ran and failed still blocks.
     assert run_tests_gate(tests_gate_needs("false", app_host="skipped", admission="failure")).returncode == 1
     assert run_tests_gate(tests_gate_needs("false", app_host="failure")).returncode == 1
+
+
+def test_a_skipped_admission_passes_only_when_an_earlier_run_compiled_the_same_inputs() -> None:
+    def gate(**kwargs) -> int:
+        return run_tests_gate(tests_gate_needs(app_host="skipped", admission="skipped", **kwargs)).returncode
+
+    assert gate(full_suite="false", compile_admitted="true") == 0
+    assert gate(full_suite="false", compile_admitted="false") == 1
+    assert gate(full_suite="false") == 1
+    # The shards need this revision's product, so a full-suite run never reuses a verdict.
+    assert gate(full_suite="true", compile_admitted="true") == 1
+    assert run_tests_gate(
+        tests_gate_needs("false", app_host="skipped", admission="failure", compile_admitted="true")
+    ).returncode == 1
+
+
+def test_build_input_fingerprint_ignores_only_what_the_build_cannot_read() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from build_input_fingerprint import fingerprint, reaches_the_build
+
+    def tree(**files: str) -> list[str]:
+        return [f"100644 blob {object_id}\t{path}" for path, object_id in files.items()]
+
+    base = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b1", "docs/x.md": "c1", ".github/workflows/nightly.yml": "d1"})
+    same_build = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b2", "docs/x.md": "c2", ".github/workflows/nightly.yml": "d2", "web/app/page.tsx": "e1"})
+    assert fingerprint(base, ["xcode=1"]) == fingerprint(same_build, ["xcode=1"])
+    assert fingerprint(base, ["xcode=1"]) != fingerprint(base, ["xcode=2"])
+    for path in ("Sources/App.swift", "Packages/macOS/CmuxCore/Package.swift", "cmuxTests/T.swift", "cmux.xcodeproj/project.pbxproj",
+                 "scripts/build-ghostty-cli-helper.sh", "ghostty", ".github/workflows/ci.yml", ".xcode-version", "unknown/new-dir/file"):
+        assert reaches_the_build(path), path
+        assert fingerprint(base, []) != fingerprint(base + tree(**{path: "z9"}), []), path
+    for path in ("tests/test_ci_change_areas.py", ".github/workflows/nightly.yml", "docs/a.md", "web/app/page.tsx", "README.md", "CLAUDE.md"):
+        assert not reaches_the_build(path), path
+
+
+def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import admitted_run
+
+    repo = "manaflow-ai/cmux"
+
+    def api_for(runs: list[dict], artifacts: dict[int, int], jobs: dict[int, list[dict]]):
+        def api(path: str) -> dict:
+            if "/workflows/ci.yml/runs" in path:
+                assert "event=pull_request" in path and "branch=feature" in path
+                return {"workflow_runs": runs}
+            run_id = int(path.split("/runs/")[1].split("/")[0])
+            if "/artifacts" in path:
+                assert path.endswith("name=build-inputs-abc")
+                return {"total_count": artifacts.get(run_id, 0)}
+            return {"jobs": jobs.get(run_id, [])}
+        return api
+
+    def run(run_id: int, owner: str = repo) -> dict:
+        return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
+
+    passed = [{"name": "macOS compile admission", "conclusion": "success"}]
+    failed = [{"name": "macOS compile admission", "conclusion": "failure"}]
+
+    def find(api) -> str | None:
+        return admitted_run(api, repo, "feature", "abc", current_run_id=9)
+
+    assert find(api_for([run(9), run(8)], {8: 1, 9: 1}, {8: passed, 9: passed})) == "https://example/8"
+    assert find(api_for([run(9)], {9: 1}, {9: passed})) is None, "the current run cannot admit itself"
+    assert find(api_for([run(8)], {8: 0}, {8: passed})) is None, "different build inputs"
+    assert find(api_for([run(8)], {8: 1}, {8: failed})) is None, "admission did not pass"
+    assert find(api_for([run(8)], {8: 1}, {8: []})) is None, "admission was skipped or never ran"
+    assert find(api_for([run(8, owner="someone/cmux")], {8: 1}, {8: passed})) is None, "a fork's run is not trusted"
+
+    def broken(_path: str) -> dict:
+        raise subprocess.CalledProcessError(1, "gh")
+
+    assert find(broken) is None, "an API failure means compile"
 
 
 def test_full_suite_runs_still_require_the_suite() -> None:

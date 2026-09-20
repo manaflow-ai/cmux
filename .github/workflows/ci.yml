@@ -28,7 +28,9 @@ jobs:
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
+      compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     steps:
@@ -171,6 +173,44 @@ jobs:
             args+=(--labels-file "$labels")
           fi
           python3 scripts/ci/choose_ci_suite.py "${args[@]}"
+
+      # A push that changes nothing the Xcode build reads (a guard test, another
+      # workflow, docs, a merge of main that only moved web) has nothing new to
+      # compile. Each pull request run publishes its build-input fingerprint as
+      # an artifact name, and a compile-only run whose fingerprint an earlier run
+      # of the same in-org branch already compiled skips compile admission. Runs
+      # with the full suite always compile, because the shards need the product.
+      - name: Fingerprint the build inputs
+        id: inputs
+        if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' }}
+        env:
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+        run: |
+          set -euo pipefail
+          fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          echo "$fingerprint" > "$RUNNER_TEMP/build-inputs.txt"
+
+      - name: Publish the build-input fingerprint
+        if: ${{ steps.inputs.outputs.fingerprint != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-inputs-${{ steps.inputs.outputs.fingerprint }}
+          path: ${{ runner.temp }}/build-inputs.txt
+          retention-days: 7
+          overwrite: true
+
+      - name: Look for an earlier run that compiled these inputs
+        id: admitted
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+          FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
+            --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
   workflow-guard-tests:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -1844,7 +1884,12 @@ jobs:
               sys.exit(1)
 
           admission = needs["macos-compile-admission"]
-          if macos == "true" and admission["result"] != "success":
+          # A compile-only run may skip admission when an earlier run of the
+          # same branch already compiled identical build inputs.
+          already_admitted = not full_suite and changes.get("outputs", {}).get("compile_admitted") == "true"
+          if already_admitted and admission["result"] == "skipped":
+              pass
+          elif macos == "true" and admission["result"] != "success":
               print(
                   f"macOS compile admission did not pass: {admission['result']}",
                   file=sys.stderr,
@@ -2265,7 +2310,7 @@ jobs:
     # build products and run test-without-building, so a compiler failure
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.compile_admitted != 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     outputs:
