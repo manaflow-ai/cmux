@@ -20,6 +20,16 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        try await terminalMutationQueue.run {
+            try await self.createTerminalInMutationTurn(
+                command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID,
+                onExit: onExit, request: request
+            )
+        }
+    }
+
+    private func createTerminalInMutationTurn(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        guard !isFeatureSuspended else { throw ProviderError.machineAsleep(machineID) }
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {
