@@ -51,6 +51,14 @@ def main() -> int:
         check(root, [], [], "an empty diff runs nothing")
         check(root, ["Sources/App.swift", "cmuxTests/AppTests.swift", "web/app/page.tsx", "README.md"], [],
               "app, web and docs changes reach no package")
+        check(root, [
+            "cmux.xcodeproj/project.pbxproj",
+            "cmuxTests/RemoteTmuxInputCommandCapture.swift",
+            "cmuxTests/RemoteTmuxInputCommandCaptureTests.swift",
+            "cmuxTests/RemoteTmuxMirrorPaneInputMappingTests.swift",
+        ], [], "app-host-only test and target-wiring changes reach no package")
+        check(root, ["scripts/ci/run_with_timeout.py"], PACKAGES,
+              "the transitive suite timeout runner is an input of package tests")
         check(root, ["Packages/macOS/Loner/Sources/Loner/A.swift"], ["Loner"], "a leaf change runs that package")
         check(root, ["Packages/macOS/Base/Sources/Base/A.swift"], ["Base", "Middle", "Top"],
               "a change runs every transitive dependent, across group folders")
