@@ -113,6 +113,23 @@ describe("IROH Dashboard v2 controller", () => {
     await update; await controller.stop();
   });
 
+  test("retries after the first socket fails instead of staying broken", async () => {
+    globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const errors: string[] = [];
+    const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: value => errors.push(value) });
+    const pending = controller.start();
+    const first = await FakeSocket.waitForInstance();
+    first.onerror?.();
+    await pending;
+    expect(errors).toEqual(["Device service connection failed"]);
+    const second = await new Promise<FakeSocket>(resolve => { FakeSocket.created = resolve; });
+    expect(second).not.toBe(first);
+    second.open();
+    expect(await second.waitForSent(0)).toContain("directory.request.v1");
+    await controller.stop();
+  });
+
   test("rejects an unapproved worker origin before creating a socket", () => {
     expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
   });

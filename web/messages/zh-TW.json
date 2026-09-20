@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "此機器規格目前無法使用。請選擇不超過 {max} GiB 的規格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多儲存兩台 VM，包括正在執行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支援 2 vCPU、4 GiB 記憶體和 16 GiB 磁碟。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我們找到帳戶，請查看你的電子郵件以了解下一步"
   },
@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
-      "irohDevices": "IROH devices"
+      "connectedDevices": "Connected devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -370,11 +370,11 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Connected devices",
+      "description": "Devices signed in to this team that can reach its Macs. Revoke any device you no longer use.",
+      "noTeam": "Join a team to see its connected devices.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "No devices are connected for this team.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
