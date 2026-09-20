@@ -46,10 +46,29 @@ check_merge_group_policy_bridge() {
     echo "FAIL: merge-group-policy-checks.yml must be merge_group-only"
     exit 1
   fi
+  local job_ids runners
+  job_ids="$(awk '
+    /^jobs:[[:space:]]*$/ { in_jobs=1; next }
+    in_jobs && /^[^[:space:]#]/ { in_jobs=0 }
+    in_jobs && /^  [^[:space:]#][^:]*:/ { sub(/^  /, ""); sub(/:.*/, ""); print }
+  ' "$file" | sort | tr '\n' ' ')"
+  if [ "$job_ids" != "cla-assistant cla-policy-guard " ]; then
+    echo "FAIL: merge-group-policy-checks.yml must define exactly the cla-assistant and cla-policy-guard jobs, found: ${job_ids:-none}"
+    exit 1
+  fi
+  runners="$(grep -E '^[[:space:]]*runs-on:' "$file" | sort | uniq -c | sed 's/^ *//')"
+  if [ "$runners" != "2     runs-on: ubuntu-24.04" ]; then
+    echo "FAIL: both merge-group policy bridge jobs must run on ubuntu-24.04 and nothing else, found: $runners"
+    exit 1
+  fi
   if [ "$(grep -Fc '    name: CLA Assistant' "$file")" -ne 1 ] || \
      [ "$(grep -Fc '    name: CLA policy guard' "$file")" -ne 1 ] || \
-     [ "$(grep -Fc '    runs-on: ubuntu-24.04' "$file")" -ne 2 ]; then
-    echo "FAIL: merge-group-policy-checks.yml may only expose the two fixed policy bridge jobs"
+     [ "$(grep -Ec '^      - ' "$file")" -ne 2 ]; then
+    echo "FAIL: each merge-group policy bridge job must keep its required check name and a single step"
+    exit 1
+  fi
+  if grep -Eq '^[[:space:]]+(strategy|container|services|needs|environment):' "$file"; then
+    echo "FAIL: merge-group policy bridge jobs must not use a matrix, container, service, dependency or environment"
     exit 1
   fi
   if grep -Eq '^[[:space:]]+uses:|checkout|curl|ruby|scripts/' "$file" || \
