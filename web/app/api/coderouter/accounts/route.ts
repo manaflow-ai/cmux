@@ -7,8 +7,8 @@ import {
   resolveCoderouterUsageTeam,
   resolveCodeRouterRequestContext,
 } from "../../../../services/coderouter/requestContext";
-import { accountsWithUsage } from "../../../../services/coderouter/usage";
-import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
+import { listTeamAccounts } from "../../../../services/coderouter/teamAccounts";
+import { vaultAccessFromStackHeaders } from "../../../../services/coderouter/vaultAccess";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -16,21 +16,49 @@ import {
 } from "../../../../services/coderouter/observability";
 
 
+import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
+
 const MAX_BODY_BYTES = 128 * 1_024;
 
-export const GET = coderouterControlRoute("accounts", "/api/coderouter/accounts", handleGet);
+export type AccountsGetDependencies = {
+  readonly resolveTeam: typeof resolveCoderouterUsageTeam;
+  readonly vaultAccess: typeof vaultAccessFromStackHeaders;
+  readonly list: typeof listTeamAccounts;
+};
 
-async function handleGet(request: Request): Promise<Response> {
+const defaultAccountsGetDependencies: AccountsGetDependencies = {
+  resolveTeam: resolveCoderouterUsageTeam,
+  vaultAccess: vaultAccessFromStackHeaders,
+  list: listTeamAccounts,
+};
+
+export const GET = coderouterControlRoute(
+  "accounts",
+  "/api/coderouter/accounts",
+  makeCoderouterAccountsGetHandler(),
+);
+
+export function makeCoderouterAccountsGetHandler(
+  dependencies: AccountsGetDependencies = defaultAccountsGetDependencies,
+) {
+  return async function GET(request: Request): Promise<Response> {
   const startedAt = performance.now();
   const authStartedAt = performance.now();
-  const resolved = await resolveCoderouterUsageTeam(request);
+  const resolved = await dependencies.resolveTeam(request);
   if (!resolved.ok) return resolved.response;
   const authMs = performance.now() - authStartedAt;
-  const result = await accountsWithUsage(resolved.teamId, resolved.access);
+  // The vault check needs the caller's Stack session, and it is only useful
+  // once the team is known, so it cannot start before authorization resolves.
+  const result = await dependencies.list({
+    teamId: resolved.teamId,
+    access: resolved.access,
+    vault: await dependencies.vaultAccess(request, resolved.teamId),
+  });
   const serializeStartedAt = performance.now();
   const body = JSON.stringify({
     teamId: resolved.teamId,
     accounts: result.accounts,
+    sources: result.sources,
     usageAsOf: result.usageAsOf,
     usageAgeSeconds: Math.max(
       0,
@@ -43,6 +71,7 @@ async function handleGet(request: Request): Promise<Response> {
     timing("auth", authMs),
     timing("rds", result.timing.rdsMs),
     timing("provider", result.timing.providerMs),
+    timing("vault", result.timing.vaultMs),
     timing("serialize", serializeMs),
     timing("total", performance.now() - startedAt),
   ].join(", ");
@@ -72,6 +101,7 @@ async function handleGet(request: Request): Promise<Response> {
       "x-coderouter-server-timing": serverTiming,
     },
   });
+  };
 }
 
 type AccountsPostDependencies = {
