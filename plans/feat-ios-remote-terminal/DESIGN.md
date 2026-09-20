@@ -57,8 +57,8 @@ AES-256-GCM record cipher. It also provides an account gate, signed revision
 metadata, and explicit personal/team recovery policy. The package is linked
 into the iOS composition package only as a dependency; it is not yet used by
 the remote UI and does not implement SSH, vault enrollment, recovery execution,
-sync, or UI. Its package tests do not prove app authentication or iPhone
-behavior.
+sync transport, durable anti-rollback state, or UI. Its package tests do not
+prove app authentication or iPhone behavior.
 
 Existing reuse candidates:
 
@@ -127,8 +127,11 @@ does not decrypt credentials or authorize adding an arbitrary device.
 - The record cipher uses CryptoKit AES-GCM with fresh nonces. It requires
   caller-supplied expected context; it does not infer ownership from ciphertext.
 - Key distribution, signed membership, concurrent writes, rollback prevention,
-  and offline recovery remain separate required work. A symmetric AEAD record
-  alone does not prove writer identity or prevent replay of a whole old vault.
+  and offline recovery remain separate required work. The shared package now
+  has a merge policy for trusted members, current epochs, stale revisions,
+  conflicts, and tombstones, but that policy still needs durable persistence and
+  an authenticated membership-manifest source. A symmetric AEAD record alone
+  does not prove writer identity or prevent replay of a whole old vault.
 - Member/device removal denies future sync and rotates keys for future data.
   Previously disclosed plaintext or keys cannot be clawed back. Removing a
   saved SSH key from the vault does not remove its public key from a server.

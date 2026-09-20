@@ -21,6 +21,10 @@ Current behavior:
 - Signed vault revisions bind an authorized device identity and exact sealed
   ciphertext to independently supplied ownership and revision context. Personal
   and team recovery policy keeps organization recovery out of personal vaults.
+- The merge policy accepts only current-epoch revisions from authenticated
+  owner/editor members, rejects stale and same-revision conflicts, and retains
+  authenticated tombstones. Its anti-rollback state still needs durable sync
+  storage and membership-manifest verification.
 
 This is not a complete encrypted vault. Signing, device enrollment, recovery,
 key rotation, membership, whole-database rollback protection, SSH, account
