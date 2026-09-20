@@ -9,7 +9,6 @@ import Testing
         guard let port = Int(environment["CMUX_NATIVE_SSH_PORT"] ?? ""),
               let password = environment["CMUX_NATIVE_SSH_PASSWORD"],
               let expectedFingerprint = environment["CMUX_NATIVE_SSH_FINGERPRINT"] else {
-            Issue.record("Live fixture environment was not provided")
             return
         }
         let accountGate = MobileRemoteAccountGate(validate: { _ in })
@@ -39,6 +38,33 @@ import Testing
         #expect(output.contains(Data("PONG".utf8)))
         let sftp = try #require(session as? any MobileRemoteSFTPProviding)
         #expect(try await sftp.readFile(path: "/fixture.txt", maxBytes: 1024) == Data("fixture-sftp\n".utf8))
+        await session.close()
+    }
+
+    @Test func liveKeyboardInteractiveAgainstFixture() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let port = Int(environment["CMUX_NATIVE_SSH_PORT"] ?? "") else { return }
+        let gate = MobileRemoteAccountGate(validate: { _ in })
+        try await gate.setAuthenticatedAccount(accountID: "fixture-account", sessionGeneration: 1)
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: MobileRemoteNativeSSHConnector(),
+            hostKeyApprover: { _, _ in .accept }
+        )
+        let profile = try MobileRemoteProfile(
+            id: UUID(), host: "127.0.0.1", port: port, username: "fixture",
+            carrier: .ssh, authentication: .keyboardInteractive
+        )
+        let session = try await coordinator.connect(
+            profile: profile,
+            credential: MobileRemoteSSHCredentialSource(
+                load: { nil },
+                respondToKeyboardChallenge: { challenge in
+                #expect(challenge.prompts.count == 1)
+                return challenge.prompts.first?.text.contains("First") == true
+                    ? ["first-factor"] : ["second-factor"]
+                }
+            )
+        )
         await session.close()
     }
 }

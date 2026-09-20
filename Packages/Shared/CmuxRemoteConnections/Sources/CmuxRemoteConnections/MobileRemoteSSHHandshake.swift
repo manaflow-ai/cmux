@@ -13,7 +13,10 @@ public protocol MobileRemoteSSHHandshake: Sendable {
     /// - Parameter credential: Material loaded only after coordinator approval.
     /// - Returns: Authenticated session owning this transport.
     /// - Throws: Authentication, cancellation, or transport errors.
-    func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession
+    func authenticate(
+        credential: MobileRemoteCredentialMaterial?,
+        respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]
+    ) async throws -> any MobileRemoteSSHSession
 
     /// Idempotently closes the transport, including any session it produced.
     func close() async

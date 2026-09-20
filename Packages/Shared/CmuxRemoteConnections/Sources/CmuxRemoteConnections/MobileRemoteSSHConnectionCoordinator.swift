@@ -62,7 +62,10 @@ public actor MobileRemoteSSHConnectionCoordinator {
             let material = try await credential.load()
             try await accountGate.requireCurrent(account)
             try Task.checkCancellation()
-            let session = try await handshake.authenticate(credential: material)
+            let session = try await handshake.authenticate(
+                credential: material,
+                respondToKeyboardChallenge: credential.respond(to:)
+            )
             do {
                 try await accountGate.requireCurrent(account)
                 try Task.checkCancellation()

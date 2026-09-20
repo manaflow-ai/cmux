@@ -68,17 +68,28 @@ fileprivate actor MobileRemoteNativeSSHHandle {
         guard cmux_ssh_host_key(raw, &algorithm, algorithm.count, &fingerprint, fingerprint.count) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         return try MobileRemoteSSHHostKeyChallenge(profileID: profileID, algorithm: String(decoding: algorithm.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self), fingerprint: String(decoding: fingerprint.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
     }
-    func authenticate(_ credential: MobileRemoteCredentialMaterial?, profile: MobileRemoteProfile) async throws -> any MobileRemoteSSHSession {
+    func authenticate(
+        _ credential: MobileRemoteCredentialMaterial?,
+        profile: MobileRemoteProfile,
+        respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]
+    ) async throws -> any MobileRemoteSSHSession {
         guard let raw else { throw MobileRemoteNativeSSHError.closed }
         let result: Int32
         switch credential {
         case let .password(value): result = try await repeatAuthentication { value.withCString { cmux_ssh_auth_password(raw, $0) } }
-        case .none: result = try await repeatAuthentication { cmux_ssh_auth_none(raw) }
+        case .none:
+            result = profile.authentication == .keyboardInteractive
+                ? Int32(CMUX_SSH_OK)
+                : try await repeatAuthentication { cmux_ssh_auth_none(raw) }
         case let .privateKey(bytes, passphrase):
             let encoded = bytes.base64EncodedString()
             result = encoded.withCString { key in passphrase?.withCString { cmux_ssh_load_private_key(raw, key, $0) } ?? cmux_ssh_load_private_key(raw, key, nil) }
             let authenticated = try await repeatAuthentication({ cmux_ssh_auth_key(raw) })
             guard result == Int32(CMUX_SSH_OK), authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+        }
+        if profile.authentication == .keyboardInteractive {
+            let authenticated = try await authenticateKeyboardInteractively(respondTo: respondToKeyboardChallenge)
+            guard authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
         }
         guard result == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
         guard try await repeatAuthentication({ cmux_ssh_open_channel(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
@@ -93,6 +104,40 @@ fileprivate actor MobileRemoteNativeSSHHandle {
             throw MobileRemoteNativeSSHError.unsupportedSessionBackend(profile.sessionBackend)
         }
         return MobileRemoteNativeSSHSession(handle: self)
+    }
+
+    private func authenticateKeyboardInteractively(
+        respondTo: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]
+    ) async throws -> Int32 {
+        var state = try await repeatAuthentication { cmux_ssh_auth_keyboard(raw) }
+        while state == Int32(CMUX_SSH_CHALLENGE) {
+            let count = cmux_ssh_prompt_count(raw)
+            guard (0...32).contains(count) else { throw MobileRemoteSSHKeyboardError.invalidChallenge }
+            var prompts: [MobileRemoteSSHKeyboardPrompt] = []
+            for index in 0..<count {
+                var echo: Int32 = 0
+                guard let pointer = cmux_ssh_prompt(raw, UInt32(index), &echo) else {
+                    throw MobileRemoteSSHKeyboardError.invalidPrompt
+                }
+                prompts.append(try MobileRemoteSSHKeyboardPrompt(
+                    text: String(cString: pointer), echo: echo != 0
+                ))
+            }
+            let challenge = try MobileRemoteSSHKeyboardChallenge(
+                name: cmux_ssh_prompt_name(raw).map(String.init(cString:)) ?? "",
+                instruction: cmux_ssh_prompt_instruction(raw).map(String.init(cString:)) ?? "",
+                prompts: prompts
+            )
+            let answers = try await respondTo(challenge)
+            guard answers.count == count else { throw MobileRemoteSSHKeyboardError.answerCountMismatch }
+            for (index, answer) in answers.enumerated() {
+                guard cmux_ssh_prompt_answer(raw, UInt32(index), answer) == Int32(CMUX_SSH_OK) else {
+                    throw MobileRemoteNativeSSHError.authenticationFailed
+                }
+            }
+            state = try await repeatAuthentication { cmux_ssh_auth_keyboard(raw) }
+        }
+        return state
     }
 
     private func repeatAuthentication(_ operation: () -> Int32) async throws -> Int32 {
@@ -171,7 +216,9 @@ fileprivate actor MobileRemoteNativeSSHHandle {
 private struct MobileRemoteNativeSSHHandshake: MobileRemoteSSHHandshake {
     let handle: MobileRemoteNativeSSHHandle; let profile: MobileRemoteProfile
     func hostKey() async throws -> MobileRemoteSSHHostKeyChallenge { try await handle.hostKey(profileID: profile.id) }
-    func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession { try await handle.authenticate(credential, profile: profile) }
+    func authenticate(credential: MobileRemoteCredentialMaterial?, respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]) async throws -> any MobileRemoteSSHSession {
+        try await handle.authenticate(credential, profile: profile, respondToKeyboardChallenge: respondToKeyboardChallenge)
+    }
     func close() async { await handle.close() }
 }
 /// SFTP operations exposed by an authenticated native SSH session.

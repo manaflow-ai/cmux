@@ -247,7 +247,7 @@ private actor FakeHandshake: MobileRemoteSSHHandshake {
         guard let challenge else { throw MobileRemoteSSHError.invalidHostKeyChallenge }
         return challenge
     }
-    func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession {
+    func authenticate(credential: MobileRemoteCredentialMaterial?, respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]) async throws -> any MobileRemoteSSHSession {
         await owner.didAuthenticate()
         return FakeSession(owner: owner)
     }

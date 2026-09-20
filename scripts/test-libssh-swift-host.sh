@@ -34,5 +34,5 @@ export CMUX_NATIVE_SSH_PASSWORD="$password"
 export CMUX_NATIVE_SSH_FINGERPRINT="$fingerprint"
 swift test --package-path "$root/Packages/Shared/CmuxSSHNative" \
   --scratch-path "$RUNNER_TEMP/cmux-native-ssh-swift" \
-  --filter LiveNativeSSHTests/liveNativeSSHAgainstFixture \
+  --filter LiveNativeSSHTests \
   --jobs 4
