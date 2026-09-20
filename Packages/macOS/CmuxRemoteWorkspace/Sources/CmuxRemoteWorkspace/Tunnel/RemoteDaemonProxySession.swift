@@ -1,8 +1,8 @@
 import CmuxCore
 import CmuxRemoteDaemon
 import Darwin
-import Foundation
-import Network
+public import Foundation
+public import Network
 
 /// One accepted local proxy connection inside ``RemoteDaemonProxyTunnel``:
 /// parses the SOCKS5 or HTTP CONNECT handshake, opens a matching daemon
@@ -18,7 +18,13 @@ import Network
 /// handshake parsing and close side effects. `@unchecked Sendable` because
 /// the `@Sendable` Network callbacks capture `self`; the queue confinement
 /// above is the safety argument.
-final class RemoteDaemonProxySession: @unchecked Sendable {
+///
+/// `public`: the SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias
+/// rewriting here are backend-agnostic (driven only by
+/// ``RemoteProxyStreamOpening``), so ssh-tmux's local browser proxy reuses
+/// this type verbatim against a non-daemon backend instead of re-implementing
+/// the handshake.
+public final class RemoteDaemonProxySession: @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
 
@@ -40,10 +46,10 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         let consumedBytes: Int
     }
 
-    let id = UUID()
+    public let id = UUID()
 
     private let connection: NWConnection
-    private let rpcClient: any RemoteDaemonTunnelRPCClient
+    private let rpcClient: any RemoteProxyStreamOpening
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
 
@@ -58,9 +64,9 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     private var pendingRemoteHTTPHeaderBytes = Data()
     private var hasForwardedRemoteHTTPHeaders = false
 
-    init(
+    public init(
         connection: NWConnection,
-        rpcClient: any RemoteDaemonTunnelRPCClient,
+        rpcClient: any RemoteProxyStreamOpening,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
@@ -70,7 +76,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         self.onClose = onClose
     }
 
-    func start() {
+    public func start() {
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -86,7 +92,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         receiveNext()
     }
 
-    func stop() {
+    public func stop() {
         close(reason: nil)
     }
 
