@@ -30,6 +30,9 @@ struct CloudMachineLoadingReservation: Sendable {
               let workspace = Workspace.liveWorkspace(id: workspaceID),
               !workspace.isRetiredFromOwningTabManager,
               workspace.cloudVMBinding?.vmID == self.machineID,
+              expectedRemoteWorkspaceID == nil
+                || workspace.cloudVMBinding?.remoteWorkspaceID == nil
+                || workspace.cloudVMBinding?.remoteWorkspaceID == expectedRemoteWorkspaceID,
               let loading = workspace.panels[panelID] as? CloudVMLoadingPanel else { throw CancellationError() }
         return loading
     }
