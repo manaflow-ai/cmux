@@ -1168,7 +1168,10 @@ def admission_api(runs: list[dict], artifacts: dict[int, list[str]], jobs: dict[
             (name,) = query["name"]
             return {"total_count": artifacts.get(run_id, []).count(name)}
         assert query["filter"] == ["all"], path
-        return {"jobs": jobs.get(run_id, [])}
+        page = int(query.get("page", ["1"])[0])
+        per_page = int(query["per_page"][0])
+        run_jobs = jobs.get(run_id, [])
+        return {"jobs": run_jobs[(page - 1) * per_page:page * per_page]}
 
     return api
 
@@ -1231,6 +1234,84 @@ def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt(
     # A rerun of failed jobs alone reuses the first attempt's fingerprint, which
     # no longer pins the toolchain the rerun compiled with.
     assert find("old", [artifact_name("old", 1)], jobs) is None
+
+
+def test_admission_lookup_finds_matching_attempt_beyond_the_first_jobs_page() -> None:
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+    finally:
+        sys.path[:] = original_path
+
+    # An earlier attempt's fan-out fills the first page. Only the later
+    # attempt compiled the desired inputs successfully.
+    earlier_jobs = [admission_job("failure")] * 100
+    jobs = earlier_jobs + [admission_job("success", run_attempt=2)]
+    for fingerprint, expected in (("new", "https://example/8"), ("old", None)):
+        api = admission_api(
+            [admission_run(8)],
+            {8: [artifact_name("old", 1), artifact_name("new", 2)]},
+            {8: jobs},
+        )
+        assert admitted_run(api, "manaflow-ai/cmux", "feature", fingerprint, current_run_id=9) == expected
+
+
+def test_admission_lookup_falls_back_when_a_later_jobs_page_fails() -> None:
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+        from urllib.parse import parse_qs, urlsplit
+    finally:
+        sys.path[:] = original_path
+
+    base_api = admission_api(
+        [admission_run(8)], {8: [artifact_name("abc", 2)]},
+        {8: [admission_job("failure")] * 100 + [admission_job("success", run_attempt=2)]},
+    )
+    pages = []
+
+    def api(path: str) -> dict:
+        url = urlsplit(path)
+        if url.path.endswith("/jobs"):
+            page = int(parse_qs(url.query).get("page", ["1"])[0])
+            pages.append(page)
+            if page == 2:
+                raise subprocess.CalledProcessError(1, "gh")
+        return base_api(path)
+
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) is None
+    assert pages == [1, 2], "the lookup must reach the failed page before falling back"
+
+
+def test_admission_lookup_bounds_job_pages_and_stops_after_a_match() -> None:
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        from find_admitted_build import admitted_run, artifact_name
+        from urllib.parse import parse_qs, urlsplit
+    finally:
+        sys.path[:] = original_path
+
+    # Cap lookup work even when a run has many attempts. Missing an old
+    # admission is safe: this candidate compiles normally instead.
+    for jobs, expected, expected_pages in (
+        ([admission_job("failure")] * 1000, None, [1, 2, 3]),
+        ([admission_job("success")] * 100, "https://example/8", [1]),
+        ([], None, [1]),
+    ):
+        base_api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: jobs})
+        pages = []
+
+        def api(path: str) -> dict:
+            url = urlsplit(path)
+            if url.path.endswith("/jobs"):
+                pages.append(int(parse_qs(url.query).get("page", ["1"])[0]))
+            return base_api(path)
+
+        assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) == expected
+        assert pages == expected_pages
 
 
 def test_admission_lookup_sends_reserved_branch_characters_literally() -> None:
@@ -1300,7 +1381,9 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     # The job that may cancel runs must come from the default branch, where a
     # queued pull request cannot edit it, and must not run repository code.
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested]" in watcher
+    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested, in_progress]" in watcher
+    assert "  group: merge-group-fail-fast-${{ github.event.workflow_run.id }}" in watcher
+    assert "  cancel-in-progress: true" in watcher
     assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
