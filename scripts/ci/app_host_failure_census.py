@@ -35,6 +35,7 @@ def parse_log(text, run_id="unknown", job_id=None):
     recent = []
     restarts = []
     known_tests = set()
+    unexpected_issue_tests = set()
     for raw in text.splitlines():
         line = _clean(raw)
         if not line:
@@ -70,6 +71,7 @@ def parse_log(text, run_id="unknown", job_id=None):
             name = _clean(im.group(1) or im.group(3)).strip('"')
             seen.setdefault(name, True)
             failed[name] = True
+            unexpected_issue_tests.add(name)
             if name not in assertions:
                 assertions[name] = _clean(im.group(2) or "") or line
         sf = SWIFT_FAIL.search(line)
@@ -81,6 +83,8 @@ def parse_log(text, run_id="unknown", job_id=None):
         if len(recent) > 30:
             recent.pop(0)
     for name in known_tests:
+        if name in unexpected_issue_tests:
+            continue
         seen.pop(name, None)
         failed.pop(name, None)
         assertions.pop(name, None)

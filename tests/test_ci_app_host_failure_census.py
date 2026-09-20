@@ -36,6 +36,17 @@ def test_swift_testing_known_issue_is_excluded():
     assert record["tests_failed"] == set()
 
 
+
+def test_known_and_unexpected_issues_keep_failure():
+    record = census.parse_log(
+        '◇ Test "mixed" started.\n'
+        '✘ Test "mixed" recorded a known issue.\n'
+        '✘ Test "mixed" recorded an issue at Foo.swift:4: Unexpected failure\n',
+        "r",
+    )
+    assert record["tests_seen"] == {"mixed"}
+    assert record["tests_failed"] == {"mixed"}
+
 def test_local_job_filenames_share_an_explicit_run_id_only():
     assert census._run_id_for_file(Path("35427062807-shard6.log")) == "35427062807"
     assert census._run_id_for_file(Path("run-35427062807-shard6-job105.log")) == "log-dir"
