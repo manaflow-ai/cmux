@@ -1722,14 +1722,20 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
       # Keep Cloud dogfood policy in the artifact so Finder and HQ cache
-      # restores enable both gates on the Mac that actually launches it.
+      # restores apply the requested gates on the Mac that actually launches it.
       # The app additionally requires a compiled Debug identity before using it.
       case "${CMUX_DEV_CLOUD_ENABLED:-1}" in
         0|1) ;;
         *) echo "error: CMUX_DEV_CLOUD_ENABLED must be 0 or 1" >&2; exit 1 ;;
       esac
+      case "${CMUX_DEV_CLOUD_BETA_ENABLED:-${CMUX_DEV_CLOUD_ENABLED:-1}}" in
+        0|1) ;;
+        *) echo "error: CMUX_DEV_CLOUD_BETA_ENABLED must be 0 or 1" >&2; exit 1 ;;
+      esac
       /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodBetaEnabled' "$INFO_PLIST" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodBetaEnabled bool ${CMUX_DEV_CLOUD_BETA_ENABLED:-${CMUX_DEV_CLOUD_ENABLED:-1}}" "$INFO_PLIST"
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"

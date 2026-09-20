@@ -6,6 +6,7 @@ import Foundation
 struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
     let allowsCloudOverride: Bool
     let enablesCloudDogfood: Bool
+    let enablesCloudDogfoodBeta: Bool
     let isDebugBuild: Bool
     let isTaggedDebugArtifact: Bool
     let hasCloudDogfoodMarker: Bool
@@ -15,7 +16,8 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
         let marker = bundle.object(forInfoDictionaryKey: "CMUXCloudDogfoodEnabled") as? Bool
         self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: true,
                   cloudDogfoodRequested: marker == true,
-                  cloudDogfoodMarkerPresent: marker != nil)
+                  cloudDogfoodMarkerPresent: marker != nil,
+                  cloudBetaRequested: bundle.object(forInfoDictionaryKey: "CMUXCloudDogfoodBetaEnabled") as? Bool ?? true)
         #else
         self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: false)
         #endif
@@ -25,7 +27,8 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
         bundleIdentifier: String?,
         isDebugBuild: Bool,
         cloudDogfoodRequested: Bool = false,
-        cloudDogfoodMarkerPresent: Bool = false
+        cloudDogfoodMarkerPresent: Bool = false,
+        cloudBetaRequested: Bool = true
     ) {
         self.isDebugBuild = isDebugBuild
         self.hasCloudDogfoodMarker = cloudDogfoodMarkerPresent
@@ -38,6 +41,7 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
                 || bundleIdentifier?.hasPrefix(debugID + ".") == true))
         enablesCloudDogfood = cloudDogfoodRequested && isDebugBuild
             && bundleIdentifier?.hasPrefix(debugID + ".") == true
+        enablesCloudDogfoodBeta = enablesCloudDogfood && cloudBetaRequested
     }
 
     func policy(for definition: CmuxFeatureFlagDefinition) -> CmuxFeatureFlagOverridePolicy {

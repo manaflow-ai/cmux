@@ -13,6 +13,42 @@ import Testing
 struct CloudFeatureFlagTests {
 
     #if DEBUG
+    @Test("A tagged artifact can enable the Cloud runtime flag without opting into Beta", arguments: [nil, false, true] as [Bool?])
+    func dogfoodArtifactControlsBetaSeparately(beta: Bool?) throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-cloud-flags-\(UUID()).bundle")
+        let contents = root.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var info: [String: Any] = [
+            "CFBundleIdentifier": "com.cmuxterm.app.debug.cloud-fixture",
+            "CFBundlePackageType": "BNDL",
+            "CMUXCloudDogfoodEnabled": true,
+        ]
+        if let beta { info["CMUXCloudDogfoodBetaEnabled"] = beta }
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: contents.appendingPathComponent("Info.plist"))
+        let bundle = try #require(Bundle(url: root))
+        let suite = "cmux.cloud.artifact.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let betaKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        defaults.set(true, forKey: betaKey)
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(bundle: bundle),
+            telemetryEnabled: false,
+            remoteFlagValueProvider: { _ in false },
+            remoteFlagLoader: { [:] }
+        )
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        #expect(flags.isCloudMachinesEnabled)
+        #expect(defaults.bool(forKey: betaKey) == (beta ?? true))
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy, remoteEnabled: flags.isCloudMachinesEnabled) == (beta ?? true))
+
+        defaults.set(true, forKey: betaKey)
+        #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy, remoteEnabled: flags.isCloudMachinesEnabled))
+    }
+
     @Test("A Debug Cloud override enables the remote-disabled availability observer immediately")
     func dogfoodOverrideReopensCloud() throws {
         let suite = "cmux.cloud.dogfood.\(UUID().uuidString)"
