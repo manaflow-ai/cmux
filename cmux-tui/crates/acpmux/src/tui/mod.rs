@@ -4,7 +4,7 @@
 //!
 //! Keys (also shown with `?`)
 //!   Enter        send prompt        Ctrl-s   send as steer (interrupt)
-//!   Ctrl-t / n   new session        Ctrl-x   cancel turn
+//!   Ctrl-t / n   new session        Ctrl-g   cancel turn
 //!   Ctrl-n/p     next / prev        Tab      focus sidebar
 //!   Ctrl-l       pick model         Ctrl-o   pick mode
 //!   :            command mode       ?        help
@@ -13,6 +13,8 @@
 pub mod actions;
 mod events;
 mod run;
+mod terminal;
+mod scheduler;
 mod state;
 pub use run::run;
 pub use state::*;
@@ -32,6 +34,9 @@ pub mod scroll;
 pub mod shimmer;
 mod session_ops;
 pub mod theme;
+pub mod skills;
+mod keymap;
+pub(crate) mod directory;
 
 pub use mouse::{ButtonAction, PermChoice};
 pub use actions::Action;
@@ -45,7 +50,7 @@ use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers, Mous
 use futures_util::StreamExt;
 use ratatui::layout::Rect;
 use editor::Editor;
-use render::{SelectMode, Selection, draw, word_bounds};
+use render::{SelectMode, Selection, word_bounds};
 use scroll::Viewport;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -83,6 +88,14 @@ pub struct App {
     pub host_chips: Vec<(Rect, Option<String>)>,
     pub(super) harnesses: Vec<String>,
     pub(super) default_harness: Option<String>,
+    pub(super) model_picker_current_only: bool,
+    pub(super) skills: Vec<skills::Skill>,
+    pub(super) palette_prefix: String,
+    pub(super) palette_aliases: Vec<String>,
+    pub(super) skill_prefix: String,
+    pub(super) keymap: keymap::Keymap,
+    pub(super) skill_paths: Vec<String>,
+    pub(super) previous_directory: Option<String>,
     pub show_thoughts: bool,
     /// Show lifecycle events (stopped, resumed, renamed, model set…).
     pub show_system: bool,
@@ -115,6 +128,7 @@ pub struct App {
     pub selection: Option<Selection>,
     /// Plain text of the rows drawn last frame, for copy.
     pub rows_cache: Vec<String>,
+    pub(crate) transcript_cache: render::TranscriptCache,
     /// Per row: (item index, is a collapsible header). Parallel to `rows_cache`.
     pub row_meta: Vec<(usize, Option<Toggle>)>,
     /// Collapsibles flipped from their default, per session id.
@@ -125,9 +139,9 @@ pub struct App {
     pub drag_autoscroll: Option<isize>,
     /// Most composer rows before it scrolls.
     pub composer_max_rows: u16,
-    /// Link runs drawn this frame, re-printed with OSC 8 after the frame.
+    /// Hyperlink metadata for the terminal backend cell diff.
     pub link_cells: Vec<links::LinkCell>,
-    /// Where the frame put the terminal cursor, restored after the link pass.
+    /// Cursor position selected by the active editor.
     pub cursor_pos: Option<(u16, u16)>,
     /// Sidebar rows drawn last frame: (rect, session index).
     pub sidebar_rows: Vec<(Rect, usize)>,
@@ -353,8 +367,19 @@ impl App {
         if self.editor().text().trim().is_empty() {
             return;
         }
+        let raw = self.editor().text().trim().to_owned();
+        if !steer {
+            if let Some(arg) = directory::cd_argument(&raw) {
+                self.open_directory_dialog_at(arg.to_owned());
+                return;
+            }
+        }
+        let text = if !self.remote_directory() && raw.contains(&self.skill_prefix) {
+            self.skills = skills::Skill::discover(std::path::Path::new(&self.current_directory()), &self.skill_paths);
+            match skills::expand(&raw, &self.skills, &self.skill_prefix) { Ok(text) => text, Err(e) => { self.report_error(format!("Skill: {e}")); return; } }
+        } else { raw };
+
         if self.on_draft() {
-            let text = self.editor_mut().take().trim().to_owned();
             self.create_from_draft(text);
             return;
         }
@@ -362,7 +387,7 @@ impl App {
             self.status = "no session selected (Ctrl-t creates one)".into();
             return;
         };
-        let text = self.input.take().trim().to_owned();
+        self.input.take();
         if let Some(id) = self.selected_id() {
             self.viewport.entry(id).or_default().to_bottom();
         }
@@ -423,3 +448,95 @@ impl App {
 
 }
 
+#[cfg(test)]
+mod interaction_tests {
+    use super::*;
+    async fn app() -> (App, mpsc::UnboundedReceiver<Value>) {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let socket = std::env::temp_dir().join(format!("acpmux-ui-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&socket);
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let (sent, requests) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (reader, mut writer) = stream.into_split(); let mut lines = BufReader::new(reader).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let msg: Value = serde_json::from_str(&line).unwrap();
+                let _ = sent.send(msg.clone());
+                let result = if msg["method"] == "session/new" { json!({"sessionId":"test-session"}) } else { json!({}) };
+                let reply = json!({"jsonrpc":"2.0","id":msg["id"],"result":result}).to_string()+"\n";
+                if writer.write_all(reply.as_bytes()).await.is_err() { break; }
+            }
+        });
+        let client = Client::connect(&socket).await.unwrap(); let _ = std::fs::remove_file(socket);
+        let (tx, _) = mpsc::unbounded_channel();
+        let mut app = run::make_app(client, tx, vec![], crate::config::Config::default()).unwrap();
+        app.default_harness = Some("codex".into()); app.harnesses = vec!["codex".into(), "claude".into()];
+        app.open_draft(); (app, requests)
+    }
+    #[tokio::test]
+    async fn rendered_clicks_cd_and_chords_preserve_user_input() {
+        let (mut app, mut requests) = app().await;
+        let root = std::env::temp_dir().join(format!("acpmux-ui-dirs-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("My Project")).unwrap();
+        app.draft_mut().unwrap().cwd = root.to_string_lossy().into_owned();
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(140,40)).unwrap();
+        terminal.draw(|f| render::draw(f,&mut app)).unwrap();
+        let buttons = app.buttons.clone();
+        let find = |a: ButtonAction| buttons.iter().find(|(_,b)| *b==a).unwrap().0;
+        let harness = find(ButtonAction::DraftHarness); let model=find(ButtonAction::DraftModel); let policy=find(ButtonAction::DraftPolicy);
+        assert!(harness.x+harness.width <= model.x && model.x+model.width <= policy.x);
+        app.press(harness.x,harness.y,KeyModifiers::NONE);
+        assert!(matches!(app.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness)));
+        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
+        app.editor_mut().insert_str("cd 'My Project'"); app.send_prompt(false);
+        assert!(matches!(app.overlay,Overlay::Directory{..}));
+        terminal.draw(|f| render::draw(f,&mut app)).unwrap();
+        assert!(!app.buttons.iter().any(|(_,b)| *b==ButtonAction::DraftHarness));
+        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
+        assert_eq!(app.editor().text(),"cd 'My Project'");
+        app.send_prompt(false); app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
+        assert_eq!(app.current_directory(), std::fs::canonicalize(root.join("My Project")).unwrap().to_string_lossy());
+        assert!(app.editor().is_empty());
+        app.editor_mut().insert_str("cd .."); app.send_prompt(false); app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
+        assert_eq!(app.current_directory(),std::fs::canonicalize(&root).unwrap().to_string_lossy());
+        app.on_key(KeyEvent::new(KeyCode::Char('x'),KeyModifiers::CONTROL));
+        app.on_key(KeyEvent::new(KeyCode::Char('p'),KeyModifiers::NONE));
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
+        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
+        app.palette_prefix = ":".into(); app.palette_aliases = vec![];
+        app.on_key(KeyEvent::new(KeyCode::Char('/'),KeyModifiers::NONE));
+        assert_eq!(app.editor().text(),"/"); app.editor_mut().clear();
+        app.on_key(KeyEvent::new(KeyCode::Char(':'),KeyModifiers::NONE));
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.title=="Commands"));
+        app.on_key(KeyEvent::new(KeyCode::Esc,KeyModifiers::NONE));
+        let skill_dir=root.join(".agents/skills/acpmux-ui-test"); std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"),"---\nname: UI test\ndescription: test only\n---\nCheck this test fixture.").unwrap();
+        app.skill_prefix = "%".into();
+        app.editor_mut().insert_str("Review with "); app.on_key(KeyEvent::new(KeyCode::Char('%'),KeyModifiers::NONE));
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="acpmux-ui-test")));
+        app.overlay=Overlay::None;
+        app.apply_pick(PickTarget::Skill { replace_prefix:true }, "acpmux-ui-test".into(), String::new());
+        assert_eq!(app.editor().text(),"Review with %acpmux-ui-test ");
+        app.draft_mut().unwrap().model=Some("test-model".into());
+        app.draft_mut().unwrap().effort=Some("high".into());
+        app.send_prompt(false);
+        let mut saw_new=false;
+        loop {
+            let msg=tokio::time::timeout(std::time::Duration::from_secs(5),requests.recv()).await.unwrap().unwrap();
+            if msg["method"]=="session/new" { assert_eq!(msg["params"]["_meta"]["acpmux"]["model"],"test-model"); assert_eq!(msg["params"]["_meta"]["acpmux"]["effort"],"high"); saw_new=true; }
+            if msg["method"]=="session/prompt" {
+                let text=msg["params"]["prompt"][0]["text"].as_str().unwrap();
+                assert!(saw_new && text.contains("Check this test fixture.") && text.contains("Base directory:")); break;
+            }
+        }
+        app.drafts.clear(); app.sessions=vec![json!({"sessionId":"test-session","harness":"fake","cwd":root})]; app.selected=0;
+        let mut transcript=Transcript::default(); transcript.available_commands=vec!["compact".into()]; app.transcripts.insert("test-session".into(), transcript);
+        app.open_palette();
+        assert!(matches!(app.overlay,Overlay::Picker(ref p) if p.rows.iter().any(|r|r.value=="agent:/compact")));
+        app.overlay=Overlay::None; app.apply_pick(PickTarget::Action,"agent:/compact".into(),String::new());
+        let msg=tokio::time::timeout(std::time::Duration::from_secs(5),requests.recv()).await.unwrap().unwrap();
+        assert_eq!(msg["method"],"session/prompt"); assert_eq!(msg["params"]["prompt"][0]["text"],"/compact");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

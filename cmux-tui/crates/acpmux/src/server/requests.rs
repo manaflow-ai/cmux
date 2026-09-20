@@ -254,6 +254,19 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/directories" => {
+            let home = dirs::home_dir().unwrap_or_default();
+            let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
+            let value = str_param(&params, "path").unwrap_or("");
+            let path = crate::tui::directory::resolve(&base, value, &home, None).map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            let result = tokio::task::spawn_blocking(move || -> Result<Value, std::io::Error> {
+                let path = std::fs::canonicalize(path)?;
+                if !path.is_dir() { return Err(std::io::Error::other("not a directory")); }
+                let children = crate::tui::directory::children(&path);
+                Ok(json!({"path": path, "parent": path.parent(), "home": home, "directories": children}))
+            }).await.map_err(|e| RpcError::internal(e.to_string()))?.map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            Ok(result)
+        }
         "_acpmux/models" => {
             if params.get("refresh").and_then(Value::as_bool).unwrap_or(false) {
                 hub.refresh_models().await;

@@ -13,11 +13,20 @@ pub enum PermChoice {
 pub enum ButtonAction {
     NewDraft,
     /// Title-row chips.
+    DraftConfig,
+    DraftHarness,
+    DraftModel,
+    DraftEffort,
+    DraftPolicy,
+    DraftDirectory,
+    /// Start a draft in a project shown in the sidebar.
+    NewProject(String),
     PickModel,
     PickMode,
     PickPolicy,
     PickThinking,
     EditDirectory,
+    BrowseDirectory(String),
     /// Filter the sidebar to one host; None = all.
     HostFilter(Option<String>),
     AddHost,
@@ -42,6 +51,13 @@ impl App {
     pub(super) fn on_button(&mut self, action: &ButtonAction) {
         match action {
             ButtonAction::NewDraft => self.open_draft(),
+            ButtonAction::DraftConfig => self.open_draft_config_picker(),
+            ButtonAction::DraftHarness => self.open_draft_harness_picker(),
+            ButtonAction::DraftModel => self.open_draft_model_picker(),
+            ButtonAction::DraftEffort => self.open_thinking_picker(),
+            ButtonAction::DraftPolicy => self.open_policy_picker(),
+            ButtonAction::DraftDirectory => self.open_directory_dialog(),
+            ButtonAction::NewProject(cwd) => self.open_draft_in_directory(cwd.clone()),
             ButtonAction::Send => self.run_action(super::actions::Action::Send, &[]),
             ButtonAction::ShowGroup(g) => {
                 if !self.expanded_groups.remove(g) {
@@ -53,6 +69,7 @@ impl App {
             ButtonAction::PickPolicy => self.open_policy_picker(),
             ButtonAction::PickThinking => self.open_thinking_picker(),
             ButtonAction::EditDirectory => self.open_directory_dialog(),
+            ButtonAction::BrowseDirectory(path) => self.open_directory_dialog_at(path.clone()),
             ButtonAction::HostFilter(h) => {
                 // Clicking the active chip again clears the filter.
                 let next = if self.host_filter == *h { None } else { h.clone() };

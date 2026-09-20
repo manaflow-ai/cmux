@@ -9,6 +9,8 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Palette,
+    Sessions,
+    Skills,
     Help,
     Quit,
     NewDraft,
@@ -69,14 +71,16 @@ pub struct ActionDef {
 }
 
 pub const ACTIONS: &[ActionDef] = &[
+    ActionDef { action: Action::Sessions, name: "sessions", aliases: &["resume", "continue"], label: "switch sessions", keys: "", group: "sessions", args: "" },
+    ActionDef { action: Action::Skills, name: "skills", aliases: &[], label: "insert a skill reference", keys: "", group: "settings", args: "" },
     ActionDef { action: Action::Palette, name: "palette", aliases: &["commands"], label: "command palette", keys: "/  Ctrl-Shift-p  Cmd-k", group: "general", args: "" },
     ActionDef { action: Action::Help, name: "help", aliases: &["keys"], label: "all keys", keys: "?", group: "general", args: "" },
     ActionDef { action: Action::Web, name: "web", aliases: &[], label: "open the web dashboard", keys: "", group: "general", args: "" },
-    ActionDef { action: Action::Quit, name: "quit", aliases: &["q", "detach"], label: "leave; every agent keeps running", keys: "Ctrl-q", group: "general", args: "" },
-    ActionDef { action: Action::NewDraft, name: "new", aliases: &["draft"], label: "new session tab", keys: "Ctrl-t", group: "sessions", args: "" },
+    ActionDef { action: Action::Quit, name: "quit", aliases: &["q", "detach", "exit"], label: "leave; every agent keeps running", keys: "Ctrl-q", group: "general", args: "" },
+    ActionDef { action: Action::NewDraft, name: "new", aliases: &["draft", "clear"], label: "new session tab", keys: "Ctrl-t  Alt-n  Ctrl-x then n", group: "sessions", args: "" },
     ActionDef { action: Action::NewForm, name: "form", aliases: &[], label: "new session form (agent, name, directory, permissions)", keys: "", group: "sessions", args: "" },
-    ActionDef { action: Action::NextSession, name: "next", aliases: &[], label: "next session", keys: "Ctrl-n (sidebar)", group: "sessions", args: "" },
-    ActionDef { action: Action::PrevSession, name: "prev", aliases: &["previous"], label: "previous session", keys: "Ctrl-p (sidebar)", group: "sessions", args: "" },
+    ActionDef { action: Action::NextSession, name: "next", aliases: &[], label: "next session", keys: "Ctrl-n (sidebar)  Alt-]", group: "sessions", args: "" },
+    ActionDef { action: Action::PrevSession, name: "prev", aliases: &["previous"], label: "previous session", keys: "Ctrl-p (sidebar)  Alt-[", group: "sessions", args: "" },
     ActionDef { action: Action::Goto, name: "go", aliases: &["goto", "switch", "open"], label: "switch to a session by name or title", keys: "", group: "sessions", args: "NAME" },
     ActionDef { action: Action::Rename, name: "rename", aliases: &[], label: "rename the session", keys: "r (sidebar)", group: "sessions", args: "NAME" },
     ActionDef { action: Action::Fork, name: "fork", aliases: &[], label: "fork the session with its history", keys: "f (sidebar)", group: "sessions", args: "" },
@@ -86,18 +90,18 @@ pub const ACTIONS: &[ActionDef] = &[
     ActionDef { action: Action::Import, name: "import", aliases: &[], label: "import a session bundle", keys: "", group: "sessions", args: "PATH" },
     ActionDef { action: Action::Send, name: "send", aliases: &[], label: "send the message", keys: "Enter", group: "talking", args: "" },
     ActionDef { action: Action::Steer, name: "steer", aliases: &[], label: "steer the running turn, or queue when the agent cannot steer", keys: "Ctrl-s", group: "talking", args: "" },
-    ActionDef { action: Action::Cancel, name: "cancel", aliases: &["interrupt", "pause"], label: "interrupt the running turn", keys: "Esc  Ctrl-x", group: "talking", args: "" },
+    ActionDef { action: Action::Cancel, name: "cancel", aliases: &["interrupt", "pause"], label: "interrupt the running turn", keys: "Esc  Ctrl-g", group: "talking", args: "" },
     ActionDef { action: Action::Allow, name: "allow", aliases: &["yes"], label: "allow the pending permission", keys: "y", group: "talking", args: "" },
     ActionDef { action: Action::Deny, name: "deny", aliases: &["no"], label: "reject the pending permission", keys: "n", group: "talking", args: "" },
-    ActionDef { action: Action::Model, name: "model", aliases: &["harness"], label: "pick harness and model", keys: "Ctrl-l", group: "settings", args: "[MODEL]" },
+    ActionDef { action: Action::Model, name: "model", aliases: &["models"], label: "pick harness and model", keys: "Ctrl-l  Alt-m", group: "settings", args: "[MODEL]" },
     ActionDef { action: Action::Mode, name: "mode", aliases: &[], label: "pick the agent mode", keys: "Ctrl-o", group: "settings", args: "[MODE]" },
-    ActionDef { action: Action::Effort, name: "effort", aliases: &["thinking", "reasoning"], label: "pick the thinking effort", keys: "Alt-e", group: "settings", args: "[LEVEL]" },
-    ActionDef { action: Action::Policy, name: "policy", aliases: &["perms", "permissions"], label: "permission policy: ask · approve-reads · approve-edits · approve-all · deny-all", keys: "", group: "settings", args: "[POLICY]" },
-    ActionDef { action: Action::Directory, name: "cwd", aliases: &["dir", "directory"], label: "working directory (a live session forks into a new tab)", keys: "", group: "settings", args: "[PATH]" },
+    ActionDef { action: Action::Effort, name: "effort", aliases: &["reasoning"], label: "pick the thinking effort", keys: "Alt-e", group: "settings", args: "[LEVEL]" },
+    ActionDef { action: Action::Policy, name: "policy", aliases: &["perms", "permissions"], label: "permission policy: ask · approve-reads · approve-edits · approve-all · deny-all", keys: "Alt-p", group: "settings", args: "[POLICY]" },
+    ActionDef { action: Action::Directory, name: "cwd", aliases: &["dir", "directory", "cd"], label: "working directory (a live session forks into a new tab)", keys: "Alt-Shift-d", group: "settings", args: "[PATH]" },
     ActionDef { action: Action::Agent, name: "harness", aliases: &[], label: "harness for the current draft", keys: "", group: "settings", args: "NAME" },
     ActionDef { action: Action::Set, name: "set", aliases: &["config", "option"], label: "any agent option: /set KEY or /set KEY=VALUE", keys: "", group: "settings", args: "KEY[=VALUE]" },
     ActionDef { action: Action::ToggleSystem, name: "system", aliases: &["events", "lifecycle"], label: "show or hide lifecycle events (stopped, resumed, renamed, model set)", keys: "", group: "reading", args: "" },
-    ActionDef { action: Action::ToggleThoughts, name: "thoughts", aliases: &["thinking-text"], label: "show or hide the agent's thinking text", keys: "", group: "reading", args: "" },
+    ActionDef { action: Action::ToggleThoughts, name: "thoughts", aliases: &["thinking-text", "thinking"], label: "show or hide the agent's thinking text", keys: "", group: "reading", args: "" },
     ActionDef { action: Action::ScrollTop, name: "top", aliases: &[], label: "scroll to the top", keys: "Home  g (transcript)", group: "reading", args: "" },
     ActionDef { action: Action::ScrollBottom, name: "bottom", aliases: &["follow"], label: "scroll to the bottom and follow", keys: "End  G (transcript)", group: "reading", args: "" },
     ActionDef { action: Action::PageUp, name: "pageup", aliases: &[], label: "scroll up one page", keys: "PgUp", group: "reading", args: "" },
@@ -122,6 +126,10 @@ pub const EDITING_KEYS: &[(&str, &str)] = &[
     ("Alt-b / Alt-f", "word left / right"),
     ("Ctrl-w  Alt-d", "delete word back / forward"),
     ("Ctrl-k / Ctrl-u", "kill to end / start of line"),
+    ("Alt-1…9", "jump to a visible session in the sidebar"),
+
+
+
     ("y / n / 1-9", "answer the permission card above the composer"),
     ("click", "a chip in the composer changes permissions, model or effort; a handle, thought or tool line opens or closes it"),
     ("wheel", "scroll the transcript; drag selects and copies; double / triple click selects a word / line"),
@@ -150,14 +158,45 @@ pub fn draft_effort_levels(agent: &str) -> Vec<(&'static str, &'static str)> {
 impl App {
     /// `/name args` from the command line or the palette.
     pub(super) fn run_command(&mut self, line: &str) {
-        let line = line.trim().trim_start_matches('/');
+        let mut line = line.trim();
+        for prefix in std::iter::once(&self.palette_prefix).chain(self.palette_aliases.iter()) {
+            if let Some(rest) = line.strip_prefix(prefix) {
+                line = rest.trim_start();
+                break;
+            }
+        }
         let mut parts = line.split_whitespace();
         let Some(cmd) = parts.next() else { return };
         let rest: Vec<&str> = parts.collect();
+        if matches!(cmd, "cd" | "cwd" | "dir" | "directory") && !rest.is_empty() { self.apply_directory(rest.join(" ")); return; }
         match find(cmd) {
             Some(d) => self.run_action(d.action, &rest),
-            None => self.report_error(format!("unknown command /{cmd}  (/ lists every command)")),
+            None if self.selected_id().and_then(|id| self.transcripts.get(&id)).map(|t| t.available_commands.iter().any(|name| name.trim_start_matches('/') == cmd)).unwrap_or(false) => {
+                if let Some(id) = self.selected_id() {
+                    let text = format!("/{cmd}{}", if rest.is_empty() { String::new() } else { format!(" {}", rest.join(" ")) });
+                    self.request_bg(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type":"text", "text":text}]}), None);
+                }
+            }
+            None => self.report_error(format!("unknown command {}{cmd}  ({} lists every command)", self.palette_prefix, self.palette_prefix)),
         }
+    }
+
+    pub(super) fn open_skill_picker(&mut self) {
+        let cwd = self
+            .draft()
+            .map(|d| d.cwd.clone())
+            .or_else(|| self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str).map(str::to_owned)))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned());
+        if self.remote_directory() { self.report_error("Skill browsing currently uses local projects; open a local session to select a skill".into()); return; }
+        self.skills = crate::tui::skills::Skill::discover(std::path::Path::new(&cwd), &self.skill_paths);
+        let rows = self.skills.iter().map(|s| PickRow {
+            value: s.id.clone(),
+            label: if s.description.is_empty() { format!("{}{}", self.skill_prefix, s.id) } else { format!("{}{:<24} {}", self.skill_prefix, s.id, s.description) },
+            header: false,
+            group: String::new(),
+            note: s.path.to_string_lossy().into_owned(),
+        }).collect();
+        self.overlay = Overlay::Picker(Picker::new("Skills", rows, None, PickTarget::Skill { replace_prefix: false }, "type to filter · Enter inserts · Esc keeps your message"));
     }
 
     pub(super) fn open_palette(&mut self) {
@@ -175,13 +214,23 @@ impl App {
                 rows.push(PickRow { value: format!("goto:{id}"), label: format!("{title}{mark}   {project}"), header: false, group: String::new(), note: String::new() });
             }
         }
+        if let Some(t) = self.selected_id().and_then(|id| self.transcripts.get(&id)) {
+            if !t.available_commands.is_empty() {
+                rows.push(PickRow { value:String::new(), label:"harness commands".into(), header:true, group:String::new(), note:String::new() });
+                for cmd in &t.available_commands {
+                    let cmd=cmd.trim_start_matches('/');
+                    rows.push(PickRow { value:format!("agent:/{cmd}"), label:format!("{}{cmd}", self.palette_prefix), header:false, group:String::new(), note:"provided by the selected harness".into() });
+                }
+            }
+        }
         let mut group = "";
         for d in ACTIONS {
             if d.group != group {
                 group = d.group;
                 rows.push(PickRow { value: String::new(), label: group.to_owned(), header: true, group: String::new(), note: String::new() });
             }
-            let label = if d.keys.is_empty() { format!("/{:<14} {}", d.name, d.label) } else { format!("/{:<14} {}   [{}]", d.name, d.label, d.keys) };
+            let keys = self.keymap.hints(d.name);
+            let label = format!("{}{:<14} {}   {}", self.palette_prefix, d.name, d.label, keys);
             rows.push(PickRow { value: d.name.to_owned(), label, header: false, group: String::new(), note: String::new() });
         }
         self.overlay = Overlay::Picker(Picker::new("Commands", rows, None, PickTarget::Action, "type to filter · Enter runs · add arguments after a space · Esc"));
@@ -191,6 +240,11 @@ impl App {
         let sid = self.selected_id();
         match action {
             Action::Palette => self.open_palette(),
+            Action::Sessions => {
+                self.open_palette();
+                if let Overlay::Picker(p) = &mut self.overlay { p.title = "Sessions".into(); p.rows.retain(|r| r.value.starts_with("goto:")); p.refilter(); }
+            }
+            Action::Skills => self.open_skill_picker(),
             Action::Help => self.overlay = Overlay::Help,
             Action::Quit => self.quit = true,
             Action::NewDraft => self.open_draft(),
@@ -299,7 +353,7 @@ impl App {
                 None => self.open_policy_picker(),
             },
             Action::Directory => match args.first() {
-                Some(p) => self.apply_directory(p.to_string()),
+                Some(_) => self.apply_directory(args.join(" ")),
                 None => self.open_directory_dialog(),
             },
             Action::Agent => {

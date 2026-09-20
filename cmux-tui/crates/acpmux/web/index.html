@@ -43,9 +43,21 @@
   .nav { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); }
   .nav:hover { background: var(--hover); }
   .nav .ic { color: var(--muted); width: 14px; text-align: center; }
+  .projects-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 10px 4px; color: var(--muted); font-size: 12.5px; }
+  .projects-head button { color: var(--dim); padding: 2px 5px; font-size: 13px; }
+  .projects-head button:hover { color: var(--ink); }
+  .projects { display: grid; gap: 1px; }
+  .project { display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 10px; border-radius: 8px; color: var(--muted); cursor: pointer; }
+  .project:hover { background: var(--hover); color: var(--ink); }
+  .project .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project .plus { color: var(--dim); padding: 1px 5px; font-size: 16px; line-height: 1; }
+  .project .plus:hover { color: var(--ink); background: var(--raised); }
   .list { overflow-y: auto; min-height: 0; flex: 1; margin-top: 8px; }
   .grp { display: flex; align-items: center; gap: 8px; padding: 12px 10px 4px; font-size: 12.5px; color: var(--muted); }
   .grp .ic { color: var(--dim); }
+  .grp .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grp .plus { color: var(--dim); padding: 0 4px; font-size: 16px; line-height: 1; }
+  .grp .plus:hover { color: var(--ink); background: var(--raised); }
   .sess { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 30px; border-radius: 8px; cursor: pointer; color: var(--ink); }
   .sess:hover { background: var(--hover); }
   .sess.sel { background: var(--sel); }
@@ -171,6 +183,9 @@
   .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
   .chip:hover { background: var(--hover); color: var(--ink); }
   .chip.warm { color: var(--warm); }
+  button.chip { border: 0; text-align: left; }
+  .draft-config { max-width: min(100%, 420px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .draft-config .chev { color: var(--dim); }
   .chip select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
   .composer .send { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--bg); font-weight: 700; display: grid; place-items: center; padding: 0; }
   .composer .send:disabled { background: var(--raised); color: var(--dim); cursor: default; }
@@ -186,6 +201,16 @@
   dialog label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
   dialog input, dialog select { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
   dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
+  dialog .hint { color: var(--dim); font-size: 12.5px; margin: -4px 0 2px; }
+  .project-pref { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--rule); }
+  .project-pref:first-child { border-top: 0; }
+  .project-pref .path { flex: 1; min-width: 0; }
+  .project-pref .path strong { display: block; color: var(--ink); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-pref .path small { display: block; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .project-pref .move, .project-pref .remove { color: var(--dim); padding: 3px 6px; }
+  .project-pref .move:hover, .project-pref .remove:hover { color: var(--ink); background: var(--hover); }
+  .project-add { display: flex; gap: 6px; }
+  .project-add input { flex: 1; min-width: 0; }
   .toast { position: fixed; right: 18px; bottom: 18px; background: var(--raised); color: var(--ink); padding: 8px 12px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
   /* Phones: the rail becomes a sheet behind the Sessions button. */
   @media (max-width: 760px) {
@@ -201,13 +226,15 @@
 <aside id="side">
   <div class="brand">acpmux <span id="conn" class="conn off" title="connecting…"></span></div>
   <div class="nav" id="btn-new" title="New session (⌘K / Ctrl-K)"><span class="ic">✎</span><span>New session</span></div>
+  <div class="projects-head"><span>Projects</span><button id="btn-projects" title="Customize sidebar projects" type="button">⚙</button></div>
+  <div class="projects" id="projects"></div>
   <div class="list" id="list"></div>
   <div id="empty" class="empty" hidden>No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code></div>
   <div class="rail-foot" id="hosts"></div>
 </aside>
 <section>
   <div class="bar" id="bar">
-    <span class="proj" id="proj"></span><span class="sep" id="sep" hidden>›</span>
+    <button class="proj" id="proj" type="button" title="Change directory"></button><span class="sep" id="sep" hidden>›</span>
     <h1 id="title">—</h1>
     <span id="status" class="st"></span>
     <span class="spacer"></span>
@@ -226,6 +253,9 @@
     <div class="box">
       <textarea id="input" placeholder="Ask anything" rows="1"></textarea>
       <div class="row">
+        <button id="chip-draft-harness" class="chip draft-config" hidden type="button" title="Change harness"><span id="draft-harness-label"></span></button>
+        <button id="chip-draft-model" class="chip draft-config" hidden type="button" title="Change model"><span id="draft-model-label"></span></button>
+        <button id="chip-draft-policy" class="chip draft-config" hidden type="button" title="Change permissions"><span id="draft-policy-label"></span></button>
         <label class="chip" id="chip-policy"><span id="policy-label">Ask before acting</span><select id="policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
         <label class="chip" id="chip-mode" hidden><span id="mode-label"></span><select id="mode"></select></label>
         <button id="btn-steer" class="steer" hidden title="Interrupt the running turn with this message">Steer</button>
@@ -244,9 +274,43 @@
     <label>Harness <select id="new-agent"></select></label>
     <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
     <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
+    <label>Model <select id="new-model"></select></label>
+    <label>Thinking effort <select id="new-effort"><option value="default">Default</option><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
     <label>Permissions <select id="new-policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
     <label>First message (optional) <input id="new-prompt" placeholder="inspect the failing tests"></label>
     <div class="row"><button type="button" id="new-cancel" class="pill">Cancel</button><button type="submit" class="pill">Create</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-draft-config">
+  <form method="dialog" id="form-draft-config">
+    <h3>New session settings</h3>
+    <div class="hint">These settings apply when the first message creates the session.</div>
+    <label>Harness <select id="draft-agent"></select></label>
+    <label>Model <select id="draft-model"></select></label>
+    <label>Thinking effort <select id="draft-effort"><option value="default">Default</option><option value="minimal">Minimal</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="xhigh">Extra high</option><option value="max">Max</option></select></label>
+    <label>Permissions <select id="draft-policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
+    <div class="row"><button type="button" id="draft-config-cancel" class="pill">Cancel</button><button type="submit" class="pill">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-projects">
+  <form method="dialog" id="form-projects">
+    <h3>Sidebar projects</h3>
+    <div class="hint">Choose project shortcuts and their order. Hidden projects stay in your session history.</div>
+    <div id="project-prefs"></div>
+    <div class="project-add"><input id="project-path" placeholder="/path/to/project"><button type="button" class="pill" id="project-add-btn">Add</button></div>
+    <div class="row"><button type="submit" class="pill">Done</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlg-directory">
+  <form id="form-directory">
+    <h3>Working directory</h3>
+    <label>Directory <input id="directory-path" placeholder="Absolute path, ~/…, or ../…"></label>
+    <div id="directory-folders" style="max-height:40vh;overflow:auto"></div>
+    <div class="hint" id="directory-note">Choose where to start a new session.</div>
+    <div class="row"><button type="button" id="directory-cancel">Cancel</button><button type="button" id="directory-browse">Browse</button><button type="submit" class="pill">Use directory</button></div>
   </form>
 </dialog>
 
@@ -281,8 +345,9 @@
       const w = await call('_acpmux/watch', { enabled: true });
       setSessions(w.sessions || []);
       const a = await call('_acpmux/harnesses', {});
-      agents = a.harnesses || {}; defaultHarness = a.defaultHarness;
-      try { const st = await call('_acpmux/status', {}); renderHosts(st.peers || []); } catch (e) {}
+      agents = a.harnesses || {}; harnessDefaults = a.defaults || {}; defaultHarness = a.defaultHarness;
+      try { const catalog = await call('_acpmux/models', {}); modelCatalog = {}; for (const h of catalog.harnesses || []) modelCatalog[h.harness] = h; } catch (e) { modelCatalog = {}; }
+      try { const st = await call('_acpmux/status', {}); daemonStatus = st || {}; homeDir = st.userHome || ''; renderHosts(st.peers || []); renderProjects(); } catch (e) {}
       const wanted = wantSession && state.sessions.find((x) => x.sessionId === wantSession || x.name === wantSession || x.name.endsWith('/' + wantSession));
       if (selected) attach(selected, true);
       else if (wantSession === 'new') startDraft();
@@ -308,23 +373,36 @@
 
   // ---------- state
   const state = { sessions: [], transcripts: new Map(), details: new Map() };
-  let selected = null, agents = {}, defaultHarness = null, attached = new Set();
+  let selected = null, agents = {}, harnessDefaults = {}, defaultHarness = null, attached = new Set();
+  let modelCatalog = {}, daemonStatus = {}, homeDir = '';
+  const projectsKey = 'acpmux.sidebar.projects.v1';
+  let projectPrefs = loadProjectPrefs();
   // Codex app: "New session" is an empty conversation with the composer
   // ready; the session is created on the first message.
   let draft = null;
-  function startDraft() {
-    const cur = state.sessions.find((x) => x.sessionId === selected);
-    draft = { harness: defaultHarness || Object.keys(agents)[0] || '', policy: (cur && cur.policy) || 'ask', cwd: (cur && !cur.peer && cur.cwd) || draft && draft.cwd || '' };
+  function startDraft(preferredCwd) {
+    const cur = state.sessions.find((x) => x.sessionId === selected && !x.peer);
+    const harness = (cur && cur.harness) || (draft && draft.harness) || defaultHarness || Object.keys(agents)[0] || '';
+    const defaults = defaultsForHarness(harness);
+    const detail = cur && state.details.get(cur.sessionId);
+    const effort = currentOption(detail, ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning']);
+    draft = {
+      harness,
+      model: (cur && cur.model) || defaults.model || defaultModelFor(harness),
+      effort: effort || defaults.effort || 'default',
+      policy: (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'ask',
+      cwd: preferredCwd !== undefined ? preferredCwd : (cur && !cur.peer && cur.cwd) || (draft && draft.cwd) || ''
+    };
     selected = null; document.title = 'acpmux';
     renderList(); renderBar(); renderLog(true); $('#input').focus(); $('#side').classList.remove('open');
   }
 
-  function setSessions(list) { state.sessions = list; sortSessions(); renderList(); }
+  function setSessions(list) { state.sessions = list; sortSessions(); renderList(); renderProjects(); }
   function sortSessions() { state.sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
   function upsertSession(s) {
     const i = state.sessions.findIndex((x) => x.sessionId === s.sessionId);
     if (i >= 0) state.sessions[i] = s; else state.sessions.push(s);
-    sortSessions(); renderList(); if (s.sessionId === selected) renderBar();
+    sortSessions(); renderList(); renderProjects(); if (s.sessionId === selected) renderBar();
   }
 
 
@@ -444,8 +522,11 @@
   function select(id) { selected = id; draft = null; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
   async function send(steer) {
     const text = $('#input').value.trim(); if (!text) return;
+    if (!steer && (text === 'cd' || /^cd\s+[^\n\r;|&`]*$/.test(text) && !text.includes('$('))) {
+      openDirectory(text === 'cd' ? '' : text.slice(2).trim()); return;
+    }
     if (draft && !selected) {
-      const meta = { harness: draft.harness, policy: draft.policy };
+      const meta = draftMeta(draft);
       const params = { mcpServers: [], _meta: { acpmux: meta } };
       if (draft.cwd) params.cwd = draft.cwd;
       $('#input').value = ''; autosize();
@@ -484,19 +565,111 @@
   const glyphOf = (kind) => ({ read: '≡', edit: '✎', execute: '$', search: '⌕', fetch: '↓', think: '…', delete: '⇄', move: '⇄' }[kind] || '•');
   const policyLabel = (p) => ({ 'approve-all': 'Full access', 'approve-edits': 'Edits allowed', 'approve-reads': 'Reads allowed', 'deny-all': 'Read-only' }[p] || 'Ask before acting');
 
+  function loadProjectPrefs() {
+    try {
+      const v = JSON.parse(localStorage.getItem(projectsKey) || '{}');
+      return { hidden: Array.isArray(v.hidden) ? v.hidden : [], custom: Array.isArray(v.custom) ? v.custom : [], order: Array.isArray(v.order) ? v.order : [] };
+    } catch (e) { return { hidden: [], custom: [], order: [] }; }
+  }
+  function saveProjectPrefs() {
+    try { localStorage.setItem(projectsKey, JSON.stringify(projectPrefs)); } catch (e) {}
+  }
+  function normalizePath(path) {
+    let p = String(path || '').trim();
+    if (!p) return '';
+    if (p === '~' && homeDir) return homeDir;
+    if (p.startsWith('~/') && homeDir) return homeDir.replace(/\/$/, '') + p.slice(1);
+    if (p.length > 1) p = p.replace(/\/+$/, '');
+    return p;
+  }
+  function detectedProjectPaths() {
+    const out = new Set();
+    for (const s of state.sessions) if (!s.peer && s.cwd) out.add(normalizePath(s.cwd));
+    return out;
+  }
+  function allProjectPaths() {
+    const out = detectedProjectPaths();
+    for (const p of projectPrefs.custom) if (p) out.add(normalizePath(p));
+    const known = new Set(out);
+    const order = projectPrefs.order.filter((p) => known.has(p));
+    const rest = Array.from(out).filter((p) => !order.includes(p)).sort((a, b) => a.localeCompare(b));
+    return order.concat(rest);
+  }
+  function visibleProjectPaths() {
+    const hidden = new Set(projectPrefs.hidden);
+    return allProjectPaths().filter((p) => !hidden.has(p));
+  }
+  function projectTitle(path) { return projectOf(path) || path || 'project'; }
+  function defaultsForHarness(harness) {
+    const info = agents[harness] || {};
+    const family = info.family;
+    const d = (family && harnessDefaults[family]) || {};
+    return Object.assign({}, d, info.defaults || {});
+  }
+  function modelOptionsFor(harness) {
+    const row = modelCatalog[harness];
+    if (row && Array.isArray(row.models) && row.models.length) return row.models;
+    const declared = agents[harness] && agents[harness].models;
+    if (Array.isArray(declared) && declared.length) return declared.map((m) => typeof m === 'string' ? { id: m, name: m } : m);
+    return [{ id: 'default', name: 'default model' }];
+  }
+  function defaultModelFor(harness) {
+    const d = defaultsForHarness(harness);
+    if (d.model) return d.model;
+    return 'default';
+  }
+  function modelDisplay(harness, id) {
+    if (!id || id === 'default') return 'default model';
+    const o = modelOptionsFor(harness).find((x) => x.id === id);
+    return modelLabel((o && (o.name || o.id)) || id);
+  }
+  function currentOption(detail, ids) {
+    const opts = detail && Array.isArray(detail.configOptions) ? detail.configOptions : [];
+    const o = opts.find((x) => ids.includes(x.id));
+    return o && o.currentValue || '';
+  }
+  function draftMeta(d) {
+    const meta = { harness: d.harness, policy: d.policy };
+    if (d.model && d.model !== 'default') meta.model = d.model;
+    if (d.effort && d.effort !== 'default') meta.effort = d.effort;
+    return meta;
+  }
+
   // ---------- rendering: rail
   const expanded = new Set();
   function renderHosts(peers) {
     const el = $('#hosts'); el.innerHTML = '<span class="host"><i></i>mac</span>' + peers.map((p) => '<span class="host" title="' + esc(p.url || '') + '"><i class="' + (p.connected ? '' : 'off') + '"></i>' + esc(p.name) + '</span>').join('');
   }
+  function renderProjects() {
+    const el = $('#projects'); if (!el) return;
+    el.innerHTML = '';
+    for (const path of visibleProjectPaths()) {
+      const row = document.createElement('div'); row.className = 'project'; row.title = path;
+      row.innerHTML = '<span class="ic">▢</span><span class="name">' + esc(projectTitle(path)) + '</span><button class="plus" type="button" title="New session in ' + esc(path) + '">+</button>';
+      row.onclick = (e) => { if (e.target.classList.contains('plus')) { e.stopPropagation(); startDraft(path); } else startDraft(path); };
+      el.appendChild(row);
+    }
+    if (!el.children.length) {
+      const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = 'Add a project with ⚙'; el.appendChild(empty);
+    }
+  }
   function renderList() {
     const list = $('#list'); list.innerHTML = '';
-    $('#empty').hidden = state.sessions.length > 0;
     const order = [], members = new Map();
-    for (const s of state.sessions) { const g = groupOf(s); if (!members.has(g)) { order.push(g); members.set(g, []); } members.get(g).push(s); }
+    const hidden = new Set(projectPrefs.hidden);
+    for (const s of state.sessions) {
+      if (!s.peer && s.cwd && hidden.has(normalizePath(s.cwd))) continue;
+      const g = JSON.stringify([s.peer || '', normalizePath(s.cwd)]); if (!members.has(g)) { order.push(g); members.set(g, []); } members.get(g).push(s);
+    }
+    $('#empty').hidden = order.length > 0;
+    if (!order.length && state.sessions.length) $('#empty').innerHTML = 'No visible sessions. Customize projects with ⚙.';
+    else $('#empty').innerHTML = 'No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code>';
     for (const g of order) {
       const rows = members.get(g);
-      const h = document.createElement('div'); h.className = 'grp'; h.innerHTML = '<span class="ic">▢</span><span>' + esc(g) + '</span>'; list.appendChild(h);
+      const cwd = rows.find((s) => !s.peer && s.cwd);
+      const h = document.createElement('div'); h.className = 'grp'; h.innerHTML = '<span class="ic">▢</span><span class="name">' + esc(groupOf(rows[0])) + '</span>' + (cwd ? '<button class="plus" type="button" title="New session in ' + esc(cwd.cwd) + '">+</button>' : '');
+      if (cwd) h.querySelector('.plus').onclick = (e) => { e.stopPropagation(); startDraft(cwd.cwd); };
+      list.appendChild(h);
       const cut = rows.length > 7 && !expanded.has(g) && !rows.slice(6).some((s) => s.sessionId === selected);
       for (const s of (cut ? rows.slice(0, 6) : rows)) {
         const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : ''); el.dataset.id = s.sessionId;
@@ -553,6 +726,8 @@
   // ---------- rendering: header + composer chips
   function renderBar() {
     if (draft && !selected) { renderDraftBar(); return; }
+    $('#chip-draft-harness').hidden = true; $('#chip-draft-model').hidden = true; $('#chip-draft-policy').hidden = true;
+    $('#chip-policy').hidden = false; $('#chip-model').hidden = false;
     const s = state.sessions.find((x) => x.sessionId === selected);
     const d = state.details.get(selected) || {};
     const t = state.transcripts.get(selected);
@@ -595,11 +770,11 @@
     $('#proj').textContent = draft.cwd ? projectOf(draft.cwd) : ''; $('#sep').hidden = !draft.cwd; $('#title').textContent = 'New session';
     $('#status').textContent = ''; $('#usage').textContent = ''; $('#btn-steer').hidden = true;
     for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = true;
-    $('#policy').value = draft.policy; $('#policy-label').textContent = policyLabel(draft.policy); $('#chip-policy').classList.toggle('warm', draft.policy === 'approve-all');
+    $('#chip-draft-harness').hidden = false; $('#draft-harness-label').textContent = draft.harness || 'harness';
+    $('#chip-draft-model').hidden = false; $('#draft-model-label').textContent = modelDisplay(draft.harness, draft.model);
+    $('#chip-draft-policy').hidden = false; $('#draft-policy-label').textContent = policyLabel(draft.policy);
+    $('#chip-policy').hidden = true; $('#chip-model').hidden = true;
     $('#chip-mode').hidden = true; $('#chip-effort').hidden = true;
-    const sel = $('#model'); sel.innerHTML = '';
-    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
-    sel.value = draft.harness; $('#model-label').textContent = draft.harness || 'harness'; $('#chip-model').style.pointerEvents = '';
     $('#perm').hidden = true; $('#perm').innerHTML = '';
   }
   function renderPerm(t) {
@@ -637,7 +812,7 @@
       // Codex app: the project name is the link to change it (and the name).
       const where = draft.cwd ? projectOf(draft.cwd) : 'a directory';
       log.innerHTML = '<div class="hero"><div><h2>What should we build ' + (draft.cwd ? 'in ' : '') + '<a href="#" id="draft-where" title="Name and directory">' + esc(where) + '</a>?</h2>Type below and press Enter to start.</div></div>';
-      $('#draft-where').onclick = (e) => { e.preventDefault(); openNew(); };
+      $('#draft-where').onclick = (e) => { e.preventDefault(); openDirectory(); };
       col = null; return;
     }
     if (!selected) { log.innerHTML = hero('What should we build?', 'Pick a session on the left, or start one.'); col = null; return; }
@@ -797,22 +972,158 @@
     return out;
   }
 
+  // A directory change edits a draft; an existing session gets a new draft.
+  let directoryBase = '', directoryRequest = 0;
+  function resolveDirectory(path) {
+    path = String(path || '').trim().replace(/^(["'])(.*)\1$/, '$2');
+    if (!path) path = directoryBase || homeDir;
+    if (path === '~') path = homeDir || path;
+    else if (path.startsWith('~/') && homeDir) path = homeDir + path.slice(1);
+    else if (!path.startsWith('/')) path = directoryBase + '/' + path;
+    const parts = [];
+    for (const part of path.split('/')) { if (part === '..') parts.pop(); else if (part && part !== '.') parts.push(part); }
+    return '/' + parts.join('/');
+  }
+  async function browseDirectory() {
+    const request = ++directoryRequest;
+    const target = resolveDirectory($('#directory-path').value);
+    $('#directory-path').value = target;
+    let paths = allProjectPaths(), parent = target.split('/').slice(0,-1).join('/') || '/';
+    try {
+      const result = await call('_acpmux/directories', {path: target, cwd: directoryBase});
+      if (request !== directoryRequest) return;
+      paths = result.directories || []; parent = result.parent; homeDir = result.home || homeDir;
+      $('#directory-path').value = result.path;
+      $('#directory-note').textContent = 'Click a folder to browse, then use this directory.';
+    } catch (e) {
+      if (request !== directoryRequest) return;
+      $('#directory-note').textContent = e.message.includes('Method not found') ? 'Known projects shown. Restart the daemon for folder browsing.' : e.message;
+    }
+    const el = $('#directory-folders'); el.replaceChildren();
+    const add = (label,path) => { const b=document.createElement('button'); b.type='button'; b.style.cssText='display:block;width:100%;text-align:left'; b.textContent=label; b.title=path; b.onclick=()=>{$('#directory-path').value=path; browseDirectory();}; el.appendChild(b); };
+    if(parent) add('↑ Parent directory',parent);
+    for(const path of paths) add('▢ '+projectOf(path),path);
+  }
+  function openDirectory(path = '') {
+    const cur=state.sessions.find(s=>s.sessionId===selected);
+    if(cur && cur.peer) { toast('Change remote directories from the TUI'); return; }
+    directoryBase=(draft && draft.cwd)||(cur && cur.cwd)||homeDir;
+    $('#directory-path').value=path||directoryBase;
+    $('#dlg-directory').showModal(); $('#directory-path').focus(); browseDirectory();
+  }
+  $('#proj').onclick=()=>openDirectory();
+  $('#directory-cancel').onclick=()=>$('#dlg-directory').close();
+  $('#directory-browse').onclick=browseDirectory;
+  $('#form-directory').onsubmit=async e=>{
+    e.preventDefault(); let path=resolveDirectory($('#directory-path').value);
+    try { const result=await call('_acpmux/directories',{path,cwd:directoryBase}); path=result.path; }
+    catch(err) { if(!err.message.includes('Method not found')) { $('#directory-note').textContent=err.message; return; } }
+    if(draft) { draft.cwd=path; renderBar(); renderLog(); } else startDraft(path);
+    if(/^cd(?:\s|$)/.test($('#input').value.trim())) { $('#input').value=''; autosize(); }
+    $('#dlg-directory').close(); $('#input').focus();
+  };
+
   // ---------- new session dialog
+  function fillModelSelect(sel, harness, wanted) {
+    sel.innerHTML = '';
+    const options = modelOptionsFor(harness);
+    if (!options.some(o => (o.value || o.id) === 'default')) sel.add(new Option('Default model', 'default'));
+    for (const o of options) sel.add(new Option(o.name || o.value || o.id, o.value || o.id));
+    const value = wanted || defaultModelFor(harness);
+    sel.value = Array.from(sel.options).some((o) => o.value === value) ? value : (sel.options[0] && sel.options[0].value) || 'default';
+  }
+  function fillNewEffort(wanted) { $('#new-effort').value = wanted || 'default'; }
+  function fillDraftEffort(wanted) { $('#draft-effort').value = wanted || 'default'; }
+  function openDraftConfig(field) {
+    if (!draft) return;
+    const sel = $('#draft-agent'); sel.innerHTML = '';
+    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
+    sel.value = draft.harness;
+    fillModelSelect($('#draft-model'), draft.harness, draft.model);
+    fillDraftEffort(draft.effort);
+    $('#draft-policy').value = draft.policy;
+    $('#dlg-draft-config').showModal();
+    if (field === 'harness') $('#draft-agent').focus();
+    else if (field === 'model') $('#draft-model').focus();
+    else if (field === 'policy') $('#draft-policy').focus();
+  }
+  $('#draft-agent').onchange = () => {
+    const harness = $('#draft-agent').value;
+    fillModelSelect($('#draft-model'), harness, defaultModelFor(harness));
+    fillDraftEffort(defaultsForHarness(harness).effort || 'default');
+  };
+  $('#draft-config-cancel').onclick = () => $('#dlg-draft-config').close();
+  $('#form-draft-config').onsubmit = (e) => {
+    e.preventDefault();
+    if (!draft) return $('#dlg-draft-config').close();
+    draft.harness = $('#draft-agent').value;
+    draft.model = $('#draft-model').value || 'default';
+    draft.effort = $('#draft-effort').value || 'default';
+    draft.policy = $('#draft-policy').value || 'ask';
+    $('#dlg-draft-config').close(); renderBar();
+  };
+
+  function renderProjectPrefs() {
+    const el = $('#project-prefs'); if (!el) return;
+    const paths = allProjectPaths(); el.innerHTML = '';
+    if (!paths.length) { el.innerHTML = '<div class="empty">No projects yet. Add a directory below.</div>'; return; }
+    const hidden = new Set(projectPrefs.hidden);
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i]; const row = document.createElement('div'); row.className = 'project-pref';
+      const custom = projectPrefs.custom.includes(path);
+      row.innerHTML = '<input type="checkbox" ' + (hidden.has(path) ? '' : 'checked') + ' aria-label="Show ' + esc(path) + '"><span class="path"><strong>' + esc(projectTitle(path)) + '</strong><small>' + esc(path) + '</small></span>' +
+        '<button type="button" class="move" title="Move up"' + (i ? '' : ' disabled') + '>↑</button><button type="button" class="move" title="Move down"' + (i === paths.length - 1 ? ' disabled' : '') + '>↓</button>' +
+        (custom ? '<button type="button" class="remove" title="Remove project shortcut">×</button>' : '');
+      row.querySelector('input').onchange = (e) => {
+        projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path);
+        if (!e.target.checked) projectPrefs.hidden.push(path);
+        saveProjectPrefs(); renderProjects(); renderList();
+      };
+      const moves = row.querySelectorAll('.move');
+      moves[0].onclick = () => moveProject(path, -1);
+      moves[1].onclick = () => moveProject(path, 1);
+      const remove = row.querySelector('.remove');
+      if (remove) remove.onclick = () => { projectPrefs.custom = projectPrefs.custom.filter((p) => p !== path); projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path); projectPrefs.order = projectPrefs.order.filter((p) => p !== path); saveProjectPrefs(); renderProjectPrefs(); renderProjects(); renderList(); };
+      el.appendChild(row);
+    }
+  }
+  function moveProject(path, delta) {
+    const paths = allProjectPaths(); const at = paths.indexOf(path); const to = at + delta;
+    if (at < 0 || to < 0 || to >= paths.length) return;
+    paths.splice(at, 1); paths.splice(to, 0, path); projectPrefs.order = paths; saveProjectPrefs(); renderProjectPrefs(); renderProjects();
+  }
+  function openProjects() { renderProjectPrefs(); $('#dlg-projects').showModal(); }
+  $('#btn-projects').onclick = openProjects;
+  $('#project-add-btn').onclick = () => {
+    const path = normalizePath($('#project-path').value);
+    if (!path) return;
+    if (!projectPrefs.custom.includes(path)) projectPrefs.custom.push(path);
+    projectPrefs.hidden = projectPrefs.hidden.filter((p) => p !== path);
+    if (!projectPrefs.order.includes(path)) projectPrefs.order.push(path);
+    saveProjectPrefs(); $('#project-path').value = ''; renderProjectPrefs(); renderProjects(); renderList();
+  };
+
   function openNew() {
     const sel = $('#new-agent'); sel.innerHTML = '';
     for (const name of Object.keys(agents)) sel.add(new Option(name, name));
-    if (defaultHarness) sel.value = defaultHarness;
     const cur = state.sessions.find((x) => x.sessionId === selected);
-    if (draft) { sel.value = draft.harness; $('#new-policy').value = draft.policy; }
+    const harness = (draft && draft.harness) || (cur && cur.harness) || defaultHarness || Object.keys(agents)[0] || '';
+    sel.value = harness;
+    const defaults = defaultsForHarness(harness);
+    if (draft) { $('#new-policy').value = draft.policy; fillModelSelect($('#new-model'), harness, draft.model); fillNewEffort(draft.effort); }
+    else { $('#new-policy').value = (cur && cur.policy) || defaults.policy || daemonStatus.permissionPolicy || 'ask'; fillModelSelect($('#new-model'), harness, (cur && cur.model) || defaults.model); fillNewEffort(defaults.effort); }
     $('#new-cwd').value = (draft && draft.cwd) || (cur && cur.cwd) || $('#new-cwd').value || '';
     $('#new-name').value = ''; $('#new-prompt').value = '';
     $('#dlg-new').showModal(); $('#new-name').focus();
   }
-  $('#btn-new').onclick = startDraft;
+  $('#btn-new').onclick = () => startDraft();
+  $('#new-agent').onchange = () => { const h = $('#new-agent').value; fillModelSelect($('#new-model'), h, defaultModelFor(h)); fillNewEffort(defaultsForHarness(h).effort); };
   $('#new-cancel').onclick = () => $('#dlg-new').close();
   $('#form-new').onsubmit = async (e) => {
     e.preventDefault();
     const meta = { harness: $('#new-agent').value, policy: $('#new-policy').value };
+    if ($('#new-model').value && $('#new-model').value !== 'default') meta.model = $('#new-model').value;
+    if ($('#new-effort').value && $('#new-effort').value !== 'default') meta.effort = $('#new-effort').value;
     if ($('#new-name').value) meta.name = $('#new-name').value;
     const params = { mcpServers: [], _meta: { acpmux: meta } };
     if ($('#new-cwd').value) params.cwd = $('#new-cwd').value;
@@ -827,6 +1138,9 @@
   };
 
   // ---------- controls
+  $('#chip-draft-harness').onclick = () => openDraftConfig('harness');
+  $('#chip-draft-model').onclick = () => openDraftConfig('model');
+  $('#chip-draft-policy').onclick = () => openDraftConfig('policy');
   $('#btn-send').onclick = () => send(false);
   $('#btn-steer').onclick = () => send(true);
   $('#btn-cancel').onclick = () => selected && notify('session/cancel', { sessionId: selected });
@@ -844,7 +1158,7 @@
     else if (e.key === 'Escape') { notify('session/cancel', { sessionId: selected }); }
   });
   document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
+    if (!document.querySelector('dialog[open]') && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
     // Alt-↑/↓ (or Alt-j/k) walk the rail, as j/k do in the TUI; the rows
     // are read in their shown order so groups and "Show more" are honored.
     if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k' || e.key === '∆' || e.key === '˚')) {

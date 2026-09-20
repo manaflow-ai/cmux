@@ -40,6 +40,19 @@ impl App {
         self.status = "new session · Enter starts it · Esc discards".into();
     }
 
+    pub(super) fn open_draft_in_directory(&mut self, cwd: String) {
+        let source = self.sessions.iter().find(|s| s.get("cwd").and_then(Value::as_str) == Some(&cwd) && s.get("peer").and_then(Value::as_str).is_none()).cloned();
+        let harness = source.as_ref().and_then(|s| s.get("harness").and_then(Value::as_str)).map(str::to_owned).or_else(|| self.default_harness.clone());
+        self.host_filter = None;
+        self.open_draft();
+        if let Some(d) = self.draft_mut() {
+            d.cwd = cwd; d.peer = None;
+            if let Some(h) = harness { d.harness = h; }
+            if let Some(s) = source { d.policy = s.get("policy").and_then(Value::as_str).unwrap_or("ask").into(); }
+        }
+        self.status = "new session · project selected · Enter starts it · Esc discards".into();
+    }
+
     pub(super) fn discard_draft(&mut self) {
         if !self.on_draft() {
             return;
@@ -54,6 +67,25 @@ impl App {
         self.status = DEFAULT_STATUS.into();
     }
 
+    /// Open the settings menu attached to the centered new-session summary.
+    /// Each row leads to the same picker used by the corresponding composer
+    /// chip, so the draft has one obvious configuration entry point without
+    /// duplicating picker behavior.
+    pub(super) fn open_draft_config_picker(&mut self) {
+        let Some(d) = self.draft() else { return };
+        let model = d.model.as_deref().map(crate::tui::render::model_label).unwrap_or_else(|| "default model".into());
+        let effort = d.effort.as_deref().filter(|e| !e.is_empty()).map(crate::tui::render::effort_label).unwrap_or_else(|| "default".into());
+        let policy = crate::tui::render::policy_label(&d.policy).0;
+        let rows = vec![
+            PickRow { value: "draft:harness".into(), label: format!("Harness · {}", d.harness), header: false, group: String::new(), note: String::new() },
+            PickRow { value: "draft:model".into(), label: format!("Model · {model}"), header: false, group: String::new(), note: String::new() },
+            PickRow { value: "draft:effort".into(), label: format!("Thinking effort · {effort}"), header: false, group: String::new(), note: String::new() },
+            PickRow { value: "draft:policy".into(), label: format!("Permissions · {policy}"), header: false, group: String::new(), note: String::new() },
+            PickRow { value: "draft:directory".into(), label: format!("Directory · {}", crate::tui::render::shorten_path(&d.cwd)), header: false, group: String::new(), note: String::new() },
+        ];
+        self.overlay = Overlay::Picker(Picker::new("New session settings", rows, None, PickTarget::Action, "Enter or click picks · Esc"));
+    }
+
     /// Create the draft's session and send `text` as its first message.
     pub(super) fn create_from_draft(&mut self, text: String) {
         let Some(d) = self.draft_mut() else { return };
@@ -63,6 +95,7 @@ impl App {
         d.creating = true;
         let d = d.clone();
         if d.harness.is_empty() {
+            if let Some(d) = self.draft_mut() { d.creating = false; }
             self.report_error("no harnesses configured; edit ~/.acpmux/config.json".into());
             return;
         }
@@ -72,8 +105,8 @@ impl App {
         }
         let client = self.client.clone();
         let tx = self.tx.clone();
-        let model = d.model.clone();
-        let effort = d.effort.clone();
+        if let Some(model) = &d.model { params["_meta"]["acpmux"]["model"] = json!(model); }
+        if let Some(effort) = &d.effort { params["_meta"]["acpmux"]["effort"] = json!(effort); }
         self.status = format!("starting {}…", d.harness);
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
@@ -83,12 +116,6 @@ impl App {
                         let id = id.to_owned();
                         let c = client.clone();
                         tokio::spawn(async move {
-                            if let Some(m) = model {
-                                let _ = c.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": m})).await;
-                            }
-                            if let Some(e) = effort {
-                                let _ = c.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id, "configId": "effort", "value": e})).await;
-                            }
                             let _ = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]})).await;
                         });
                     }
@@ -170,7 +197,20 @@ impl App {
 
     /// One picker for harness and model, like opencode's model switcher:
     /// every harness as a header, its models underneath, filter as you type.
+    pub(super) fn open_draft_harness_picker(&mut self) {
+        let Some(d) = self.draft() else { return };
+        let current = d.harness.clone();
+        let rows = self.harnesses.iter().map(|h| PickRow { value: h.clone(), label: h.clone(), header: false, group: String::new(), note: String::new() }).collect();
+        self.overlay = Overlay::Picker(Picker::new("Harness", rows, Some(&current), PickTarget::DraftHarness, "Enter selects · Esc"));
+    }
+
+    pub(super) fn open_draft_model_picker(&mut self) {
+        self.open_model_picker();
+        self.model_picker_current_only = true;
+    }
+
     pub(super) fn open_model_picker(&mut self) {
+        self.model_picker_current_only = false;
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {
@@ -189,7 +229,7 @@ impl App {
             self.selected_session().and_then(|s| s.get("harness").and_then(Value::as_str).map(str::to_owned))
         };
         let current_model = if self.on_draft() {
-            None
+            self.draft().and_then(|d| d.model.clone())
         } else {
             self.selected_id().and_then(|id| self.transcripts.get(&id)).and_then(|t| t.model.clone())
         };
@@ -212,6 +252,10 @@ impl App {
             (None, Some(a)) => Some(a.clone()),
             _ => None,
         };
+        if self.model_picker_current_only {
+            harnesses.retain(|h| h.get("harness").and_then(Value::as_str) == cur_key_for_sort.as_deref());
+            self.model_picker_current_only = false;
+        }
         harnesses.sort_by_key(|h| if h.get("harness").and_then(Value::as_str) == cur_key_for_sort.as_deref() { 0 } else { 1 });
         let current_peer = if self.on_draft() { self.draft().and_then(|d| d.peer.clone()) } else { self.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str).map(str::to_owned)) };
         let current_key = match (&current_peer, &current_agent) {
@@ -326,39 +370,37 @@ impl App {
     }
 
     pub(super) fn open_directory_dialog(&mut self) {
-        let cwd = if self.on_draft() {
-            self.draft().map(|d| d.cwd.clone()).unwrap_or_default()
-        } else {
-            self.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned()
-        };
+        self.open_directory_dialog_at(self.current_directory());
+    }
+
+    pub(super) fn open_directory_dialog_at(&mut self, value: String) {
+        let path = match self.resolve_directory(&value) { Ok(p) => p, Err(e) => { self.report_error(e.to_string()); return; } };
+        let path = if self.remote_directory() { path } else { std::fs::canonicalize(&path).unwrap_or(path) };
         let mut text = Editor::default();
-        text.set_text(&cwd);
+        text.set_text(&path.to_string_lossy());
         self.overlay = Overlay::Directory { text };
     }
 
-    /// Apply a directory: on a draft it just changes; on a live session it
-    /// opens a new draft on the same harness in the new directory.
-    pub(super) fn apply_directory(&mut self, path: String) {
-        let path = if let Some(rest) = path.strip_prefix("~/") {
-            dirs::home_dir().map(|h| h.join(rest).to_string_lossy().into_owned()).unwrap_or(path.clone())
-        } else {
-            path
+    pub(super) fn apply_directory(&mut self, value: String) {
+        let result = self.resolve_directory(&value).and_then(|p| {
+            if self.remote_directory() { return Ok(p); }
+            let p = std::fs::canonicalize(p)?;
+            anyhow::ensure!(p.is_dir(), "Not a directory: {}", p.display());
+            Ok(p)
+        });
+        let path = match result {
+            Ok(p) => p.to_string_lossy().into_owned(),
+            Err(e) => { self.open_directory_dialog_at(value); self.report_error(format!("Directory: {e}")); return; }
         };
-        let remote = self.draft().and_then(|d| d.peer.clone()).or_else(|| self.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str).map(str::to_owned)));
-        if remote.is_none() && !std::path::Path::new(&path).is_dir() {
-            self.report_error(format!("not a directory: {path}"));
-            return;
-        }
-        if self.on_draft() {
-            self.draft_mut().unwrap().cwd = path.clone();
-            self.status = format!("draft directory: {}", render::shorten_path(&path));
-        } else {
-            self.open_draft();
-            if let Some(d) = self.draft_mut() {
-                d.cwd = path.clone();
-            }
-            self.status = format!("new session tab in {}   (a running agent cannot change directory)", render::shorten_path(&path));
-        }
+        let base = self.current_directory();
+        if directory::cd_argument(&self.editor().text()).is_some() { self.editor_mut().clear(); }
+        if !self.on_draft() && path == base { self.overlay = Overlay::None; return; }
+        if !self.on_draft() { self.open_draft(); }
+        if let Some(d) = self.draft_mut() { d.cwd = path.clone(); }
+        self.previous_directory = Some(base);
+        self.overlay = Overlay::None;
+        self.focus = Focus::Input;
+        self.status = format!("New session directory: {}", render::shorten_path(&path));
     }
 
     pub(super) fn open_config_picker(&mut self, config_id: &str) {
@@ -482,7 +524,28 @@ impl App {
                 self.refresh_detail_later(&id);
             }
             PickTarget::DraftEffort => self.set_effort(value),
+            PickTarget::DraftHarness => {
+                if let Some(d) = self.draft_mut() { d.harness = value; d.model = None; d.effort = None; }
+            }
+            PickTarget::Skill { replace_prefix } => {
+                if replace_prefix { self.editor_mut().backspace(); }
+                let reference = format!("{}{} ", self.skill_prefix, value);
+                self.editor_mut().insert_str(&reference);
+                self.focus = Focus::Input;
+            }
             PickTarget::Action => {
+                match value.as_str() {
+                    "draft:harness" => { self.open_draft_harness_picker(); return; }
+                    "draft:model" => { self.open_draft_model_picker(); return; }
+                    "draft:policy" => { self.open_policy_picker(); return; }
+                    "draft:effort" => { self.open_thinking_picker(); return; }
+                    "draft:directory" => { self.open_directory_dialog(); return; }
+                    _ => {}
+                }
+                if let Some(command) = value.strip_prefix("agent:") {
+                    if let Some(id) = self.selected_id() { self.request_bg(method::SESSION_PROMPT, json!({"sessionId":id,"prompt":[{"type":"text","text":command}]}), None); }
+                    return;
+                }
                 if let Some(id) = value.strip_prefix("goto:") {
                     let ndrafts = self.drafts.len();
                     if let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(id)) {

@@ -281,6 +281,44 @@ pub struct WebSocketConfig {
     pub token: Option<String>,
 }
 
+fn default_palette_prefix() -> String { "/".into() }
+fn default_skill_prefix() -> String { "$".into() }
+fn default_leader() -> String { "ctrl+x".into() }
+fn default_leader_timeout_ms() -> u64 { 2000 }
+
+/// TUI interaction settings. These deliberately live in acpmux's config so
+/// the same preferences apply to the native TUI and future clients.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TuiConfig {
+    /// Prefix that opens the command palette/command line (`/` by default).
+    #[serde(default = "default_palette_prefix")]
+    pub palette_prefix: String,
+    /// Additional accepted command prefixes, for example `[":"]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub palette_aliases: Vec<String>,
+    /// Prefix for inline skills (`$` by default).
+    #[serde(default = "default_skill_prefix")]
+    pub skill_prefix: String,
+    /// Sequential leader key, such as `ctrl+x`, `ctrl+space`, or `none`.
+    #[serde(default = "default_leader")]
+    pub leader: String,
+    #[serde(default = "default_leader_timeout_ms")]
+    pub leader_timeout_ms: u64,
+    /// App action -> key or key sequence; arrays and comma-separated alternatives are accepted.
+    #[serde(default)]
+    pub keybinds: BTreeMap<String, serde_json::Value>,
+    /// Extra skill roots, relative to the selected project or absolute.
+    #[serde(default)]
+    pub skill_paths: Vec<String>,
+}
+
+impl Default for TuiConfig {
+    fn default() -> Self {
+        Self { palette_prefix: default_palette_prefix(), palette_aliases: vec![], skill_prefix: default_skill_prefix(), leader: default_leader(), leader_timeout_ms: default_leader_timeout_ms(), keybinds: BTreeMap::new(), skill_paths: vec![] }
+    }
+}
+
 /// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
 /// `<peer>/<name>` and every request is forwarded.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -325,6 +363,8 @@ pub struct Config {
     pub notify_command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
+    #[serde(default)]
+    pub tui: TuiConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]

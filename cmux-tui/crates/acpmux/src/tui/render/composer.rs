@@ -22,10 +22,10 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     rounded_border(buf, bx, border);
     let text_area = Rect { x: bx.x + 2, y: bx.y + 1, width: bx.width.saturating_sub(4), height: bx.height.saturating_sub(3) };
     if app.focus == Focus::Command {
-        let content = format!("/{}", app.command.text());
+        let content = format!("{}{}", app.palette_prefix, app.command.text());
         buf.set_stringn(text_area.x, text_area.y, &content, text_area.width as usize, Style::default().fg(c.warn_fg));
         if focused {
-            let col = 1 + app.command.text().chars().take(app.command.cursor()).collect::<String>().width() as u16;
+            let col = app.palette_prefix.width() as u16 + app.command.text().chars().take(app.command.cursor()).collect::<String>().width() as u16;
             let p: (u16, u16) = (text_area.x + col.min(text_area.width), text_area.y);
             app.cursor_pos = Some(p);
             f.set_cursor_position(p);
@@ -207,7 +207,7 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
 
 /// Codex's wording for the permission policy, and whether it is the warm
 /// "full access" chip.
-pub(super) fn policy_label(policy: &str) -> (String, bool) {
+pub(crate) fn policy_label(policy: &str) -> (String, bool) {
     match policy {
         "approve-all" => ("Full access".into(), true),
         "approve-edits" => ("Edits allowed".into(), false),

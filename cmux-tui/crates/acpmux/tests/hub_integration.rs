@@ -525,3 +525,17 @@ async fn client_fs_writes_go_through_the_permission_policy() {
     assert!(hub.session_summary(&session)["preview"].as_str().unwrap().starts_with("rejected:"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn directory_browser_resolves_relative_paths_and_lists_folders_only() {
+    let root = std::env::temp_dir().join(format!("acpmux-directory-rpc-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(root.join("My Project")).unwrap();
+    std::fs::write(root.join("file.txt"), "not a directory").unwrap();
+    let (_, mut c) = setup(PermissionPolicy::Ask).await;
+    let result = c.request("_acpmux/directories", json!({"cwd":root, "path":"My Project/.."})).await.unwrap();
+    let canonical = std::fs::canonicalize(&root).unwrap();
+    assert_eq!(result["path"], canonical.to_string_lossy().as_ref());
+    assert_eq!(result["directories"], json!([canonical.join("My Project")]));
+    assert!(c.request("_acpmux/directories", json!({"cwd":root,"path":"file.txt"})).await.is_err());
+    std::fs::remove_dir_all(root).unwrap();
+}

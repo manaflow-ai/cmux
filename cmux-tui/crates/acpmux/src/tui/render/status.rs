@@ -62,12 +62,12 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         }
     }
     {
-        let keys = " ? keys · / commands ";
+        let keys = format!(" ? keys · {} commands ", app.palette_prefix);
         let kw = keys.width() as u16;
         if x + kw < right_x {
             let r = Rect { x: right_x - kw, y: area.y, width: kw, height: 1 };
             let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-            buf.set_stringn(r.x, r.y, keys, kw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
+            buf.set_stringn(r.x, r.y, &keys, kw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
             app.buttons.push((r, ButtonAction::Help));
         }
     }

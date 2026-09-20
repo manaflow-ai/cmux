@@ -101,10 +101,11 @@ impl Editor {
     }
     pub fn insert_str(&mut self, s: &str) {
         self.snapshot();
-        for c in s.chars() {
-            self.chars.insert(self.cursor, c);
-            self.cursor += 1;
-        }
+        // One tail move for a paste, rather than one per pasted character.
+        let chars: Vec<char> = s.chars().collect();
+        let len = chars.len();
+        self.chars.splice(self.cursor..self.cursor, chars);
+        self.cursor += len;
         self.sticky_col = None;
         self.browsing = None;
     }
@@ -335,6 +336,13 @@ impl Editor {
             cursor_rc = (rows.len(), col);
         }
         rows.push((row_start, self.chars.len()));
+        // At an exact soft-wrap boundary the insertion cursor owns the
+        // first cell of the next row, never the box border / scrollbar.
+        if col == width {
+            rows.push((self.chars.len(), self.chars.len()));
+            if self.cursor == self.chars.len() { cursor_rc = (rows.len() - 1, 0); }
+        }
+        cursor_rc.1 = cursor_rc.1.min(width - 1);
         (rows, cursor_rc)
     }
 
@@ -448,6 +456,32 @@ mod tests {
         assert_eq!(e.cursor(), 8);
         e.home();
         assert_eq!(e.cursor(), 0);
+    }
+
+    #[test]
+    fn exact_width_caret_has_a_cell_without_cursor_dependent_reflow() {
+        let mut e = ed("abc界");
+        let (rows, cursor) = e.layout(5);
+        assert_eq!(rows, vec![(0, 4), (4, 4)]);
+        assert_eq!(cursor, (1, 0));
+        e.left();
+        assert_eq!(e.layout(5).0, rows);
+        assert_eq!(e.layout(5).1, (0, 3));
+        e.to_end();
+        e.insert('x');
+        assert_eq!(e.layout(5).1, (1, 1));
+    }
+
+    #[test]
+    fn paste_in_middle_preserves_tail_and_undo() {
+        let mut e = ed("before after");
+        e.to_start();
+        for _ in 0..7 { e.right(); }
+        e.insert_str("界\n".repeat(10_000).as_str());
+        assert!(e.text().ends_with("after"));
+        assert_eq!(e.cursor(), 20_007);
+        e.undo();
+        assert_eq!(e.text(), "before after");
     }
 }
 

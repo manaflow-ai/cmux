@@ -9,7 +9,7 @@
 use super::*;
 
 enum Entry {
-    Header(String),
+    Header(String, Option<String>),
     Row(usize),
     Blank,
     /// "Show more (N)" under a group that is cut at its first rows.
@@ -104,7 +104,11 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             if !entries.is_empty() {
                 entries.push(Entry::Blank);
             }
-            entries.push(Entry::Header(g.clone()));
+            let cwd = idxs.iter().find_map(|&i| {
+                let s = &rows[i];
+                (s.get("peer").is_none()).then(|| s.get("cwd").and_then(Value::as_str).map(str::to_owned)).flatten()
+            });
+            entries.push(Entry::Header(g.clone(), cwd));
         }
         // A long group shows its first rows and a "Show more"; the group
         // holding the selection is always open so the keys can reach it.
@@ -139,9 +143,18 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 buf.set_stringn(area.x + 3, y, &label, content_w.saturating_sub(4), style);
                 app.buttons.push((rect, ButtonAction::ShowGroup(group.clone())));
             }
-            Entry::Header(name) => {
+            Entry::Header(name, cwd) => {
                 buf.set_stringn(area.x + 1, y, "▢", 1, ground.fg(c.sidebar_dim_fg));
-                buf.set_stringn(area.x + 3, y, &truncate(name, content_w.saturating_sub(4)), content_w.saturating_sub(4), ground.fg(c.sidebar_dim_fg));
+                let plus_w = if cwd.is_some() { 3 } else { 0 };
+                let name_w = content_w.saturating_sub(4 + plus_w);
+                buf.set_stringn(area.x + 3, y, &truncate(name, name_w), name_w, ground.fg(c.sidebar_dim_fg));
+                if let Some(path) = cwd {
+                    let x = area.x + area.width.saturating_sub(4);
+                    let hot = app.hover.map(|(hx, hy)| hy == y && hx >= x && hx < x + 3).unwrap_or(false);
+                    let style = if hot { ground.bg(c.sidebar_selected_bg).fg(c.sidebar_selected_fg) } else { ground.fg(c.sidebar_dim_fg) };
+                    buf.set_stringn(x, y, "+", 1, style);
+                    app.buttons.push((Rect { x, y, width: 3, height: 1 }, ButtonAction::NewProject(path.clone())));
+                }
             }
             Entry::Row(idx) => {
                 let idx = *idx;

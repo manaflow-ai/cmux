@@ -31,6 +31,9 @@ pub enum Item {
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
+    /// Earliest item whose layout may have changed since the TUI consumed it.
+    /// Streaming invalidates the mutable tail, not the entire conversation.
+    pub(crate) layout_dirty_from: usize,
     pub last_seq: u64,
     pub status: String,
     pub mode: Option<String>,
@@ -39,6 +42,12 @@ pub struct Transcript {
     pub available_commands: Vec<String>,
     /// Transient note for the working row, e.g. an API retry in progress.
     pub note: Option<String>,
+    /// Provider-neutral live activity shown by every client.
+    pub activity: Option<String>,
+    /// Pending or in-progress ACP tool calls.
+    pub active_tools: usize,
+    /// Pending or in-progress execute/terminal/shell calls.
+    pub active_terminals: usize,
     pending_user_chunk: bool,
     /// Texts shown before the daemon echoed them; matched on arrival.
     pub optimistic: Vec<String>,
@@ -150,6 +159,10 @@ fn text_of(content: &Value) -> String {
 }
 
 impl Transcript {
+    pub(crate) fn invalidate_layout(&mut self, from: usize) {
+        self.layout_dirty_from = self.layout_dirty_from.min(from);
+    }
+
     /// Apply a `session/update` params object (live or replayed).
     /// Apply a live or replayed update. Records carry the daemon's sequence
     /// number; anything at or below what was already applied is a duplicate
@@ -167,6 +180,16 @@ impl Transcript {
 
     pub fn apply_session_update(&mut self, update: &Value) {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        let from = match kind {
+            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk" => self.items.len().saturating_sub(1),
+            "tool_call" | "tool_call_update" => {
+                let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or("");
+                self.items.iter().rposition(|i| matches!(i, Item::Tool { id: tid, .. } if tid == id)).unwrap_or(self.items.len())
+            }
+            "plan" => self.items.iter().rposition(|i| matches!(i, Item::Plan { .. })).unwrap_or(self.items.len()),
+            _ => self.items.len(),
+        };
+        self.invalidate_layout(from);
         match kind {
             "user_message_chunk" => {
                 let t = text_of(update.get("content").unwrap_or(&Value::Null));
@@ -183,6 +206,7 @@ impl Transcript {
                     Some(Item::Assistant { text }) => text.push_str(&t),
                     _ => self.items.push(Item::Assistant { text: t }),
                 }
+                self.activity = Some("Writing response".into());
             }
             "agent_thought_chunk" => {
                 let t = text_of(update.get("content").unwrap_or(&Value::Null));
@@ -190,6 +214,11 @@ impl Transcript {
                     Some(Item::Thought { text }) => text.push_str(&t),
                     _ => self.items.push(Item::Thought { text: t }),
                 }
+                let preview = self.items.iter().rev().find_map(|item| match item {
+                    Item::Thought { text } => text.lines().find(|line| !line.trim().is_empty()).map(str::trim),
+                    _ => None,
+                });
+                self.activity = Some(preview.map(|line| line.chars().take(120).collect::<String>()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Thinking".into()));
             }
             "tool_call" | "tool_call_update" => {
                 let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -251,6 +280,7 @@ impl Transcript {
                         detail,
                     });
                 }
+                self.refresh_activity();
             }
             "plan" => {
                 let entries = update
@@ -272,6 +302,7 @@ impl Transcript {
                 } else {
                     self.items.push(Item::Plan { entries });
                 }
+                self.refresh_activity();
             }
             "usage_update" => {
                 let used = update.get("used").and_then(Value::as_u64).unwrap_or(0);
@@ -300,6 +331,31 @@ impl Transcript {
             _ => {}
         }
         self.pending_user_chunk = false;
+    }
+
+    /// Derive one stable live activity line from ACP's provider-specific
+    /// update stream. This is intentionally based on normalized transcript
+    /// items so all harnesses render the same semantics.
+    fn refresh_activity(&mut self) {
+        self.active_tools = self.items.iter().filter(|item| matches!(item,
+            Item::Tool { status, .. } if status == "pending" || status == "in_progress"
+        )).count();
+        self.active_terminals = self.items.iter().filter(|item| matches!(item,
+            Item::Tool { kind, status, .. } if matches!(kind.as_str(), "execute" | "terminal" | "shell") && (status == "pending" || status == "in_progress")
+        )).count();
+        if let Some(title) = self.items.iter().rev().find_map(|item| match item {
+            Item::Tool { title, status, .. } if status == "pending" || status == "in_progress" => Some(title.as_str()),
+            _ => None,
+        }) {
+            self.activity = Some(title.chars().take(120).collect());
+        } else if let Some(step) = self.items.iter().rev().find_map(|item| match item {
+            Item::Plan { entries } => entries.iter().find(|(status, _)| status == "in_progress").map(|(_, content)| content.as_str()),
+            _ => None,
+        }) {
+            self.activity = Some(step.chars().take(120).collect());
+        } else if self.status == "running" && self.activity.is_none() {
+            self.activity = Some("Thinking".into());
+        }
     }
 
     /// Apply one `_acpmux/event` record (mux-internal or raw wire).
@@ -333,6 +389,22 @@ impl Transcript {
         if dir != "mux" {
             return;
         }
+        // A queued user can be promoted out of the middle of the transcript,
+        // and a permission decision can update an older item.
+        let from = match kind {
+            "user_message" => {
+                let text = msg.get("text").and_then(Value::as_str).unwrap_or("");
+                self.items.iter().rposition(|i| matches!(i, Item::User { text: t, .. } if t == text))
+                    .unwrap_or(self.items.len().saturating_sub(1))
+            }
+            "permission_decision" | "permission_auto" => {
+                let id = msg.get("permissionId").and_then(Value::as_str).unwrap_or("");
+                self.items.iter().rposition(|i| matches!(i, Item::Permission { id: pid, .. } if pid == id))
+                    .unwrap_or(self.items.len())
+            }
+            _ => self.items.len().saturating_sub(1),
+        };
+        self.invalidate_layout(from);
         self.pending_user_chunk = false;
         match kind {
             "queued" => self.items.push(Item::User {
@@ -389,6 +461,13 @@ impl Transcript {
             }
             "status" => {
                 self.status = msg.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
+                if self.status == "running" {
+                    self.refresh_activity();
+                } else {
+                    self.activity = None;
+                    self.active_tools = 0;
+                    self.active_terminals = 0;
+                }
             }
             "claude.system.api_retry" => {
                 let attempt = msg.get("attempt").and_then(Value::as_u64).unwrap_or(0);
@@ -397,6 +476,9 @@ impl Transcript {
                 self.note = Some(format!("API retry {attempt}/{max}{err}"));
             }
             "turn_end" if { self.note = None; true } => {
+                self.activity = None;
+                self.active_tools = 0;
+                self.active_terminals = 0;
                 if let Some(last) = self.turn_times.last_mut() {
                     if last.2.is_none() {
                         last.2 = Some(at);

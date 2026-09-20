@@ -100,18 +100,25 @@ impl App {
             Overlay::Picker(mut p) => {
                 let is_agent = matches!(p.on_pick, PickTarget::Agent);
                 match key.code {
-                    KeyCode::Esc => {}
+                    KeyCode::Esc => {
+                        if matches!(p.on_pick, PickTarget::Skill { replace_prefix: true }) { self.editor_mut().insert_str(&p.filter.text()); }
+                    }
                     KeyCode::Up => { p.move_by(-1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Down => { p.move_by(1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Char('n') if ctrl => { p.move_by(1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Char('p') if ctrl => { p.move_by(-1); self.overlay = Overlay::Picker(p); }
                     KeyCode::Enter => {
                         let filter = p.filter.text();
-                        if matches!(p.on_pick, PickTarget::Action) && (filter.contains(' ') || filter.starts_with('/')) {
+                        if matches!(p.on_pick, PickTarget::Action) && (filter.contains(' ') || filter.chars().next().map(|c| self.palette_trigger(c)).unwrap_or(false)) {
                             // "rename foo" typed into the palette runs as a command line.
                             self.run_command(&filter);
                         } else if let Some(row) = p.selected().cloned() {
                             self.apply_pick(p.on_pick.clone(), row.value, row.group);
+                        } else if matches!(p.on_pick, PickTarget::Skill { replace_prefix: true }) {
+                            self.editor_mut().insert_str(&filter);
+                            self.focus = Focus::Input;
+                        } else {
+                            self.overlay = Overlay::Picker(p);
                         }
                     }
                     KeyCode::PageUp => { for _ in 0..8 { p.move_by(-1); } self.overlay = Overlay::Picker(p); }
@@ -217,97 +224,53 @@ impl App {
         };
     }
 
+    /// Jump to the visible sidebar row at a number key, as in cmux's pane
+    /// shortcuts. The sidebar renderer owns this order so collapsed groups
+    /// and host filters behave exactly like mouse/arrow navigation.
+    fn select_numbered(&mut self, n: usize) {
+        if let Some(&idx) = self.sidebar_order.get(n.saturating_sub(1)) {
+            self.select(idx);
+            self.focus = Focus::Input;
+        }
+    }
+
+    fn palette_trigger(&self, c: char) -> bool {
+        self.palette_prefix.chars().next() == Some(c) || self.palette_aliases.iter().any(|p| p.chars().next() == Some(c))
+    }
+
     pub(super) fn on_key(&mut self, key: KeyEvent) {
         if self.on_overlay_key(key) {
             return;
         }
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        // Focus moves like cmux panes: Cmd-Ctrl-h/j/k/l, or Alt-h/j/k/l on
-        // terminals that do not deliver Cmd.
-        let nav = key.modifiers.contains(KeyModifiers::SUPER) || (key.modifiers.contains(KeyModifiers::ALT) && !ctrl);
-        if let (KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')), true) = (key.code, nav) {
-            self.focus_nav(c);
-            return;
+        match self.keymap.feed(key) {
+            keymap::Match::Run(command) => {
+                if let Some(n) = command.strip_prefix("session-").and_then(|s| s.parse().ok()) { self.select_numbered(n); }
+                else { self.run_command(&command); }
+                return;
+            }
+            keymap::Match::Pending(hint) => { self.status = format!("chord · {hint}"); return; }
+            keymap::Match::Cancelled => { self.status = DEFAULT_STATUS.into(); return; }
+            keymap::Match::Pass => {}
         }
-        let alt_only = key.modifiers.contains(KeyModifiers::ALT) && !ctrl;
-        let sup = key.modifiers.contains(KeyModifiers::SUPER);
-        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER);
+        if plain && self.focus == Focus::Input {
+            if let KeyCode::Char(c) = key.code {
+                if self.skill_prefix.starts_with(c) && (self.editor().cursor() == 0 || self.editor().text().chars().nth(self.editor().cursor()-1).map(char::is_whitespace).unwrap_or(false)) {
+                    self.editor_mut().insert(c);
+                    self.open_skill_picker();
+                    if let Overlay::Picker(p) = &mut self.overlay { p.on_pick = PickTarget::Skill { replace_prefix: true }; }
+                    return;
+                }
+            }
+        }
         match key.code {
-            KeyCode::Char('s') if alt_only => return self.run_action(Action::ToggleSidebar, &[]),
-            KeyCode::Char('e') if alt_only => return self.run_action(Action::Effort, &[]),
-            // Command palette: Ctrl-Shift-p, Cmd-Shift-p, Cmd-k.
-            KeyCode::Char('p') | KeyCode::Char('P') if shift && (ctrl || sup) => return self.run_action(Action::Palette, &[]),
-            KeyCode::Char('k') if sup && !ctrl => return self.run_action(Action::Palette, &[]),
-            _ => {}
-        }
-        match (key.code, ctrl) {
-            (KeyCode::Char('q'), true) => {
-                self.run_action(Action::Quit, &[]);
-                return;
-            }
-            (KeyCode::Char('t'), true) => {
-                self.run_action(Action::NewDraft, &[]);
-                return;
-            }
-            (KeyCode::Char('z'), true) => {
-                self.run_action(Action::Undo, &[]);
-                return;
-            }
-            // Emacs next/previous line in the composer; next/previous
-            // session when the sidebar or transcript has focus.
-            (KeyCode::Char('n'), true) => {
-                match self.focus {
-                    Focus::Input => self.editor_mut().down(),
-                    Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)),
-                    _ => self.select_step(1),
-                }
-                return;
-            }
-            (KeyCode::Char('p'), true) => {
-                match self.focus {
-                    Focus::Input => self.editor_mut().up(),
-                    Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)),
-                    _ => self.select_step(-1),
-                }
-                return;
-            }
-            (KeyCode::Char('x'), true) => {
-                self.run_action(Action::Cancel, &[]);
-                return;
-            }
-            // Ctrl-m is Enter on most terminals, so model lives on Ctrl-l.
-            (KeyCode::Char('l'), true) => {
-                self.run_action(Action::Model, &[]);
-                return;
-            }
-            (KeyCode::Char('o'), true) => {
-                self.run_action(Action::Mode, &[]);
-                return;
-            }
-            (KeyCode::Left, _) if alt_only && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
-                self.run_action(Action::SidebarNarrow, &[]);
-                return;
-            }
-            (KeyCode::Right, _) if alt_only && (self.focus == Focus::Sidebar || self.editor().is_empty()) => {
-                self.run_action(Action::SidebarWiden, &[]);
-                return;
-            }
-            (KeyCode::PageUp, _) => {
-                self.with_viewport(|v| v.page_up());
-                return;
-            }
-            (KeyCode::PageDown, _) => {
-                self.with_viewport(|v| v.page_down());
-                return;
-            }
-            (KeyCode::Home, _) if self.editor().is_empty() && self.focus != Focus::Input => {
-                self.with_viewport(|v| v.to_top());
-                return;
-            }
-            (KeyCode::End, _) if self.editor().is_empty() => {
-                self.with_viewport(|v| v.to_bottom());
-                return;
-            }
+            KeyCode::Char('n') if ctrl => { match self.focus { Focus::Input => self.editor_mut().down(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)), _ => self.select_step(1) }; return; }
+            KeyCode::Char('p') if ctrl => { match self.focus { Focus::Input => self.editor_mut().up(), Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)), _ => self.select_step(-1) }; return; }
+            KeyCode::Left if key.modifiers == KeyModifiers::ALT && (self.focus == Focus::Sidebar || self.editor().is_empty()) => { self.run_action(Action::SidebarNarrow, &[]); return; }
+            KeyCode::Right if key.modifiers == KeyModifiers::ALT && (self.focus == Focus::Sidebar || self.editor().is_empty()) => { self.run_action(Action::SidebarWiden, &[]); return; }
+            KeyCode::Home if self.focus != Focus::Input && self.editor().is_empty() => { self.with_viewport(|v| v.to_top()); return; }
+            KeyCode::End if self.editor().is_empty() => { self.with_viewport(|v| v.to_bottom()); return; }
             _ => {}
         }
         // Typing clears a selection, as in cmux.
@@ -345,7 +308,7 @@ impl App {
                 KeyCode::Char('u') => self.with_viewport(|v| v.page_up()),
                 KeyCode::Char('g') | KeyCode::Home => self.with_viewport(|v| v.to_top()),
                 KeyCode::Char('G') | KeyCode::End => self.with_viewport(|v| v.to_bottom()),
-                KeyCode::Char('/') => self.run_action(Action::Palette, &[]),
+                    KeyCode::Char(c) if plain && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
                 KeyCode::Char('?') => self.run_action(Action::Help, &[]),
                 KeyCode::Char('y') => self.run_action(Action::Allow, &[]),
                 KeyCode::Char('n') => self.run_action(Action::Deny, &[]),
@@ -357,7 +320,7 @@ impl App {
                 KeyCode::Char('j') | KeyCode::Down => self.select_step(1),
                 KeyCode::Char('k') | KeyCode::Up => self.select_step(-1),
                 KeyCode::Enter => self.focus = Focus::Input,
-                KeyCode::Char('/') => self.run_action(Action::Palette, &[]),
+                KeyCode::Char(c) if plain && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
                 KeyCode::Char('?') => self.run_action(Action::Help, &[]),
                 KeyCode::Char('n') => self.run_action(Action::NewDraft, &[]),
                 KeyCode::Char('x') => self.run_action(Action::Stop, &[]),
@@ -403,9 +366,8 @@ impl App {
                             self.discard_draft();
                         }
                     }
-                    KeyCode::Char('/') if self.editor().is_empty() => self.run_action(Action::Palette, &[]),
+                    KeyCode::Char(c) if plain && self.editor().is_empty() && self.palette_trigger(c) => self.run_action(Action::Palette, &[]),
                     KeyCode::Char('?') if self.editor().is_empty() => self.run_action(Action::Help, &[]),
-                    KeyCode::Char('s') if ctrl => self.send_prompt(true),
                     KeyCode::Enter if alt || shift => self.editor_mut().insert('\n'),
                     KeyCode::Char('j') if ctrl => self.editor_mut().insert('\n'),
                     KeyCode::Enter => {

@@ -75,6 +75,7 @@ impl Hub {
             "pid": std::process::id(),
             "startedAt": self.started_at,
             "home": crate::config::home(),
+            "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),

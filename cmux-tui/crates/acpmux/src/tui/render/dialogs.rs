@@ -4,7 +4,7 @@ use super::*;
 
 /// Help rows come from the action table plus the editing keys, so the
 /// dialog can never drift from what the keys do.
-pub fn help_rows() -> Vec<(String, String)> {
+pub fn help_rows(app: &App) -> Vec<(String, String)> {
     let mut rows: Vec<(String, String)> = Vec::new();
     let mut group = "";
     for d in crate::tui::actions::ACTIONS {
@@ -15,8 +15,9 @@ pub fn help_rows() -> Vec<(String, String)> {
             group = d.group;
             rows.push((String::new(), group.to_owned()));
         }
-        let key = if d.keys.is_empty() { format!("/{}", d.name) } else { d.keys.to_owned() };
-        let what = if d.keys.is_empty() { d.label.to_owned() } else { format!("{}   (/{})", d.label, d.name) };
+        let shortcuts = app.keymap.hints(d.name);
+        let key = if shortcuts.is_empty() { format!("{}{}", app.palette_prefix, d.name) } else { shortcuts };
+        let what = format!("{}   ({}{})", d.label, app.palette_prefix, d.name);
         rows.push((key, what));
     }
     rows.push((String::new(), String::new()));
@@ -245,9 +246,32 @@ pub(super) fn draw_add_host(f: &mut ratatui::Frame, area: Rect, text: &crate::tu
 }
 
 pub(super) fn draw_directory(f: &mut ratatui::Frame, area: Rect, text: &crate::tui::editor::Editor, app: &mut App, hover: Option<(u16, u16)>) {
-    let live = !app.on_draft();
-    let note = if live { "a running agent cannot move: this opens a new session tab in the new directory" } else { "the new session starts here" };
-    draw_text_dialog(f, area, app, hover, "Working directory", "absolute path, or ~/…", text, "/path/to/project", note, if live { "[ New session here ⏎ ]" } else { "[ Set ⏎ ]" });
+    let c = app.chrome;
+    let mut paths = Vec::new();
+    if !app.remote_directory() {
+        if let Ok(path) = app.resolve_directory(&text.text()) {
+            if let Some(parent) = path.parent() { paths.push(("↑ Parent directory".to_owned(), parent.to_string_lossy().into_owned())); }
+            for p in crate::tui::directory::children(&path) { paths.push((format!("▢ {}", p.file_name().unwrap_or_default().to_string_lossy()), p.to_string_lossy().into_owned())); }
+        }
+    }
+    let rows = paths.iter().map(|(name,_)| DialogRow { spans: vec![(name.clone(), c.prompt())], selectable: true, note: None }).collect();
+    let spec = DialogSpec {
+        title: "Working directory",
+        header: vec![spans(&[("Path (absolute, ~/, or relative to this session)", c.dim())]), vec![], vec![], spans(&[(if app.on_draft() { "Choose where to start this session" } else { "Choose where to start a new session" }, c.dim())])],
+        rows, selected: None, reveal: false,
+        hint: "Click a folder to browse · Enter uses the path · Esc cancels",
+        buttons: vec![("[ Cancel esc ]", false, ButtonAction::CloseOverlay), ("[ Use directory ⏎ ]", true, ButtonAction::CreateFromForm)],
+        close_button: false, min_width: 52, max_width: 96,
+    };
+    let mut state = std::mem::take(&mut app.dialog);
+    let mut buttons = Vec::new();
+    let out = dialog::draw(f.buffer_mut(), area, &c, hover, spec, &mut state, &mut buttons);
+    for (rect, i) in &state.row_rects { if let Some((_, path)) = paths.get(*i) { buttons.push((*rect, ButtonAction::BrowseDirectory(path.clone()))); } }
+    let (x,y) = out.header_origin;
+    let pos = dialog::text_field(f.buffer_mut(), x, y+1, out.inner_width, &text.text(), text.cursor(), "directory", &c);
+    app.dialog_rect = state.rect; app.buttons.extend(buttons); app.dialog = state;
+    app.cursor_pos = Some(pos); f.set_cursor_position(pos);
+
 }
 
 pub(super) fn draw_confirm(f: &mut ratatui::Frame, area: Rect, title: &str, app: &mut App, hover: Option<(u16, u16)>) {
@@ -275,7 +299,7 @@ pub(super) fn draw_confirm(f: &mut ratatui::Frame, area: Rect, title: &str, app:
 pub(super) fn draw_help(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let c = app.chrome;
     let hover = app.hover;
-    let rows: Vec<DialogRow> = help_rows()
+    let rows: Vec<DialogRow> = help_rows(app)
         .into_iter()
         .map(|(key, what)| {
             if key.is_empty() && !what.is_empty() {

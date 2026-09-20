@@ -103,6 +103,9 @@ pub enum PickTarget {
     Policy(Option<String>),
     /// session id, config id
     Config(String, String),
+    /// An inline `$skill-id` reference for the composer.
+    Skill { replace_prefix: bool },
+    DraftHarness,
     Agent,
 }
 
@@ -117,4 +120,3 @@ pub enum AppMsg {
     Error(String),
     Created(String),
 }
-

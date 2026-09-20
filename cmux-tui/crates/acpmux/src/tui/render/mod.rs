@@ -20,8 +20,11 @@ mod dialogs;
 mod sidebar;
 mod status;
 mod transcript;
+mod cache;
+pub(crate) use cache::TranscriptCache;
 
 use composer::draw_composer;
+pub(crate) use composer::policy_label;
 use dialogs::{draw_add_host, draw_confirm, draw_directory, draw_help, draw_new_session, draw_permission_card, draw_picker};
 use sidebar::draw_sidebar;
 use status::draw_status;
@@ -38,6 +41,7 @@ pub const COLUMN_WIDTH: u16 = 124;
 
 /// One rendered transcript row with the absolute index it belongs to, so
 /// selection and scrolling stay stable while text streams in.
+#[derive(Clone)]
 pub struct Row {
     pub line: Line<'static>,
     /// Plain text of the row, used for copy.
@@ -186,6 +190,10 @@ pub fn is_system_noise(item: &Item) -> bool {
 /// holds the ones flipped from their default (work and groups open,
 /// details closed); the thought being streamed is always open.
 pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_system: bool, toggled: &std::collections::HashSet<Toggle>, c: &Chrome) -> Vec<Row> {
+    transcript_rows_range(t, width, show_thoughts, show_system, toggled, c, 0..t.items.len(), true, None)
+}
+
+fn transcript_rows_range(t: &Transcript, width: usize, show_thoughts: bool, show_system: bool, toggled: &std::collections::HashSet<Toggle>, c: &Chrome, range: std::ops::Range<usize>, footer: bool, mut markdown: Option<&mut std::collections::HashMap<usize, Vec<Row>>>) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
     let w = width.saturating_sub(GUTTER.len());
     let running = t.status == "running";
@@ -193,7 +201,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
     let is_open = |tg: Toggle, default_open: bool| default_open ^ toggled.contains(&tg);
     let group = |it: &Item| matches!(it, Item::Tool { .. } | Item::Permission { .. });
     // Visible items: lifecycle noise and silent turn ends never draw.
-    let vis: Vec<usize> = (0..t.items.len())
+    let vis: Vec<usize> = range
         .filter(|&i| {
             let it = &t.items[i];
             if let Item::Permission { title, decided: Some(d), .. } = it {
@@ -368,7 +376,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // is work and the handle reads "Working for …".
                 let final_reply = if turn_live { None } else { (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. })) };
                 let work_end = final_reply.unwrap_or(next_user);
-                let work: Vec<usize> = vis.iter().copied().filter(|&j| j > i && j < work_end).collect();
+                let work: Vec<usize> = vis[k..].iter().copied().take_while(|&j| j < work_end).collect();
                 let mut blocks = 0usize;
                 let mut tools = 0usize;
                 let mut thoughts = 0usize;
@@ -487,7 +495,16 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 spacer(&mut rows, i, after_user_block);
                 match item {
                     Item::Assistant { text } => {
-                        super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                        if let Some(cache) = markdown.as_deref_mut() {
+                            let rendered = cache.entry(i).or_insert_with(|| {
+                                let mut rows = Vec::new();
+                                super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                                rows
+                            });
+                            rows.extend(rendered.iter().cloned());
+                        } else {
+                            super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                        }
                     }
                     Item::Thought { text } => {
                         let live = running && i == last;
@@ -590,25 +607,39 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
             rows.push(bubble_row(vec![], 0, String::new()));
         }
     }
-    if running {
-        let streaming = matches!(t.items.last(), Some(Item::Assistant { .. }) | Some(Item::Tool { .. }) | Some(Item::Thought { .. }));
-        if !streaming {
-            plain("", Style::default(), usize::MAX, &mut rows);
-            // Codex app: "Working for 4s" that keeps counting.
-            let label = match t.turn_times.last() {
-                Some((_, start, None)) => format!("Working for {}", duration_label(now_ms().saturating_sub(*start))),
-                _ => "Working…".to_owned(),
-            };
-            let mut spans = vec![Span::raw(GUTTER)];
-            spans.extend(super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
-            let note = t.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
-            if !note.is_empty() {
-                spans.push(Span::styled(note.clone(), c.dim()));
-            }
-            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}{label}{note}"), item: usize::MAX, toggle: None });
-        }
+    if running && footer {
+        plain("", Style::default(), usize::MAX, &mut rows);
+        rows.push(working_row(t, c));
     }
     rows
+}
+
+fn working_row(t: &Transcript, c: &Chrome) -> Row {
+    // Codex-style persistent footer: it remains visible while a tool or
+    // thought streams, and carries the normalized activity plus the
+    // interrupt affordance so the user never has to infer whether work
+    // is still live from the last transcript row.
+    let elapsed = match t.turn_times.last() {
+        Some((_, start, None)) => format!("{}", duration_label(now_ms().saturating_sub(*start))),
+        _ => "…".to_owned(),
+    };
+    let mut label = format!("Working ({elapsed} · Esc to interrupt)");
+    if let Some(activity) = t.activity.as_deref().filter(|s| !s.is_empty()) {
+        label.push_str(" · ");
+        label.push_str(activity);
+    }
+    if t.active_terminals > 0 {
+        label.push_str(&format!(" · {} background terminal{}", t.active_terminals, if t.active_terminals == 1 { "" } else { "s" }));
+    } else if t.active_tools > 0 {
+        label.push_str(&format!(" · {} active tool{}", t.active_tools, if t.active_tools == 1 { "" } else { "s" }));
+    }
+    let mut spans = vec![Span::raw(GUTTER)];
+    spans.extend(super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
+    let note = t.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
+    if !note.is_empty() {
+        spans.push(Span::styled(note.clone(), c.dim()));
+    }
+    Row { line: Line::from(spans), text: format!("{GUTTER}{label}{note}"), item: usize::MAX, toggle: None }
 }
 
 /// The project label for a directory: its last segment, or `~` for a home
@@ -762,7 +793,13 @@ fn header_row(text: &str, color: ratatui::style::Color, item: usize, toggle: Tog
 pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let area = f.area();
     let c = app.chrome;
-    if area.height < 4 || area.width < 20 {
+    app.buttons.clear();
+    app.perm_rows.clear();
+    app.link_cells.clear();
+    app.cursor_pos = None;
+    app.dialog_rect = Rect::default();
+    if area.height < 6 || area.width < 20 {
+        app.areas = super::Areas::default();
         return;
     }
     let status_y = area.y + area.height - 1;
@@ -798,11 +835,6 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     app.areas.composer = composer;
     app.areas.status = Rect { x: area.x, y: status_y, width: area.width, height: 1 };
 
-    app.buttons.clear();
-    app.perm_rows.clear();
-    app.link_cells.clear();
-    app.cursor_pos = None;
-    app.dialog_rect = Rect::default();
     if sidebar_w > 0 {
         draw_sidebar(f, sidebar, app);
     } else {
@@ -828,6 +860,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
         app.dialog = dialog::DialogState::default();
         app.last_overlay = kind;
     }
+    // Modal hit targets replace the background; clicks cannot activate covered chips.
+    if !matches!(app.overlay, Overlay::None) { app.buttons.clear(); app.perm_rows.clear(); }
     match std::mem::replace(&mut app.overlay, Overlay::None) {
         Overlay::None => {}
         Overlay::Menu(mut m) => {
@@ -903,8 +937,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
             }
         }
     }
-    // Link runs are re-printed after the frame; drop any that a dialog,
-    // menu or toast now covers, or their text would show through it.
+    // Hyperlink metadata belongs only to visible transcript cells. Drop
+    // links covered by a dialog, menu or toast before the backend diffs them.
     if !matches!(app.overlay, Overlay::None) {
         let d = app.dialog_rect;
         let covered = |x: u16, y: u16, w: u16| y >= d.y && y < d.y + d.height && x < d.x + d.width && x + w > d.x;

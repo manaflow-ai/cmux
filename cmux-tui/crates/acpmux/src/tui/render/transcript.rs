@@ -3,6 +3,13 @@
 use super::*;
 
 pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
+    let empty = app.selected_id().and_then(|id| app.transcripts.get(&id))
+        .map(|t| t.items.is_empty() && t.status != "running").unwrap_or(true);
+    if empty {
+        app.rows_cache.clear();
+        app.row_meta.clear();
+        app.transcript_cache = TranscriptCache::default();
+    }
     let c = app.chrome;
     let buf = f.buffer_mut();
     fill(buf, area, Style::default());
@@ -49,8 +56,11 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             }
         };
         if !project.is_empty() {
+            let project_start = x;
             put(buf, &mut x, "▢ ", c.dim());
             put(buf, &mut x, &project, c.muted());
+            let project_rect = Rect { x: project_start, y: title_y, width: x.saturating_sub(project_start), height: 1 };
+            if project_rect.width > 2 { app.buttons.push((project_rect, ButtonAction::EditDirectory)); }
             put(buf, &mut x, "  ›  ", c.dim());
         }
         let name_style = if app.focus == Focus::Transcript && matches!(app.overlay, Overlay::None) {
@@ -74,19 +84,12 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let buf = f.buffer_mut();
     let inner = app.transcript_inner();
     if let Some(d) = app.draft() {
+        let mut buttons = Vec::new();
         // Codex app: a centered headline naming the project, the settings
         // as one muted line under it. The composer below is where to type.
         let project = project_label(&d.cwd);
         let headline = format!("What should we build in {project}?");
         let effort = d.effort.as_deref().filter(|e| !e.is_empty() && *e != "default").map(|e| format!("  ·  {}", effort_label(e))).unwrap_or_default();
-        let settings = format!(
-            "{}{}  ·  {}{}  ·  {}",
-            d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(),
-            d.harness,
-            d.model.as_deref().map(model_label).unwrap_or_else(|| "default model".to_owned()),
-            effort,
-            crate::tui::render::composer::policy_label(&d.policy).0
-        );
         let top = inner.y + inner.height / 3;
         let center = |buf: &mut Buffer, y: u16, text: &str, style: Style| {
             if y < inner.y + inner.height {
@@ -96,7 +99,36 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             }
         };
         center(buf, top, &headline, Style::default().add_modifier(Modifier::BOLD));
-        center(buf, top + 2, &settings, c.muted());
+        if top < inner.y + inner.height {
+            let width = headline.width().min(inner.width as usize) as u16;
+            let hx = inner.x + inner.width.saturating_sub(width)/2;
+            buttons.push((Rect { x: hx, y: top, width, height: 1 }, ButtonAction::DraftDirectory));
+        }
+        let settings_y = top + 2;
+        let parts = [
+            (format!("{}{}", d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(), d.harness), ButtonAction::DraftHarness),
+            (format!("{}", d.model.as_deref().map(model_label).unwrap_or_else(|| "default model".to_owned())), ButtonAction::DraftModel),
+            (if effort.is_empty() { String::new() } else { effort.trim_start_matches("  ·  ").to_owned() }, ButtonAction::DraftEffort),
+            (crate::tui::render::policy_label(&d.policy).0, ButtonAction::DraftPolicy),
+        ];
+        let mut labels = Vec::new();
+        for (label, action) in parts.iter() {
+            if label.is_empty() { continue; }
+            if !labels.is_empty() { labels.push((" · ".to_owned(), None)); }
+            labels.push((label.clone(), Some(action.clone())));
+        }
+        let settings_w = labels.iter().map(|(s, _)| s.width()).sum::<usize>().min(inner.width as usize) as u16;
+        let mut sx = inner.x + (inner.width.saturating_sub(settings_w)) / 2;
+        for (label, action) in labels {
+            let w = label.width().min((inner.x + inner.width).saturating_sub(sx) as usize) as u16;
+            if w == 0 || settings_y >= inner.y + inner.height { break; }
+            let r = Rect { x: sx, y: settings_y, width: w, height: 1 };
+            let hot = action.is_some() && hover.map(|(x, y)| y == settings_y && x >= r.x && x < r.x + r.width).unwrap_or(false);
+            let style = if hot { Style::default().bg(c.status_active_bg).fg(c.status_active_fg) } else { c.muted() };
+            buf.set_stringn(sx, settings_y, &label, w as usize, style);
+            if let Some(a) = action { buttons.push((r, a)); }
+            sx += w;
+        }
         center(buf, top + 4, "Type below and press Enter to start · Esc discards", c.dim());
         let mut y = top + 6;
         if d.creating {
@@ -114,6 +146,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             buf.set_stringn(inner.x, y, &format!("  ✗ {e}"), inner.width as usize, Style::default().fg(c.error_fg));
             y += 1;
         }
+        app.buttons.extend(buttons);
         return;
     }
     let Some(id) = app.selected_id() else {
@@ -127,20 +160,17 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         };
         center(buf, top, "What should we build?", Style::default().add_modifier(Modifier::BOLD));
         center(buf, top + 2, "Ctrl-t starts a session: pick a harness, name it, choose a directory", c.muted());
-        center(buf, top + 3, "?  every key        /  every command", c.dim());
+        center(buf, top + 3, &format!("?  every key        {}  every command", app.palette_prefix), c.dim());
         center(buf, top + 5, "From a shell:  acpmux new -m claude -n my-task", c.dim());
         return;
     };
-    let Some(t) = app.transcripts.get(&id) else {
+    let cwd = app.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
+    let Some(t) = app.transcripts.get_mut(&id) else {
         buf.set_stringn(inner.x, inner.y, "loading…", inner.width as usize, c.dim());
         return;
     };
     if t.items.is_empty() && t.status != "running" {
-        let project = app
-            .selected_session()
-            .and_then(|s| s.get("cwd").and_then(Value::as_str))
-            .map(project_label)
-            .unwrap_or_default();
+        let project = project_label(&cwd);
         let headline = if project.is_empty() { "What should we build?".to_owned() } else { format!("What should we build in {project}?") };
         let top = inner.y + inner.height / 3;
         let w = headline.width().min(inner.width as usize);
@@ -152,9 +182,14 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     }
     let empty = std::collections::HashSet::new();
     let toggled = app.toggled.get(&id).unwrap_or(&empty);
-    let rows = transcript_rows(t, inner.width as usize, app.show_thoughts, app.show_system, toggled, &c);
+    if let Some(changed) = app.transcript_cache.update(&id, t, inner.width as usize, app.show_thoughts, app.show_system, toggled, &c) {
+        app.rows_cache.truncate(changed);
+        app.row_meta.truncate(changed);
+        app.rows_cache.extend(app.transcript_cache.rows[changed..].iter().map(|r| r.text.clone()));
+        app.row_meta.extend(app.transcript_cache.rows[changed..].iter().map(|r| (r.item, r.toggle)));
+    }
+    let rows = &app.transcript_cache.rows;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
-    let cwd = app.selected_session().and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
     let mut link_runs: Vec<crate::tui::links::LinkCell> = Vec::new();
     let vp = app.viewport.entry(id.clone()).or_default();
     vp.layout(rows.len(), inner.height as usize, track);
@@ -163,7 +198,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();
     for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
         let y = inner.y + (i - offset) as u16;
-        let p = Paragraph::new(row.line.clone());
+        let p = Paragraph::new(super::cache::animated_line(t, row, &c).unwrap_or_else(|| row.line.clone()));
         f_render(buf, p, Rect { x: inner.x, y, width: inner.width, height: 1 });
         // Codex app: a collapsible row lights up under the pointer.
         if row.toggle.is_some() && hover.map(|(_, hy)| hy == y).unwrap_or(false) {
@@ -175,7 +210,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             }
         }
         // URLs and paths become OSC 8 hyperlinks the terminal can Cmd-click;
-        // the run is re-printed after the frame (see `links::paint`).
+        // the backend attaches OSC 8 only to changed cells in the frame diff.
         for link in crate::tui::links::find(&row.text) {
             let href = crate::tui::links::href(&link.target, &cwd);
             let end = link.end.min(inner.width as usize);
@@ -183,14 +218,13 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
                 continue;
             }
             let mut text = String::new();
-            let mut style = None;
-            for col in link.start..end {
-                if let Some(cell) = buf.cell((inner.x + col as u16, y)) {
-                    text.push_str(cell.symbol());
-                    style.get_or_insert(cell.style());
-                }
+            let mut col = link.start;
+            while col < end {
+                let Some(cell) = buf.cell((inner.x + col as u16, y)) else { break; };
+                text.push_str(cell.symbol());
+                col += cell.symbol().width().max(1);
             }
-            link_runs.push(crate::tui::links::LinkCell { x: inner.x + link.start as u16, y, text, href, style: style.unwrap_or_default() });
+            link_runs.push(crate::tui::links::LinkCell { x: inner.x + link.start as u16, y, text, href });
         }
         if let Some(s) = &sel {
             if let Some((c0, c1)) = s.cols_on_row(i, &row.text) {
@@ -203,8 +237,6 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         }
     }
     app.link_cells.extend(link_runs);
-    app.row_meta = rows.iter().map(|r| (r.item, r.toggle)).collect();
-    app.rows_cache = rows.into_iter().map(|r| r.text).collect();
     if vp.has_scrollbar() {
         draw_thumb(buf, track, vp.thumb(), c.scrollbar_thumb_fg, c.scrollbar_thumb_active_fg, vp.thumb_state());
     }
@@ -220,4 +252,3 @@ fn f_render(buf: &mut Buffer, p: Paragraph, area: Rect) {
     use ratatui::widgets::Widget;
     p.render(area, buf);
 }
-

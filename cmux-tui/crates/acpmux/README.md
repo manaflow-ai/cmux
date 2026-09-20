@@ -50,8 +50,8 @@ The daemon serves a dashboard on the same port as its WebSocket, by default
 `config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
 desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
 <project>?`, the harness and permission chips pick its settings, the project name opens the
-name-and-directory form, the session is created when you send the first message), sessions
-grouped under their project and titled by their first prompt (hover one for its card, `⋯` or
+directory picker, with separate harness, model, and permission buttons, and the session is created when you send the first message), sessions
+grouped under their project with a `+` shortcut for starting there; the gear menu adds, hides, and reorders project shortcuts. They are titled by their first prompt (hover one for its card, `⋯` or
 a right-click for rename, fork, stop, delete), the hosts at the bottom; a centered conversation with
 timestamps, your messages as right-aligned bubbles, each turn's work folded under `Worked for
 19s ›` with an `Edited N files +a -d` card listing each file, muted activity rows with diff
@@ -145,7 +145,8 @@ pickers, forms, confirms) is one rounded-corner component (`src/tui/dialog.rs`):
 header, a body that scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag,
 and a `N-M/T` counter in the footer when rows overflow.
 
-**Sidebar.** `✎ New session` on top; sessions grouped under their project (`▢ acpmux`, or
+**Sidebar.** `✎ New session` on top; each local project header has a `+` shortcut for a new
+session in that directory. Sessions are grouped under their project (`▢ acpmux`, or
 `▢ host · project` for a peer, `~` for a home directory), one line each, titled by their first
 prompt when the name was generated and by the name you gave otherwise; a mark at the right
 edge (`?` needs a permission, `●` running, `•` finished or failed while you were elsewhere,
@@ -181,7 +182,8 @@ Write perm.txt`, with the options as chips; `y`, `n`, a digit or a click answers
 covers the conversation.
 
 **Empty states.** A new draft or a session without messages shows `What should we build in
-<project>?` centered, with the settings as one muted line under it.
+<project>?` centered, with separate clickable harness, model, effort and permission settings under it.
+Click the project name in the headline or header to choose a directory.
 
 The status bar shows hosts (click one to filter the sidebar), the last message, `? keys · /
 commands`, and a `web dashboard ↗` link. Errors are red rows in the transcript and a red
@@ -194,19 +196,104 @@ table.
 
 ```
 Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot steer
-Ctrl-t / n   new session tab    Ctrl-x   cancel turn
+Ctrl-t / n   new session tab    Alt-n     new session tab    Ctrl-g   cancel turn
 Cmd-Ctrl-h/j/k/l  move focus like cmux panes: h sidebar, l content, k transcript, j composer
                   (Alt-h/j/k/l on terminals that do not deliver Cmd)
 Tab          focus sidebar (j/k, x stop, f fork, r rename); Esc or Enter back
 Ctrl-n/p     next / prev line in the composer (history at the ends); next / prev session in the sidebar
 Alt-s        hide / show the sidebar (`:sidebar`); Alt-h shows it again
 Alt-←/→      narrow / widen the sidebar (or drag its rule; the transcript keeps 40 columns)
-Ctrl-l       pick model         Ctrl-o   pick mode        Alt-e     pick thinking effort
+Alt-1…9      jump to a visible session       Alt-[ / Alt-]   previous / next session
+Ctrl-l / Alt-m  pick model       Alt-p     permissions     Alt-Shift-d directory
+Ctrl-o       pick mode           Alt-e     pick thinking effort
 /            command palette    ?        help             Esc       interrupt the running turn
 /set KEY     pick any option    /set KEY=VALUE            Ctrl-Shift-p / Cmd-k also open the palette
 wheel PgUp/PgDn scroll          Home/End top / follow the bottom
 y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 ```
+
+The compatibility choices below follow OpenCode's [TUI commands](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/tui.mdx),
+[keybind conventions](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/keybinds.mdx),
+and [skill discovery](https://opencode.ai/docs/skills).
+
+`Ctrl-x` is now a sequential leader: release it, then press `p` for commands, `n`
+for a new session, `m` for models, `l` for sessions, `a` for agent modes, `b` for
+the sidebar, `d` for directories, `k` for skills, `h` for help, or `q` to detach.
+Esc cancels a pending chord; unfinished chords expire after two seconds. Cancelling
+a running turn remains on Esc (in the composer) or Ctrl-g. Option-d keeps its
+Readline delete-next-word behavior; Option-Shift-d opens directories.
+
+### Skills and UI configuration
+
+Type `$` at the beginning of a word in the composer to pick a skill, or use
+`/skills`. Enter inserts `$skill-id`; Esc preserves a literal `$` and the typed
+filter (for example `$HOME`). You can also paste or type a known `$skill-id`.
+On send, acpmux attaches that skill's instructions and base directory to the
+prompt, so relative reference files can be found by the harness. Unknown names,
+shell variables, escaped references and references inside code stay literal.
+Skills are loaded for the selected local project at send time. Remote sessions
+keep their harness's native skill handling; local skill files are not silently
+substituted into remote prompts.
+
+Discovery reads `SKILL.md` below global `~/.claude/skills`, `~/.agents/skills`,
+`~/.codex/skills`, `~/.config/opencode/skills`, and `~/.acpmux/skills`, plus matching
+project directories from the repository root down to the selected directory.
+Root-level named Markdown skills are accepted too. Project definitions override
+global ones; `skillPaths` adds higher-priority directories. No skill scripts run
+during discovery or selection.
+
+Configure the TUI in `~/.acpmux/config.json` (or `$ACPMUX_HOME/config.json`):
+
+```json
+{
+  "tui": {
+    "palettePrefix": ":",
+    "paletteAliases": ["/"],
+    "skillPrefix": "$",
+    "leader": "ctrl+x",
+    "leaderTimeoutMs": 2000,
+    "skillPaths": ["./skills", "~/shared-skills"],
+    "keybinds": {
+      "command_list": "ctrl+p,<leader>p",
+      "session_new": ["alt+n", "<leader>n"],
+      "model_list": "<leader>m",
+      "cwd": "ctrl+x g d",
+      "quit": "ctrl+q",
+      "toggle-sidebar": false
+    }
+  }
+}
+```
+
+Prefixes are one character; the default palette prefix is `/` and the default
+skill prefix is `$`. A different palette prefix frees `/` for ordinary input
+unless it is listed in `paletteAliases`. Changes take effect when opening a new
+TUI; no daemon restart is required. Invalid settings fail with an explanation.
+
+Keybind keys are acpmux action names from the command palette; supported OpenCode
+aliases include `command_list`, `session_new`, `session_list`, `model_list`,
+`agent_list`, `sidebar_toggle`, `app_exit`, `help_show`, `session_interrupt`,
+`prompt_skills`, `variant_list`, `workspace_set`, `messages_page_up`,
+`messages_page_down`, `messages_first`, `messages_last`, and `display_thinking`.
+`session-1` through `session-9` control direct session jumps. Values replace the
+action's global shortcuts; use a comma-separated string or an array for alternatives,
+spaces for sequences, `<leader>` for the configured leader, and `false` or `"none"`
+to disable a global action binding. Readline editing and modal navigation remain
+contextual; configured global bindings run first outside dialogs. Help and the
+palette show the effective bindings. For OpenCode's Ctrl-p command palette, use
+`command_list: "ctrl+p,<leader>p"`; the default keeps Ctrl-p for previous-line editing.
+
+OpenCode command aliases `/models`, `/sessions`, `/resume`, `/continue`, `/clear`,
+`/exit`, and `/thinking` are supported. Harness commands such as `/compact` are
+forwarded only when the selected harness advertises them. OpenCode's Git-backed
+message undo/redo, shell execution, sharing, and provider setup are not emulated;
+acpmux's `/undo` edits the composer only.
+
+Type `cd` and press Enter to open the directory browser. `cd ..`, `cd ../other`,
+`cd ~/project`, `cd "My Project"`, and `cd -` preselect a path there. Relative paths
+start at the selected session's directory. Click parent/child folders, then
+**Use directory**. Cancelling preserves the typed command. A draft moves to the
+chosen directory; an existing agent keeps its directory and a new draft opens.
 
 The message editor is a real editor: cursor anywhere, Left/Right, Home/End, Ctrl-a/Ctrl-e,
 Alt-b/Alt-f or Alt-Left/Alt-Right by word, Ctrl-w and Alt-Backspace delete a word back, Alt-d
