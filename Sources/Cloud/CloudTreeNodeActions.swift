@@ -210,6 +210,7 @@ struct CloudTreeNodeActions {
                     return
                 }
                 run(startingLabel(machine)) { catalog in
+                    let requestedDestination = try target.get()
                     if let remoteWorkspaceID {
                         try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                     }
@@ -217,9 +218,10 @@ struct CloudTreeNodeActions {
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
                     defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                    try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).validate(created: resource)
                     let (projection, _) = try await catalog.project(
                         resource.id,
-                        into: try target.get(),
+                        into: requestedDestination,
                         focus: true,
                         reuseExisting: true,
                         remoteView: Self.uniqueRemoteView(resource)
