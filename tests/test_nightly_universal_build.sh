@@ -547,7 +547,7 @@ fi
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
 for expected in \
-  "const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;" \
+  "const shouldBuild = buildOnly || !isMainRef || forceBuild || (nightlySha !== headSha && buildInputsChanged);" \
   "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
@@ -584,5 +584,7 @@ for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
     exit 1
   fi
 done
+
+node --test "$ROOT_DIR/tests/test_nightly_build_decision.mjs"
 
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

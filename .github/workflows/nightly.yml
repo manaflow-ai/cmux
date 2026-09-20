@@ -197,7 +197,26 @@ jobs:
               }
             }
 
-            const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;
+            // Compare with the last successfully published app, not the previous
+            // push. Several web-only commits can arrive between native changes.
+            // GitHub returns at most 300 files; incomplete comparisons rebuild.
+            let buildInputsChanged = nightlySha !== headSha;
+            if (isMainRef && nightlySha && nightlySha !== headSha && !forceBuild && !buildOnly) {
+              try {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner, repo, basehead: `${nightlySha}...${headSha}`, per_page: 1,
+                });
+                if (data.status === 'ahead' && Array.isArray(data.files) && data.files.length < 300) {
+                  const nonBuildInput = (path) => /^(web\/|docs\/|tests\/|cmuxTests\/|cmuxUITests\/|\.github\/ISSUE_TEMPLATE\/)/.test(path);
+                  buildInputsChanged = data.files.some((file) =>
+                    !nonBuildInput(file.filename) ||
+                    (file.previous_filename && !nonBuildInput(file.previous_filename)));
+                }
+              } catch (error) {
+                core.warning(`Unable to compare nightly build inputs; building: ${error.message}`);
+              }
+            }
+            const shouldBuild = buildOnly || !isMainRef || forceBuild || (nightlySha !== headSha && buildInputsChanged);
             const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
@@ -212,6 +231,7 @@ jobs:
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
                 [{data: 'should build', header: true}, String(shouldBuild)],
+                [{data: 'macOS build inputs changed', header: true}, String(buildInputsChanged)],
                 [{data: 'should publish', header: true}, String(shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
                 [{data: 'build-only measurement', header: true}, String(buildOnly)],
