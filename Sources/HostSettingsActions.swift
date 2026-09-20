@@ -62,8 +62,17 @@ final class HostSettingsActions: SettingsHostActions {
         openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
             PreferredEditorService(defaults: .standard).open($0)
         },
-        reportAutomationRulesError: @escaping @MainActor (Error) -> Void = {
-            NSAlert(error: $0).runModal()
+        reportAutomationRulesError: @escaping @MainActor (Error) -> Void = { _ in
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "settings.automation.rules.createFailed.title",
+                defaultValue: "Could Not Create Automation Rules"
+            )
+            alert.informativeText = String(
+                localized: "settings.automation.rules.createFailed.message",
+                defaultValue: "Check that the configuration folder is writable and the disk has free space, then try again."
+            )
+            alert.runModal()
         }
     ) {
         self.configFileURL = configFileURL
