@@ -1987,6 +1987,8 @@ jobs:
       # request's merge commit or the merge group's commit; its first parent is
       # the base or the queue entry ahead of it, which its own run already
       # validated. Without that parent, or on a dispatch, everything runs.
+      # --no-renames lists both sides of a move, so a file leaving a package
+      # still selects that package.
       - name: Select package tests
         id: select
         env:
@@ -1995,9 +1997,10 @@ jobs:
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
           if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
-            && git diff --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
+            && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
             echo "changed_files=$changed" >> "$GITHUB_OUTPUT"
-            if grep -q '^vendor/bonsplit/' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
+            # vendor/bonsplit is a submodule, so a revision bump is the bare path.
+            if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
               echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             fi
           else

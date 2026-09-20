@@ -58,6 +58,7 @@ def main() -> int:
               "dependents follow the changed package, not its dependencies")
         check(root, ["vendor/bonsplit/Sources/Bonsplit/A.swift"], ["Splitter"],
               "a path dependency outside Packages/ counts")
+        check(root, ["vendor/bonsplit"], ["Splitter"], "a submodule revision bump is the bare directory path")
         check(root, ["Native/CommandPaletteNucleoFFI/src/lib.rs"], ["Palette"],
               "an extra input reaches the packages that depend on its owner")
         check(root, ["Packages/macOS/Unlisted/Sources/A.swift"], [], "a package outside the list selects nothing")
@@ -83,6 +84,10 @@ def main() -> int:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == listed, "without a diff the script must print every listed package in order"
+
+    select_step = workflow.split("      - name: Select package tests\n", 1)[1].split("      - name:", 1)[0]
+    assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
+    assert "'^vendor/bonsplit(/|$)'" in select_step, "a Bonsplit submodule bump must run the Bonsplit tests"
 
     print("PASS: package test selection follows path dependencies and fails safe")
     return 0

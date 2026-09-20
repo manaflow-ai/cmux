@@ -102,6 +102,12 @@ def input_prefixes(root: Path, name: str, dirs: dict[str, str]) -> set[str]:
     return prefixes
 
 
+def under(path: str, prefix: str) -> bool:
+    """True for a file below the directory `prefix`, or for the directory itself,
+    which is how a submodule's revision change appears in a diff."""
+    return path.startswith(prefix) or path == prefix.rstrip("/")
+
+
 def select(root: Path, packages: list[str], changed: list[str] | None) -> list[str]:
     """`changed` is None when the diff is unknown, which selects everything."""
     dirs = package_dirs(root)
@@ -117,7 +123,7 @@ def select(root: Path, packages: list[str], changed: list[str] | None) -> list[s
         if path in GLOBAL_INPUTS:
             print(f"{path} is an input of the package test job; selecting every package", file=sys.stderr)
             return packages
-        if path.startswith("Packages/") or any(path.startswith(prefix) for prefix in known):
+        if path.startswith("Packages/") or any(under(path, prefix) for prefix in known):
             continue
         if path.startswith(UNRELATED_PREFIXES) or path.endswith(UNRELATED_SUFFIXES):
             continue
@@ -126,7 +132,7 @@ def select(root: Path, packages: list[str], changed: list[str] | None) -> list[s
     return [
         name
         for name in packages
-        if any(path.startswith(prefix) for path in changed for prefix in inputs[name])
+        if any(under(path, prefix) for path in changed for prefix in inputs[name])
     ]
 
 
