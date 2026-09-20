@@ -107,10 +107,14 @@ final class AgentChatTranscriptService {
     ///
     /// App termination calls this on the main actor so observer removal,
     /// notification demand release, and streamer cancellation complete before
-    /// the rest of the application teardown begins. Repeated calls are safe.
+    /// the rest of the application teardown begins. Shutdown is terminal;
+    /// repeated calls and later ingress are ignored.
     func shutdown() {
         guard !didShutdown else { return }
         didShutdown = true
+        registry.onRecordChanged = nil
+        registry.onRecordRemoved = nil
+        proseTurnStates.removeAll()
         proseWakeDriver.stop()
         proseStreamer.stopAll()
     }
@@ -194,6 +198,7 @@ final class AgentChatTranscriptService {
     /// app startup. Hook events stay authoritative for state and transcripts;
     /// observe-floor scans later add live agent presence even before hooks fire.
     func start() {
+        guard !didShutdown else { return }
         Self.liveInstance = self
         // Apply resume re-binds buffered before the service was wired. The seed
         // only creates records that don't already exist, so an intent applied
@@ -220,6 +225,7 @@ final class AgentChatTranscriptService {
     ///
     /// - Parameter event: The hook event.
     func noteHookEvent(_ event: WorkstreamEvent) {
+        guard !didShutdown else { return }
         let record = registry.noteHookEvent(event)
         // A session (re)starting or receiving a prompt is the bounded
         // retry point for a transcript that didn't exist at first sight.
@@ -341,6 +347,7 @@ final class AgentChatTranscriptService {
         workspaceID: String?,
         workingDirectory: String?
     ) {
+        guard !didShutdown else { return }
         let normalizedSessionID = AgentChatSessionRegistry.normalizedSessionID(sessionID, source: source)
         endProseTurn(sessionID: normalizedSessionID)
         registry.noteResumeInitiated(
@@ -439,6 +446,7 @@ final class AgentChatTranscriptService {
         for record: AgentChatSessionRecord,
         resolvePath: () -> String?
     ) -> AgentChatTranscriptTailer? {
+        guard !didShutdown else { return nil }
         if let existing = tailers[record.sessionID] {
             return existing
         }
@@ -478,6 +486,7 @@ final class AgentChatTranscriptService {
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+        guard !didShutdown else { return }
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -608,7 +617,7 @@ final class AgentChatTranscriptService {
     }
 
     private func emit(frame: ChatSessionEventFrame) {
-        guard let payload = wirePayload(frame) else { return }
+        guard !didShutdown, let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)
     }
 

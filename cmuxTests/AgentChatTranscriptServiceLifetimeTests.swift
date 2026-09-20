@@ -96,6 +96,76 @@ struct AgentChatTranscriptServiceLifetimeTests {
         }
     }
 
+    @MainActor
+    @Test("shutdown rejects late hooks, resume requests, and registry notifications")
+    func shutdownRejectsLateIngress() throws {
+        let home = URL.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let registry = AgentChatSessionRegistry(hookStore: AgentChatHookSessionStore(homeDirectory: home))
+        let notificationCenter = NotificationCenter()
+        let frameDemand = RenderDemandCounter()
+        let tickDemand = RenderDemandCounter()
+        var emittedPayloadCount = 0
+        let service = AgentChatTranscriptService(
+            registry: registry,
+            resolver: AgentChatTranscriptResolver(homeDirectory: home, environment: [:]),
+            hasEventSubscribers: { true },
+            emitEventPayload: { _ in emittedPayloadCount += 1 },
+            notificationCenter: notificationCenter,
+            renderedFrameNotificationDemand: frameDemand,
+            tickNotificationDemand: tickDemand
+        )
+        defer { service.shutdown() }
+        let sessionID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let now = Date()
+        for eventName in [WorkstreamEvent.HookEventName.sessionStart, .userPromptSubmit] {
+            service.noteHookEvent(WorkstreamEvent(
+                sessionId: sessionID,
+                hookEventName: eventName,
+                source: "codex",
+                surfaceId: surfaceID,
+                receivedAt: now
+            ))
+        }
+        #expect(service.proseStreamer.hasActiveUnsettledTurns)
+        #expect(frameDemand.isActive)
+        #expect(tickDemand.isActive)
+
+        service.shutdown()
+        service.shutdown()
+        let payloadCountAtShutdown = emittedPayloadCount
+        let recordAtShutdown = try #require(service.sessionRecord(sessionID: sessionID))
+        let lateSessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: lateSessionID,
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            surfaceId: surfaceID,
+            receivedAt: now
+        ))
+        service.noteResumeInitiated(
+            sessionID: sessionID,
+            source: "codex",
+            surfaceID: UUID().uuidString,
+            workspaceID: UUID().uuidString,
+            workingDirectory: home.path
+        )
+        service.start()
+        #expect(service.sessionRecord(sessionID: lateSessionID) == nil)
+        let recordAfterIngress = try #require(service.sessionRecord(sessionID: sessionID))
+        #expect(recordAfterIngress.version == recordAtShutdown.version)
+        #expect(recordAfterIngress.surfaceID == surfaceID)
+
+        registry.update(sessionID: sessionID) { $0.title = "Late registry update" }
+        notificationCenter.post(name: .mobileHostEventSubscriptionsDidChange, object: nil)
+        notificationCenter.post(name: .ghosttyDidTick, object: nil)
+        #expect(emittedPayloadCount == payloadCountAtShutdown)
+        #expect(!service.proseStreamer.hasActiveUnsettledTurns)
+        #expect(!frameDemand.isActive)
+        #expect(!tickDemand.isActive)
+    }
+
     private static func releaseOnCurrentThread(_ service: inout AgentChatTranscriptService?) -> Bool {
         let isBackgroundThread = !Thread.isMainThread
         service = nil
