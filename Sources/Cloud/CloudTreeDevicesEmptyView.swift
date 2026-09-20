@@ -20,7 +20,7 @@ struct CloudTreeDevicesEmptyView: View {
                 .cmuxFont(size: style.detailSize, design: style.fontDesign)
                 .foregroundStyle(.secondary)
                 .padding(.leading, scaled(style.iconSlot > 0 ? style.iconSlot + style.iconGap : 0))
-                .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+                .padding(.trailing, style.rowGrid.trailingPadding)
                 .frame(height: scaled(style.rowHeight))
             if !section.discoveryEnabled {
                 actionRow(

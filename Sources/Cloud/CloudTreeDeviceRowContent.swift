@@ -24,8 +24,8 @@ struct CloudTreeDeviceRowContent: View {
                     dimmed: !row.isOnline
                 )
                 .frame(height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
                         name(weight: .medium)
                         tag
                         if style.machineRowLayout == .singleLine, let status = row.inlineStatus(now: now) {
