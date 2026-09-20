@@ -66,6 +66,16 @@ jobs:
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
+      # Bun reads bunfig.toml and .env from its working directory. Every check
+      # below runs from the trusted checkout with this empty config and no env
+      # file, so the tree being judged cannot configure the runtime judging it.
+      # --config needs the = form: given a separate argument, Bun runs the config
+      # file as the script, exits 0, and the check never happens.
+      - name: Create empty trusted Bun config
+        run: |
+          set -euo pipefail
+          : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
+
       - name: Checkout pull-request source
         if: github.event_name == 'pull_request_target'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -78,12 +88,12 @@ jobs:
 
       - name: Check pull-request source with trusted policy
         if: github.event_name == 'pull_request_target'
-        working-directory: candidate/web
+        working-directory: trusted/web
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          bun "$GITHUB_WORKSPACE/trusted/web/scripts/check-complexity.mjs" \
+          bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs \
             --repo-root "$GITHUB_WORKSPACE/candidate" \
             --tool-root "$GITHUB_WORKSPACE/trusted" \
             --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt" \
@@ -98,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            bun scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
+            bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs --base "$BEFORE_SHA" --head "$HEAD_SHA"
           else
-            bun scripts/check-complexity.mjs
+            bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml" scripts/check-complexity.mjs
           fi
