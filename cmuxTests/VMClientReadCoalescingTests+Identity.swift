@@ -90,6 +90,21 @@ extension VMClientReadCoalescingTests {
         #expect(await fixture.readRequests.entries.isEmpty)
     }
 
+    @Test("Explicit team usage does not require the selected team")
+    @MainActor
+    func explicitTeamUsageAllowsCrossTeamQuery() async throws {
+        let fixture = try await CloudRefreshFixture.make(authClient: CloudReadIdentityAuthClient())
+        defer { fixture.session.invalidateAndCancel() }
+        try await fixture.auth.selectTeam(id: "selected")
+        await CloudRefreshURLProtocol.reset()
+        let usage = MachineUsageClient(session: fixture.session, auth: fixture.auth, readRequests: fixture.readRequests)
+
+        let result = try await usage.teamUsage(teamID: "explicit-team")
+
+        #expect(result.kind == .ready)
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+    }
+
     private func identityRead(_ operation: String, fixture: CloudRefreshFixture) async throws {
         switch operation {
         case "list": _ = try await fixture.client.listPage()

@@ -36,7 +36,9 @@ actor CloudReadIdentityAuthClient: AuthClient {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? {
         accountID.map { CMUXAuthUser(id: $0, primaryEmail: "\($0)@example.test", displayName: "Fixture") }
     }
-    func listTeams() async throws -> [CMUXAuthTeam] { [] }
+    func listTeams() async throws -> [CMUXAuthTeam] {
+        [CMUXAuthTeam(id: "selected", displayName: "Selected")]
+    }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "fixture" }
     func signInWithMagicLink(code: String) async throws {}
     func signInWithCredential(email: String, password: String) async throws { accountID = "replacement" }
