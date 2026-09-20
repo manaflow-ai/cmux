@@ -11,6 +11,9 @@ extension AppDelegate {
     func installManagedPolicyEnforcement() {
         guard managedPolicyEnforcementObserver == nil else { return }
         managedPolicyEnforcementObserver = ManagedPolicyEnforcementObserver(
+            socketControlPolicy: {
+                CmuxSettingsFileStore.socketControlPolicyResolution()
+            },
             enforceBrowserPolicy: { [weak self] in
                 self?.closeBrowserPanelsForManagedPolicy()
             },
@@ -34,6 +37,9 @@ extension AppDelegate {
             },
             enforceComputerUsePolicy: { [weak self] in
                 self?.applyManagedComputerUsePolicy()
+            },
+            enforceSocketControlPolicy: { [weak self] in
+                self?.reconcileSocketListenerConfiguration(source: "managed_policy")
             }
         )
         cloudFeatureFlagObserver = CloudFeatureAvailabilityObserver(

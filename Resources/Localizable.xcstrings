@@ -4958,6 +4958,124 @@
         }
       }
     },
+    "machines.row.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Machine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine anheften"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler la machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "釘選機器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定机器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 고정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンをピン留め"
+          }
+        }
+      }
+    },
+    "machines.row.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Machine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine lösen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désépingler la machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء تثبيت الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desfijar máquina"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消釘選機器"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消固定机器"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 고정 해제"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンのピン留めを解除"
+          }
+        }
+      }
+    },
     "socket.agentHook.error.barrierTimeout": {
       "extractionState": "manual",
       "localizations": {
@@ -14127,6 +14245,631 @@
           "stringUnit": {
             "state": "translated",
             "value": "체크포인트가 없습니다."
+          }
+        }
+      }
+    },
+    "cli.socketControlStatus.error.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux socket-status [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux socket-status [--json]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux socket-status [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux socket-status [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux socket-status [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux socket-status [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux socket-status [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux socket-status [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux socket-status [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux socket-status [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux socket-status [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux socket-status [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux socket-status [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux socket-status [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux socket-status [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux socket-status [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux socket-status [--json]"
+          }
+        }
+      }
+    },
+    "cli.socketControlStatus.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux socket-status [--json]\n\nاعرض سياسة مقبس التشغيل الآلي الفعّالة ومصدر الإدارة\nمن دون الاتصال بالمقبس. يظل هذا متاحًا عند إيقاف المقبس؛\nويُبلغ عن الإنفاذ المباشر على أنه غير ملاحظ."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux socket-status [--json]\n\nZeigt die effektive Automatisierungs-Socketrichtlinie und ihre\nVerwaltungsquelle ohne Socket-Verbindung. Verfügbar auch bei\ndeaktiviertem Socket; Live-Durchsetzung wird als nicht beobachtet gemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux socket-status [--json]\n\nPrint the effective automation socket policy and managed source\nwithout connecting to the socket. This remains available when\nthe socket is off; live enforcement is reported as unobserved."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]\n\nMuestra la política efectiva del socket de automatización y su origen\ngestionado sin conectarse al socket. Sigue disponible con el socket\ndesactivado; la aplicación en vivo se informa como no observada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage : cmux socket-status [--json]\n\nAffiche la politique effective du socket d'automatisation et sa source\ngérée sans se connecter au socket. Disponible même lorsque le socket est\ndésactivé ; l'application en direct est indiquée comme non observée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux socket-status [--json]\n\nソケットに接続せず、自動化ソケットの有効なポリシーと\n管理ソースを表示します。ソケットがオフでも利用でき、\n実行中の適用は未確認として表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux socket-status [--json]\n\n소켓에 연결하지 않고 유효한 자동화 소켓 정책과 관리 소스를\n출력합니다. 소켓이 꺼져 있어도 사용할 수 있으며 실행 중 적용은\n확인되지 않음으로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux socket-status [--json]\n\n在不连接套接字的情况下输出有效的自动化套接字策略和管理来源\n套接字关闭时仍可使用；\n实时执行会报告为未观察到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux socket-status [--json]\n\n不連線至 Socket，顯示有效的自動化 Socket 政策與管理來源\nSocket 關閉時仍可使用；\n即時執行會顯示為未觀察到。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux socket-status [--json]\n\nPrikažite efektivnu politiku automatizacijskog socketa i izvor upravljanja\nbez povezivanja na socket. Dostupno je i kada\nje socket isključen; izvršavanje uživo prikazuje se kao neprovjereno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux socket-status [--json]\n\nVis den effektive politik for automatiseringssocket og den administrerede\nkilde uden at oprette forbindelse til socketen. Er også tilgængelig,\nnår socketen er slået fra; live-håndhævelse rapporteres som ikke observeret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]\n\nMostra la politica effettiva del socket di automazione e l’origine\ngestita senza connettersi al socket. È disponibile anche quando il\nsocket è disattivato; l’applicazione live viene indicata come non osservata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux socket-status [--json]\n\nបង្ហាញគោលការណ៍ socket ស្វ័យប្រវត្តិកម្មដែលមានប្រសិទ្ធភាព\nនិងប្រភពដែលគ្រប់គ្រង ដោយមិនភ្ជាប់ទៅ socket។\nអាចប្រើបាននៅពេល socket បិទផងដែរ; ការអនុវត្តផ្ទាល់ត្រូវបានរាយការណ៍ថាមិនបានសង្កេត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux socket-status [--json]\n\nSkriv ut effektiv policy for automatiseringssocket og administrert kilde\nuten å koble til socketen. Dette fungerer også når\nsocketen er av; aktiv håndheving rapporteres som ikke observert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux socket-status [--json]\n\nWyświetla skuteczną zasadę gniazda automatyzacji i źródło\nzarządzania bez łączenia z gniazdem. Działa także przy\nwyłączonym gnieździe; aktywne egzekwowanie jest oznaczane jako nieobserwowane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux socket-status [--json]\n\nExibe a política efetiva do socket de automação e a origem\ngerenciada sem conectar ao socket. Continua disponível quando o socket está\ndesligado; a aplicação em tempo real é indicada como não observada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux socket-status [--json]\n\nПоказывает действующую политику сокета автоматизации и управляемый источник\nбез подключения к сокету. Доступно и при отключённом\nсокете; применение в реальном времени обозначается как ненаблюдаемое."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux socket-status [--json]\n\nแสดงนโยบายซ็อกเก็ตการทำงานอัตโนมัติและแหล่งที่มาที่จัดการอยู่โดยไม่เชื่อมต่อซ็อกเก็ต\nใช้ได้แม้ซ็อกเก็ตปิดอยู่\nการบังคับใช้แบบสดจะแสดงว่าไม่ได้สังเกต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux socket-status [--json]\n\nOtomasyon soketinin etkin politikasını ve yönetilen\nkaynağı sokete bağlanmadan gösterir. Soket kapalıyken\nde kullanılabilir; canlı uygulama gözlemlenmedi olarak raporlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux socket-status [--json]\n\nПоказує чинну політику сокета автоматизації та кероване\nджерело без підключення до сокета. Працює навіть коли\nсокет вимкнено; живе застосування позначається як не спостережене."
+          }
+        }
+      }
+    },
+    "cli.socketControlStatus.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "socket-status [--json]"
+          }
+        }
+      }
+    },
+    "cli.socketControlStatus.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وضع التحكم بالمقبس: %@%@. الإنفاذ المباشر: لم تتم ملاحظته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket-Steuerungsmodus: %@%@. Live-Durchsetzung: nicht beobachtet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket control mode: %@%@. Live enforcement: not observed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de control del socket: %@%@. Aplicación en vivo: no observada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode de contrôle du socket : %@%@. Application en direct : non observée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソケット制御モード: %@%@。実行中の適用: 未確認。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소켓 제어 모드: %@%@. 실행 중 적용: 확인되지 않음."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套接字控制模式：%@%@。实时执行：未观察到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket 控制模式：%@%@。即時執行：未觀察到。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Način upravljanja socketom: %@%@. Primjena uživo: nije posmatrana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatiseringssocket-tilstand: %@%@. Live-håndhævelse: ikke observeret."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità di controllo del socket: %@%@. Applicazione live: non osservata."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបគ្រប់គ្រង socket៖ %@%@។ ការអនុវត្តផ្ទាល់៖ មិនបានសង្កេត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollmodus for socket: %@%@. Aktiv håndheving: ikke observert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryb kontroli gniazda: %@%@. Aktywne egzekwowanie: nieobserwowane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo de controle do socket: %@%@. Aplicação em tempo real: não observada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим управления сокетом: %@%@. Применение в реальном времени: не наблюдается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหมดควบคุมซ็อกเก็ต: %@%@ การบังคับใช้แบบสด: ไม่ได้สังเกต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soket kontrol modu: %@%@. Canlı uygulama: gözlemlenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим керування сокетом: %@%@. Застосування наживо: не спостерігалося."
+          }
+        }
+      }
+    },
+    "cli.socketControlStatus.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم ‎--json‎ لمصدر الملف الشخصي وملاحظة مسار المقبس. لا يتصل هذا الأمر بمقبس التشغيل الآلي."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie --json für Profilquelle und Socket-Pfadstatus. Dieser Befehl verbindet sich nie mit dem Automatisierungs-Socket."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use --json for the profile source and socket-path observation. This command never connects to the automation socket."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa --json para ver el origen del perfil y el estado de la ruta del socket. Este comando nunca se conecta al socket de automatización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez --json pour la source du profil et l'observation du chemin du socket. Cette commande ne se connecte jamais au socket d'automatisation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルのソースとソケットパスの状態は --json で確認できます。このコマンドは自動化ソケットに接続しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 소스와 소켓 경로 상태는 --json으로 확인하세요. 이 명령은 자동화 소켓에 연결하지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 --json 查看配置文件来源和套接字路径观测。此命令不会连接自动化套接字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 --json 查看描述檔來源與 Socket 路徑觀測。此指令不會連線至自動化 Socket。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite --json za izvor profila i stanje putanje socketa. Ova naredba se nikada ne povezuje na automatizacijski socket."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug --json til profilkilden og observation af socketstien. Denne kommando opretter aldrig forbindelse til automatiseringssocketen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa --json per la fonte del profilo e lo stato del percorso del socket. Questo comando non si connette mai al socket di automazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើ --json សម្រាប់ប្រភពប្រវត្តិរូប និងស្ថានភាពផ្លូវ socket។ ពាក្យបញ្ជានេះមិនភ្ជាប់ទៅ socket ស្វ័យប្រវត្តិកម្មទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk --json for profilkilden og observasjon av socketbanen. Denne kommandoen kobler aldri til automatiseringssocketen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj --json, aby zobaczyć źródło profilu i stan ścieżki gniazda. To polecenie nigdy nie łączy się z gniazdem automatyzacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use --json para ver a origem do perfil e a observação do caminho do socket. Este comando nunca se conecta ao socket de automação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте --json для источника профиля и состояния пути сокета. Эта команда никогда не подключается к сокету автоматизации."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ --json เพื่อดูแหล่งที่มาของโปรไฟล์และสถานะเส้นทางซ็อกเก็ต คำสั่งนี้จะไม่เชื่อมต่อซ็อกเก็ตการทำงานอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil kaynağını ve soket yolu gözlemini görmek için --json kullanın. Bu komut otomasyon soketine asla bağlanmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте --json для джерела профілю та стану шляху сокета. Ця команда ніколи не підключається до сокета автоматизації."
           }
         }
       }
@@ -123685,51 +124428,251 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynaklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси"
+          }
+        }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
-        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання"
+          }
+        }
       }
     },
     "cloudTree.group.terminals": {
@@ -312018,6 +312961,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Socket 控制模式"
+          }
+        }
+      }
+    },
+    "settings.automation.socketMode.managed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدير مؤسستك هذا الإعداد. الوضع الفعّال: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von Ihrer Organisation verwaltet. Effektiver Modus: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Managed by your organization. Effective mode: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionado por tu organización. Modo efectivo: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Géré par votre organisation. Mode effectif : %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織によって管理されています。有効なモード: %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조직에서 관리합니다. 유효 모드: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由组织管理。有效模式：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由您的組織管理。有效模式：%@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravlja vaša organizacija. Efektivni način: %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administreret af din organisation. Effektiv tilstand: %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestito dalla tua organizzazione. Modalità effettiva: %@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រប់គ្រងដោយស្ថាប័នរបស់អ្នក។ របៀបមានប្រសិទ្ធភាព៖ %@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Administrert av organisasjonen din. Gjeldende modus: %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zarządzane przez Twoją organizację. Efektywny tryb: %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerenciado pela sua organização. Modo efetivo: %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Управляется вашей организацией. Эффективный режим: %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จัดการโดยองค์กรของคุณ โหมดที่มีผล: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kuruluşunuz tarafından yönetiliyor. Etkin mod: %@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Керується вашою організацією. Ефективний режим: %@."
           }
         }
       }

@@ -205,6 +205,7 @@ struct ManagedDevicePolicyTests {
         #expect(ManagedDevicePolicyKey.browserURLAllowlist.rawValue == "BrowserURLAllowlist")
         #expect(ManagedDevicePolicyKey.browserAllowLocalhost.rawValue == "BrowserAllowLocalhost")
         #expect(ManagedDevicePolicyKey.browserAllowLocalFiles.rawValue == "BrowserAllowLocalFiles")
+        #expect(ManagedDevicePolicyKey.socketControlMode.rawValue == "SocketControlMode")
         #expect(ManagedDevicePolicyKey.allowStyleKeys == [.browserAllowLocalhost, .browserAllowLocalFiles])
         #expect(ManagedDevicePolicy.releasePayloadDomain == "com.cmuxterm.app")
     }
@@ -223,5 +224,23 @@ struct ManagedDevicePolicyTests {
         #expect(policy.isIncomingDeviceAccessDisabled)
         #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableDeviceDiscovery.rawValue))
         #expect(policy.isKeyForcedInAppDomain(ManagedDevicePolicyKey.disableIncomingDeviceAccess.rawValue))
+    }
+
+    @Test func forcedValueSourceDistinguishesAppAndReleaseDomains() throws {
+        let (appDefaults, appCleanup) = try makeSuite("sourceApp")
+        defer { appCleanup() }
+        let (releaseDefaults, releaseCleanup) = try makeSuite("sourceRelease")
+        defer { releaseCleanup() }
+        let key = ManagedDevicePolicyKey.socketControlMode.rawValue
+        let policy = ManagedDevicePolicy(
+            defaults: appDefaults,
+            releaseDomainDefaults: releaseDefaults,
+            forcedObject: Self.probe
+        )
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == nil)
+        releaseDefaults.set("cmuxOnly", forKey: Self.forcedMirrorPrefix + key)
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .releaseDomain)
+        appDefaults.set("off", forKey: Self.forcedMirrorPrefix + key)
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .appDomain)
     }
 }

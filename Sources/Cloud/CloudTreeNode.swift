@@ -75,11 +75,13 @@ final class CloudTreeNode: NSObject {
     var isPinned = false
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
-    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
+
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+        self.isPinned = isPinned
     }
     var isExpandable: Bool { !children.isEmpty }
     var contentSnapshot: CloudTreeNodeContentSnapshot {
@@ -613,7 +615,10 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                // A machine pin is explicit sidebar priority, stamped by the panel;
+                // organization only pins the organizable rows below a machine.
+                isPinned: machine.isPinned
             ))
         }
         // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
@@ -1213,18 +1218,6 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
-    }
-
-    /// Returns canonical forwarded-port resources in stable port/key order.
-    ///
-    /// The tree treats any orphan browser resource with a listening port as a
-    /// port row; this narrower helper is retained for callers that need to
-    /// distinguish provider-minted `port:<n>` resources from ordinary daemon
-    /// browser tabs that happen to point at localhost.
-    static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
-        resources
-            .filter { $0.kind == .browser && $0.port != nil && $0.id.key.hasPrefix("port:") }
-            .sorted { ($0.port ?? 0, $0.id.key) < ($1.port ?? 0, $1.id.key) }
     }
 
     private static func placeholder(

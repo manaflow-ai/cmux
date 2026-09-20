@@ -88,6 +88,11 @@ public enum ManagedDevicePolicyKey: String, CaseIterable, Sendable {
     /// which already covers both families.
     case disableAICredentialUpload = "DisableAICredentialUpload"
 
+    /// Forces the local automation socket to a restrictive access mode. The
+    /// only valid profile values are the strings `cmuxOnly` and `off`;
+    /// malformed or broader values fail closed to `off`.
+    case socketControlMode = "SocketControlMode"
+
     /// Restricts embedded-browser top-level navigations to the administrator's
     /// URL patterns. An empty forced array denies every external web origin
     /// while preserving cmux-owned internal documents. Loopback origins and

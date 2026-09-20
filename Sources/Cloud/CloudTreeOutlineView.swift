@@ -61,6 +61,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -86,7 +87,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
-        private var selectedNodeID: String?
+        /// The selected row's stable node id, restored across in-place reloads.
+        var selectedNodeID: String?
+        /// Workspaces the catalog has admitted for deletion but not confirmed.
+        var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
+        private let deletionPresentation = CloudTreeDeletionPresentation()
         private var lastRevealToken: UUID?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
@@ -247,7 +252,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
-            expansionStore.reconcile(nodes: nodes)
+            // An optimistically hidden workspace keeps its expansion state and
+            // hands its selection to its machine; a rollback restores both.
+            let deletion = deletionPresentation.update(
+                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions, selectedNodeID: selectedNodeID
+            )
+            selectedNodeID = deletion.selectedNodeID
+            expansionStore.reconcile(nodes: deletion.expansionNodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG
@@ -319,6 +330,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func restoreSelection(in outlineView: NSOutlineView) {
+            outlineView.deselectAll(nil)
             guard let selectedNodeID else { return }
             for row in 0..<outlineView.numberOfRows {
                 if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
@@ -808,77 +820,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "cloudTree.menu.copyPort", defaultValue: "Copy Port")) { [nodeActions] in nodeActions.copyToPasteboard(String(port)) })
             }
             items.append(item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(resource.id.rawValue) })
-            return items
-        }
-
-        private func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
-            var items: [NSMenuItem] = []
-            let actions = machineActions
-            let nodeActions = nodeActions
-            let id = machine.id
-            if machine.freeAccess == .expired {
-                items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
-            } else {
-                if machine.isDefault {
-                    let defaultItem = item(String(localized: "machines.menu.defaultMachine", defaultValue: "Default Machine")) { }
-                    defaultItem.isEnabled = false
-                    items.append(defaultItem)
-                } else {
-                    items.append(item(String(localized: "machines.menu.setDefaultMachine", defaultValue: "Set as Default Machine")) {
-                        actions.setDefault(id)
-                    })
-                }
-                items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
-                items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
-                if machine.isDesktop {
-                    items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                        nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-                    })
-                }
-                items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
-            }
-            if machine.freeAccess != .expired, machine.capabilities.sizing {
-                items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
-            }
-            items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
-            items.append(.separator())
-            items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
-            if let address = machine.privateAddress {
-                items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
-            }
-            items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
-            // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
-            if machine.capabilities.snapshot {
-                items.append(item(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { actions.runCommand(id, ["vm", "snapshot"]) })
-            }
-            if machine.capabilities.fork {
-                items.append(item(String(localized: "machines.menu.fork", defaultValue: "Fork")) { actions.runCommand(id, ["vm", "fork"]) })
-            }
-            items.append(.separator())
-            items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
-            return items
-        }
-
-        /// A running create can be cancelled immediately; a failed one offers
-        /// the same retry/dismiss verbs as its hover buttons plus the transcript.
-        private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
-            let create = machineActions.create
-            let nodeActions = nodeActions
-            let id = operation.id
-            var items: [NSMenuItem] = []
-            if operation.isCancellable {
-                items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
-            } else if !operation.isReconciling {
-                items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
-                items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
-                items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
-                items.append(.separator())
-            }
-            items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
-            if operation.failureOutput != nil {
-                items.append(.separator())
-                items.append(item(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { create.dismiss(id) })
-            }
             return items
         }
 
