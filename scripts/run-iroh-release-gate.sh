@@ -761,6 +761,9 @@ if [[ -n "$SOAK_PROFILE" ]]; then
   UI_CAPTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-iroh-ui-${TAG}.XXXXXX")"
   UI_CAPTURE_READY_FIFO="$UI_CAPTURE_DIR/listener-ready.fifo"
   mkfifo "$UI_CAPTURE_READY_FIFO"
+  # Keep a reader open before the helper can observe registration, avoiding
+  # an ENXIO race when it writes the readiness handshake.
+  exec 9<>"$UI_CAPTURE_READY_FIFO"
   SIMULATOR_ID="$SIMULATOR_ID" UI_CAPTURE_DIR="$UI_CAPTURE_DIR" UI_CAPTURE_READY_FIFO="$UI_CAPTURE_READY_FIFO" /usr/bin/python3 <<'PY_CAPTURE' &
 import os
 import select
@@ -827,7 +830,6 @@ finally:
         waiter.wait(timeout=5)
 PY_CAPTURE
   UI_CAPTURE_WAITER_PID=$!
-  exec 9<>"$UI_CAPTURE_READY_FIFO"
   if ! IFS= read -r -t 15 -u 9 listener_status; then
     kill "$UI_CAPTURE_WAITER_PID" 2>/dev/null || true
     wait "$UI_CAPTURE_WAITER_PID" 2>/dev/null || true

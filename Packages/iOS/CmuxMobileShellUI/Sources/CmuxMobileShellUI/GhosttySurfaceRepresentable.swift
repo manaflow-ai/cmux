@@ -656,8 +656,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 // still noticing text that arrives later.
                                 let shouldInspect = self.releaseGateFullFrameInspections <= 2
                                     || self.releaseGateFullFrameInspections.isMultiple(of: 8)
-                                containsText = shouldInspect && frame.rowSpans.contains { span in
-                                    span.text.contains { !$0.isWhitespace }
+                                containsText = shouldInspect && frame.rowSpans.prefix(64).contains { span in
+                                    span.text.prefix(256).contains { !$0.isWhitespace }
                                 }
                                 if containsText {
                                     self.releaseGateSawNonblankFrame = true
