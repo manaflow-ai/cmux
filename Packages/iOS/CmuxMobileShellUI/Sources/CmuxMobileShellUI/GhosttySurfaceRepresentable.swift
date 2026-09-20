@@ -631,24 +631,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
-                            let containsText: Bool
-                            if self.releaseGateSawNonblankFrame {
-                                containsText = true
-                            } else {
-                                // Full and delta frames can both carry the
-                                // first prompt. Inspect only the visible
-                                // viewport-sized prefix, never scrollback.
-                                containsText = frame.rowSpans.prefix(64).contains { span in
-                                    span.text.prefix(256).contains { !$0.isWhitespace }
+                            if let probe = self.releaseGateUIProbe {
+                                let containsText: Bool
+                                if self.releaseGateSawNonblankFrame {
+                                    containsText = true
+                                } else {
+                                    // Full and delta frames can both carry the
+                                    // first prompt. Inspect only the visible
+                                    // viewport-sized prefix, never scrollback.
+                                    containsText = frame.rowSpans.prefix(64).contains { span in
+                                        span.text.prefix(256).contains { !$0.isWhitespace }
+                                    }
+                                    if containsText {
+                                        self.releaseGateSawNonblankFrame = true
+                                    }
                                 }
-                                if containsText {
-                                    self.releaseGateSawNonblankFrame = true
-                                }
-                            }
-                            self.releaseGateUIProbe?.recordTerminalFrame(
+                                probe.recordTerminalFrame(
                                 surfaceID: surfaceID,
                                 containsText: containsText
-                            )
+                                )
+                            }
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
