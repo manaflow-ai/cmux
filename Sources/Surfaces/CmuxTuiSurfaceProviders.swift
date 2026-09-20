@@ -128,12 +128,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.browserPolicy = browserPolicy
+        let initialSupportsPortPreviews = summary.capabilities.ports || summary.preferredPrivateAddress != nil
         info = Self.info(
             from: summary,
             linkState: summary.status == "running" ? .connecting : .asleep,
             linkError: nil,
             stats: nil,
-            portDiscoveryState: supportsPortPreviews ? .notRequested : .unsupported
+            portDiscoveryState: initialSupportsPortPreviews ? .notRequested : .unsupported
         )
         installNotificationSync()
     }
@@ -158,9 +159,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let shouldMarkStale = summary.status != "running" && cloudState != nil
         let linkState: SurfaceLinkState = shouldMarkStale ? .asleep : info.linkState
         let linkError: String? = shouldMarkStale ? nil : info.linkError
-        let portState: CloudPortDiscoveryState = supportsPortPreviews
-            ? (info.portDiscoveryState == .unsupported ? .notRequested : info.portDiscoveryState)
-            : .unsupported
+        let portState: CloudPortDiscoveryState
+        if !supportsPortPreviews {
+            portState = .unsupported
+        } else if summary.status != "running" {
+            portState = .unavailable(.machineAsleep)
+        } else {
+            portState = info.portDiscoveryState == .unsupported ? .notRequested : info.portDiscoveryState
+        }
         info = Self.info(
             from: summary,
             linkState: linkState,

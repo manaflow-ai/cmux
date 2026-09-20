@@ -12,6 +12,11 @@ final class CloudPortsStatusContent: NSView {
 
     override var isFlipped: Bool { true }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !actionButton.isHidden, actionButton.frame.contains(point) else { return nil }
+        return actionButton.hitTest(convert(point, to: actionButton))
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         titleLabel.font = .systemFont(ofSize: 11, weight: .semibold)
