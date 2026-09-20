@@ -110,16 +110,21 @@ export class V2DashboardController {
     }
     if (!stackToken) throw this.errorFrom({ code: "unauthorized", retryable: false });
     const requestId = this.nextRequestId();
-    const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
-      method: "POST", mode: "cors", credentials: "omit",
-      headers: { authorization: `Bearer ${stackToken}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId, clientInstanceId: this.clientInstanceId, environment: this.options.environment, projectId: this.options.projectId, teamId: this.options.teamId, userId: this.options.userId }),
-      signal: AbortSignal.any([this.cancellation.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]),
-    });
-    const body = await this.readJSON(response) as Record<string, unknown>;
-    if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);
-    if (!isTicket(body.ticket)) throw this.errorFrom({ code: "invalid_ticket", retryable: false });
-    return body.ticket;
+    const request = makeRequestSignal(this.cancellation.signal);
+    try {
+      const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
+        method: "POST", mode: "cors", credentials: "omit",
+        headers: { authorization: `Bearer ${stackToken}`, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId, clientInstanceId: this.clientInstanceId, environment: this.options.environment, projectId: this.options.projectId, teamId: this.options.teamId, userId: this.options.userId }),
+        signal: request.signal,
+      });
+      const body = await this.readJSON(response) as Record<string, unknown>;
+      if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);
+      if (!isTicket(body.ticket)) throw this.errorFrom({ code: "invalid_ticket", retryable: false });
+      return body.ticket;
+    } finally {
+      request.cleanup();
+    }
   }
 
   private async connect(ticket: Ticket): Promise<void> {
@@ -289,6 +294,16 @@ export class V2DashboardController {
 }
 
 function parseFrame(value: unknown): Frame | null { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return parsed && typeof parsed === "object" ? parsed as Frame : null; } catch { return null; } }
+function makeRequestSignal(cancellation: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  if (typeof AbortSignal.any === "function" && typeof AbortSignal.timeout === "function") {
+    return { signal: AbortSignal.any([cancellation, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]), cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException("Dashboard request timed out", "TimeoutError")), REQUEST_TIMEOUT_MS);
+  const cancel = () => controller.abort(cancellation.reason);
+  if (cancellation.aborted) cancel(); else cancellation.addEventListener("abort", cancel, { once: true });
+  return { signal: controller.signal, cleanup: () => { clearTimeout(timeout); cancellation.removeEventListener("abort", cancel); } };
+}
 function isTicket(value: unknown): value is Ticket { return !!value && typeof value === "object" && typeof (value as Ticket).token === "string" && typeof (value as Ticket).expiresAt === "number" && typeof (value as Ticket).refreshAfter === "number"; }
 function isDirectory(value: unknown): value is DashboardDirectory { if (!value || typeof value !== "object") return false; const candidate = value as DashboardDirectory; return typeof candidate.teamId === "string" && Number.isSafeInteger(candidate.revision) && Array.isArray(candidate.devices) && Array.isArray(candidate.relayURLs) && typeof candidate.canManageTeam === "boolean" && Array.isArray(candidate.managedDeviceIds); }
 function errorCode(value: unknown): string | undefined { return value instanceof Error && typeof (value as Error & { code?: unknown }).code === "string" ? (value as Error & { code: string }).code : undefined; }
