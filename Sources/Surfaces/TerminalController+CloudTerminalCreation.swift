@@ -15,6 +15,9 @@ extension TerminalController {
         guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
             throw SurfaceCatalogError.noProvider(machine)
         }
+        let loadingReservation = await MainActor.run {
+            destination.flatMap { CloudMachineLoadingReservation(at: $0, machineID: machine.rawValue) }
+        }
         let token = await catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         do {
         let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
@@ -31,7 +34,8 @@ extension TerminalController {
                 into: destination,
                 focus: focus,
                 reuseExisting: false,
-                remoteView: remoteView
+                remoteView: remoteView,
+                loadingReservation: loadingReservation
             )
             payload["workspace_id"] = opened.projection.workspaceID.uuidString
             payload["surface_id"] = opened.projection.panelID.uuidString

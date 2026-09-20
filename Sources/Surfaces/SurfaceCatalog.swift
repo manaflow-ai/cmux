@@ -609,7 +609,7 @@ final class SurfaceCatalog {
     /// Desktop row uses this so "open this workspace's screen" never teleports to a
     /// different workspace's VNC pane.
     @discardableResult
-    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+    func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil, loadingReservation providedLoadingReservation: CloudMachineLoadingReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         if isDeletingCloudResource(id, remoteWorkspaceID: remoteView?.workspace.id) { throw CancellationError() }
         try validateOwnership(of: [id], at: destination)
         let scope = beginProjectionMutation(for: [id])
@@ -636,7 +636,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
-        let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
+        let loadingReservation = providedLoadingReservation ?? CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
         let keyDestination = loadingReservation?.materializationDestination ?? destination
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: keyDestination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if let loadingReservation { _ = try loadingReservation.loadingPanel(at: destination, machineID: id.machine.cloudMachineID) }

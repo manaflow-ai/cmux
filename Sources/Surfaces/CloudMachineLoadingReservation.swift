@@ -25,6 +25,18 @@ struct CloudMachineLoadingReservation: Sendable {
     }
 
     @MainActor
+    init?(at destination: SurfaceDestination, machineID: String) {
+        guard case .workspace = destination,
+              let workspace = Workspace.liveWorkspace(id: destination.workspaceID),
+              let loading = workspace.cloudMachineLoadingPanel(at: destination, machineID: machineID) else { return nil }
+        workspaceID = workspace.id
+        panelID = loading.id
+        self.machineID = machineID
+        expectedRemoteWorkspaceID = nil
+        expectedRemoteTabID = nil
+    }
+
+    @MainActor
     func loadingPanel(at destination: SurfaceDestination, machineID: String?) throws -> CloudVMLoadingPanel {
         guard destination.workspaceID == workspaceID, machineID == self.machineID,
               let workspace = Workspace.liveWorkspace(id: workspaceID),
