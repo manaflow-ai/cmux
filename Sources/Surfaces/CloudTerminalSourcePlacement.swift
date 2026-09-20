@@ -51,9 +51,14 @@ struct CloudTerminalSourcePlacement: Sendable {
             throw CloudDiagnosticFailure.placement
         }
         if let remoteWorkspaceID {
-            guard created.remoteWorkspace?.id == remoteWorkspaceID
-                    || created.remoteViews?.contains(where: { $0.workspace.id == remoteWorkspaceID }) == true else {
-                throw CloudDiagnosticFailure.placement
+            if let views = created.remoteViews, !views.isEmpty {
+                guard views.contains(where: { $0.workspace.id == remoteWorkspaceID }) else {
+                    throw CloudDiagnosticFailure.placement
+                }
+            } else {
+                guard created.remoteWorkspace?.id == remoteWorkspaceID else {
+                    throw CloudDiagnosticFailure.placement
+                }
             }
         }
     }

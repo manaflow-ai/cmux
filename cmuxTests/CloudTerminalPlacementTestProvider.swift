@@ -19,6 +19,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     var projectedWorkspaceID: String?
     var projectedMachine: SurfaceMachineID?
     var omitRemoteViews = false
+    var contradictoryViewWorkspaceID: String?
 
     var info: SurfaceMachineInfo {
         SurfaceMachineInfo(
@@ -52,6 +53,10 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         workspace.id = returnedWorkspaceID ?? remoteWorkspaceID ?? "WRONG-current-workspace"
         var created = resource(key: key, workspace: workspace)
         if omitRemoteViews { created.remoteViews = nil }
+        if let contradictoryViewWorkspaceID {
+            let other = SurfaceRemoteWorkspace(id: contradictoryViewWorkspaceID, name: "other", index: 1, focused: false)
+            created.remoteViews = [SurfaceRemoteView(tabID: "tab-\(key)", workspace: other)]
+        }
         SurfaceCatalog.shared.upsert(created, from: self)
         return created
     }
