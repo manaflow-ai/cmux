@@ -1,5 +1,7 @@
 # Contributing to cmux
 
+For issues, RFCs, pull requests, and progress updates, follow the short [writing guide](STYLE.md).
+
 ## Prerequisites
 
 - macOS 14+
