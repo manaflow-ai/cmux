@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "Для цієї команди немає зареєстрованих пристроїв.",
       "unavailable": "Не вдалося завантажити пристрої. Оновіть сторінку, щоб спробувати знову.",
+      "retry": "Повторити",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

@@ -177,6 +177,38 @@ test("permanent authorization failures do not schedule another session", async (
   } finally { await controller.stop(); globalThis.fetch = original; timers.mockRestore(); }
 });
 
+test("transient startup failures stop after a bounded retry budget", async () => {
+  const original = globalThis.fetch;
+  const realSetTimeout = globalThis.setTimeout;
+  const timers: Array<() => void> = [];
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler) => {
+    timers.push(callback as () => void);
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout);
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return Response.json({ schemaId: "error.v1", code: "temporary_failure", retryable: true }, { status: 503 });
+  }) as typeof fetch;
+  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+  try {
+    await controller.start();
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const next = timers.shift();
+      next?.();
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise<void>(resolve => realSetTimeout(resolve, 0));
+    }
+    expect(requests).toBe(6);
+    expect(timers).toHaveLength(0);
+  } finally {
+    await controller.stop();
+    globalThis.fetch = original;
+    timeout.mockRestore();
+  }
+});
+
 test("stopping aborts an in-flight session request without reporting an error", async () => {
   const original = globalThis.fetch;
   let signal: AbortSignal | undefined;

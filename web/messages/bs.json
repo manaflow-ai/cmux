@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "Nema registrovanih uređaja za ovaj tim.",
       "unavailable": "Uređaji se nisu mogli učitati. Osvježite stranicu da pokušate ponovo.",
+      "retry": "Pokušaj ponovo",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

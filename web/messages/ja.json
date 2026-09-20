@@ -610,6 +610,7 @@
       "loading": "Loading devices…",
       "empty": "このチームにはデバイスが登録されていません。",
       "unavailable": "デバイスを読み込めませんでした。ページを再読み込みしてお試しください。",
+      "retry": "再試行",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

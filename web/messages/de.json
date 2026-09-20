@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "Für dieses Team sind keine Geräte registriert.",
       "unavailable": "Deine Geräte konnten nicht geladen werden. Lade die Seite neu, um es erneut zu versuchen.",
+      "retry": "Erneut versuchen",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

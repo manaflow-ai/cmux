@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "Ten zespół nie ma zarejestrowanych urządzeń.",
       "unavailable": "Nie udało się wczytać urządzeń. Odśwież stronę, aby spróbować ponownie.",
+      "retry": "Spróbuj ponownie",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

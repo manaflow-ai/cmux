@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "이 팀에 등록된 기기가 없습니다.",
       "unavailable": "기기를 불러오지 못했습니다. 페이지를 새로고침하여 다시 시도하세요.",
+      "retry": "다시 시도",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

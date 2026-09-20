@@ -35,6 +35,7 @@ type ErrorResponse = { readonly schemaId: "error.v1"; readonly code: string; rea
 type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly response?: unknown; readonly directory?: DashboardDirectory; readonly revision?: number; readonly deliveryReceipt?: { readonly sequence: number; readonly token: string } } & Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RECONNECT_ATTEMPTS = 5;
 // Only the three managed Workers may receive browser Stack tokens. A generic
 // workers.dev suffix would also trust another account's Worker.
 const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.debussy\.workers\.dev$/u;
@@ -50,6 +51,7 @@ export class V2DashboardController {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = 1_000;
+  private reconnectAttempts = 0;
   private requestCounter = 0;
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
@@ -137,6 +139,7 @@ export class V2DashboardController {
         }
         if (frame.schemaId === "dashboard.connected.v1") {
           connected = true;
+          this.reconnectAttempts = 0;
           this.reconnectDelayMs = 1_000;
           clearTimeout(timeout);
           resolve();
@@ -225,8 +228,10 @@ export class V2DashboardController {
 
   private scheduleReconnect(cause?: unknown) {
     if (this.stopped || this.reconnectTimer) return;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
     const retryAfter = cause instanceof Error ? (cause as Error & { retryAfterMs?: number }).retryAfterMs : undefined;
     const delay = Math.max(this.reconnectDelayMs, Math.min(retryAfter ?? 0, 60_000));
+    this.reconnectAttempts += 1;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 60_000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

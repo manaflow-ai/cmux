@@ -36,6 +36,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
   const t = useTranslations("dashboard.mobileDevices");
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [busyDevice, setBusyDevice] = useState<string | null>(null);
   const controllerRef = useRef<V2DashboardController | null>(null);
   const unavailable = t("unavailable");
@@ -55,7 +56,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
       controllerRef.current = null;
       void controller.stop();
     };
-  }, [stack, teamId, userId, unavailable]);
+  }, [retryNonce, stack, teamId, userId, unavailable]);
 
   const revoke = async (deviceId: string) => {
     const controller = controllerRef.current;
@@ -66,7 +67,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
     finally { setBusyDevice(null); }
   };
   return <>
-    {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
+    {error ? <div role="alert" className="border border-red-500/40 p-3 text-sm"><p>{error}</p><button className="mt-2 border border-border px-2 py-1" onClick={() => { setDirectory(null); setError(null); setRetryNonce(value => value + 1); }}>{t("retry")}</button></div> : null}
     {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
     {directory?.devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
     {directory?.canManageTeam ? <RelaySettings key={JSON.stringify(directory.relayURLs)} relayURLs={directory.relayURLs} controllerRef={controllerRef} /> : null}

@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "Aucun appareil n’est enregistré pour cette équipe.",
       "unavailable": "Impossible de charger vos appareils. Actualisez la page pour réessayer.",
+      "retry": "Réessayer",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

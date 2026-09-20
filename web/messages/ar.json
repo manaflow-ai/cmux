@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "لا توجد أجهزة مسجّلة لهذا الفريق.",
       "unavailable": "تعذّر تحميل أجهزتك. حدّث الصفحة للمحاولة مجددًا.",
+      "retry": "حاول مرة أخرى",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

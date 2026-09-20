@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "មិនមានឧបករណ៍ដែលបានចុះឈ្មោះសម្រាប់ក្រុមនេះទេ។",
       "unavailable": "មិនអាចផ្ទុកឧបករណ៍របស់អ្នកបានទេ។ សូមផ្ទុកទំព័រឡើងវិញ ដើម្បីព្យាយាមម្ដងទៀត។",
+      "retry": "ព្យាយាមម្ដងទៀត",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

@@ -610,6 +610,7 @@
       "loading": "Loading devices…",
       "empty": "No devices are registered for this team.",
       "unavailable": "Could not load your devices. Refresh the page to try again.",
+      "retry": "Try again",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

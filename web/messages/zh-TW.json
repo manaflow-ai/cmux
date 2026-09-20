@@ -376,6 +376,7 @@
       "loading": "Loading devices…",
       "empty": "此團隊尚未註冊裝置。",
       "unavailable": "無法載入你的裝置。請重新整理頁面再試一次。",
+      "retry": "重試",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",
