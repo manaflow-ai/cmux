@@ -22,13 +22,18 @@ permissions:
   contents: read
   pull-requests: read
 
+# Metadata-only edits must not cancel a useful content check. A separate
+# group also keeps them from replacing a pending content run.
 concurrency:
-  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+  group: web-complexity-trusted-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && '-metadata' || '' }}
   cancel-in-progress: true
 
 jobs:
   complexity:
-    name: Web complexity
+    # A skipped required check counts as passing. Give ignored metadata its own
+    # name so a body/title edit cannot overwrite a failed content verdict.
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'Web complexity metadata (ignored)' || 'Web complexity' }}
+    if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
     runs-on: ubuntu-24.04
