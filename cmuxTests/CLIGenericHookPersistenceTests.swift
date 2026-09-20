@@ -1055,6 +1055,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let environment: [String: String] = [
             "HOME": root.path,
+            "CURSOR_CONFIG_DIR": cursorConfigDirectory.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "PWD": root.path,
             "CMUX_SOCKET_PATH": socketPath,

@@ -421,46 +421,52 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMLayoutApplySendsTheDocumentAndForwardsTargetFlags() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("vm-layout-apply")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let log = VMLayoutEnvRequestLog()
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
+        // Existing-workspace and named-new-workspace targets are alternatives.
+        for (targetFlags, expectedTarget) in [
+            (["--workspace", "ws_1"], "--workspace ws_1"),
+            (["--name", "dev"], "--name dev"),
+        ] {
+            let cliPath = try bundledCLIPath()
+            let socketPath = makeSocketPath("vm-layout-apply")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let log = VMLayoutEnvRequestLog()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+            let tempDir = try vmLayoutEnvTempDir("layout-apply")
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+            let layoutFile = tempDir.appendingPathComponent("dev.json")
+            let documentBytes = try JSONSerialization.data(withJSONObject: Self.sampleLayoutNode, options: [.sortedKeys])
+            try documentBytes.write(to: layoutFile)
+
+            let applied = """
+            {"workspace_id":"ws_1","workspace_name":"dev","panes":[{"pane_id":"pane_1","surfaces":[{"type":"terminal","terminal_id":"term_1","tab_id":"tab_1"}]},{"pane_id":"pane_2","surfaces":[{"type":"terminal","terminal_id":"term_2","tab_id":"tab_2"}]},{"pane_id":"pane_3","surfaces":[{"type":"browser","browser_id":"browser_1","tab_id":"tab_3"}]}],"warnings":["project surfaces are Mac-only; skipped 0"]}
+
+            """
+            let serverHandled = startVMExecMock(listenerFD: listenerFD, state: state, log: log) { id, _ in
+                self.vmLayoutEnvExecResponse(id: id, stdout: applied)
+            }
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path] + targetFlags,
+                environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+                timeout: 30
+            )
+
+            wait(for: [serverHandled], timeout: 30)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+            XCTAssertEqual(log.methods, ["vm.exec"], "no open without --open")
+            let command = try XCTUnwrap(log.commands().first)
+            XCTAssertTrue(command.hasSuffix("| base64 -d | cmux layout apply --json \(expectedTarget) -"), command)
+            XCTAssertEqual(Self.base64Payload(inCommand: command), documentBytes, "the file travels byte for byte")
+            XCTAssertTrue(result.stdout.contains("OK workspace=ws_1 name=dev panes=3 surfaces=3 machine=brave-otter"), result.stdout)
+            XCTAssertTrue(result.stdout.contains("cmux vm workspace open brave-otter ws_1"), "hint names the manual open: \(result.stdout)")
+            XCTAssertTrue(result.stderr.contains("warning: project surfaces are Mac-only"), result.stderr)
         }
-        let tempDir = try vmLayoutEnvTempDir("layout-apply")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-        let layoutFile = tempDir.appendingPathComponent("dev.json")
-        let documentBytes = try JSONSerialization.data(withJSONObject: Self.sampleLayoutNode, options: [.sortedKeys])
-        try documentBytes.write(to: layoutFile)
-
-        let applied = """
-        {"workspace_id":"ws_1","workspace_name":"dev","panes":[{"pane_id":"pane_1","surfaces":[{"type":"terminal","terminal_id":"term_1","tab_id":"tab_1"}]},{"pane_id":"pane_2","surfaces":[{"type":"terminal","terminal_id":"term_2","tab_id":"tab_2"}]},{"pane_id":"pane_3","surfaces":[{"type":"browser","browser_id":"browser_1","tab_id":"tab_3"}]}],"warnings":["project surfaces are Mac-only; skipped 0"]}
-
-        """
-        let serverHandled = startVMExecMock(listenerFD: listenerFD, state: state, log: log) { id, _ in
-            self.vmLayoutEnvExecResponse(id: id, stdout: applied)
-        }
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--workspace", "ws_1", "--name", "dev"],
-            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
-            timeout: 30
-        )
-
-        wait(for: [serverHandled], timeout: 30)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertEqual(log.methods, ["vm.exec"], "no open without --open")
-        let command = try XCTUnwrap(log.commands().first)
-        XCTAssertTrue(command.hasSuffix("| base64 -d | cmux layout apply --json --workspace ws_1 --name dev -"), command)
-        XCTAssertEqual(Self.base64Payload(inCommand: command), documentBytes, "the file travels byte for byte")
-        XCTAssertTrue(result.stdout.contains("OK workspace=ws_1 name=dev panes=3 surfaces=3 machine=brave-otter"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("cmux vm workspace open brave-otter ws_1"), "hint names the manual open: \(result.stdout)")
-        XCTAssertTrue(result.stderr.contains("warning: project surfaces are Mac-only"), result.stderr)
     }
 
     func testVMLayoutApplyFromSavedLayoutRefreshesRetriesAndOpens() throws {
