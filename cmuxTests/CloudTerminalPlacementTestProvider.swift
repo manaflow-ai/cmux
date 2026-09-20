@@ -18,6 +18,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     var returnedWorkspaceID: String?
     var projectedWorkspaceID: String?
     var projectedMachine: SurfaceMachineID?
+    var omitRemoteViews = false
 
     var info: SurfaceMachineInfo {
         SurfaceMachineInfo(
@@ -49,7 +50,8 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         try Task.checkCancellation()
         var workspace = remote
         workspace.id = returnedWorkspaceID ?? remoteWorkspaceID ?? "WRONG-current-workspace"
-        let created = resource(key: key, workspace: workspace)
+        var created = resource(key: key, workspace: workspace)
+        if omitRemoteViews { created.remoteViews = nil }
         SurfaceCatalog.shared.upsert(created, from: self)
         return created
     }

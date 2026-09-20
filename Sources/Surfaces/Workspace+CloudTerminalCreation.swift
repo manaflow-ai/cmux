@@ -152,18 +152,19 @@ extension Workspace {
                                             requestID: requestID, sourcePanelID: sourcePanelID)
             return false
         }
-        guard let remoteWorkspaceID = source.remoteWorkspaceID, !remoteWorkspaceID.isEmpty else {
+        guard source.remoteWorkspaceID != nil || source.pendingCreation != nil else {
             presentCloudPaneCreationFailure(machine: machine, error: CloudDiagnosticFailure.placement,
                                             requestID: requestID, sourcePanelID: sourcePanelID)
             return false
         }
-        if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+        if let remoteWorkspaceID = source.remoteWorkspaceID,
+           catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
             presentCloudPaneCreationFailure(machine: machine, error: CloudDiagnosticFailure.placement,
                                             requestID: requestID, sourcePanelID: sourcePanelID)
             if let pendingPane { closeUntouchedPane(pendingPane) }
             return true
         }
-        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: remoteWorkspaceID)
+        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID)
         let reservationDestination: SurfaceDestination = pendingPane.map {
             .tab(workspaceID: id, paneID: $0.id.uuidString, index: nil)
         } ?? destination
@@ -192,8 +193,11 @@ extension Workspace {
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
                 let resolvedSource = try await source.resolved()
+                guard let resolvedWorkspaceID = resolvedSource.remoteWorkspaceID,
+                      !resolvedWorkspaceID.isEmpty else { throw CloudDiagnosticFailure.placement }
+                request.bind(remoteWorkspaceID: resolvedWorkspaceID)
                 guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
-                try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: resolvedWorkspaceID)
                 let created: SurfaceResource
                 if let sourceTabID = resolvedSource.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
@@ -208,14 +212,14 @@ extension Workspace {
                     if let resource = resolvedSource.resource { workingDirectory = await provider.currentWorkingDirectory(of: resource) }
                     else { workingDirectory = nil }
                     guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
-                    try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                    try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: resolvedWorkspaceID)
                     created = try await provider.createTerminal(
                         command: nil, cwd: workingDirectory, name: nil,
-                        remoteWorkspaceID: remoteWorkspaceID, request: request
+                        remoteWorkspaceID: resolvedWorkspaceID, request: request
                     )
                 }
                 guard catalog.provider(for: machine) === provider else { throw SurfaceCatalogError.noProvider(machine) }
-                try source.validate(created: created)
+                try resolvedSource.validate(created: created)
                 return created
             } catch {
                 endProjectionMutation()

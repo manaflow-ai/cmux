@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 final class CloudTerminalCreationRequest {
     let id: UUID
-    let remoteWorkspaceID: String?
+    private(set) var remoteWorkspaceID: String?
     let correlationKey: String
     private(set) var attemptKey: String
     private var submitted = false
@@ -19,6 +19,12 @@ final class CloudTerminalCreationRequest {
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
         attemptKey = key
+    }
+
+    /// Binds the immutable Cloud workspace before the first daemon mutation.
+    func bind(remoteWorkspaceID: String) {
+        guard !submitted else { return }
+        self.remoteWorkspaceID = remoteWorkspaceID
     }
 
     /// First attempts omit the additive correlation flag for older daemons.

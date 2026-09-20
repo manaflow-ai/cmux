@@ -201,15 +201,18 @@ struct CloudTerminalPlacementTests {
             #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
             let pendingID = try #require(workspace.cloudPendingCreations.keys.first)
             provider.release.resolve(true)
-            try await settled { workspace.cloudMaterializationFailures[pendingID] != nil }
-            #expect(catalog.projection(forPanel: pendingID) == nil)
-            #expect(workspace.machineOwningSurface(pendingID) == provider.machine)
-            #expect(workspace.terminalPanel(for: pendingID)?.surface.ioMode == .manualMirror)
-            #expect(workspace.cloudPendingCreations[pendingID] != nil)
-            #expect(provider.materialized.count == (kind == "creationWorkspace" ? 0 : 1))
             if kind == "workspaceOnlyResource" {
+                try await settled { catalog.projection(forPanel: pendingID) != nil }
                 #expect(catalog.projection(forPanel: pendingID)?.remoteWorkspaceID == provider.remote.id)
+                #expect(workspace.cloudPendingCreations[pendingID] == nil)
+            } else {
+                try await settled { workspace.cloudMaterializationFailures[pendingID] != nil }
+                #expect(catalog.projection(forPanel: pendingID) == nil)
+                #expect(workspace.machineOwningSurface(pendingID) == provider.machine)
+                #expect(workspace.terminalPanel(for: pendingID)?.surface.ioMode == .manualMirror)
+                #expect(workspace.cloudPendingCreations[pendingID] != nil)
             }
+            #expect(provider.materialized.count == (kind == "creationWorkspace" ? 0 : 1))
         }
     }
 

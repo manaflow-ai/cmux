@@ -15,7 +15,7 @@ extension SurfaceProvider {
         var projection = try await materialize(
             resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation
         )
-        let expectedWorkspace = reservation?.remoteWorkspaceID
+        let expectedWorkspace = reservation?.remoteWorkspaceID ?? remoteView?.workspace.id
         if projection.remoteWorkspaceID == nil,
            let expectedWorkspace,
            resource.remoteWorkspace?.id == expectedWorkspace {
