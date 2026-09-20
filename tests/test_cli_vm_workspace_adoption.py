@@ -72,6 +72,10 @@ class MachineSocket:
             return {"workspace_id": self.workspace, "surface_id": "22222222-2222-4222-8222-222222222222"}
         if method == "workspace.cloud_vm_bind":
             return {"workspace_id": self.workspace, "remote_workspace_id": self.bound_workspace}
+        if method == "window.list":
+            return {"windows": [{"id": "window-fixture"}]}
+        if method == "workspace.list":
+            return {"workspaces": [{"id": self.workspace, "ref": "workspace:fixture", "window_id": "window-fixture"}]}
         if method in {"workspace.cloud_vm_bind", "workspace.cloud_vm_terminal_ready", "workspace.current", "workspace.select"}:
             return {"workspace_id": self.workspace}
         raise AssertionError("Unexpected mutation: " + method)
