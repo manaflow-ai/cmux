@@ -26,7 +26,7 @@ class ObjectRange:
     properties: tuple[PropertyRange, ...]
 
     def property(self, key: str) -> PropertyRange | None:
-        # Match json.loads/Foundation duplicate-key semantics: the last
+        # Match json.loads duplicate-key semantics: the last
         # occurrence is the effective value and therefore the mutation target.
         return next(
             (item for item in reversed(self.properties) if item.key == key),
@@ -50,14 +50,14 @@ def remove_jsonc_path(source: str, parts: list[str]) -> str:
         raise JSONCEditError("empty JSON path")
     if _root_object(source) is None:
         raise JSONCEditError("top-level JSONC value is not an editable object")
-    if _parent_and_property_index(source, parts) is None:
+    if _parent_and_property_index(source, parts, searching_all_ancestors=True) is None:
         return source
 
     updated = source
     # Parsed JSON resolves duplicate keys to the last occurrence. Remove every
     # duplicate leaf so unset cannot expose a shadowed value.
-    while _parent_and_property_index(updated, parts) is not None:
-        updated = _remove_property(updated, parts)
+    while _parent_and_property_index(updated, parts, searching_all_ancestors=True) is not None:
+        updated = _remove_property(updated, parts, searching_all_ancestors=True)
 
     for depth in range(len(parts) - 1, 0, -1):
         ancestor = parts[:depth]
@@ -160,8 +160,8 @@ def _insert_property(source: str, obj: ObjectRange, key: str, value_json: str) -
     return updated[:close] + newline + prop + newline + closing_indent + updated[close:]
 
 
-def _remove_property(source: str, parts: list[str]) -> str:
-    found = _parent_and_property_index(source, parts)
+def _remove_property(source: str, parts: list[str], *, searching_all_ancestors: bool = False) -> str:
+    found = _parent_and_property_index(source, parts, searching_all_ancestors=searching_all_ancestors)
     if found is None:
         return source
     parent, child_index = found
@@ -189,25 +189,33 @@ def _remove_property(source: str, parts: list[str]) -> str:
 def _parent_and_property_index(
     source: str,
     parts: list[str],
+    *,
+    searching_all_ancestors: bool = False,
 ) -> tuple[ObjectRange, int] | None:
-    obj = _root_object(source)
-    if obj is None:
+    root = _root_object(source)
+    if root is None or not parts:
         return None
-    for component in parts[:-1]:
-        prop = obj.property(component)
-        if prop is None:
-            return None
-        start = _skip_ws_comments(source, prop.value_start)
-        if start >= len(source) or source[start] != "{":
-            return None
-        child = _parse_object(source, start)
-        if child is None:
-            return None
-        obj = child
-    for index in range(len(obj.properties) - 1, -1, -1):
-        if obj.properties[index].key == parts[-1]:
-            return obj, index
-    return None
+
+    def find(obj: ObjectRange, depth: int) -> tuple[ObjectRange, int] | None:
+        indices = [index for index, prop in enumerate(obj.properties) if prop.key == parts[depth]]
+        if depth == len(parts) - 1:
+            return (obj, indices[-1]) if indices else None
+        # Unset must visit every duplicate object, skipping scalar branches.
+        # Effective reads, sets and tidy-parent checks still follow json.loads.
+        candidates = reversed(indices) if searching_all_ancestors else indices[-1:]
+        for index in candidates:
+            prop = obj.properties[index]
+            start = _skip_ws_comments(source, prop.value_start)
+            if start >= len(source) or source[start] != "{":
+                continue
+            child = _parse_object(source, start)
+            if child is not None:
+                found = find(child, depth + 1)
+                if found is not None:
+                    return found
+        return None
+
+    return find(root, 0)
 
 
 def _object_at_path(source: str, parts: list[str]) -> ObjectRange | None:

@@ -402,7 +402,7 @@ public actor JSONConfigStore {
         // comment-only empty parents can intentionally remain after reset.
         let sanitized = try sanitizer.sanitize(data)
         let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-        guard object is [String: Any] else {
+        guard let writtenRoot = object as? [String: Any] else {
             throw JSONConfigStoreReadError.notADictionary
         }
 
@@ -411,7 +411,7 @@ public actor JSONConfigStore {
         try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
-        cachedRoot = candidateRoot
+        cachedRoot = writtenRoot
         cacheValid = true
         cachedRootResolvedPath = writeURL.path
 

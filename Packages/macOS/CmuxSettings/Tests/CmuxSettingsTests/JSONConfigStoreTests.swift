@@ -53,6 +53,22 @@ struct JSONConfigStoreTests {
         #expect(!resetText.contains("appearance"))
     }
 
+    @Test func resetPublishesTheWrittenCommentOnlyParent() async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(#"{"app":{/* keep documentation */ "appearance":"dark"}}"#.utf8).write(to: fileURL)
+        let parentKey = JSONKey<[String: String]>(id: "app", defaultValue: ["missing": "sentinel"])
+        #expect(await store.value(for: parentKey) == ["appearance": "dark"])
+        try await store.reset(JSONKey<String>(id: "app.appearance", defaultValue: "system"))
+        let cached = await store.value(for: parentKey)
+        let snapshot = store.snapshotValue(for: parentKey)
+        let fresh = await JSONConfigStore(fileURL: fileURL).value(for: parentKey)
+        #expect(cached == [:])
+        #expect(cached == snapshot)
+        #expect(cached == fresh)
+        #expect(try String(contentsOf: fileURL, encoding: .utf8).contains("keep documentation"))
+    }
+
     @Test func readsDefaultWhenFileMissing() async {
         let (store, _, _) = makeStore()
         let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
