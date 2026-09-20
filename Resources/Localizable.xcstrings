@@ -186038,6 +186038,65 @@
         }
       }
     },
+    "dialog.saveWorkspaceLayout.failedMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't capture the workspace layout. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのレイアウトをキャプチャできませんでした。もう一度お試しください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法捕获工作区布局。请重试。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Arbeitsbereich-Layout konnte nicht erfasst werden. Versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de capturer la disposition de l’espace de travail. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر التقاط مخطط مساحة العمل. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo capturar el diseño del espacio de trabajo. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法擷取工作區配置。請再試一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 레이아웃을 캡처할 수 없습니다. 다시 시도해 주세요."
+          }
+        }
+      }
+    },
     "dialog.saveWorkspaceLayout.makeDefaultCheckbox": {
       "extractionState": "manual",
       "localizations": {

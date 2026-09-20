@@ -467,7 +467,9 @@ final class SharedLiveAgentIndex {
         guard !Task.isCancelled,
               refreshCompletionGeneration == session.completionGeneration,
               refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else { return false }
+              forkAvailabilityRefreshTask == nil,
+              !changePending,
+              deferredReloadTimer == nil else { return false }
         let previousFingerprint = liveAgentProcessFingerprint
         index = refreshedIndex
         loadedAt = dateProvider()

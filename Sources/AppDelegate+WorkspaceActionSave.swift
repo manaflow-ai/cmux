@@ -197,7 +197,7 @@ extension AppDelegate {
             snapshot = try await workspace.captureConfigActionSnapshot()
         } catch {
             guard window.isVisible, !Task.isCancelled else { return }
-            presentSaveWorkspaceActionCaptureError(error, for: window)
+            presentSaveWorkspaceActionCaptureError(for: window)
             return
         }
         guard window.isVisible, !Task.isCancelled else { return }
@@ -327,14 +327,17 @@ extension AppDelegate {
         alert.beginSheetModal(for: window)
     }
 
-    private func presentSaveWorkspaceActionCaptureError(_ error: Error, for window: NSWindow) {
+    private func presentSaveWorkspaceActionCaptureError(for window: NSWindow) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
             localized: "dialog.saveWorkspaceLayout.failedTitle",
             defaultValue: "Couldn't Save Workspace Layout"
         )
-        alert.informativeText = error.localizedDescription
+        alert.informativeText = String(
+            localized: "dialog.saveWorkspaceLayout.failedMessage",
+            defaultValue: "Couldn't capture the workspace layout. Try again."
+        )
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.ok",
             defaultValue: "OK"
