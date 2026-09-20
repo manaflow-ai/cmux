@@ -33,6 +33,7 @@
 
 import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
+import { GUEST_CMUX_WELCOME_SHELL } from "./guestWelcome";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
 import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
@@ -47,6 +48,8 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+${GUEST_CMUX_WELCOME_SHELL}
 
 if [ "\${1:-}" = open-url ]; then
   shift
@@ -2503,6 +2506,10 @@ case "\${1:-}" in
   agent)
     shift
     guest_agent_command "\$@"
+    ;;
+  welcome)
+    shift
+    guest_welcome_command "\$@"
     ;;
   ai-accounts|remotes)
     host_only_command "cmux \$1"

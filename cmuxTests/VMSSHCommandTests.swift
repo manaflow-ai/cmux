@@ -23,7 +23,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-
             switch method {
             case "vm.ssh_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
@@ -360,6 +359,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ]
                 return self.v2Response(id: id, ok: true, result: result)
             case "surface.new_terminal":
+                XCTAssertEqual((payload["params"] as? [String: Any])?["command"] as? [String], CloudTuiCommandLine.cloudWelcomeTerminalCommand)
                 return self.v2Response(
                     id: id,
                     ok: true,

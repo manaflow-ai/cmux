@@ -1042,13 +1042,13 @@ import Testing
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "run", "--", "claude", "-p", "fix it"])
+        #expect(CloudTuiCommandLine.cloudWelcomeTerminalCommand == ["bash", "-lc", "if command -v cmux >/dev/null 2>&1; then cmux welcome --auto || :; fi; exec bash -l"])
         #expect(CloudTuiCommandLine.attachArguments(socketPath: "/k.sock", terminalID: "term_1") == ["--socket", "/k.sock", "attach", "--terminal", "term_1"])
         #expect(CloudTuiCommandLine.attachShellCommand(clientPath: "/Applications/cmux DEV.app/Contents/Resources/bin/cmux-tui", socketPath: "/k.sock", terminalID: "term_1") ==
             "'/Applications/cmux DEV.app/Contents/Resources/bin/cmux-tui' --socket /k.sock attach --terminal term_1")
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: nil, command: ["bash", "-l"]) == ["bash", "-l"])
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: "/root/work/my app", command: ["codex", "exec", "it's"]) ==
             ["sh", "-lc", "cd '/root/work/my app' && exec codex exec 'it'\\''s'"])
-        // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work", expectedRevision: 7) ==

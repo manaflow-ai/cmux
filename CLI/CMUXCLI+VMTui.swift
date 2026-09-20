@@ -467,7 +467,7 @@ extension CMUXCLI {
                     projected["remote_workspace_id"] = remoteWorkspaceID
                     opened = projected
                 case .empty(let remoteWorkspaceID):
-                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "command": CloudTuiCommandLine.cloudWelcomeTerminalCommand]
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:
