@@ -12,6 +12,6 @@ let package = Package(
                 cSettings: [.define("LIBSSH_STATIC")]),
         .target(name: "CmuxSSHNative", dependencies: ["CSSHNative", "CmuxRemoteConnections"], path: "Sources/CmuxSSHNative",
                 swiftSettings: [.swiftLanguageMode(.v6)]),
-        .testTarget(name: "CmuxSSHNativeTests", dependencies: ["CmuxSSHNative", "CmuxRemoteConnections"], path: "Tests/CmuxSSHNativeTests")
+        .testTarget(name: "CmuxSSHNativeTests", dependencies: ["CmuxSSHNative", "CSSHNative", "CmuxRemoteConnections"], path: "Tests/CmuxSSHNativeTests")
     ]
 )
