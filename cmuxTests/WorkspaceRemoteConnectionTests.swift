@@ -3694,11 +3694,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
+        private let notifications = AgentHookTestNotificationPipeline()
         private(set) var commands: [String] = []
 
         func append(_ command: String) {
             lock.lock()
-            commands.append(command)
+            commands.append(contentsOf: [command] + notifications.effects(for: command))
             lock.unlock()
             commandSemaphore.signal()
         }
@@ -6325,6 +6326,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:7"
         let windowID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -6350,6 +6352,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.rename":
@@ -6416,6 +6419,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
+        _ = try XCTUnwrap(requests.count == 4 ? requests : nil, "Expected all SSH lifecycle requests")
         let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
         XCTAssertEqual(createParams["window_id"] as? String, windowID)
         let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
