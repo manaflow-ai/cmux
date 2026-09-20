@@ -2822,6 +2822,7 @@ jobs:
           fi
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
 
       - name: Package compiled app-host test product
         id: package-products
