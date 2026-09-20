@@ -821,7 +821,7 @@ final class SurfaceCatalog {
                     $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
                     && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
-                    && (key.workspaceID == nil || projectionMatchesMaterializationDestination($0, key.destination))
+                    && ((key.workspaceID == nil && key.loadingPanelID == nil) || projectionMatchesMaterializationDestination($0, key.destination))
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)
