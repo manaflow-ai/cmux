@@ -50,44 +50,6 @@ struct WorkspaceGroupNewWorkspaceTarget {
     let placement: WorkspaceGroupNewPlacement
 }
 
-/// Owns debug-window coordinators at the application composition root.
-@MainActor
-final class CmuxDebugWindowsCoordinator {
-    private let aboutTitlebarCoordinator: DebugWindowsCoordinator
-#if DEBUG
-    private lazy var sidebarFooterIconBalanceController =
-        SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
-#endif
-    private weak var decorator: (any WindowDecorating)?
-
-    init(decorator: (any WindowDecorating)?) {
-        self.decorator = decorator
-        self.aboutTitlebarCoordinator = DebugWindowsCoordinator(
-            decorator: decorator,
-            copyText: { text in
-                _ = GhosttyApp.terminalPasteboard.writeString(
-                    text,
-                    to: .general
-                )
-            }
-        )
-    }
-
-    var aboutTitlebarStore: AboutTitlebarDebugStore {
-        aboutTitlebarCoordinator.aboutTitlebarStore
-    }
-
-    func showAboutTitlebarDebugWindow() {
-        aboutTitlebarCoordinator.showAboutTitlebarDebugWindow()
-    }
-
-#if DEBUG
-    func showSidebarFooterIconBalanceWindow() {
-        sidebarFooterIconBalanceController.show()
-    }
-#endif
-}
-
 /// Short-lived helper that watches for the next workspace to appear in a
 /// TabManager and joins it to a target group. Used by group `+` context-menu
 /// actions whose underlying executor creates the workspace asynchronously
@@ -19113,6 +19075,41 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
+extension NSWindow {
+    static func cmuxOwningWebView(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        if browserOmnibarPanelId(for: responder) != nil {
+            return nil
+        }
+
+        // Browser find runs in the portal slot alongside the hosted WKWebView.
+        // Treat its native field editor chain as browser chrome, not as web content,
+        // so Cmd+F can move first responder into the find field while web focus is suppressed.
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
+            return nil
+        }
+
+        if let webView = cmuxOwningWebView(for: responder) {
+            return webView
+        }
+
+        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
+            return nil
+        }
+
+        if let event,
+           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
+            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
+            return hitWebView
+        }
+
+        return cmuxTrackedOwningWebView(for: textView)
+    }
+}
+
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
@@ -19931,39 +19928,6 @@ private extension NSWindow {
         }
 
         return nil
-    }
-
-    static func cmuxOwningWebView(
-        for responder: NSResponder,
-        in window: NSWindow,
-        event: NSEvent?
-    ) -> CmuxWebView? {
-        if browserOmnibarPanelId(for: responder) != nil {
-            return nil
-        }
-
-        // Browser find runs in the portal slot alongside the hosted WKWebView.
-        // Treat its native field editor chain as browser chrome, not as web content,
-        // so Cmd+F can move first responder into the find field while web focus is suppressed.
-        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
-            return nil
-        }
-
-        if let webView = cmuxOwningWebView(for: responder) {
-            return webView
-        }
-
-        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
-            return nil
-        }
-
-        if let event,
-           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
-            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
-            return hitWebView
-        }
-
-        return cmuxTrackedOwningWebView(for: textView)
     }
 
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
