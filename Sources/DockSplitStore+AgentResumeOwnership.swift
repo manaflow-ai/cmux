@@ -1,5 +1,5 @@
+import CmuxFoundation
 import Foundation
-import struct CmuxFoundation.AgentPIDProcessIdentity
 
 extension DockSplitStore {
     /// Dock twin of `Workspace.restoredAgentHasLiveProcess(_:panelId:)`.

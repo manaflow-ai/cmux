@@ -1,5 +1,5 @@
+import CmuxFoundation
 import Foundation
-import struct CmuxFoundation.AgentPIDProcessIdentity
 
 /// Foreground-process evidence that a restored or hook-published agent is
 /// still the command running in its pane.
