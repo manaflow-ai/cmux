@@ -114,11 +114,7 @@ actor CloudTuiPersistentResourceConnection {
                     isExpired: { clock.now >= expiresAt }
                 )
                 Task { [weak self, connection] in
-                    do {
-                        try await connection.sendChecked(line: encoded + Data([0x0A]))
-                    } catch {
-                        await self?.sendFailed(id, error: error)
-                    }
+                    await self?.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
                 }
             }
         }, onCancel: { [weak self] in
@@ -151,6 +147,20 @@ actor CloudTuiPersistentResourceConnection {
             mapped = CloudTuiSendError.ambiguous(error)
         }
         retire(id, error: mapped)
+    }
+
+    private func sendIfPending(
+        _ id: String,
+        connection: CloudTuiManualIOConnection,
+        line: Data
+    ) async {
+        guard pending[id] != nil else { return }
+        do {
+            try await connection.sendChecked(line: line)
+        } catch {
+            guard pending[id] != nil else { return }
+            sendFailed(id, error: error)
+        }
     }
 
     private func sendBestEffort(_ request: CloudTuiRequest) {
