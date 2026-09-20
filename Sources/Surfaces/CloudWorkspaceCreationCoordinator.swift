@@ -21,22 +21,67 @@ final class CloudWorkspaceCreationCoordinator {
     }
 
     func create(
-        provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?,
+        provider: any SurfaceProvider, name: String?, focus: Bool, host: CloudWorkspaceCreationHost?, reuseFailedCreation: Bool,
         existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         guard let catalog, catalog.provider(for: provider.machine) === provider else { throw CancellationError() }
-        let operation = CloudWorkspaceCreationOperation(provider: provider, host: host)
+        let failed = operations.values.filter {
+            reuseFailedCreation && $0.allowsActionRetry && $0.provider === provider && !$0.isRunning
+                && $0.failure != nil && $0.host?.manager === host?.manager
+        }
+        // An ambiguous pair of failed intents must be retried from its own pane;
+        // never guess which concurrent request a new action meant to recover.
+        let retained = failed.count == 1 ? failed.first : nil
+        let operation = retained ?? CloudWorkspaceCreationOperation(provider: provider, host: host, allowsActionRetry: reuseFailedCreation)
         operations[operation.id] = operation
         return try await withTaskCancellationHandler {
-            do {
-                return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
-                                     existingTerminal: existingTerminal, catalog: catalog)
-            } catch {
+            try await perform(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
+                              existingTerminal: existingTerminal, catalog: catalog)
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel(operation.id) }
+        }
+    }
+
+    private func perform(
+        _ operation: CloudWorkspaceCreationOperation, name: String?, focus: Bool,
+        existingWorkspace: SurfaceRemoteWorkspace?, existingTerminal: SurfaceResource?, catalog: SurfaceCatalog
+    ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
+        operation.isRunning = true
+        operation.failure = nil
+        defer { operation.isRunning = false }
+        if let reservation = operation.reservation { operation.host?.restart(reservation) }
+        do {
+            return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
+                                 existingTerminal: existingTerminal, catalog: catalog)
+        } catch {
+            guard !(error is CancellationError), !Task.isCancelled, operations[operation.id] === operation else {
+                cancel(operation.id)
+                throw CancellationError()
+            }
+            guard let reservation = operation.reservation, operation.host?.isLive(reservation) == true else {
                 cancel(operation.id)
                 throw error
             }
-        } onCancel: {
-            Task { @MainActor [weak self] in self?.cancel(operation.id) }
+            // Creation committed; retain its identity and input for an explicit
+            // reconnect. Only this request's retry may reuse its remote receipt.
+            operation.failure = error
+            operation.host?.fail(reservation, error: error)
+            let id = operation.id
+            reservation.retry = { [weak self] in self?.retry(id) }
+            catalog.notifyChange()
+            throw error
+        }
+    }
+
+    private func retry(_ id: UUID) {
+        guard let catalog, let operation = operations[id], operation.failure != nil,
+              !operation.isRunning, operation.retryTask == nil else { return }
+        operation.isRunning = true
+        operation.retryTask = Task { @MainActor [weak self] in
+            defer { operation.retryTask = nil }
+            guard let self else { return }
+            _ = try? await self.perform(operation, name: nil, focus: false, existingWorkspace: nil,
+                                       existingTerminal: nil, catalog: catalog)
         }
     }
 
@@ -47,19 +92,21 @@ final class CloudWorkspaceCreationCoordinator {
     ) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource, opened: (workspaceID: UUID, projections: [SurfaceProjection])?) {
         try check(operation, catalog: catalog)
         let receipt: SurfaceWorkspaceCreationReceipt
-        if let existingWorkspace {
+        if let retained = operation.receipt {
+            receipt = retained
+        } else if let existingWorkspace {
             receipt = SurfaceWorkspaceCreationReceipt(workspace: existingWorkspace, terminal: existingTerminal, cursor: nil)
         } else {
             receipt = try await operation.provider.createRemoteWorkspaceReceipt(name: name)
         }
         try check(operation, catalog: catalog)
         operation.receipt = receipt
-        if let host = operation.host {
+        if let host = operation.host, operation.reservation == nil {
             let title = CloudTreeNodeActions.localWorkspaceTitle(
                 hostName: CloudTreeNodeActions.resolvedMachineName(operation.machine, snapshot: catalog.snapshot),
                 group: SurfaceResourceGroup(title: receipt.workspace.name, resources: [])
             )
-            let reservation = try host.reserve(title: title, machine: operation.machine, focus: focus)
+            let reservation = try host.reserve(title: title, machine: operation.machine, receipt: receipt, focus: focus)
             operation.reservation = reservation
             let operationID = operation.id
             reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
@@ -69,9 +116,9 @@ final class CloudWorkspaceCreationCoordinator {
         catalog.notifyChange()
         // Older daemons may supply a starter only through their first snapshot.
         // The native reservation is already visible while that discovery runs.
-        if receipt.terminal == nil, existingTerminal == nil { await operation.provider.refresh() }
+        if receipt.terminal == nil, existingTerminal == nil, operation.terminal == nil { await operation.provider.refresh() }
         try check(operation, catalog: catalog)
-        let existing = existingTerminal ?? receipt.terminal ?? catalog.snapshot.resources(on: operation.machine).first {
+        let existing = operation.terminal ?? existingTerminal ?? receipt.terminal ?? catalog.snapshot.resources(on: operation.machine).first {
             $0.kind == .terminal && $0.remoteWorkspaces.contains { $0.id == receipt.workspace.id }
         }
         let terminal: SurfaceResource
@@ -81,7 +128,9 @@ final class CloudWorkspaceCreationCoordinator {
             )
         }
         try check(operation, catalog: catalog)
+        try operation.reservation?.sourcePlacement.validate(created: terminal)
         operation.terminal = terminal
+        operation.reservation?.creationReceipt.finish(.success(terminal))
         operation.terminalCursor = catalog.cloudStateObservations[operation.machine]?.pendingWrites?.first {
             $0.kind == .terminalCreate && $0.resource == terminal.id
         }?.receipt
@@ -117,7 +166,7 @@ final class CloudWorkspaceCreationCoordinator {
 
     private func finish(_ operation: CloudWorkspaceCreationOperation, catalog: SurfaceCatalog) {
         operation.isComplete = true
-        if operation.reservation == nil || operation.receipt?.cursor == nil
+        if operation.reservation == nil
             || catalog.cloudStates[operation.machine].map({ operation.isConfirmed(in: $0) }) == true {
             operations[operation.id] = nil
         }
@@ -132,13 +181,18 @@ final class CloudWorkspaceCreationCoordinator {
     func reconcile(_ state: CloudVMState) {
         guard let catalog, catalog.cloudStateObservations[state.machine]?.freshness == .current else { return }
         for operation in Array(operations.values) where operation.machine == state.machine {
-            guard let receipt = operation.receipt, let fence = receipt.cursor, let cursor = state.cursor else { continue }
+            guard let receipt = operation.receipt else { continue }
+            guard let fence = receipt.cursor else {
+                if operation.isComplete, operation.isConfirmed(in: state) { operations[operation.id] = nil }
+                continue
+            }
+            guard let cursor = state.cursor else { cancel(operation.id); continue }
             if cursor.generation != fence.generation || (cursor.revision >= fence.revision && !state.workspaceIDs.contains(receipt.workspace.id)) {
                 cancel(operation.id)
-            } else if let terminal = operation.terminal,
+            } else if operation.terminal != nil,
                       let terminalFence = operation.terminalCursor ?? (receipt.terminal == nil ? nil : receipt.cursor),
                       cursor.generation == terminalFence.generation, cursor.revision >= terminalFence.revision,
-                      state.lookupIndex.terminal(id: terminal.id.key) == nil {
+                      !operation.containsStarter(in: state) {
                 cancel(operation.id)
             } else if operation.isComplete, operation.isConfirmed(in: state) {
                 operations[operation.id] = nil
@@ -148,8 +202,15 @@ final class CloudWorkspaceCreationCoordinator {
 
     func cancel(_ id: UUID, discardLocal: Bool = true) {
         guard let operation = operations.removeValue(forKey: id), let catalog else { return }
+        operation.retryTask?.cancel()
         if discardLocal, let reservation = operation.reservation { operation.host?.discard(reservation, catalog: catalog) }
         catalog.notifyChange()
+    }
+
+    func projectionDidEnd(panelID: UUID) {
+        for operation in Array(operations.values) where operation.reservation?.panelID == panelID {
+            cancel(operation.id, discardLocal: false)
+        }
     }
 
     func cancel(machine: SurfaceMachineID, workspaceID: String? = nil) {

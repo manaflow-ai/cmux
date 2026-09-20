@@ -19,6 +19,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var includesStarter = true
     var terminalError: Error?
     var terminalCreates = 0
+    var terminalRequests: [UUID] = []
     var refreshes = 0
     var createdWorkspaces: [SurfaceRemoteWorkspace] = []
     var adoptedPanels: [UUID] = []
@@ -69,6 +70,11 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
         return resource
     }
 
+    func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        terminalRequests.append(request.id)
+        return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+    }
+
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         let pane = try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
@@ -84,19 +90,20 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
                                  remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
     }
 
-    func publish(revision: Int, includesWorkspaces: Bool = true, generation: String = "creation", includesTerminals: Bool = true) throws {
+    func publish(revision: Int, includesWorkspaces: Bool = true, generation: String = "creation", includesTerminals: Bool = true, includesTabs: Bool = true, hasCursor: Bool = true) throws {
         let workspaces = includesWorkspaces ? createdWorkspaces : []
         let terminals = includesTerminals ? workspaces : []
-        let document: [String: Any] = [
+        var document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": workspaces.map { ["id": $0.id, "name": $0.name, "index": $0.index] as [String: Any] },
             "screens": workspaces.map { ["id": "screen_" + $0.id, "workspace_id": $0.id] },
             "panes": workspaces.map { ["id": "pane_" + $0.id, "screen_id": "screen_" + $0.id] },
-            "tabs": terminals.map { ["id": "tab_" + $0.id, "pane_id": "pane_" + $0.id,
+            "tabs": (includesTabs ? terminals : []).map { ["id": "tab_" + $0.id, "pane_id": "pane_" + $0.id,
                                        "content_kind": "terminal", "content_id": "term_" + $0.id] },
             "terminals": terminals.map { ["id": "term_" + $0.id, "lifecycle": "running", "title": "shell"] },
             "browsers": [], "agents": []
         ]
+        if !hasCursor { document.removeValue(forKey: "cursor") }
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
         let resources = revision < 10 && generation == "creation"
             ? createdWorkspaces.map { terminal(in: $0) } : CmuxTuiSnapshotParser.resources(from: state)

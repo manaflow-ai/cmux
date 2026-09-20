@@ -11,6 +11,20 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudInitialWorkspaceNamingTests {
+    @Test("Plain attachment keeps the original loading surface without running a placeholder shell")
+    func deferredAttachmentNeverRunsATemporaryLocalCommand() throws {
+        let workspace = Workspace(title: "New Machine", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let loadingID = try #require(workspace.focusedPanelId)
+        let original = try #require(workspace.panels[loadingID])
+        let returned = workspace.prepareCloudTerminalAttachment(command: "sleep 60", deferTerminal: true, focus: false)
+        #expect(returned == loadingID)
+        #expect(workspace.panels.count == 1)
+        #expect(workspace.panels[loadingID] === original)
+        #expect(workspace.terminalPanel(for: loadingID) == nil)
+        #expect(workspace.title == "New Machine")
+    }
+
     @Test("Binding after discovery immediately gives both sidebars the daemon workspace name")
     func bindingReconcilesAlreadyDiscoveredName() async throws {
         try await withUnboundFixture { fixture in

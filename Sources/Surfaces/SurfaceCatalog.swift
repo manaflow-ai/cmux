@@ -691,7 +691,7 @@ final class SurfaceCatalog {
             )
         }
 
-        let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
+        let projection = try await provider.materializeValidated(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
         guard !Task.isCancelled, providers[id.machine] === provider,
               !isDeletingCloudResource(id, remoteWorkspaceID: resolvedRemoteView?.workspace.id) else {
             provider.discardMaterialization(projection)
@@ -748,7 +748,7 @@ final class SurfaceCatalog {
             let task = Task { @MainActor [weak self] in
                 do {
                     try self?.validateOwnership(of: [id], at: destination)
-                    let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
+                    let projection = try await provider.materializeValidated(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))
@@ -1109,12 +1109,12 @@ final class SurfaceCatalog {
         _ previous: SurfaceProjection,
         withPanel panelID: UUID,
         in workspaceID: UUID,
-        remotePlacement: SurfaceRemotePlacement?
+        remotePlacement: SurfaceRemotePlacement?,
+        preservingSavedPlacement: Bool = false
     ) {
-        let views = resources[previous.resource]?.remoteViews
+        // Exact restores retain saved identity; legacy replacements may infer one live view.
+        let views = preservingSavedPlacement ? nil : resources[previous.resource]?.remoteViews
         let exactView = views?.first { $0.tabID == previous.remoteTabID }
-        // A dead saved ID cannot describe the rematerialized terminal. A unique
-        // live view is unambiguous; several live views must remain unresolved.
         let view = exactView ?? (views?.count == 1 ? views?.first : nil)
         let savedWorkspace = views == nil ? previous.remoteWorkspaceID : nil
         let savedTab = views == nil ? previous.remoteTabID : nil
@@ -1184,6 +1184,7 @@ final class SurfaceCatalog {
     /// A pane went away. Remote resources live on; a pane closed on purpose inside a
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
+        cloudWorkspaceCreationCoordinator.projectionDidEnd(panelID: panelID)
         let removedPending = pendingRestoredProjections.remove(panelID: panelID)
         if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }

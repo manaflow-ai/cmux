@@ -35,7 +35,8 @@ extension CloudTreeNodeActions {
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
-        host suppliedHost: CloudWorkspaceCreationHost? = nil
+        host suppliedHost: CloudWorkspaceCreationHost? = nil,
+        reuseFailedCreation: Bool = false
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
@@ -53,7 +54,7 @@ extension CloudTreeNodeActions {
             host = nil
         }
         return try await catalog.cloudWorkspaceCreationCoordinator.create(
-            provider: provider, name: name, focus: focus, host: host,
+            provider: provider, name: name, focus: focus, host: host, reuseFailedCreation: reuseFailedCreation,
             existingWorkspace: existingWorkspace, existingTerminal: existingTerminal
         )
     }

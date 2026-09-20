@@ -22,15 +22,17 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         let scope = registry.creationScope
         var summary = machine("vm-internal-id")
         summary.slug = "bright-teal-otter"
-        registry.recordCreatedMachine(summary, scope: scope)
+        summary.addressIPv4 = "10.16.0.7"
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
+        #expect(await registry.privateRoute(machineID: summary.id) == "ws://10.16.0.7:1337/v1/link")
         let provider = registry.provider(machineID: summary.id)
-        registry.recordCreatedMachine(summary, scope: scope)
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(registry.provider(machineID: summary.id) === provider)
         #expect(catalog.snapshot.machines.count == 1)
         await registry.accessDidEnd()
         registry.start(catalog: catalog)
-        registry.recordCreatedMachine(summary, scope: scope)
+        await registry.recordCreatedMachine(summary, scope: scope)
         #expect(catalog.snapshot.machines.isEmpty)
         await registry.accessDidEnd()
     }

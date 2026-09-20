@@ -1266,6 +1266,10 @@ actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let address = obj["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
             machineCache.record(hasAnyMachine: true)
             return summary
         }

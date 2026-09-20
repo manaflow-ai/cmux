@@ -38,7 +38,7 @@ extension cmuxApp {
                       teamID == auth.accountFlow.confirmedTeamID else { return nil }
                 let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: .cloud(id), provider: provider, catalog: SurfaceCatalog.shared,
-                    name: nil, focus: focus, host: host
+                    name: nil, focus: focus, host: host, reuseFailedCreation: true
                 )
                 return result.opened?.workspaceID
             }

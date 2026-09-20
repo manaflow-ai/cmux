@@ -6,16 +6,21 @@ final class CloudWorkspaceCreationOperation {
     let id = UUID()
     let provider: any SurfaceProvider
     let host: CloudWorkspaceCreationHost?
+    let allowsActionRetry: Bool
     let terminalRequest = CloudTerminalCreationRequest()
     var receipt: SurfaceWorkspaceCreationReceipt?
     var reservation: CloudTerminalPaneReservation?
     var terminal: SurfaceResource?
     var terminalCursor: CloudVMCursor?
     var isComplete = false
+    var isRunning = false
+    var failure: Error?
+    var retryTask: Task<Void, Never>?
 
-    init(provider: any SurfaceProvider, host: CloudWorkspaceCreationHost?) {
+    init(provider: any SurfaceProvider, host: CloudWorkspaceCreationHost?, allowsActionRetry: Bool) {
         self.provider = provider
         self.host = host
+        self.allowsActionRetry = allowsActionRetry
     }
 
     var machine: SurfaceMachineID { provider.machine }
@@ -27,6 +32,16 @@ final class CloudWorkspaceCreationOperation {
             guard let accepted = state.cursor, accepted.generation == cursor.generation,
                   accepted.revision >= cursor.revision else { return false }
         }
-        return terminal.remoteViews?.first.map { state.lookupIndex.tab(id: $0.tabID) != nil } ?? true
+        return containsStarter(in: state)
     }
+
+    func containsStarter(in state: CloudVMState) -> Bool {
+        guard let terminal, state.lookupIndex.terminal(id: terminal.id.key) != nil else { return false }
+        guard let view = terminal.remoteViews?.first else { return true }
+        guard let tab = state.lookupIndex.tab(id: view.tabID),
+              let pane = state.lookupIndex.pane(id: tab.paneID),
+              let screen = state.lookupIndex.screen(id: pane.screenID) else { return false }
+        return screen.workspaceID == receipt?.workspace.id
+    }
+
 }

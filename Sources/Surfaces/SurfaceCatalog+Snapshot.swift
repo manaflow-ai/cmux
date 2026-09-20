@@ -1,12 +1,33 @@
 import Foundation
 
 extension SurfaceCatalog {
+    /// Reconciles machine-summary workspace names with the accepted daemon graph.
+    /// Resource rows may carry optimistic creation or rename overlays, but the
+    /// authoritative snapshot must expose the last accepted name for identities
+    /// already present in `cloudStates`.
+    private func authoritativeMachineInfo(_ info: SurfaceMachineInfo) -> SurfaceMachineInfo {
+        guard case .cloud = info.id,
+              let state = cloudStates[info.id],
+              let workspaces = info.remoteWorkspaces else { return info }
+        let accepted = Dictionary(uniqueKeysWithValues: state.workspaces.map { workspace in
+            (workspace.id, SurfaceRemoteWorkspace(
+                id: workspace.id,
+                name: workspace.name,
+                index: workspace.index,
+                focused: workspace.focused
+            ))
+        })
+        var adjusted = info
+        adjusted.remoteWorkspaces = workspaces.map { accepted[$0.id] ?? $0 }
+        return adjusted
+    }
+
     /// The provider rows without any deletion or rename intent applied, used to
     /// enumerate destructive operations. Presentation still withholds a stale
     /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(
-            machines: machines.values.sorted {
+            machines: machines.values.map(authoritativeMachineInfo).sorted {
                 if $0.id.isLocal != $1.id.isLocal { return $0.id.isLocal }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             },

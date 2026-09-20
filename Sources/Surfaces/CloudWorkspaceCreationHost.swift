@@ -13,7 +13,7 @@ struct CloudWorkspaceCreationHost {
         selectedWorkspaceID = manager.selectedTabId
     }
 
-    func reserve(title: String, machine: SurfaceMachineID, focus: Bool) throws -> CloudTerminalPaneReservation {
+    func reserve(title: String, machine: SurfaceMachineID, receipt: SurfaceWorkspaceCreationReceipt, focus: Bool) throws -> CloudTerminalPaneReservation {
         guard let manager,
               let workspace = manager.addWorkspaceIfActive(
                 title: title, titleSource: .auto, initialSurface: .cloudVMLoading,
@@ -23,7 +23,11 @@ struct CloudWorkspaceCreationHost {
               let pane = workspace.paneId(forPanelId: starter),
               let reservation = workspace.reserveCloudTerminalPane(
                 machine: machine, at: .tab(workspaceID: workspace.id, paneID: pane.id.uuidString, index: nil),
-                focus: false
+                focus: false,
+                sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: receipt.workspace.id, remoteTabID: nil),
+                attachmentPlacement: receipt.terminal.map {
+                    SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first, remoteWorkspaceID: receipt.workspace.id)
+                }
               ) else {
             manager.closeWorkspace(workspace, recordHistory: false)
             throw CancellationError()
@@ -48,6 +52,16 @@ struct CloudWorkspaceCreationHost {
         Workspace.liveWorkspace(id: reservation.workspaceID)?.completeReservedCloudTerminalPane(
             reservation, adoptedPanelID: projection.panelID
         )
+    }
+
+    func restart(_ reservation: CloudTerminalPaneReservation) {
+        reservation.creationReceipt.beginAttempt()
+        Workspace.liveWorkspace(id: reservation.workspaceID)?.restartReservedCloudTerminalPane(reservation)
+    }
+
+    func fail(_ reservation: CloudTerminalPaneReservation, error: Error) {
+        reservation.creationReceipt.finish(.failure(error))
+        Workspace.liveWorkspace(id: reservation.workspaceID)?.failReservedCloudTerminalPane(reservation, error: error)
     }
 
     func discard(_ reservation: CloudTerminalPaneReservation, catalog: SurfaceCatalog) {

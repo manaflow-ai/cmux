@@ -97,34 +97,60 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
-    @Test("An empty workspace receipt stays visible and terminal rejection rolls back its native projection")
-    func terminalRejectionRemovesTheSharedPendingProjection() async throws {
+    @Test("Failed attachment or starter creation retries the same workspace and pending pane", arguments: [false, true], [false, true])
+    func failedCreateRetainsItsReceiptForRetry(terminalFailure: Bool, retryFromAction: Bool) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
             defer { fixture.close() }
             fixture.provider.usesReceipt = true
-            fixture.provider.includesStarter = false
-            fixture.provider.terminalError = CloudDiagnosticFailure.conflict
+            fixture.provider.includesStarter = !terminalFailure
+            if terminalFailure { fixture.provider.terminalError = CloudDiagnosticFailure.conflict }
+            else { fixture.provider.beforeMaterialize = { _, _ in throw CloudDiagnosticFailure.conflict } }
             fixture.provider.beforeRefresh = {
                 #expect(fixture.manager.tabs.count == 2)
-                #expect(fixture.workspaceRows().count == 1, "An empty receipt must still be navigable while its starter is pending")
+                #expect(fixture.workspaceRows().count == 1, "An empty receipt must remain navigable while its starter is pending")
             }
             await #expect(throws: CloudDiagnosticFailure.conflict) {
                 try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
                     machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
-                    name: nil, focus: false
+                    name: nil, focus: false, reuseFailedCreation: retryFromAction
                 )
             }
-            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
-            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            let pending = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+            let reservation = try #require(pending.reservation)
+            let workspace = try #require(fixture.manager.workspacesById[reservation.workspaceID])
+            #expect(workspace.cloudMaterializationFailures[reservation.panelID] != nil)
+            #expect(fixture.manager.tabs.count == 2 && fixture.workspaceRows().count == 1)
             #expect(fixture.catalog.projections.isEmpty)
-            #expect(fixture.workspaceRows().isEmpty)
-            #expect(fixture.provider.terminalCreates == 1)
+            reservation.inputRelay.send(.bytes(Data("echo retry\n".utf8)))
+            fixture.provider.terminalError = nil
+            fixture.provider.beforeMaterialize = nil
+            if retryFromAction {
+                let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false, reuseFailedCreation: true
+                )
+                #expect(result.opened?.workspaceID == reservation.workspaceID)
+                #expect(result.opened?.projections.first?.panelID == reservation.panelID)
+            } else {
+                reservation.retry?()
+                let retry = try #require(pending.retryTask)
+                await retry.value
+                #expect(fixture.catalog.projection(forPanel: reservation.panelID)?.workspaceID == reservation.workspaceID)
+            }
+            #expect(fixture.provider.createdWorkspaces.count == 1)
+            #expect(Set(fixture.provider.terminalRequests).count == (terminalFailure ? 1 : 0))
+            #expect(reservation.inputRelay.pendingCount == 1)
+            #expect(workspace.cloudMaterializationFailures[reservation.panelID] == nil)
+            try fixture.provider.publish(revision: 10)
+            await fixture.catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.count == 1)
         }
     }
 
     @Test("Invalidated creates cannot resurrect a workspace from a late provider callback",
-          arguments: ["cancel", "account", "provider", "close", "daemon", "generation"])
+          arguments: ["cancel", "account", "provider", "close", "daemon", "tab", "cursorless", "generation"])
     func staleCompletionCannotRestoreEitherProjection(reason: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try CloudWorkspaceCreationSidebarFixture()
@@ -140,6 +166,8 @@ struct CloudWorkspaceCreationSidebarTests {
                     let workspace = try #require(fixture.manager.workspacesById[reservation.workspaceID])
                     fixture.manager.closeWorkspace(workspace, recordHistory: false)
                 case "daemon": try fixture.provider.publish(revision: 10, includesWorkspaces: false)
+                case "tab": try fixture.provider.publish(revision: 10, includesTabs: false)
+                case "cursorless": try fixture.provider.publish(revision: 10, hasCursor: false)
                 default: try fixture.provider.publish(revision: 1, includesWorkspaces: false, generation: "restarted")
                 }
                 // Deliberately return success even after invalidation, modelling an

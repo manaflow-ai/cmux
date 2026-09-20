@@ -104,10 +104,16 @@ final class CmuxTuiSurfaceProviderRegistry {
     var creationScope: UUID? { !isRetired && isCloudEnabled() ? creationEpoch : nil }
 
     /// Publishes the create response's friendly name before the first workspace bind.
-    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) {
+    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) async {
         guard let scope, scope == creationScope, let catalog else { return }
-        // An older fleet read cannot prune the machine this receipt just admitted.
+        let addresses = [summary.addressIPv4, summary.addressIPv6].compactMap { $0 }
+        // Older responses without addresses still use normal discovery. A known
+        // provider bypasses discovery, so it must never precede its private route.
+        guard !addresses.isEmpty else { return }
         refreshGeneration &+= 1
+        let generation = refreshGeneration
+        await links.setPrivateAddresses(addresses, for: summary.id)
+        guard scope == creationScope, generation == refreshGeneration, !Task.isCancelled else { return }
         installProvider(summary: summary, catalog: catalog)
     }
 

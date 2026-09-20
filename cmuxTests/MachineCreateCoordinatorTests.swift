@@ -7,14 +7,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// The background machine create (#11397): a create outlives the sheet that
-/// started it, shows as a pending row while it runs, resolves into the fleet
-/// on success, and stays as a retriable error row on failure.
 @MainActor
 @Suite(.serialized)
 struct MachineCreateCoordinatorTests {
-    /// A launcher stand-in: records the CLI arguments and keeps the completion
-    /// so a test can end the "CLI run" whenever it likes.
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
@@ -104,13 +99,16 @@ struct MachineCreateCoordinatorTests {
         )
     }
 
-    private func makeCoordinator() -> (MachineCreateCoordinator, LaunchRecorder, NoticeRecorder, ChangeRecorder, NotificationCenter) {
+    private func makeCoordinator(
+        selectWorkspace: @escaping MachineCreateCoordinator.SelectWorkspace = { _, _ in true }
+    ) -> (MachineCreateCoordinator, LaunchRecorder, NoticeRecorder, ChangeRecorder, NotificationCenter) {
         let center = NotificationCenter()
         let launches = LaunchRecorder()
         let notices = NoticeRecorder()
         let clock = Date(timeIntervalSince1970: 1_787_400_000)
         let coordinator = MachineCreateCoordinator(
             notifier: { notices.notices.append($0) },
+            selectWorkspace: selectWorkspace,
             now: { clock },
             notificationCenter: center
         )
@@ -203,9 +201,6 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.isEmpty)
     }
 
-    /// The operation must be registered before the launcher runs: a launcher
-    /// whose completion fires synchronously still has to find its row, finish
-    /// it, and notify — never leave a phantom pending row behind.
     @Test func synchronousCompletionStillResolvesTheOperation() {
         let (coordinator, _, notices, changes, _) = makeCoordinator()
         let immediate: MachineCreateCoordinator.Launch = { _, _, completion in
@@ -260,7 +255,7 @@ struct MachineCreateCoordinatorTests {
 
     // MARK: Success
 
-    @Test func successDropsTheRowAndTellsThePersonWhereTheMachineOpened() {
+    @Test func successDropsTheRowAndSelectsTheOpenedWorkspace() {
         let (coordinator, launches, notices, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
@@ -271,31 +266,39 @@ struct MachineCreateCoordinatorTests {
         #expect(changes.finished.count == 1)
         #expect(changes.finished.first?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
         #expect(coordinator.lastFinished?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
-        let notice = try? #require(notices.notices.first)
-        #expect(notice?.title == "calm-petrel is ready")
-        #expect(notice?.workspaceID == workspaceID, "the notification's click goes to the new workspace")
-        #expect(notice?.isFailure == false)
+        #expect(notices.notices.isEmpty, "the new workspace is already selected")
     }
 
-    @Test func successKeepsTheTypedLabelInTheNotification() {
+    @Test func successWithUnavailableSelectionFallsBackToTheMachinesList() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator(selectWorkspace: { _, _ in false })
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let workspaceID = UUID()
+
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n", workspaceID: workspaceID)
+
+        #expect(notices.notices.count == 1)
+        #expect(notices.notices[0].workspaceID == workspaceID)
+        #expect(notices.notices[0].body == "Find it in the Machines list.")
+    }
+
+    @Test func successKeepsTheTypedLabelInTheFinishedOperation() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
         #expect(notices.notices.first?.title == "build box is ready")
-        #expect(notices.notices.first?.workspaceID == nil)
+        #expect(notices.notices.first?.body == "Find it in the Machines list.")
     }
 
-    @Test func baseSuccessIsAnnouncedAsBase() {
+    @Test func baseSuccessDoesNotPostANotification() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         let workspaceID = UUID()
         coordinator.start(Self.baseRequest(workspaceID: workspaceID), launch: launches.launch)
         launches.complete(status: 0, output: "Opened Base base-1\n", workspaceID: workspaceID)
-        #expect(notices.notices.first?.title == "Base is ready")
-        #expect(notices.notices.first?.workspaceID == workspaceID)
+        #expect(notices.notices.isEmpty, "base setup selected its workspace")
     }
 
     @Test func reservedMachineCompletesWithoutAnExtraSuccessNotification() {
-        let (coordinator, launches, notices, _, _) = makeCoordinator()
+        let (coordinator, launches, notices, _, _) = makeCoordinator(selectWorkspace: { _, _ in false })
         let workspaceID = UUID()
         coordinator.start(Self.newMachineRequest().targetingReservedWorkspace(workspaceID), launch: launches.launch)
         launches.complete(status: 0, output: "OK machine=vm-internal-id", workspaceID: workspaceID, machineID: "vm-internal-id")
@@ -334,7 +337,6 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.title == "Couldn't create machine")
         #expect(notice?.body.hasPrefix("Cloud VM temporarily unavailable") == true)
 
-        // Retry relaunches the same invocation and the row runs again.
         #expect(coordinator.retry(id))
         #expect(launches.arguments.count == 2)
         #expect(launches.arguments[1] == launches.arguments[0])
@@ -342,7 +344,7 @@ struct MachineCreateCoordinatorTests {
 
         launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
         #expect(coordinator.operations.isEmpty)
-        #expect(notices.notices.count == 2)
+        #expect(notices.notices.count == 2, "retry success remains visible when no workspace was selected")
     }
 
     @Test func emptyFailureOutputGetsAGenericMessage() {
@@ -389,8 +391,6 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.cancellations == 1, "Cancel terminates the in-flight CLI")
         #expect(cleanedMachineIDs == ["calm-petrel"], "A machine announced before cancellation is destroyed")
 
-        // A process can report its final bytes after the row is gone. They must not
-        // recreate the row or post a misleading success notification.
         launches.completions[0](CloudVMActionLauncher.Completion(
             terminationStatus: 0,
             output: "OK machine=calm-petrel",
