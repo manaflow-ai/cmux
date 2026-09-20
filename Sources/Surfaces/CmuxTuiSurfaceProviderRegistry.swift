@@ -167,9 +167,11 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let self, self.accessEpoch == epoch else { return }
                 self.creationEpoch = UUID()
                 if notification.userInfo?["cmux.teamSwitch"] as? Bool == true {
-                    let pendingIDs = self.pendingMachineCreationIDs
-                    self.pendingMachineCreationIDs.removeAll()
-                    for id in pendingIDs { self.catalog?.unregister(machine: .cloud(id)) }
+                    // Team switches synchronously revoke the old scope. The
+                    // scope observer will later await full transport teardown,
+                    // but no old discovery or provider refresh may publish in
+                    // the interval before that await completes.
+                    self.invalidateAccess()
                     return
                 }
                 Task { @MainActor in await self.accessDidEnd(epoch: epoch) }
@@ -504,7 +506,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         await accessDidEnd()
     }
 
-    func accessDidEnd() async {
+    /// Synchronous publication fence shared by team switching and full teardown.
+    private func invalidateAccess() {
         isRetired = true
         accessEpoch &+= 1
         creationEpoch = UUID()
@@ -518,15 +521,19 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight = nil
         featureResumeTask?.cancel()
         featureResumeTask = nil
+        // Suspend before unregistering so terminal callbacks cannot race a
+        // catalog removal during account teardown.
+        for provider in providers.values { provider.suspendForFeatureFlag() }
+        let retiredIDs = Set(providers.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
+        for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
+    }
+
+    func accessDidEnd() async {
+        invalidateAccess()
         let suspension = featureSuspensionTask
         featureSuspensionTask = nil
         isFeatureSuspended = false
         let retiringProviders = providers
-        // Suspend before unregistering so terminal callbacks cannot race a
-        // catalog removal during account teardown.
-        for provider in retiringProviders.values { provider.suspendForFeatureFlag() }
-        let retiredIDs = Set(retiringProviders.keys).union(catalog?.machines.keys.compactMap(\.cloudMachineID) ?? [])
-        for id in retiredIDs { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         let teardowns = Array(machineTeardowns.values)
         machineTeardowns.removeAll()

@@ -107,9 +107,46 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(catalog.machines.isEmpty)
         registry.recordCreatedMachine(machine("late-old-team"), scope: oldScope)
         #expect(catalog.machines.isEmpty)
+        #expect(registry.creationScope == nil)
+        #expect(await registry.refresh(force: true) == false)
+        await registry.accessDidEnd()
+        registry.start(catalog: catalog)
         registry.recordCreatedMachine(machine("new-team"), scope: registry.creationScope)
         #expect(await registry.refresh(force: true))
         #expect(Set(catalog.machines.keys) == [.cloud("new-team")])
+        await registry.accessDidEnd()
+    }
+
+    @Test("Team switch fences an in-flight discovery before its old page can publish")
+    func teamSwitchFencesInFlightDiscovery() async throws {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let notifications = NotificationCenter()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                if lists == 1 { return VMListPage(vms: [machine("known-old-team-vm")], limits: nil) }
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("old-team-vm")], limits: nil)
+            },
+            notificationCenter: notifications
+        )
+        registry.start(catalog: catalog)
+        let provider = try #require(await registry.providerRefreshingIfMissing(machineID: "known-old-team-vm"))
+        let generation = provider.currentLifecycleGeneration
+        let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "old-team-vm") }
+        #expect(await boundedResult(requested))
+        notifications.post(name: .cmuxCloudVMAccessDidEnd, object: nil, userInfo: ["cmux.teamSwitch": true])
+        #expect(!provider.isCurrentLifecycleGeneration(generation))
+        #expect(!provider.isRegisteredInCatalog())
+        release.resolve(true)
+        #expect(await discovery.value == nil)
+        #expect(catalog.machines.isEmpty)
         await registry.accessDidEnd()
     }
 
