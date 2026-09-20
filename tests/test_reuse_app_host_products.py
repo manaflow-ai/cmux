@@ -192,6 +192,35 @@ class ReuseProducts(TestProductHandoff):
             self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
+    def test_packer_rejects_runner_files_outside_build_roots(self):
+        outside = self.producer.parent / 'runner-private.txt'
+        outside.write_text('not a build product')
+        products = self.producer / 'Build/Products'
+        for index, target in enumerate((str(outside), os.path.relpath(outside, products))):
+            with self.subTest(target=target):
+                link = products / f'escape-{index}'
+                link.symlink_to(target)
+                result = subprocess.run([str(reuse.ARCHIVER), 'pack', str(self.producer),
+                                         str(self.producer.parent / 'rejected.aar')],
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(link.is_symlink(), 'reject before mutating products')
+                link.unlink()
+
+    def test_packer_checks_links_inside_materialized_directories(self):
+        outside = self.producer.parent / 'runner-private.txt'
+        outside.write_text('not a build product')
+        build_input = self.producer / 'Build/Intermediates.noindex/Frameworks'
+        build_input.mkdir(parents=True)
+        (build_input / 'escape').symlink_to(outside)
+        link = self.producer / 'Build/Products/PackageFrameworks'
+        link.symlink_to(build_input)
+        result = subprocess.run([str(reuse.ARCHIVER), 'pack', str(self.producer),
+                                 str(self.producer.parent / 'rejected.aar')],
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(link.is_symlink(), 'reject before mutating products')
+
     def test_framework_links_survive_reuse(self):
         framework = self.producer / 'Build/Products/Debug/Sample.framework'
         (framework / 'Versions/A').mkdir(parents=True)
