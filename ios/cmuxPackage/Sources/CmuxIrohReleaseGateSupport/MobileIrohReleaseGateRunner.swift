@@ -152,6 +152,7 @@ final class MobileIrohReleaseGateRunner {
         let diagnosticReport: @MainActor () async -> DiagnosticReport
         let writeReport: @MainActor (Report, URL) throws -> Void
         let postReportReady: @MainActor () -> Void
+        let settleReadiness: @MainActor () async throws -> Void
         let timeout: Duration
 
         init(
@@ -164,6 +165,7 @@ final class MobileIrohReleaseGateRunner {
             diagnosticReport: @escaping @MainActor () async -> DiagnosticReport = { .empty },
             writeReport: @escaping @MainActor (Report, URL) throws -> Void,
             postReportReady: @escaping @MainActor () -> Void,
+            settleReadiness: @escaping @MainActor () async throws -> Void = {},
             timeout: Duration
         ) {
             self.readinessUpdates = readinessUpdates
@@ -172,6 +174,7 @@ final class MobileIrohReleaseGateRunner {
             self.diagnosticReport = diagnosticReport
             self.writeReport = writeReport
             self.postReportReady = postReportReady
+            self.settleReadiness = settleReadiness
             self.timeout = timeout
         }
     }
@@ -203,6 +206,9 @@ final class MobileIrohReleaseGateRunner {
         self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
+            settleReadiness: {
+                try await ContinuousClock().sleep(for: .milliseconds(500))
+            },
             runProbe: { store, marker in
                 if let soakRunner {
                     guard let identity = store.irohSoakUIIdentity() else {
@@ -406,10 +412,19 @@ final class MobileIrohReleaseGateRunner {
             }
             readyObservations += 1
             if readyObservations < Self.requiredReadyObservations {
-                // Observation's next turn is the causal settling boundary for
-                // the second readiness sample. Do not replace it with a fixed
-                // wall-clock sleep that rewards a transient ready state.
-                await Task.yield()
+                // Require the connection to remain ready across a real
+                // settling interval before starting transport work. This
+                // interval is injected in tests and is excluded from UI
+                // latency measurements.
+                do {
+                    try await dependencies.settleReadiness()
+                } catch {
+                    return Self.failureReport(
+                        mode: configuration.mode,
+                        scenario: configuration.scenario,
+                        failure: .timeout
+                    )
+                }
             }
         }
         progress = .running

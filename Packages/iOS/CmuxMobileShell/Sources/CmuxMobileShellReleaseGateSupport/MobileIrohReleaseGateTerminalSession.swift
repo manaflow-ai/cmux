@@ -3,18 +3,6 @@ public import Foundation
 public import CmuxMobileShell
 public import CmuxMobileShellModel
 
-/// The same terminal delivery boundary used by the mounted iOS renderer.
-@MainActor
-public protocol MobileIrohReleaseGateTerminalClient: AnyObject {
-    func terminalOutputStream(surfaceID: String, ownerID: UUID?) -> AsyncStream<MobileTerminalOutputChunk>
-    func isTerminalOutputConsumerOwner(surfaceID: String, ownerID: UUID) -> Bool
-    func clearTerminalOutputConsumerOwner(surfaceID: String, ownerID: UUID)
-    func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
-    func submitTerminalRawInput(_ data: Data, surfaceID: String) async
-}
-
-extension MobileShellComposite: MobileIrohReleaseGateTerminalClient {}
-
 /// Owns one mounted terminal consumer throughout a soak. A command must not
 /// remount its terminal and download the entire scrollback again. Switching
 /// surfaces and the soak's explicit reconnect still create a fresh consumer.
@@ -34,12 +22,14 @@ public final class MobileIrohReleaseGateTerminalSession {
     private var state = State.idle
     private var pending: Pending?
 
+    /// Creates a session backed by the mounted terminal client.
     public init(client: any MobileIrohReleaseGateTerminalClient) { self.client = client }
 
     deinit {
         if case let .reading(_, _, task) = state { task.cancel() }
     }
 
+    /// Cancels the current reader and releases its output ownership.
     public func reset() {
         let previous = state
         state = .idle
@@ -51,6 +41,7 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
     }
 
+    /// Writes a marker and waits for it through the one owned output reader.
     public func verify(surfaceID: String, marker: String) async throws {
         try Task.checkCancellation()
         guard pending == nil else { throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed }

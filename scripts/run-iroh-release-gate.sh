@@ -759,19 +759,55 @@ fi
 # from the already-recorded latency.
 if [[ -n "$SOAK_PROFILE" ]]; then
   UI_CAPTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-iroh-ui-${TAG}.XXXXXX")"
-  SIMULATOR_ID="$SIMULATOR_ID" UI_CAPTURE_DIR="$UI_CAPTURE_DIR" /usr/bin/python3 <<'PY_CAPTURE' &
+  UI_CAPTURE_READY_FIFO="$UI_CAPTURE_DIR/listener-ready.fifo"
+  mkfifo "$UI_CAPTURE_READY_FIFO"
+  SIMULATOR_ID="$SIMULATOR_ID" UI_CAPTURE_DIR="$UI_CAPTURE_DIR" UI_CAPTURE_READY_FIFO="$UI_CAPTURE_READY_FIFO" /usr/bin/python3 <<'PY_CAPTURE' &
 import os
+import select
 import signal
 import subprocess
+import time
 
 def interrupted(*_):
     raise SystemExit(143)
 
 signal.signal(signal.SIGTERM, interrupted)
 base = ["xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"], "notifyutil"]
-waiter = subprocess.Popen(base + ["-1", "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"],
-                          stdout=subprocess.DEVNULL)
+target = "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"
+listener_ready = "dev.cmux.ios.iroh-release-gate.listener-ready"
+waiter = subprocess.Popen(
+    base + ["-1", listener_ready, "-1", target],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.DEVNULL,
+    text=True,
+    bufsize=1,
+)
 try:
+    # notifyutil has no registration acknowledgement. Register a private
+    # handshake key first, post it until the listener reports it, then let the
+    # utility advance to the real terminal key. The FIFO wakes the shell only
+    # after that causal registration step, so launch cannot beat the listener.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if waiter.poll() is not None:
+            raise SystemExit("terminal evidence listener exited before registration")
+        subprocess.run(base + ["-p", listener_ready], check=True,
+                       timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        readable, _, _ = select.select([waiter.stdout], [], [], 0.2)
+        if readable:
+            line = waiter.stdout.readline() if waiter.stdout is not None else ""
+            if listener_ready in line:
+                try:
+                    fd = os.open(os.environ["UI_CAPTURE_READY_FIFO"], os.O_WRONLY | os.O_NONBLOCK)
+                    os.write(fd, b"ready\n")
+                    os.close(fd)
+                except OSError as error:
+                    raise SystemExit(f"listener readiness handshake failed: {error}")
+                break
+        if waiter.poll() is not None:
+            raise SystemExit("terminal evidence listener exited before registration")
+    else:
+        raise SystemExit("terminal evidence listener registration timed out")
     if waiter.wait(timeout=240) != 0:
         raise SystemExit("terminal evidence listener failed")
     subprocess.run(["xcrun", "simctl", "io", os.environ["SIMULATOR_ID"], "screenshot",
@@ -780,11 +816,32 @@ try:
     subprocess.run(base + ["-p", "dev.cmux.ios.iroh-release-gate.ui-terminal-captured"],
                    check=True, timeout=5)
 finally:
+    try:
+        fd = os.open(os.environ["UI_CAPTURE_READY_FIFO"], os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, b"failed\n")
+        os.close(fd)
+    except OSError:
+        pass
     if waiter.poll() is None:
         waiter.terminate()
         waiter.wait(timeout=5)
 PY_CAPTURE
   UI_CAPTURE_WAITER_PID=$!
+  exec 9<>"$UI_CAPTURE_READY_FIFO"
+  if ! IFS= read -r -t 15 -u 9 listener_status; then
+    kill "$UI_CAPTURE_WAITER_PID" 2>/dev/null || true
+    wait "$UI_CAPTURE_WAITER_PID" 2>/dev/null || true
+    exec 9>&-
+    rm -f "$UI_CAPTURE_READY_FIFO"
+    echo "error: terminal evidence listener did not become ready" >&2
+    exit 1
+  fi
+  exec 9>&-
+  rm -f "$UI_CAPTURE_READY_FIFO"
+  [[ "$listener_status" == ready ]] || {
+    echo "error: terminal evidence listener failed to register" >&2
+    exit 1
+  }
 fi
 
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \

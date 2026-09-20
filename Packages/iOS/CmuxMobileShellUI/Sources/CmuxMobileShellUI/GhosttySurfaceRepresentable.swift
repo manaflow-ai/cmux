@@ -211,6 +211,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
+        var releaseGateSawNonblankFrame = false
         #endif
         let workspaceID: String
         let surfaceID: String
@@ -414,6 +415,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
+            #if DEBUG
+            releaseGateSawNonblankFrame = false
+            #endif
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
             outputConsumerRestartTask?.cancel()
@@ -627,9 +631,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
+                            let containsText: Bool
+                            if self.releaseGateSawNonblankFrame {
+                                containsText = true
+                            } else {
+                                containsText = frame.rowSpans.contains { span in
+                                    span.text.contains { !$0.isWhitespace }
+                                }
+                                if containsText {
+                                    self.releaseGateSawNonblankFrame = true
+                                }
+                            }
                             self.releaseGateUIProbe?.recordTerminalFrame(
                                 surfaceID: surfaceID,
-                                containsText: frame.plainRows().contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                                containsText: containsText
                             )
                             #endif
                             store.terminalOutputDidProcess(

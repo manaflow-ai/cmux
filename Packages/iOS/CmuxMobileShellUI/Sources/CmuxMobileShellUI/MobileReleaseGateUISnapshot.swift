@@ -7,6 +7,7 @@ import notify
 public struct MobileReleaseGateUISnapshot {
     private let timeoutClock: any Clock<Duration>
 
+    /// Creates a compositor evidence coordinator.
     public init(timeoutClock: any Clock<Duration> = ContinuousClock()) {
         self.timeoutClock = timeoutClock
     }
@@ -14,6 +15,7 @@ public struct MobileReleaseGateUISnapshot {
     /// UIKit hierarchy snapshots omit Ghostty's IOSurface pixels. Ask the
     /// simulator driver for a composited screen capture, then allow navigation
     /// back. The latency was already recorded at the presentation boundary.
+    /// Requests and waits for a simulator-composited terminal screenshot.
     public func captureTerminal() async throws {
         let ready = "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"
         let captured = "dev.cmux.ios.iroh-release-gate.ui-terminal-captured"

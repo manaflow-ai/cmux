@@ -11,11 +11,13 @@ private struct MobileReleaseGateSnapshotterKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    /// The debug release-gate screenshot coordinator.
     public var releaseGateSnapshotter: MobileReleaseGateUISnapshot? {
         get { self[MobileReleaseGateSnapshotterKey.self] }
         set { self[MobileReleaseGateSnapshotterKey.self] = newValue }
     }
 
+    /// The debug release-gate UI recorder.
     public var releaseGateUIProbe: MobileReleaseGateUIProbe? {
         get { self[MobileReleaseGateUIProbeKey.self] }
         set { self[MobileReleaseGateUIProbeKey.self] = newValue }
