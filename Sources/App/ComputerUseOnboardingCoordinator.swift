@@ -27,6 +27,9 @@ final class ComputerUseOnboardingCoordinator {
     /// cannot repeatedly raise the window; Settings can always resume the flow.
     @discardableResult
     func requestFromToolInvocation(onboarding: ComputerUseOnboardingStore) -> Bool {
+        if case .disabled(onboardingComplete: false) = onboarding.phase {
+            onboarding.apply(.setEnabled(true))
+        }
         guard onboarding.phase == .onboardingRequired else { return false }
         onboarding.apply(.onboardingPresented)
         presenter(.overview)

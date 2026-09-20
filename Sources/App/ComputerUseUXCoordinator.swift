@@ -334,20 +334,18 @@ final class ComputerUseUXCoordinator {
            let surfaceID = event.surfaceId.flatMap(UUID.init(uuidString:)),
            ownsSurface(surfaceID, event.workspaceId.flatMap(UUID.init(uuidString:))),
            runtimeService.acceptsNewLaunches {
-            if !runtimeService.desiredEnabled {
-                // An explicit functional request is the opt-in. Persist it
-                // before reconciling the runtime so the settings stream cannot
-                // immediately turn the helper back off after presentation.
-                try? await configStore.set(true, for: enabledKey)
-                await runtimeService.setEnabled(true)
-            }
-            guard runtimeService.desiredEnabled else { return }
             // The live terminal registry establishes ownership immediately.
             // Agent process indexing may lag the first hook and is needed only
             // for session/cursor bookkeeping, never for permission presentation.
-            ensureOnboardingCoordinator().requestFromToolInvocation(
+            let presented = ensureOnboardingCoordinator().requestFromToolInvocation(
                 onboarding: runtimeService.onboarding
             )
+            if presented && !runtimeService.desiredEnabled {
+                // An explicit functional request is the opt-in. Persist it
+                // after presenting so the window is never delayed by config I/O.
+                try? await configStore.set(true, for: enabledKey)
+                await runtimeService.setEnabled(true)
+            }
         }
         let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
