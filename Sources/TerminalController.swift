@@ -6466,6 +6466,11 @@ class TerminalController {
             )
         }
 
+        // Computer Use first-use onboarding consumes the authenticated hook
+        // boundary directly. Feed acceptance remains authoritative for Feed
+        // state, but zero-wait Codex telemetry must not delay this notification
+        // behind the coalesced delivery lane.
+        NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
         return v2IngestFeedEvent(
             event,
             waitTimeout: waitTimeout,
