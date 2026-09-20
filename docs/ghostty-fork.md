@@ -1676,8 +1676,8 @@ tend to conflict together during rebases.
   - Stores the keyboard copy cursor as a tracked screen pin, preserving logical
     cell identity across PTY output, reset, reflow, scrolling, and alternate
     screen transitions.
-  - The pending `issue-12789-copy-mode-wheel` change makes that tracked cursor
-    own wheel navigation too. `Surface.scrollCallback` must bypass application
+  - The tracked copy cursor owns wheel navigation too.
+    `Surface.scrollCallback` bypasses application
     mouse reports, selection clearing, and alternate-screen arrow emulation
     while Copy Mode is active. It preserves the application's DEC modes and
     Ghostty's configured delta scaling; leaving Copy Mode restores normal
