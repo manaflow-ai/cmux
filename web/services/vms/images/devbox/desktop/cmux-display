@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""Guest-owned display catalog and supervisor; invoked by the desktop service.
+
+The existing :1 desktop remains owned by start-vnc.sh. Additional records each
+own an X server, session bus, window manager and noVNC listener. The control
+socket is local to this guest and only accessible to its work user.
+"""
+import argparse
+import fcntl
+import http.client
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import socketserver
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+
+MAX_DISPLAYS = 16
+STARTER = "/usr/local/bin/start-vnc.sh"
+
+
+def descriptor(number, state="running"):
+    return {"id": f"display:{number}", "number": number,
+            "port": 6900 + number, "state": state}
+
+
+def listening(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def ready(number):
+    """A bound HTTP port alone does not prove that an X/RFB server exists."""
+    try:
+        with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
+            version = b""
+            while len(version) < 12:
+                part = rfb.recv(12 - len(version))
+                if not part:
+                    return False
+                version += part
+            if not version.startswith(b"RFB "):
+                return False
+        connection = http.client.HTTPConnection("127.0.0.1", 6900 + number, timeout=0.5)
+        try:
+            connection.request("HEAD", "/vnc.html")
+            return connection.getresponse().status == 200
+        finally:
+            connection.close()
+    except (OSError, http.client.HTTPException):
+        return False
+
+
+class DisplayCatalog:
+    """Serializes allocation and persists request receipts before starting work."""
+
+    def __init__(self, directory, occupied=None):
+        self.directory = Path(directory)
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.path = self.directory / "catalog.json"
+        self.lock = threading.RLock()
+        self.occupied = occupied or (lambda n: Path(f"/tmp/.X11-unix/X{n}").exists()
+                                     or listening(5900 + n) or listening(6900 + n))
+        self.records = []
+        if self.path.exists():
+            data = json.loads(self.path.read_text())
+            if data.get("version") != 1:
+                raise ValueError("unsupported display catalog version")
+            seen_numbers, seen_requests = set(), set()
+            for record in data["displays"]:
+                number, request = record["number"], record["request"]
+                if type(number) is not int or not 2 <= number <= MAX_DISPLAYS:
+                    raise ValueError("invalid display number")
+                if str(uuid.UUID(request)) != request or number in seen_numbers or request in seen_requests:
+                    raise ValueError("invalid display identity")
+                seen_numbers.add(number)
+                seen_requests.add(request)
+                self.records.append({"number": number, "request": request})
+
+    def numbers(self):
+        with self.lock:
+            return sorted(record["number"] for record in self.records)
+
+    def allocate(self, request):
+        if not isinstance(request, str) or str(uuid.UUID(request)) != request:
+            raise ValueError("invalid request identity")
+        with self.lock:
+            for record in self.records:
+                if record["request"] == request:
+                    return record["number"]
+            used = set(self.numbers())
+            number = next((n for n in range(2, MAX_DISPLAYS + 1)
+                           if n not in used and not self.occupied(n)), None)
+            if number is None:
+                raise ValueError("display capacity exhausted")
+            records = self.records + [{"number": number, "request": request}]
+            fd, temporary = tempfile.mkstemp(prefix="catalog-", dir=self.directory)
+            try:
+                with os.fdopen(fd, "w") as output:
+                    json.dump({"version": 1, "displays": records}, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            self.records = records
+            return number
+
+
+class DisplayService:
+    def __init__(self, catalog, runtime, starter=STARTER):
+        self.catalog = catalog
+        self.runtime = Path(runtime)
+        self.starter = starter
+        self.lock = threading.Lock()
+        self.jobs = {}
+        self.states = {}
+        self.shutdown = threading.Event()
+
+    def start(self, number):
+        with self.lock:
+            if number in self.jobs:
+                return self.jobs[number]
+            finished = threading.Event()
+            self.jobs[number] = finished
+            self.states[number] = "launching"
+            threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
+            return finished
+
+    def supervise(self, number, finished):
+        runtime = self.runtime / str(number)
+        runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+        environment = dict(os.environ, DISPLAY=f":{number}", CMUX_DESKTOP_RUNTIME_DIR=str(runtime))
+        # Each display starts a separate session bus; it must not inherit :1's.
+        for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
+                    "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
+            environment.pop(key, None)
+        while not self.shutdown.is_set():
+            try:
+                subprocess.run(["bash", self.starter], env=environment, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=50, check=True)
+                state = "running" if ready(number) else "unavailable"
+            except (OSError, subprocess.SubprocessError):
+                state = "unavailable"
+            with self.lock:
+                self.states[number] = state
+            finished.set()
+            # This is supervision, not readiness: a failed listener is reported
+            # immediately, and the next pass heals only this display's processes.
+            self.shutdown.wait(30)
+
+    def snapshot(self):
+        with self.lock:
+            return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
+                    "displays": [descriptor(1, "running" if ready(1) else "unavailable")]
+                    + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
+
+    def handle(self, request):
+        if request.get("action") == "list":
+            return self.snapshot()
+        if request.get("action") != "create":
+            raise ValueError("unsupported display action")
+        number = self.catalog.allocate(request.get("request"))
+        self.start(number).wait(55)
+        result = self.snapshot()
+        result["created"] = f"display:{number}"
+        if self.states.get(number) != "running":
+            result["error"] = "display_start_failed"
+        return result
+
+
+def serve(runtime):
+    runtime = Path(runtime)
+    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (runtime / "display-control.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        if not all(shutil.which(name) for name in ("websockify", "openbox", "dbus-launch")):
+            raise ValueError("display runtime unavailable")
+        if not (shutil.which("Xvnc") or shutil.which("Xtigervnc")):
+            raise ValueError("display runtime unavailable")
+        service = DisplayService(DisplayCatalog(Path.home() / ".cmux" / "displays"), runtime / "displays")
+        for number in service.catalog.numbers():
+            service.start(number)
+        path = runtime / "display-control.sock"
+        if path.exists():
+            path.unlink()
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self):
+                self.connection.settimeout(60)
+                try:
+                    raw = self.rfile.readline(4097)
+                    if len(raw) > 4096:
+                        raise ValueError("display request too large")
+                    result = service.handle(json.loads(raw))
+                except (ValueError, KeyError, TypeError, OSError):
+                    result = {"error": "display_request_failed"}
+                try:
+                    self.wfile.write(json.dumps(result).encode() + b"\n")
+                except OSError:
+                    pass  # The persisted receipt remains replayable after disconnect.
+
+        class Server(socketserver.ThreadingUnixStreamServer):
+            daemon_threads = True
+
+        previous_umask = os.umask(0o077)
+        try:
+            with Server(str(path), Handler) as server:
+                os.umask(previous_umask)
+                server.serve_forever()
+        finally:
+            os.umask(previous_umask)
+            service.shutdown.set()
+            path.unlink(missing_ok=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=["list", "create", "serve"])
+    parser.add_argument("--request-id")
+    args = parser.parse_args()
+    runtime = os.environ.get("CMUX_DESKTOP_RUNTIME_DIR", "/run/cmux-desktop")
+    if args.action == "serve":
+        serve(runtime)
+        return 0
+    if args.action == "create" and not args.request_id:
+        parser.error("create requires --request-id (retain it when retrying)")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(60)
+            client.connect(str(Path(runtime) / "display-control.sock"))
+            client.sendall(json.dumps({"action": args.action, "request": args.request_id}).encode() + b"\n")
+            with client.makefile("rb") as stream:
+                result = json.loads(stream.readline(65536))
+    except (OSError, ValueError):
+        result = {"error": "display_runtime_unavailable"}
+    print(json.dumps(result))
+    return 1 if "error" in result else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

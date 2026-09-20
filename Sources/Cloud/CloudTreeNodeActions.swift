@@ -47,6 +47,7 @@ struct CloudTreeNodeActions {
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
+    var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
     var openRemoteTerminal: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ resource: SurfaceResourceID, _ view: SurfaceRemoteView?, _ openIn: UUID?) -> Void = { _, _, _, _, _ in }
@@ -157,10 +158,11 @@ struct CloudTreeNodeActions {
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
+                let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
-                        into: try destination(placement),
+                        into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view
@@ -404,6 +406,12 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
+        actions.newDisplay = { machine in
+            let target = Result { try destination(.split) }
+            run(String(format: String(localized: "cloud.display.creating", defaultValue: "Creating a display on %@…"), machineName(machine))) { catalog in
+                try await catalog.createDisplay(on: machine, into: target.get())
+            }
+        }
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,

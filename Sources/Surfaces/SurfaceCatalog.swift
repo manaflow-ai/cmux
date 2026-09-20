@@ -635,6 +635,7 @@ final class SurfaceCatalog {
             // showing another tab of the same terminal.
             return resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID
         }) {
+            try validateOwnership(of: [id], at: .workspace(id: existing.workspaceID, placement: .tab))
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             let resolved = attachRemoteView(resolvedRemoteView, to: existing)
             if resource.kind != .terminal,
@@ -672,6 +673,10 @@ final class SurfaceCatalog {
                     self.cancelInFlightProjectWaiter(materializationKey, waiterID: waiterID)
                 }
             }
+            do { try validateOwnership(of: [id], at: destination) } catch {
+                cancelCompletedMaterialization(materializationKey, waiterID: waiterID)
+                throw error
+            }
             return try finalizeMaterializationWaiter(
                 key: materializationKey,
                 id: id,
@@ -682,6 +687,7 @@ final class SurfaceCatalog {
         }
 
         let projection = try await provider.materializeValidated(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
+        try validateMaterializationOwnership(projection, provider: provider)
         guard !Task.isCancelled, providers[id.machine] === provider,
               !isDeletingCloudResource(id, remoteWorkspaceID: resolvedRemoteView?.workspace.id) else {
             provider.discardMaterialization(projection)
@@ -739,6 +745,7 @@ final class SurfaceCatalog {
                 do {
                     try self?.validateOwnership(of: [id], at: destination)
                     let projection = try await provider.materializeValidated(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
+                    try self?.validateMaterializationOwnership(projection, provider: provider)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .failure(error))
@@ -1302,6 +1309,8 @@ final class SurfaceCatalog {
     /// after the link reconnects); local resources are re-registered by the local provider
     /// with the same panel-derived key, so they resolve immediately.
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
+        do { try validateOwnership(of: records.map(\.resource), at: .workspace(id: workspaceID, placement: .tab)) }
+        catch { return }
         for record in records {
             if resources[record.resource] != nil {
                 pendingRestoredProjections.remove(panelID: record.panelID)
@@ -1319,29 +1328,6 @@ final class SurfaceCatalog {
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         notifyChange()
-    }
-
-    func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
-        var records = projections
-            .filter { $0.workspaceID == workspaceID }
-            .map {
-                SurfaceProjectionRecord(
-                    panelID: $0.panelID,
-                    resource: $0.resource,
-                    remoteWorkspaceID: $0.remoteWorkspaceID,
-                    remoteTabID: $0.remoteTabID
-                )
-            }
-        pendingRestoredProjections.mergeRecords(into: &records, for: workspaceID)
-        return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
-    }
-
-    /// Cloud machine IDs referenced by restored panes that are waiting for a
-    /// provider to report their resources. The registry uses these IDs during
-    /// stale-machine reconciliation so a deleted ID cannot attach old panes
-    /// when a different machine later receives the same ID.
-    var pendingRestoredMachineIDs: Set<String> {
-        Set(pendingRestoredProjections.machineIDs.compactMap { $0.cloudMachineID })
     }
 
     /// Returns whether at least one resource is currently published for a machine.
@@ -1364,7 +1350,8 @@ final class SurfaceCatalog {
         var resolvedWorkspaceIDs = Set<UUID>()
         let resolved = pendingRestoredProjections.takeResolvable(
             machine: machine,
-            availableResources: Set(resources.keys)
+            availableResources: Set(resources.keys),
+            isAllowed: canRestoreProjection
         )
         for projection in resolved {
             insertSupersedingLocalPlaceholder(projection)

@@ -14,6 +14,79 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudDesktopAccessTests {
+    @Test("Route readiness drives cold open and cached retry without a SwiftUI phase update")
+    func automaticallyNavigatesAfterRouteReadiness() async throws {
+        let ready = CloudLinkFirstValue<Bool>()
+        var starts = 0
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in
+                _ = await ready.result
+                starts += 1
+                return 46901
+            }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        var navigations: [URL] = []
+        state.automaticallyNavigate { navigations.append($0) }
+        model.connect()
+        #expect(navigations.isEmpty, "A slow route cannot invent a completed navigation")
+        ready.resolve(true)
+        #expect(await wait { navigations.count == 1 })
+        let url = try #require(navigations.first)
+        state.didCommit(url: url)
+        state.didFinish(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        state.retry()
+        #expect(await wait { starts == 2 && navigations.count == 2 })
+        #expect(navigations[1] == url)
+        state.leave()
+        model.retry()
+        #expect(await wait { starts == 3 })
+        #expect(navigations.count == 2, "A retired document cannot navigate after leaving Cloud")
+        await model.retire()
+    }
+
+    @Test("A finished noVNC page without RFB readiness reaches a retryable deadline")
+    func desktopReadinessDeadline() async throws {
+        let clock = CloudCommandDeadlineClock()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState(clock: clock)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        await clock.waitUntilSleeping()
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.didFinish(url: url)
+        clock.advance(by: .seconds(46))
+        #expect(await wait { state.showsFailureAlert })
+        #expect(!state.desktopConnected)
+        state.retry()
+        #expect(state.failureMessage == nil)
+        state.leave()
+        await model.retire()
+    }
+
+    @Test("A cancelled old navigation cannot cancel a newer display attempt")
+    func cancellationUsesNavigationIdentity() async throws {
+        let old = NSObject(), current = NSObject()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didStart(url: url, navigationID: ObjectIdentifier(current))
+        state.didCancel(navigationID: ObjectIdentifier(old))
+        #expect(state.error == nil)
+        state.didCancel(navigationID: ObjectIdentifier(current))
+        #expect(state.error != nil && !state.showsPage)
+        state.leave()
+        await model.retire()
+    }
+
     @Test("A connected noVNC document is ready even before WebKit's finish callback", arguments: [6901, 6902])
     func desktopConnectionCompletesReadiness(port: Int) async throws {
         let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: port), coordinator: nil,

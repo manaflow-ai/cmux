@@ -1,6 +1,10 @@
 import Foundation
 import CmuxCore
+import CmuxFoundation
 import Observation
+import OSLog
+
+private let cloudDisplayLogger = Logger(subsystem: "com.cmuxterm.app", category: "CloudDisplayConnection")
 
 /// Browser-owned navigation state, separate from the shared VM-port choice.
 /// Failed loads keep the native connection controls visible in the same pane.
@@ -8,6 +12,7 @@ import Observation
 @Observable
 final class CloudBrowserAccessState {
     var model: CloudPortAccessModel?
+    private(set) var resourceID: SurfaceResourceID?
     private(set) var remoteURL: URL?
     private(set) var navigationURL: URL?
     private(set) var hasCommittedNavigation = false
@@ -17,6 +22,56 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    private(set) var desktopConnected = false
+    @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
+    @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
+    @ObservationIgnored private var observationGeneration: UInt64 = 0
+    private var activeNavigationID: ObjectIdentifier?
+    @ObservationIgnored private let logID = UUID().uuidString
+    @ObservationIgnored private var attempt = 0
+
+    init(clock: any Clock<Duration> = ContinuousClock()) {
+        connectionDeadline = MainActorDeferredActionScheduler(clock: clock)
+    }
+
+    /// Route readiness belongs to the browser, including while its SwiftUI host
+    /// is hidden. Observe the current value again after every transition so a
+    /// cached retry cannot lose a connecting → ready change to view coalescing.
+    func automaticallyNavigate(_ action: @escaping @MainActor (URL) -> Void) {
+        navigate = action
+        observeRoute()
+    }
+
+    func routeDidConfigure() { observeRoute() }
+    func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }
+
+    private func observeRoute() {
+        observationGeneration &+= 1
+        let generation = observationGeneration
+        guard let model, navigate != nil else { return }
+        withObservationTracking {
+            _ = model.phase
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.observationGeneration == generation else { return }
+                self.observeRoute()
+            }
+        }
+        if let url = nextURL() { navigate?(url) }
+    }
+
+    private func trace(_ event: String) {
+        cloudDisplayLogger.debug("Display state: id=\(self.logID, privacy: .public) attempt=\(self.attempt) event=\(event, privacy: .public) ready=\(self.model?.isReady == true) committed=\(self.hasCommittedNavigation) loaded=\(self.loaded) connected=\(self.desktopConnected)")
+    }
+
+    private func startDeadline() {
+        guard isDesktop else { return }
+        connectionDeadline.schedule(after: .seconds(45)) { [weak self] in
+            guard let self, self.isDesktop, !self.desktopConnected, self.failureMessage == nil else { return }
+            self.desktopFailure = String(localized: "cloud.display.connectionTimedOut", defaultValue: "The Cloud display did not connect within 45 seconds. Retry to reconnect.")
+            self.trace("deadline")
+        }
+    }
 
     func showUnavailable(_ message: String) {
         leave()
@@ -31,7 +86,7 @@ final class CloudBrowserAccessState {
     var isPreparingDocument: Bool { model != nil && !loaded && failureMessage == nil }
 
     var isDesktop: Bool {
-        model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
+        (resourceID?.kind == .display && remoteURL == nil) || (model != nil && remoteURL?.path == "/vnc.html")
     }
 
     var failureMessage: String? {
@@ -52,11 +107,25 @@ final class CloudBrowserAccessState {
         guard isDesktop, hasCommittedNavigation,
               let navigationURL, url == navigationURL else { return }
         if isConnected {
+            connectionDeadline.cancel()
+            loaded = true
+            error = nil
             desktopFailure = nil
             dismissedFailure = nil
         } else {
+            connectionDeadline.cancel()
             desktopFailure = String(localized: "cloud.portAccess.desktopDisconnected", defaultValue: "The Cloud desktop connection failed. Retry to reconnect to the machine.")
         }
+        desktopConnected = isConnected
+        trace(isConnected ? "rfb_connected" : "rfb_failed")
+    }
+
+    func desktopConnectionIsConnecting(url: URL) {
+        guard isDesktop, hasCommittedNavigation, url == navigationURL else { return }
+        desktopConnected = false
+        desktopFailure = nil
+        dismissedFailure = nil
+        startDeadline()
     }
 
     /// Persist the service identity; the local listener only lives for this app run.
@@ -79,8 +148,10 @@ final class CloudBrowserAccessState {
         return remoteURL
     }
 
-    func configure(model: CloudPortAccessModel, url: URL) {
+    func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+        observationGeneration &+= 1
         unavailable = nil
+        if let resourceID { self.resourceID = resourceID }
         self.model = model
         remoteURL = url
         navigationURL = nil
@@ -89,10 +160,21 @@ final class CloudBrowserAccessState {
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
+        desktopConnected = false
+        activeNavigationID = nil
+        connectionDeadline.cancel()
+        startDeadline()
+        attempt += 1
+        trace("configured")
     }
 
     func nextURL() -> URL? {
         guard let remoteURL, let url = model?.url(for: remoteURL) else {
+            if navigationURL != nil {
+                hasCommittedNavigation = false
+                desktopConnected = false
+                startDeadline()
+            }
             navigationURL = nil
             loaded = false
             return nil
@@ -102,19 +184,25 @@ final class CloudBrowserAccessState {
         hasCommittedNavigation = false
         error = nil
         loaded = false
+        trace("route_ready")
         return url
     }
 
-    func didStart(url: URL?) {
+    func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
         guard let url, owns(url), navigationURL != nil else { return }
+        activeNavigationID = navigationID
         hasCommittedNavigation = false
         loaded = false
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
+        desktopConnected = false
+        startDeadline()
+        trace("navigation_started")
     }
 
-    func didCommit(url: URL?) {
+    func didCommit(url: URL?, navigationID: ObjectIdentifier? = nil) {
+        guard navigationID == nil || navigationID == activeNavigationID else { return }
         guard let url, navigationURL != nil else { return }
         guard owns(url) else {
             if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { leave() }
@@ -125,28 +213,47 @@ final class CloudBrowserAccessState {
             navigationURL = url
         }
         hasCommittedNavigation = true
+        trace("navigation_committed")
     }
 
     func didFinish(url: URL?) {
-        guard let url, navigationURL != nil, hasCommittedNavigation, url.scheme != "about", error == nil else { return }
+        guard let url, navigationURL != nil, hasCommittedNavigation, owns(url), url.scheme != "about", error == nil else { return }
         loaded = true
         error = nil
+        trace("navigation_finished")
     }
 
-    func didFail(url: URL?, message: String) {
+    func didFail(url: URL?, message: String, navigationID: ObjectIdentifier? = nil) {
+        guard navigationID == nil || navigationID == activeNavigationID else { return }
         guard let url, navigationURL != nil, owns(url) else { return }
         loaded = false
         error = message
+        connectionDeadline.cancel()
+        trace("navigation_failed")
+    }
+
+    func didCancel(navigationID: ObjectIdentifier? = nil) {
+        guard model != nil, !loaded, navigationURL != nil,
+              navigationID == nil || navigationID == activeNavigationID else { return }
+        connectionDeadline.cancel()
+        error = String(localized: "cloud.display.connectionCancelled", defaultValue: "The Cloud page connection was cancelled. Retry to connect.")
+        trace("navigation_cancelled")
     }
 
     func retry() {
+        attempt += 1
+        trace("retry")
         navigationURL = nil
         hasCommittedNavigation = false
         loaded = false
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
+        desktopConnected = false
+        activeNavigationID = nil
+        startDeadline()
         model?.retry()
+        observeRoute()
     }
 
     func owns(_ url: URL) -> Bool {
@@ -166,6 +273,12 @@ final class CloudBrowserAccessState {
     }
 
     func leave() {
+        observationGeneration &+= 1
+        navigate = nil
+        connectionDeadline.cancel()
+        desktopConnected = false
+        activeNavigationID = nil
+        hasCommittedNavigation = false
         unavailable = nil
         model = nil
         remoteURL = nil

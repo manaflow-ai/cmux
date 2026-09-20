@@ -44,6 +44,26 @@ extension SurfaceCatalog {
            let rejection = ownershipRejection(for: resources, policy: policy) { throw rejection }
     }
 
+    /// Provider work may suspend. Check the live destination again before its
+    /// receipt can enter the catalog, and retire only the just-created view.
+    func validateMaterializationOwnership(_ projection: SurfaceProjection, provider: any SurfaceProvider) throws {
+        do {
+            try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
+        } catch {
+            provider.discardMaterialization(projection)
+            throw error
+        }
+    }
+
+    func canRestoreProjection(_ projection: SurfaceProjection) -> Bool {
+        do {
+            try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func ownershipRejection(for resources: [SurfaceResourceID], policy: SurfaceOwnershipPolicy) -> SurfaceTransferRejection? {
         guard policy.cloudMachine != nil else { return nil }
         return policy.rejection(for: resources.map(machineOwningResource))

@@ -15,6 +15,11 @@ CMUX_DESKTOP_RUNTIME_DIR="${CMUX_DESKTOP_RUNTIME_DIR:-/run/cmux-desktop}"
 export CMUX_DESKTOP_RUNTIME_DIR
 mkdir -p "$HOME/.config/google-chrome" 2>/dev/null
 touch "$HOME/.config/google-chrome/First Run" 2>/dev/null
+# One guest-owned control socket creates and restores independent displays.
+# Old images without the capability retain their existing desktop unchanged.
+if [ -x /usr/local/bin/cmux-display ]; then
+  /usr/local/bin/cmux-display serve >>"$CMUX_DESKTOP_RUNTIME_DIR/display-control.log" 2>&1 &
+fi
 while true; do
   bash /usr/local/bin/start-vnc.sh || true
   sleep 30

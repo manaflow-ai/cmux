@@ -1778,17 +1778,9 @@ struct CmuxTuiSnapshotParser: Sendable {
             lifecycle: .running,
             agent: nil,
             remoteWorkspace: nil,
-            port: desktopPort,
+            port: key == SurfaceResourceID.desktopDisplayKey ? desktopPort : nil,
             url: directURL
         )
-    }
-
-    /// The machine's display list after a snapshot: a display the daemon's workspaces point
-    /// at (carrying its views) replaces the bare pool entry of the same id; every other
-    /// resource passes through. Pure, so the provider's refresh stays a straight line.
-    static func mergingDisplays(pool: [SurfaceResource], parsed: [SurfaceResource]) -> [SurfaceResource] {
-        let pointed = Set(parsed.filter { $0.kind == .display }.map(\.id))
-        return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
     /// A forwarded port, shown as a browser resource. `directURL`, when

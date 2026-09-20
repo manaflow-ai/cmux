@@ -45,7 +45,7 @@ struct CloudTreeRowContentView: View {
             CloudTreeLocalMachineRowContent(row: row, style: style)
         case .terminalsPool(_, let count):
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count, style: style)
-        case .displaysPool(_, let count):
+        case .displaysPool(_, let count, _):
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count, style: style)
         case .workspacesGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"), count: nil, style: style)
@@ -424,8 +424,12 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(machine, nil)
             }
-        case .displaysPool:
-            EmptyView()
+        case .displaysPool(let machine, _, let canCreate):
+            plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
+                nodeActions.newDisplay(machine)
+            }
+            .disabled(!canCreate)
+            .help(canCreate ? String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display") : CloudGuestDisplaySnapshot.unavailableMessage)
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)

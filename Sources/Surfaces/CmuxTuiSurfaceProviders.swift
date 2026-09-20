@@ -27,6 +27,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
     let portAccessStore: CloudPortAccessStore
+    let displayCoordinator: CloudDisplayCoordinator
     let browserPolicy: @MainActor () -> BrowserURLAllowlistPolicy
     /// Invalidates suspended work when this provider is stopped or replaced.
     var isFeatureSuspended = false
@@ -118,6 +119,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
+        displayCoordinator: CloudDisplayCoordinator? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
         machineID = summary.id
@@ -128,6 +130,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.browserPolicy = browserPolicy
+        self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
+            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
+        }
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
     }
@@ -170,6 +176,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     func suspendForFeatureFlag() {
         isFeatureSuspended = true
+        displayCoordinator.stop()
         guestURLService?.stop()
         guestURLService = nil
         lifecycleGeneration &+= 1
@@ -243,7 +250,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let resources: [SurfaceResource]
             if let cloudState {
                 let parsed = CmuxTuiSnapshotParser.mergingDisplays(
-                    pool: hasDesktop ? [desktopDisplayResource()] : [],
+                    pool: hasDesktop ? displayResources : [],
                     parsed: CmuxTuiSnapshotParser.resources(from: cloudState)
                 ) + Self.portResources(
                     machine: machine,
@@ -253,7 +260,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 )
                 resources = resourcesWithPendingCreations(parsed, state: cloudState)
             } else {
-                var fallback = hasDesktop ? [desktopDisplayResource()] : []
+                var fallback = hasDesktop ? displayResources : []
                 fallback.append(contentsOf: Self.portResources(
                     machine: machine,
                     scannedPorts: scannedPorts,
@@ -275,7 +282,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // connect must not leave the desktop unopenable. Opening it forwards the
         // private noVNC port over the user-space hub (`materializeBrowserPane`).
         if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
-            catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
+            catalog.replaceResources(displayResources, on: machine, info: info, from: self)
         }
         async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
@@ -392,7 +399,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             syncNotifications(from: cloudState)
         } else {
             let resources = resourcesWithPendingCreations(
-                hasDesktop ? [desktopDisplayResource()] : [],
+                hasDesktop ? displayResources : [],
                 state: nil
             )
             var fallback = resources
@@ -559,7 +566,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var pool: [SurfaceResource] = []
         // The control plane's resolved kind is authoritative. Freestyle snapshot
         if summary.resolvedKind.hasDesktop {
-            pool.append(desktopDisplayResource())
+            pool.append(contentsOf: displayResources)
         }
         var resources = CmuxTuiSnapshotParser.mergingDisplays(
             pool: pool,
@@ -601,9 +608,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var resources = CmuxTuiSnapshotParser.resources(from: state, matching: affected)
         resources = resourcesWithPendingCreations(resources, state: state)
         if summary.resolvedKind.hasDesktop,
-           affected.contains(SurfaceResourceID(machine: machine, kind: .display, key: "display:1")) {
+           affected.contains(where: { $0.kind == .display }) {
             resources = CmuxTuiSnapshotParser.mergingDisplays(
-                pool: [desktopDisplayResource()],
+                pool: displayResources.filter { affected.contains($0.id) },
                 parsed: resources
             )
         }
@@ -1259,25 +1266,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             : "\(machineID):\(port)"
     }
 
-    /// The desktop row. Its URL is the machine's private noVNC address, so opening it
-    /// never needs a provider preview endpoint; nil until the machine has an address.
-    private func desktopDisplayResource() -> SurfaceResource {
-        CmuxTuiSnapshotParser.display(
-            machine: machine,
-            directURL: summary.preferredPrivateAddress.map { Self.privateDesktopURL(privateAddress: $0) }
-        )
-    }
-
-    /// The noVNC URL uses only the VM private address. The private network is
-    /// the access check, so no public preview token or endpoint is required.
-    nonisolated static func privateDesktopURL(privateAddress: String) -> String {
-        let base = CmuxInternalHostnames.directPortURL(
-            privateAddress: privateAddress,
-            port: CmuxTuiSnapshotParser.desktopPort
-        )
-        return "\(base)/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
-    }
-
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
@@ -1302,7 +1290,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var updated = resource
         switch resource.kind {
         case .display:
-            updated.url = privateDesktopURL(privateAddress: privateAddress)
+            updated.url = resource.port.map { privateDesktopURL(privateAddress: privateAddress, port: $0) }
         case .browser:
             if resource.id.key.hasPrefix("port:"), let port = resource.port {
                 updated.url = CmuxInternalHostnames.directPortURL(
