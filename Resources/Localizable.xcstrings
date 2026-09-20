@@ -361,55 +361,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another hook configuration needs attention."
+            "value": "An existing hook file is not managed by cmux. Move it aside, then check status again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eine andere Hook-Konfiguration erfordert Aufmerksamkeit."
+            "value": "Eine vorhandene Hook-Datei wird nicht von cmux verwaltet. Verschiebe sie und prüfe den Status erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une autre configuration de hooks nécessite votre attention."
+            "value": "Un fichier de hooks existant n’est pas géré par cmux. Déplacez-le, puis vérifiez à nouveau l’état."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحتاج تهيئة خطافات أخرى إلى الانتباه."
+            "value": "يوجد ملف خطافات لا يديره cmux. انقله إلى مكان آخر، ثم تحقق من الحالة مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otra configuración de hooks requiere atención."
+            "value": "Hay un archivo de hooks que cmux no administra. Muévelo a otra ubicación y vuelve a comprobar el estado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一個掛鉤設定需要處理。"
+            "value": "現有掛鉤檔案不由 cmux 管理。請將其移至其他位置，然後重新檢查狀態。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一个钩子配置需要处理。"
+            "value": "现有钩子文件不由 cmux 管理。请将其移至其他位置，然后重新检查状态。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 훅 설정을 확인해야 합니다."
+            "value": "기존 훅 파일은 cmux에서 관리하지 않습니다. 다른 위치로 옮긴 다음 상태를 다시 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "別のフック設定を確認する必要があります。"
+            "value": "既存のフックファイルは cmux の管理対象ではありません。別の場所に移動してから、もう一度状態を確認してください。"
           }
         }
       }
@@ -420,55 +420,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hook installation is unavailable."
+            "value": "Could not read hook status. Open Instructions to check the hook file, then check status again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Hook-Installation ist nicht verfügbar."
+            "value": "Der Hook-Status konnte nicht gelesen werden. Öffne die Anleitung, prüfe die Hook-Datei und prüfe den Status erneut."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’installation des hooks est indisponible."
+            "value": "Impossible de lire l’état des hooks. Ouvrez les instructions pour vérifier le fichier des hooks, puis vérifiez à nouveau l’état."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت الخطافات غير متاح."
+            "value": "تعذرت قراءة حالة الخطافات. افتح التعليمات للتحقق من ملف الخطافات، ثم تحقق من الحالة مرة أخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La instalación de hooks no está disponible."
+            "value": "No se pudo leer el estado de los hooks. Abre las instrucciones para revisar el archivo de hooks y vuelve a comprobar el estado."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法使用掛鉤安裝。"
+            "value": "無法讀取掛鉤狀態。開啟安裝說明以檢查掛鉤檔案，然後重新檢查狀態。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "钩子安装不可用。"
+            "value": "无法读取钩子状态。打开安装说明以检查钩子文件，然后重新检查状态。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "훅 설치를 사용할 수 없습니다."
+            "value": "훅 상태를 읽을 수 없습니다. 안내를 열어 훅 파일을 확인한 다음 상태를 다시 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックのインストールは利用できません。"
+            "value": "フックの状態を読み取れませんでした。「手順」を開いてフックファイルを確認し、もう一度状態を確認してください。"
           }
         }
       }
@@ -307871,7 +307871,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يثبّت cmux خطافات Amp ويحدّثها تلقائيًا في طرفيات cmux. ولا تنفّذ أي إجراء خارج طرفيات cmux. عند تعطيلها، تظل إضافة Amp المثبّتة غير نشطة دون الحاجة إلى إزالتها."
+            "value": "تعمل الخطافات في طرفيات cmux فقط. يؤدي إيقاف هذا التكامل إلى إبقاء الخطافات المثبتة غير نشطة."
           }
         },
         "bs": {
@@ -307889,25 +307889,25 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installiert und aktualisiert Amp-Hooks automatisch in cmux-Terminals. Außerhalb von cmux-Terminals bleiben sie ohne Wirkung. Wenn die Integration deaktiviert ist, bleibt das installierte Amp-Plugin inaktiv und muss nicht entfernt werden."
+            "value": "Hooks laufen nur in cmux-Terminals. Wenn du diese Integration deaktivierst, bleiben die installierten Hooks inaktiv."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installs and refreshes Amp hooks automatically in cmux terminals. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
+            "value": "Hooks run only in cmux terminals. Turning this integration off keeps the installed hooks inactive."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux instala y actualiza automáticamente los hooks de Amp en los terminales de cmux. Fuera de los terminales de cmux, no hacen nada. Al desactivarlos, el plugin de Amp instalado permanece inactivo sin necesidad de eliminarlo."
+            "value": "Los hooks solo se ejecutan en terminales cmux. Al desactivar esta integración, los hooks instalados quedan inactivos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installe et actualise automatiquement les hooks Amp dans les terminaux cmux. Ils restent sans effet en dehors des terminaux cmux. Lorsque cette option est désactivée, le plugin Amp installé reste inactif sans qu’il soit nécessaire de le supprimer."
+            "value": "Les hooks s’exécutent uniquement dans les terminaux cmux. Désactiver cette intégration laisse les hooks installés inactifs."
           }
         },
         "it": {
@@ -307919,7 +307919,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxターミナルでは、cmuxがAmpフックを自動的にインストールして更新します。cmuxターミナル外では動作しません。無効にすると、インストール済みのAmpプラグインは削除しなくても停止状態になります。"
+            "value": "フックは cmux のターミナル内でのみ動作します。この連携をオフにすると、インストール済みのフックは動作しなくなります。"
           }
         },
         "km": {
@@ -307931,7 +307931,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 터미널에서는 cmux가 Amp 훅을 자동으로 설치하고 갱신합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인을 제거하지 않아도 비활성 상태로 유지됩니다."
+            "value": "훅은 cmux 터미널에서만 실행됩니다. 이 통합을 끄면 설치된 훅이 비활성 상태로 유지됩니다."
           }
         },
         "nb": {
@@ -307979,13 +307979,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会在 cmux 终端中自动安装并刷新 Amp 钩子。这些钩子在 cmux 终端之外不会执行任何操作。禁用后，已安装的 Amp 插件会保持非活动状态，无需将其移除。"
+            "value": "钩子仅在 cmux 终端中运行。关闭此集成后，已安装的钩子将保持停用状态。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會在 cmux 終端機中自動安裝並更新 Amp 掛鉤。這些掛鉤在 cmux 終端機之外不會執行任何動作。停用後，已安裝的 Amp 外掛程式會維持非作用中狀態，無須將其移除。"
+            "value": "掛鉤僅在 cmux 終端機中執行。關閉此整合後，已安裝的掛鉤將保持停用狀態。"
           }
         }
       }
@@ -528465,6 +528465,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "24 GB メモリ"
+          }
+        }
+      }
+    },
+    "settings.automation.integration.checkStatus.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Hook Status"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook-Status prüfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier l’état des hooks"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar el estado de los hooks"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحقق من حالة الخطافات"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックの状態を確認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "훅 상태 확인"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查钩子状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查掛鉤狀態"
           }
         }
       }

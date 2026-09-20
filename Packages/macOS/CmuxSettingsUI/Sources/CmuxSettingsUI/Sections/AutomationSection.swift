@@ -26,7 +26,12 @@ public struct AutomationSection: View {
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var ampInstallState: AgentIntegrationInstallState = .checking
     @State private var ampActionInFlight = false
-    @State private var ampPendingAction: AgentIntegrationInstallAction?
+    @State private var ampPendingRequest: AmpRequest?
+    @FocusState private var ampFocusedRequest: AmpRequest?
+    private enum AmpRequest: Hashable {
+        case checkStatus
+        case action(AgentIntegrationInstallAction)
+    }
     @State private var ampActionMessage: String?
     @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var socketPasswordDraft: String = ""
@@ -402,6 +407,7 @@ public struct AutomationSection: View {
             isEnabled: ampModel.current,
             installState: ampInstallState
         )
+        let isBusy = ampActionInFlight || ampInstallState == .checking
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.ampIntegration"),
@@ -414,6 +420,7 @@ public struct AutomationSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAmpHooksToggle")
+                    .accessibilityLabel(String(localized: "settings.automation.amp", defaultValue: "Amp Integration"))
             }
             SettingsCardDivider()
             SettingsCardRow(
@@ -423,19 +430,31 @@ public struct AutomationSection: View {
                 HStack(spacing: 8) {
                     ForEach(presentation.availableActions, id: \.self) { action in
                         Button(ampActionTitle(action)) {
-                            guard !ampActionInFlight else { return }
-                            ampActionInFlight = true
-                            ampActionMessage = nil
-                            ampPendingAction = action
+                            beginAmpRequest(.action(action))
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(ampActionInFlight)
+                        .disabled(isBusy)
+                        .accessibilityIdentifier("SettingsAmpAction.\(action.rawValue)")
+                        .focused($ampFocusedRequest, equals: .action(action))
                     }
+                    Button {
+                        beginAmpRequest(.checkStatus)
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isBusy)
+                    .accessibilityLabel(String(localized: "settings.automation.integration.checkStatus.action", defaultValue: "Check Hook Status"))
+                    .help(String(localized: "settings.automation.integration.checkStatus.action", defaultValue: "Check Hook Status"))
+                    .accessibilityIdentifier("SettingsAmpCheckStatus")
+                    .focused($ampFocusedRequest, equals: .checkStatus)
                 }
             }
-            if ampActionInFlight {
+            if isBusy {
                 ProgressView()
+                    .accessibilityLabel(String(localized: "settings.automation.integration.install.status", defaultValue: "Hook installation"))
                     .controlSize(.small)
                     .padding(.horizontal, 14)
             }
@@ -446,15 +465,15 @@ public struct AutomationSection: View {
                     .padding(.horizontal, 14)
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."))
+            SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "Hooks run only in cmux terminals. Turning this integration off keeps the installed hooks inactive."))
         }
         .task { await refreshAmpInstallState() }
-        .task(id: ampPendingAction) {
-            guard let action = ampPendingAction else { return }
-            await performAmpAction(action)
+        .task(id: ampPendingRequest) {
+            guard let request = ampPendingRequest else { return }
+            await performAmpRequest(request)
         }
         .onDisappear {
-            ampPendingAction = nil
+            ampPendingRequest = nil
             ampActionInFlight = false
         }
     }
@@ -462,12 +481,19 @@ public struct AutomationSection: View {
     private func ampInstallSubtitle(_ state: AgentIntegrationDisplayState) -> String {
         switch state {
         case .checking: return String(localized: "settings.automation.integration.install.checking", defaultValue: "Checking hook status…")
-        case .disabled: return String(localized: "settings.automation.integration.install.disabled", defaultValue: "Integration is disabled.")
+        case .disabled:
+            let disabled = String(localized: "settings.automation.integration.install.disabled", defaultValue: "Integration is disabled.")
+            switch ampInstallState {
+            case .missing: return disabled + " " + ampInstallSubtitle(.missing)
+            case .installed: return disabled + " " + ampInstallSubtitle(.installed)
+            case .stale: return disabled + " " + ampInstallSubtitle(.stale)
+            default: return disabled
+            }
         case .missing: return String(localized: "settings.automation.integration.install.missing", defaultValue: "Hooks are missing.")
         case .installed: return String(localized: "settings.automation.integration.install.installed", defaultValue: "Hooks are installed and current.")
         case .stale: return String(localized: "settings.automation.integration.install.stale", defaultValue: "Hooks are out of date or broken.")
-        case .conflict: return String(localized: "settings.automation.integration.install.conflict", defaultValue: "Another hook configuration needs attention.")
-        case .unavailable: return String(localized: "settings.automation.integration.install.unavailable", defaultValue: "Hook installation is unavailable.")
+        case .conflict: return String(localized: "settings.automation.integration.install.conflict", defaultValue: "An existing hook file is not managed by cmux. Move it aside, then check status again.")
+        case .unavailable: return String(localized: "settings.automation.integration.install.unavailable", defaultValue: "Could not read hook status. Open Instructions to check the hook file, then check status again.")
         }
     }
 
@@ -486,18 +512,35 @@ public struct AutomationSection: View {
         ampInstallState = state
     }
 
-    private func performAmpAction(_ action: AgentIntegrationInstallAction) async {
+    private func beginAmpRequest(_ request: AmpRequest) {
+        guard !ampActionInFlight, ampInstallState != .checking else { return }
+        ampActionInFlight = true
+        ampActionMessage = nil
+        ampPendingRequest = request
+    }
+
+    private func performAmpRequest(_ request: AmpRequest) async {
         guard !Task.isCancelled else { return }
-        let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
-        guard !Task.isCancelled else { return }
-        if result.succeeded {
-            await refreshAmpInstallState()
-        } else {
-            ampActionMessage = result.message
+        if case .action(let action) = request {
+            let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
+            guard !Task.isCancelled else { return }
+            if !result.succeeded {
+                ampActionMessage = result.message
+            }
         }
+        // Reconcile even on failure: the hook file may have changed since the
+        // previous check. A failed install must not leave a stale Install button.
+        let state = await hostActions.agentIntegrationInstallState(.amp)
         guard !Task.isCancelled else { return }
+        let keepsFocusInCard = ampFocusedRequest == request
+        ampInstallState = state
         ampActionInFlight = false
-        ampPendingAction = nil
+        ampPendingRequest = nil
+        if keepsFocusInCard {
+            // The installer action can disappear after success. Keep keyboard
+            // focus on a stable control without taking it from another row.
+            ampFocusedRequest = .checkStatus
+        }
     }
 
     @ViewBuilder

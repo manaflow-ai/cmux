@@ -44,14 +44,32 @@ extension CMUXCLI {
             .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
     }
 
-    static func ampExtensionInstallState(existing: String) -> String {
-        if existing.isEmpty { return "missing" }
+    /// Only an absent file is installable. Read failures and dangling links must
+    /// never become empty content that the installer can replace.
+    private static func ampExtensionContents(at url: URL) throws -> String? {
+        do {
+            return try String(contentsOf: url, encoding: .utf8)
+        } catch let readError as CocoaError where readError.code == .fileReadNoSuchFile {
+            do {
+                _ = try FileManager.default.attributesOfItem(atPath: url.path)
+            } catch let attributesError as CocoaError
+                where attributesError.code == .fileReadNoSuchFile || attributesError.code == .fileNoSuchFile {
+                return nil
+            }
+            // lstat-style attributes can still find a dangling symlink even
+            // when reading its target reported that the file does not exist.
+            throw readError
+        }
+    }
+
+    static func ampExtensionInstallState(existing: String?) -> String {
+        guard let existing else { return "missing" }
         if existing == ampExtensionSource { return "installed" }
         if existing.contains(ampExtensionMarker) { return "stale" }
         return "conflict"
     }
 
-    private func printAmpExtensionStatusJSON(path: String, existing: String) throws {
+    private func printAmpExtensionStatusJSON(path: String, existing: String?) throws {
         let payload: [String: String] = [
             "integration": "amp",
             "state": Self.ampExtensionInstallState(existing: existing),
@@ -68,7 +86,7 @@ extension CMUXCLI {
         let extensionURL = ampExtensionURL(for: def)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
-        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        let existing = try Self.ampExtensionContents(at: extensionURL)
         if ProcessInfo.processInfo.arguments.contains("--status-json") {
             try printAmpExtensionStatusJSON(path: extensionURL.path, existing: existing)
             return
@@ -83,13 +101,13 @@ extension CMUXCLI {
             ))
             return
         }
-        if !existing.isEmpty, !existing.contains(Self.ampExtensionMarker) {
+        if let existing, !existing.contains(Self.ampExtensionMarker) {
             throw CLIError(message: "\(extensionURL.path) exists and is not a cmux plugin; leaving it alone")
         }
         if !skipConfirm {
             Self.printInstallPreview(
                 path: extensionURL.path,
-                oldContent: existing,
+                oldContent: existing ?? "",
                 newContent: Self.ampExtensionSource,
                 fallbackContent: Self.ampExtensionSource
             )
@@ -110,11 +128,10 @@ extension CMUXCLI {
     func uninstallAmpExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = ampExtensionURL(for: def)
         let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: extensionURL.path) else {
+        guard let existing = try Self.ampExtensionContents(at: extensionURL) else {
             print("No Amp cmux plugin found at \(extensionURL.path)")
             return
         }
-        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
         guard existing.contains(Self.ampExtensionMarker) else {
             print("Refusing to remove \(extensionURL.path): missing cmux marker")
             return
