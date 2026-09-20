@@ -108,7 +108,13 @@ actor CloudTuiPersistentResourceConnection {
                     continuation: continuation, request: request, deadline: deadline,
                     isExpired: { clock.now >= expiresAt }
                 )
-                connection.send(line: encoded + Data([0x0A]))
+                Task { [weak self, connection] in
+                    do {
+                        try await connection.sendChecked(line: encoded + Data([0x0A]))
+                    } catch {
+                        await self?.sendFailed(id, error: error)
+                    }
+                }
             }
         }, onCancel: { [weak self] in
             Task { await self?.retire(id, error: CancellationError()) }
@@ -125,6 +131,21 @@ actor CloudTuiPersistentResourceConnection {
         // Cancellation is request-local, never close siblings' shared socket.
         // A mutation that already committed remains fenced by its original key.
         if !entry.request.raw { sendBestEffort(CloudTuiRequest("request.cancel", ["request_id": id])) }
+    }
+
+    private func sendFailed(_ id: String, error: Error) {
+        let mapped: Error
+        if let sendError = error as? CloudTuiManualIOConnection.CheckedSendError {
+            switch sendError {
+            case .notSent, .bufferFull:
+                mapped = CloudTuiSendError.notSent(error)
+            case .ambiguous:
+                mapped = CloudTuiSendError.ambiguous(error)
+            }
+        } else {
+            mapped = CloudTuiSendError.ambiguous(error)
+        }
+        retire(id, error: mapped)
     }
 
     private func sendBestEffort(_ request: CloudTuiRequest) {

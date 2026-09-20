@@ -173,8 +173,31 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
                     }
                     try await sink.sender.sendTuiCommandAndAwaitAck(arguments: request)
                     self.remoteInputFinished(epoch: epoch)
+                } catch let error as CloudTuiSendError {
+                    let requeueInput: Bool
+                    if case .notSent = error { requeueInput = true } else { requeueInput = false }
+                    self.remoteInputFailed(
+                        epoch: epoch,
+                        input: item,
+                        requeueInput: requeueInput
+                    )
+                    break
+                } catch let error as CloudMachineLink.LinkError {
+                    let requeueInput: Bool
+                    switch error {
+                    case .clientMissing, .spawnFailed, .inputTooLarge:
+                        requeueInput = true
+                    case .timedOut, .exited:
+                        requeueInput = false
+                    }
+                    self.remoteInputFailed(
+                        epoch: epoch,
+                        input: item,
+                        requeueInput: requeueInput
+                    )
+                    break
                 } catch {
-                    self.remoteInputFailed(epoch: epoch, input: item)
+                    self.remoteInputFailed(epoch: epoch, input: item, requeueInput: false)
                     break
                 }
             }
@@ -238,12 +261,19 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         }
     }
 
-    private func remoteInputFailed(epoch: UInt64, input: TerminalManualInput) {
+    private func remoteInputFailed(
+        epoch: UInt64,
+        input: TerminalManualInput,
+        requeueInput: Bool
+    ) {
         state.withLock { state in
             guard !state.discarded, epoch == state.remoteEpoch else { return }
             // The failed request may already have reached the PTY before its
             // acknowledgement was lost. Never replay that item. Retain only
             // the untouched suffix for a fresh authenticated binding.
+            if requeueInput {
+                state.pending.append(input)
+            }
             if !remoteQueueIsEmptyLocked(state) {
                 let suffix = Array(state.remoteQueue[state.remoteQueueHead...])
                 state.pending.append(contentsOf: suffix)

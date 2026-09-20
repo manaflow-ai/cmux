@@ -1,5 +1,10 @@
 import Foundation
 
+enum CloudTuiSendError: Error {
+    case notSent(Error)
+    case ambiguous(Error)
+}
+
 /// The one machine-link operation the attachment resolver depends on: run a
 /// cmux-tui CLI command against the link socket under a bounded deadline.
 ///

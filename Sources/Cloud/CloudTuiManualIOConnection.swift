@@ -12,7 +12,8 @@ import Foundation
 // hand immutable frames back to the single async consumer.
 final class CloudTuiManualIOConnection: @unchecked Sendable {
     enum CheckedSendError: Error {
-        case closed
+        case notSent
+        case ambiguous
         case bufferFull
     }
 
@@ -158,7 +159,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self, line] in
                 guard !closed, descriptor >= 0 else {
-                    continuation.resume(throwing: CheckedSendError.closed)
+                    continuation.resume(throwing: CheckedSendError.notSent)
                     return
                 }
                 guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
@@ -405,7 +406,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         pendingWriteOffset = 0
         pendingWriteBytes = 0
         for continuation in writeContinuations {
-            continuation?.resume(throwing: CheckedSendError.closed)
+            continuation?.resume(throwing: CheckedSendError.ambiguous)
         }
         let descriptorToClose = self.descriptor
         let writeSource = self.writeSource
