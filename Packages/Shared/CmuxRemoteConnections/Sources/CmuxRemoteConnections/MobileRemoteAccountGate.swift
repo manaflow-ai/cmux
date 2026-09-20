@@ -1,3 +1,5 @@
+import Foundation
+
 /// The authenticated cmux account identity supplied by the app auth coordinator.
 ///
 /// This value authorizes an app-level connection attempt only. It does not
