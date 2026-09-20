@@ -403,10 +403,14 @@ extension SocketControlServer {
     /// Applies the access mode's file permissions to the current socket path.
     @discardableResult
     func applySocketPermissions() -> Bool {
-        let (currentSocketPath, mode) = withListenerState { ($0.socketPath, $0.accessMode) }
-        let permissions = mode_t(mode.socketFilePermissions)
-        if chmod(currentSocketPath, permissions) != 0 {
-            let errnoCode = errno
+        let snapshot = listenerStateSnapshot()
+        let currentSocketPath = snapshot.socketPath
+        let permissions = mode_t(snapshot.accessMode.socketFilePermissions)
+        if let errnoCode = SocketPathPermissions.apply(
+            to: currentSocketPath,
+            matching: snapshot.boundSocketPathIdentity,
+            permissions: permissions
+        ) {
             print(
                 "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
             )
