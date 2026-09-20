@@ -273,10 +273,21 @@ final class RemoteTmuxController {
     /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
     /// abort the rest). Applies ``unmirroredSessions(_:host:)`` stable-id de-dup
     /// itself so every bulk entrypoint survives a rename race with raw input.
-    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
-        for session in unmirroredSessions(sessions, host: host) {
+    ///
+    /// `workspaceName` (`cmux ssh-tmux --name`) is cosmetic-only local display
+    /// title, applied to the first newly-mirrored session only — a bulk attach
+    /// can mirror several sessions at once and there is no single unambiguous
+    /// target for a caller-supplied name among them.
+    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager, workspaceName: String? = nil) {
+        for (offset, session) in unmirroredSessions(sessions, host: host).enumerated() {
             do {
-                try mirrorSession(host: host, sessionName: session.name, sessionId: Self.tmuxSessionNumericId(session.id), into: manager)
+                try mirrorSession(
+                    host: host,
+                    sessionName: session.name,
+                    sessionId: Self.tmuxSessionNumericId(session.id),
+                    into: manager,
+                    customTitle: offset == 0 ? workspaceName : nil
+                )
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session failed")
@@ -287,12 +298,17 @@ final class RemoteTmuxController {
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
     /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
+    /// `customTitle`, when non-nil, sets the workspace's local display title
+    /// without propagating to the remote tmux session (`propagateToRemoteTmux:
+    /// false` — see ``TabManager/setCustomTitle(tabId:title:source:propagateToRemoteTmux:propagateToCloud:catalog:)``),
+    /// unlike an interactive rename of an already-mirrored workspace.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        customTitle: String? = nil
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
@@ -350,6 +366,14 @@ final class RemoteTmuxController {
                 workspaceID: workspace.id
             )
         )
+        if let customTitle, !customTitle.isEmpty {
+            tabManager.setCustomTitle(
+                tabId: workspace.id,
+                title: customTitle,
+                source: .user,
+                propagateToRemoteTmux: false
+            )
+        }
         return true
     }
 
