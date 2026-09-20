@@ -638,6 +638,12 @@ final class RemoteTmuxController {
             mirror.detachObserver()
         }
         removeCachedConnection(forKey: key)?.stop()
+        // This workspace is never coming back as a mirror on this host (both
+        // `.sessionEnded` and `.explicitDetach` are authoritative here) — drop
+        // its retention on the host's browser-preview proxy, or a host with no
+        // other mirrors keeps its forward/listener alive until something else
+        // eventually tears the whole host down.
+        browserProxyRegistry.release(workspaceID: workspaceId)
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
         if !hostHasOtherMirrors {
             let hostHasOtherConnections = connectionsByHostSession.values
@@ -691,6 +697,7 @@ final class RemoteTmuxController {
             mirror.detachObserver()
             sessionMirrors.removeValue(forKey: key)
             removeCachedConnection(forKey: key)?.stop()
+            browserProxyRegistry.release(workspaceID: workspaceId)
         }
         // For any host left with no live mirror or connection, close its shared SSH
         // ControlMaster now — the last-session teardown paths already do this, and
