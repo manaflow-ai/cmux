@@ -201,8 +201,8 @@ struct CloudTerminalMutationLifecycleTests {
         var finished = false
         let stop = Task { await registry.accessDidEnd(); finished = true }
         try #require(await cancellation.result == true)
-        #expect(providers.allSatisfy(\.isFeatureSuspended))
-        #expect(active.allSatisfy(\.isCancelled))
+        #expect(providers.allSatisfy { $0.isFeatureSuspended })
+        #expect(active.allSatisfy { $0.isCancelled })
         #expect(providers.allSatisfy { catalog.provider(for: $0.machine) == nil })
         #expect(!finished, "Teardown must join the already-issued command")
         let resuming = CloudLinkFirstValue<Bool>()

@@ -42,7 +42,8 @@ final class CloudTerminalMutationQueue {
         for cancel in cancellations.values { cancel() }
     }
 
-    /// Teardown joins cancelled work before another provider may use this machine's transport.
+    /// Joins local admitted work through its bounded response lifetime.
+    /// Timeout or transport loss leaves the remote outcome unknown; this does not promise rollback.
     func waitForIdle() async {
         await tail?.value
     }

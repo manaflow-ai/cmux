@@ -902,6 +902,8 @@
 		2378B0EA778B49CCB92DB16C /* CloudTerminalMutationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D870ED5A4564CACB9076D0A /* CloudTerminalMutationLifecycleTests.swift */; };
 		C456E44419C541B694BF9421 /* CloudTerminalMutationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 492C126DDA2B4A9984EE0793 /* CloudTerminalMutationQueue.swift */; };
 		4ADF113FC24142ED998C6C16 /* CloudTerminalMutationRetirementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9090F374394C919C7167F3 /* CloudTerminalMutationRetirementTests.swift */; };
+		1414948CB9244AF09AEC702C /* CloudTerminalMutationSocketRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA4ECAEE65C944D489A1F10D /* CloudTerminalMutationSocketRunner.swift */; };
+		A12D2BC4AB714CE0B40293DC /* CloudTerminalMutationSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71EFC80DF0A14843B8F87A25 /* CloudTerminalMutationSocketTests.swift */; };
 		A0385D6EB944431E95F2A932 /* CloudTerminalMutationTestTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7A546300D34EC4BFECBA2D /* CloudTerminalMutationTestTransport.swift */; };
 		BD5C6A44F9B646C29565CF59 /* CloudTerminalOverlayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */; };
 		FA0000000000000000000005 /* CloudTerminalPaneClosure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */; };
@@ -4956,6 +4958,8 @@
 		1D870ED5A4564CACB9076D0A /* CloudTerminalMutationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationLifecycleTests.swift; sourceTree = "<group>"; };
 		492C126DDA2B4A9984EE0793 /* CloudTerminalMutationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationQueue.swift; sourceTree = "<group>"; };
 		7F9090F374394C919C7167F3 /* CloudTerminalMutationRetirementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationRetirementTests.swift; sourceTree = "<group>"; };
+		BA4ECAEE65C944D489A1F10D /* CloudTerminalMutationSocketRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationSocketRunner.swift; sourceTree = "<group>"; };
+		71EFC80DF0A14843B8F87A25 /* CloudTerminalMutationSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationSocketTests.swift; sourceTree = "<group>"; };
 		3B7A546300D34EC4BFECBA2D /* CloudTerminalMutationTestTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalMutationTestTransport.swift; sourceTree = "<group>"; };
 		DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalOverlayCoordinator.swift; sourceTree = "<group>"; };
 		FA0000000000000000000006 /* CloudTerminalPaneClosure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTerminalPaneClosure.swift; sourceTree = "<group>"; };
@@ -10930,6 +10934,8 @@
 				C12537000000000000000310 /* CloudTerminalConnectionPresentationPolicyTests.swift */,
 				C12537000000000000000236 /* CloudTerminalCreationRequestTests.swift */,
 				C12537000000000000000204 /* CloudTerminalLayoutCreationTests.swift */,
+				71EFC80DF0A14843B8F87A25 /* CloudTerminalMutationSocketTests.swift */,
+				BA4ECAEE65C944D489A1F10D /* CloudTerminalMutationSocketRunner.swift */,
 				7F9090F374394C919C7167F3 /* CloudTerminalMutationRetirementTests.swift */,
 				3B7A546300D34EC4BFECBA2D /* CloudTerminalMutationTestTransport.swift */,
 				1D870ED5A4564CACB9076D0A /* CloudTerminalMutationLifecycleTests.swift */,
@@ -15772,6 +15778,8 @@
 				C12537000000000000000203 /* CloudTerminalLayoutCreationTests.swift in Sources */,
 				2378B0EA778B49CCB92DB16C /* CloudTerminalMutationLifecycleTests.swift in Sources */,
 				4ADF113FC24142ED998C6C16 /* CloudTerminalMutationRetirementTests.swift in Sources */,
+				1414948CB9244AF09AEC702C /* CloudTerminalMutationSocketRunner.swift in Sources */,
+				A12D2BC4AB714CE0B40293DC /* CloudTerminalMutationSocketTests.swift in Sources */,
 				A0385D6EB944431E95F2A932 /* CloudTerminalMutationTestTransport.swift in Sources */,
 				FA0000000000000000000003 /* CloudTerminalPaneClosureTests.swift in Sources */,
 				C12537000000000000000311 /* CloudTerminalPaneReservationTests.swift in Sources */,
