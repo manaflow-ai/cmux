@@ -7162,7 +7162,7 @@
 		3B78E9F9B9C233418960CB37 /* SurfacePortEndpointCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfacePortEndpointCache.swift; sourceTree = "<group>"; };
 		7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceProjection+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		ECA8DF56A13E861D787CA4AE /* SurfaceProjectionEndReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProjectionEndReason.swift"; sourceTree = "<group>"; };
-		D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentity+Workspace.swift; sourceTree = "<group>"; };
+		D01324400000000000000005 /* SurfaceProjectionIdentity+Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceProjectionIdentity+Workspace.swift"; sourceTree = "<group>"; };
 		D01324400000000000000001 /* SurfaceProjectionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentity.swift; sourceTree = "<group>"; };
 		D01324400000000000000003 /* SurfaceProjectionIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionIdentityTests.swift; sourceTree = "<group>"; };
 		A9C10D000000000000000001 /* SurfaceProjectionMaterialization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceProjectionMaterialization.swift; sourceTree = "<group>"; };
