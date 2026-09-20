@@ -25,6 +25,14 @@ cmux auth status
 cmux vm ls --json
 cmux vm route --json
 cmux vm tree --json
+```
+
+### Command catalog
+
+These are individual examples, not a sequence to run. VPN and workspace commands
+below can change state; choose only the operation needed for the task.
+
+```bash
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt, capabilities: {ports, …}}], limits: {maxActiveVms, planId, memoryOptionsMb, freeAccessWindowDays, freeAccessExpiresAt}}
