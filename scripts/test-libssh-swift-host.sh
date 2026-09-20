@@ -13,7 +13,15 @@ PY
 fixture_pid=""
 cleanup() { [[ -z "$fixture_pid" ]] || kill "$fixture_pid" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
-uv run --script "$root/tests/ssh_native/fixture.py" --server-only --server-info "$info" > "$RUNNER_TEMP/cmux-native-ssh-fixture.log" 2>&1 &
+if command -v uv >/dev/null 2>&1; then
+  fixture_command=(uv run --script "$root/tests/ssh_native/fixture.py")
+else
+  fixture_venv="$RUNNER_TEMP/cmux-native-ssh-venv"
+  python3 -m venv "$fixture_venv"
+  "$fixture_venv/bin/python" -m pip install --disable-pip-version-check --quiet asyncssh==2.24.0
+  fixture_command=("$fixture_venv/bin/python" "$root/tests/ssh_native/fixture.py")
+fi
+"${fixture_command[@]}" --server-only --server-info "$info" > "$RUNNER_TEMP/cmux-native-ssh-fixture.log" 2>&1 &
 fixture_pid=$!
 for _ in $(seq 1 100); do
   python3 - "$info" <<'PY' >/dev/null 2>&1 && break
