@@ -55,7 +55,7 @@ struct MachinesPanelView: View {
     }
 
     private var includesDevices: Bool {
-        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? true)
+        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? false)
     }
 
     private var includesCloud: Bool {

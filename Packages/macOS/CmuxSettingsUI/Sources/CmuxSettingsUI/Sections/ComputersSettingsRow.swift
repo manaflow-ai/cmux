@@ -3,7 +3,7 @@ import SwiftUI
 struct ComputersSettingsRow: View {
     let computer: ComputersSettingsSnapshot.Computer
     let actions: ComputersSettingsActions
-    var discoveryEnabled = true
+    let discoveryEnabled: Bool
     @State private var confirmingUnpair = false
 
     var body: some View {
