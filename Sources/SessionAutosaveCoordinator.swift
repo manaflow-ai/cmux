@@ -156,7 +156,8 @@ final class SessionAutosaveCoordinator {
 
         let generation = nextProcessDetectedSaveGeneration()
         let task = Task { @MainActor [weak self] in
-            await self?.finish(source: source, generation: generation)
+            guard let self else { return }
+            await self.finish(source: source, generation: generation)
         }
         activeAttempt = ActiveAttempt(generation: generation, task: task)
     }
