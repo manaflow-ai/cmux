@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -466,6 +467,79 @@ class AffectedChecksTests(unittest.TestCase):
                 data = verify.run(repo, [], 5, stream=io.StringIO(), affected="HEAD")
             self.assertEqual(data["outcome"]["status"], "interrupted")
             self.assertIn("affected_input_drift_observed", data["assessment"]["qualifications"])
+
+class AutomaticSelectionTests(unittest.TestCase):
+    def remote_default(self, repo, remote="origin"):
+        subprocess.run(["git", "-C", str(repo), "update-ref",
+                        f"refs/remotes/{remote}/main", "HEAD"], check=True)
+        subprocess.run(["git", "-C", str(repo), "symbolic-ref",
+                        f"refs/remotes/{remote}/HEAD", f"refs/remotes/{remote}/main"], check=True)
+
+    def test_prefers_upstream_default_and_falls_back_to_origin(self):
+        with repo_fixture() as repo:
+            self.remote_default(repo)
+            self.assertEqual(verify.automatic_scope(repo, {})["base_ref"], "refs/remotes/origin/main")
+            self.remote_default(repo, "upstream")
+            self.assertEqual(verify.automatic_scope(repo, {})["base_ref"], "refs/remotes/upstream/main")
+
+    def test_missing_base_and_ci_use_full_static_recipe(self):
+        with repo_fixture() as repo:
+            self.assertEqual(verify.automatic_scope(repo, {})["mode"], "full_fallback")
+            self.remote_default(repo)
+            for env in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"}):
+                self.assertEqual(verify.automatic_scope(repo, env)["mode"], "ci_full")
+            self.assertEqual(verify.automatic_scope(repo, {"CI": "false"})["mode"], "affected")
+
+    def test_stale_remote_default_uses_full_recipe(self):
+        with repo_fixture() as repo:
+            subprocess.run(["git", "-C", str(repo), "symbolic-ref",
+                            "refs/remotes/origin/HEAD", "refs/remotes/origin/missing"], check=True)
+            self.assertEqual(verify.automatic_scope(repo, {})["mode"], "full_fallback")
+
+    def test_plain_command_selects_branch_edits_and_reports_base(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/lint-feature-flags.py").write_text("print('policy ok')")
+            AffectedChecksTests().commit(repo)
+            self.remote_default(repo)
+            (repo / "README.md").write_text("branch documentation")
+            AffectedChecksTests().commit(repo)
+            with patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""}):
+                result = cli(repo, "--receipt", "-")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads(result.stdout)
+            self.assertEqual(data["evidence"]["automatic_selection"]["base_ref"], "refs/remotes/origin/main")
+            self.assertEqual(data["evidence"]["affected_selection"]["paths"], ["README.md"])
+            executions = {e["id"]: e for e in data["evidence"]["executions"]}
+            self.assertEqual(executions["feature-flags"]["status"], "passed")
+            self.assertEqual(executions["swift-syntax"]["status"], "skipped")
+
+    def test_plain_preview_selects_swift_without_running_compiler(self):
+        with repo_fixture() as repo:
+            self.remote_default(repo)
+            (repo / "Sources").mkdir()
+            (repo / "Sources/Changed.swift").write_text("not valid Swift")
+            with patch.dict(os.environ, {"CI": "", "GITHUB_ACTIONS": ""}):
+                result = cli(repo, "--list")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Sources/Changed.swift", result.stdout)
+            self.assertIn("swift-syntax", result.stdout)
+            self.assertNotIn("RUN ", result.stdout)
+
+    def test_all_and_ci_preserve_full_recipe_and_explicit_selection_wins(self):
+        with repo_fixture() as repo:
+            self.remote_default(repo)
+            for args, env in [(("--all", "--list"), {"CI": ""}),
+                              (("--list",), {"GITHUB_ACTIONS": "true"})]:
+                with patch.dict(os.environ, env):
+                    result = cli(repo, *args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("xcstrings:", result.stdout)
+                self.assertIn("project-tests:", result.stdout)
+            result = cli(repo, "--all", "--affected")
+            self.assertEqual(result.returncode, 2)
+            result = cli(repo, "--only", "feature-flags", "--receipt", "-")
+            self.assertNotIn("automatic_selection", json.loads(result.stdout)["evidence"])
+
 
 if __name__ == "__main__":
     unittest.main()
