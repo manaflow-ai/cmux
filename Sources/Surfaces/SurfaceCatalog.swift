@@ -887,22 +887,20 @@ final class SurfaceCatalog {
     private func acknowledgeMaterialization(_ key: MaterializationKey, waiterID: UUID) {
         guard let inFlight = inFlightProjects[key], inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.contains(waiterID) else { return }
-        // One accepted result gives the pane an owner. The other resumed callers no longer need
-        // bookkeeping because their later cancellation must not close a pane this caller owns.
-        inFlight.completionCleanupTask?.cancel()
-        inFlightProjects[key] = nil
+        let projection = inFlight.completedProjection!
+        for completionKey in completionKeys(for: projection) + [key] {
+            inFlightProjects[completionKey]?.completionCleanupTask?.cancel(); inFlightProjects[completionKey] = nil
+        }
     }
 
     private func claimCompletedMaterializationIfNeeded(projection: SurfaceProjection) throws {
-        let matchingKey = inFlightProjects.first { candidateKey, inFlight in
-            guard let completedProjection = inFlight.completedProjection else { return false }
-            return completedProjection.resource == projection.resource
-                && completedProjection.panelID == projection.panelID
-        }?.key
-        guard let matchingKey, let inFlight = inFlightProjects[matchingKey] else { return }
+        guard let matching = inFlightProjects.values.first(where: {
+            $0.completedProjection?.resource == projection.resource && $0.completedProjection?.panelID == projection.panelID
+        }), let completedProjection = matching.completedProjection else { return }
         guard !Task.isCancelled else { throw CancellationError() }
-        inFlight.completionCleanupTask?.cancel()
-        inFlightProjects[matchingKey] = nil
+        for completionKey in completionKeys(for: completedProjection) {
+            inFlightProjects[completionKey]?.completionCleanupTask?.cancel(); inFlightProjects[completionKey] = nil
+        }
     }
 
     private func cancelCompletedMaterialization(_ key: MaterializationKey, waiterID: UUID) {
@@ -912,25 +910,19 @@ final class SurfaceCatalog {
         if inFlight.pendingAcknowledgements.isEmpty {
             inFlightProjects[key] = nil
             inFlight.completionCleanupTask?.cancel()
-            if inFlight.completionOwnsProjection {
-                cleanupRecordedMaterialization(inFlight)
-            }
+            if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
         } else {
             inFlightProjects[key] = inFlight
         }
     }
 
-    /// Handles the defensive empty-set case without retaining a completed operation. Normal
-    /// provider completions always have at least one waiter unless every caller cancelled first.
     private func discardUnclaimedMaterializationIfEmpty(_ key: MaterializationKey) {
         guard let inFlight = inFlightProjects[key],
               inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
-        if inFlight.completionOwnsProjection {
-            cleanupRecordedMaterialization(inFlight)
-        }
+        if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
     }
 
     private func completedMaterializationCleanupTask(key: MaterializationKey, token: UUID) -> Task<Void, Never> {
@@ -947,9 +939,6 @@ final class SurfaceCatalog {
         }
     }
 
-    /// A caller can be dropped without cancellation, so completion bookkeeping needs a bounded
-    /// recovery path. An acknowledged result is removed before this deadline; otherwise the
-    /// operation is treated as unclaimed and any pane owned by it is discarded.
     private func expireCompletedMaterialization(_ key: MaterializationKey, token: UUID) {
         guard let inFlight = inFlightProjects[key],
               inFlight.token == token,
@@ -957,8 +946,14 @@ final class SurfaceCatalog {
               !inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[key] = nil
         inFlight.completionCleanupTask?.cancel()
-        if inFlight.completionOwnsProjection {
-            cleanupRecordedMaterialization(inFlight)
+        if inFlight.completionOwnsProjection, completionKeys(for: inFlight.completedProjection!).isEmpty { cleanupRecordedMaterialization(inFlight) }
+    }
+
+    private func completionKeys(for projection: SurfaceProjection) -> [MaterializationKey] {
+        inFlightProjects.compactMap { key, inFlight in
+            guard let completed = inFlight.completedProjection,
+                  completed.resource == projection.resource, completed.panelID == projection.panelID else { return nil }
+            return key
         }
     }
 
