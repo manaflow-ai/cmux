@@ -14,7 +14,8 @@ enum SocketPathPermissions {
         // Keep the anchor on the socket's filesystem. mkdtemp creates a private
         // 0700 directory, and relative operations use its pinned descriptor.
         let parent = (path as NSString).deletingLastPathComponent
-        var template = Array((parent + "/.cmux-permissions-XXXXXX").utf8CString)
+        let anchorParent = parent.isEmpty ? "." : parent
+        var template = Array((anchorParent + "/.cmux-permissions-XXXXXX").utf8CString)
         guard mkdtemp(&template) != nil else { return errno }
         let directory = String(decoding: template.dropLast().map { UInt8(bitPattern: $0) }, as: UTF8.self)
         defer { _ = rmdir(directory) }
