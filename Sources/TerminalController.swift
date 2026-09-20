@@ -5568,7 +5568,7 @@ class TerminalController {
                         data: ["surface_id": dockSurfaceId.uuidString]
                     ))
                 }
-                guard self.remoteRelayDockReadIsCurrent(
+                guard self.remoteRelayDockTargetIsCurrent(
                     routing: routing,
                     dock: dock,
                     surfaceID: dockSurfaceId

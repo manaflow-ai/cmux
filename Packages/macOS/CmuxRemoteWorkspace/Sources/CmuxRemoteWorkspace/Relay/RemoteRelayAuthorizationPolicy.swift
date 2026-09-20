@@ -20,7 +20,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     public static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
 
     private static let tmuxCompatibleMethods: Set<String> = [
-        "surface.split",
         "surface.close",
         "surface.send_text",
         "surface.report_tty",
@@ -68,13 +67,11 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "surface.split",
         "surface.close",
         "surface.send_text",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
-        "surface.split",
         "surface.close",
         "surface.send_text",
         "surface.report_tty",

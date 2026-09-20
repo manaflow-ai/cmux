@@ -70,7 +70,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
 
         #expect(policy.validate(
-            method: "surface.split",
+            method: "surface.send_text",
             parameters: [
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,
@@ -84,7 +84,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
 
         #expect(policy.validate(
-            method: "surface.split",
+            method: "surface.send_text",
             parameters: [
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,

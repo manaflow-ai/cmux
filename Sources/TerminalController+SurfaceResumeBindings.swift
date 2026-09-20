@@ -111,6 +111,9 @@ extension TerminalController {
                 }
             }
         }
+        guard remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: surfaceID) else {
+            return nil
+        }
         return .dock(tabManager: location.tabManager, dock: dock, surfaceID: surfaceID)
     }
 

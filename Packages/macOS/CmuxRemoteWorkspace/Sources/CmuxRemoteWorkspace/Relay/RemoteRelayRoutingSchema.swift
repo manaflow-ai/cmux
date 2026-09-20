@@ -16,8 +16,6 @@ struct RemoteRelayRoutingSchema {
         case "surface.read_selection": return terminal
         case "surface.close", "surface.clear_git_branch": return surface
         case "surface.send_text": return surface.union(["text"])
-        case "surface.split":
-            return surface.union(["direction", "type", "focus", "initial_divider_position", "remote_tmux_unsupported_options"])
         case "surface.report_tty":
             return surface.union(["tty_name", "terminal_lifecycle_id", "attempt_id"])
         case "surface.report_pwd": return surface.union(["path", "directory"])

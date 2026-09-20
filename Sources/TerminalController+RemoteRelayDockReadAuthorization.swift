@@ -1,11 +1,11 @@
 import CmuxControlSocket
 import Foundation
 
-/// Live ownership gate for a relay read that resolves through a Dock store.
+/// Live ownership gate for a relay target that resolves through a Dock store.
 /// Global/window Docks are local surfaces and can never be remote-relay targets.
 extension TerminalController {
     @MainActor
-    func remoteRelayDockReadIsCurrent(
+    func remoteRelayDockTargetIsCurrent(
         routing: ControlRoutingSelectors,
         dock: DockSplitStore,
         surfaceID: UUID

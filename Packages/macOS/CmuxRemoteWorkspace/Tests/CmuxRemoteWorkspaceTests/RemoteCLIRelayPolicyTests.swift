@@ -317,7 +317,7 @@ struct RemoteCLIRelayPolicyTests {
                 {"id":"c1","method":"surface.split","params":{"workspace_id":"\(workspaceAlias.remote.uuidString)","direction":"right"}}
                 """
             )
-            #expect(split.responseLines.first?["ok"] as? Bool == true)
+            #expect(split.responseLines.first?["ok"] as? Bool == false)
 
             let send = try runPolicyRelayExchange(
                 port: port,
