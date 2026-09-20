@@ -114,7 +114,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         // A replay cannot overwrite names or status already accepted by discovery.
         guard catalog.machines[.cloud(summary.id)] == nil else { return }
         pendingMachineCreationIDs.insert(summary.id)
-        refreshGeneration &+= 1
         catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
             from: summary, linkState: .connecting, linkError: nil, stats: nil
         ))

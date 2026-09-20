@@ -805,6 +805,19 @@ enum CloudTreeNodeBuilder {
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed, opensMachine: true))
             case .connecting:
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
+                // A create receipt is already a stable workspace identity even
+                // while the machine link is connecting. Keep that one pending
+                // row visible so the Cloud tree and local navigator converge at
+                // the same admission boundary.
+                if snapshot.pendingWorkspaceCreations?[machine]?.isEmpty == false {
+                    children.append(workspacesGroupNode(
+                        machine: machine,
+                        info: info,
+                        resources: resources,
+                        snapshot: snapshot,
+                        projectionIndex: projectionIndex
+                    ))
+                }
             case .error:
                 children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
             case .unavailable:

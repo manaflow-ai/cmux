@@ -84,6 +84,33 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         await registry.accessDidEnd()
     }
 
+    @Test("Admitting one machine receipt does not invalidate another machine discovery")
+    func machineReceiptDoesNotCancelConcurrentDiscovery() async throws {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("vm-a")], limits: nil)
+            },
+            refreshProvider: { _, _ in }
+        )
+        registry.start(catalog: catalog)
+        let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-a") }
+        #expect(await boundedResult(requested))
+        registry.recordCreatedMachine(machine("vm-b"), scope: registry.creationScope)
+        release.resolve(true)
+        #expect(await discovery.value != nil)
+        #expect(lists == 1)
+        await registry.accessDidEnd()
+    }
+
     @Test("Pending machine receipts retire on deletion and team changes without affecting another create")
     func pendingMachineReceiptsRespectScopeAndDeletion() async {
         let catalog = SurfaceCatalog()
