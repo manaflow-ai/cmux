@@ -34,6 +34,11 @@ on:
         required: false
         default: false
         type: boolean
+      seed_only:
+        description: Warm the Debug and Release caches only. Never builds or publishes an app artifact.
+        required: false
+        default: false
+        type: boolean
       cold_cache:
         description: Skip the Xcode compilation cache restore so the measurement run is a cache miss. Only honoured with build_only.
         required: false
@@ -56,7 +61,7 @@ concurrency:
   # build-only measurement run publishes nothing, so it gets a group of its own:
   # GitHub cancels the pending run of a group when a newer run queues, and a
   # measurement run must never cancel a pending publish.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name }}-${{ inputs.seed_only && 'cache-seed' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   # Queue concurrent runs instead of canceling them so no build is lost.
   cancel-in-progress: false
 
@@ -104,10 +109,12 @@ jobs:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
+          SEED_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_only && 'true' || 'false' }}
           COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
+            const seedOnly = process.env.SEED_ONLY === 'true';
             // A build-only run measures the unsigned universal app build (cold
             // or warm cache) and stops there: no helper, signing, notarization,
             // dSYM upload, or publication, so it is safe to dispatch from a
@@ -208,8 +215,8 @@ jobs:
               }
             }
 
-            const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;
-            const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;
+            const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -233,7 +240,7 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
@@ -394,7 +401,7 @@ jobs:
     # `macos-compile-admission` restores. Scheduled, not per push: the seed
     # mostly saves the package layer, which changes slowly, and a build per
     # merge would take macOS slots from the pull request queue.
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}

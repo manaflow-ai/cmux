@@ -11,6 +11,7 @@ local cache-restore and cache-save actions choose the store.
 from __future__ import annotations
 
 import sys
+import os
 import json
 import subprocess
 from pathlib import Path
@@ -99,7 +100,7 @@ def main() -> int:
     const github = {rest:{git:{getRef:async()=>({data:{object:{type:'commit',sha:'old'}}})}}};
     (async()=>{ SCRIPT; console.log(JSON.stringify(outputs)); })().catch(e=>{console.error(e);process.exit(1)});
     """.replace("SCRIPT", decision)
-    result = subprocess.run(["node", "-e", harness], env={**__import__("os").environ,
+    result = subprocess.run(["node", "-e", harness], env={**os.environ,
         "SEED_ONLY": "true", "FORCE_BUILD": "true", "BUILD_ONLY": "true", "FAST_BUILD": "true"},
         text=True, capture_output=True, check=True)
     outputs = json.loads(result.stdout)
