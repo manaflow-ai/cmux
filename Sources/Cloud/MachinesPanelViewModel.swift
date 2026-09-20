@@ -5,93 +5,6 @@ extension Notification.Name {
     static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
 }
 
-/// Plan meter shown in the panel header: "2 of 3 machines" / "1 of 1 machine".
-struct MachinePlanSnapshot: Equatable {
-    /// What the header says about the free plan's access window. Precomputed
-    /// against a clock in the view model so no row or meter reads `Date()` in
-    /// `body`; `.none` on paid plans and when nothing is on a window.
-    enum FreeAccessBanner: Equatable {
-        case none
-        /// More than a day left; `countdown` reads like "6d 23h".
-        case expiresIn(countdown: String)
-        /// Under a day left; `countdown` reads like "5h 12m".
-        case expiresToday(countdown: String)
-        /// The window closed: machines are preserved but locked until upgrade.
-        case expired
-    }
-
-    let activeCount: Int
-    /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
-    let maxActiveVms: Int?
-    let planId: String
-    /// Days the plan keeps a machine reachable after creation; 0 = no window.
-    var freeAccessWindowDays: Int = 0
-    /// Earliest free-access expiry across the fleet (server value when present).
-    var freeAccessExpiresAt: Date? = nil
-    var freeAccessBanner: FreeAccessBanner = .none
-
-    /// An uncapped plan is never at the limit.
-    var isAtLimit: Bool {
-        guard let maxActiveVms else { return false }
-        return activeCount >= maxActiveVms
-    }
-    /// Only plans the backend accepts for provisioning are paid. Unknown plan
-    /// ids fail closed here too, so a stale metadata value cannot hide the
-    /// upgrade affordance after the server returns `vm_requires_pro`.
-    var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
-
-    static func isPaidPlanID(_ planId: String) -> Bool {
-        switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "go", "pro", "max", "team", "founders":
-            return true
-        default:
-            return false
-        }
-    }
-
-    /// Single-machine plans (free) read "1 of 1 machine", never "machines".
-    var isSingleMachinePlan: Bool { maxActiveVms == 1 }
-
-    /// The header meter text, singular/plural chosen by the plan's ceiling.
-    /// Uncapped plans read "3 machines": there is no "of N" to show.
-    var countLabel: String {
-        guard let maxActiveVms else {
-            if activeCount == 1 {
-                return String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine")
-            }
-            let format = String(localized: "machines.meter.count.unlimited", defaultValue: "%1$d machines")
-            return String(format: format, activeCount)
-        }
-        if isSingleMachinePlan {
-            let format = String(localized: "machines.meter.count.single", defaultValue: "%1$d of 1 machine")
-            return String(format: format, activeCount)
-        }
-        let format = String(localized: "machines.meter.count", defaultValue: "%1$d of %2$d machines")
-        return String(format: format, activeCount, maxActiveVms)
-    }
-
-    /// The banner line under the header; nil when there is nothing to say.
-    var freeAccessBannerText: String? {
-        switch freeAccessBanner {
-        case .none:
-            return nil
-        case .expiresIn(let countdown):
-            return String(
-                format: String(localized: "machines.freeAccess.expiresIn", defaultValue: "Free cloud access \u{00B7} expires in %@"),
-                countdown
-            )
-        case .expiresToday(let countdown):
-            return String(
-                format: String(localized: "machines.freeAccess.expiresToday", defaultValue: "Free cloud access \u{00B7} expires today, %@ left"),
-                countdown
-            )
-        case .expired:
-            return String(localized: "machines.freeAccess.expired", defaultValue: "Free cloud access expired \u{00B7} Upgrade to Pro")
-        }
-    }
-}
-
-
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go
 /// through the shared Cloud VM action path (`CloudVMActionLauncher`), never
@@ -192,6 +105,9 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    private var resourceUpdatesTask: Task<Void, Never>?
+    private let resourceStats: VMResourceStatsStore?
+    private var machineIndexByID: [String: Int] = [:]
     private var usageTask: Task<Void, Never>?
     private var usageFailureCount = 0
     private var usageRetryNotBefore: Date?
@@ -208,7 +124,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
-    private var authSignOutObserver: NSObjectProtocol?
+    private var authScopeObservers: [NSObjectProtocol] = []
     private var featureFlagObserver: CloudFeatureAvailabilityObserver?
     private var wantsPolling = false
     private var treeChangeObserver: NSObjectProtocol?
@@ -227,8 +143,10 @@ final class MachinesPanelViewModel: ObservableObject {
         createCoordinator: MachineCreateCoordinator? = nil,
         defaultMachineStore: DefaultCloudMachineStore? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
+        resourceStats: VMResourceStatsStore? = nil,
         catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot }
     ) {
+        self.resourceStats = resourceStats ?? VMClient.shared?.resourceStats
         self.defaultMachineStore = defaultMachineStore
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
@@ -244,12 +162,14 @@ final class MachinesPanelViewModel: ObservableObject {
             let finished = notification.userInfo?[finishedUserInfoKey] as? MachineCreateCoordinator.Finished
             MainActor.assumeIsolated { self?.createsDidChange(finished: finished) }
         }
-        authSignOutObserver = NotificationCenter.default.addObserver(
-            forName: .cmuxCloudVMAccessDidEnd,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.resetForAuthTransition() }
+        authScopeObservers = [Notification.Name.cmuxCloudVMAccessDidEnd, .cmuxCloudTeamScopeDidChange].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if name == .cmuxCloudVMAccessDidEnd { self.resetForAuthTransition() }
+                    else if self.wantsPolling { self.startPolling() }
+                }
+            }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
             isEnabled: { CloudMachinesFeature.isEnabled },
@@ -276,6 +196,15 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
+        if let resourceStats = self.resourceStats {
+            let changes = resourceStats.changes()
+            resourceUpdatesTask = Task { [weak self] in
+                for await _ in changes.events {
+                    guard !Task.isCancelled else { return }
+                    self?.applyResourceStats(machineIDs: changes.takeMachineIDs())
+                }
+            }
+        }
     }
     /// Catalog changes arrive in bursts (a link snapshot upserts dozens of resources, a
     /// projection records, titles tick). Collapse them to one `readCatalog()` per
@@ -306,8 +235,9 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
     deinit {
-        if let authSignOutObserver {
-            NotificationCenter.default.removeObserver(authSignOutObserver)
+        resourceUpdatesTask?.cancel()
+        for observer in authScopeObservers {
+            NotificationCenter.default.removeObserver(observer)
         }
         if let treeChangeObserver {
             NotificationCenter.default.removeObserver(treeChangeObserver)
@@ -384,35 +314,36 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Older servers omitting the flag retain the desktop-only polling policy
     /// through capability decoding; explicit support overrides that fallback.
     func refreshStats() {
-        guard CloudMachinesFeature.isEnabled else { return }
+        guard CloudMachinesFeature.isEnabled, let client = VMClient.shared else { return }
         statsTask?.cancel()
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
-        guard !ids.isEmpty else { return }
-        statsTask = Task { [weak self] in
-            await withTaskGroup(of: (String, VMStats?).self) { group in
+        statsTask = Task {
+            await withTaskGroup(of: Void.self) { group in
                 for id in ids {
-                    group.addTask {
-                        (id, (try? await VMClient.shared.stats(id: id)) ?? .unavailable())
-                    }
-                }
-                for await (id, stats) in group {
-                    guard !Task.isCancelled, let stats else { continue }
-                    await MainActor.run { [weak self] in
-                        guard let self, CloudMachinesFeature.isEnabled,
-                              let index = self.machines.firstIndex(where: { $0.id == id }),
-                              self.machines[index].capabilities.stats else { return }
-                        self.machines[index].stats = stats
-                    }
+                    group.addTask { _ = try? await client.stats(id: id) }
                 }
             }
         }
     }
+
+    /// Read the shared owner's current snapshot, never a delayed poll's raw result.
+    private func applyResourceStats(machineIDs: Set<String>?) {
+        guard CloudMachinesFeature.isEnabled, let resourceStats else { return }
+        for id in machineIDs ?? Set(machineIndexByID.keys) {
+            guard let index = machineIndexByID[id], machines.indices.contains(index),
+                  machines[index].id == id, machines[index].capabilities.stats else { continue }
+            let stats = resourceStats.stats(for: id)
+            if machines[index].stats != stats { machines[index].stats = stats }
+        }
+    }
+
     func refreshUsage() {
         guard CloudMachinesFeature.isEnabled, usageTask == nil else { return }
         if let retryNotBefore = usageRetryNotBefore, retryNotBefore > Date() { return }
         guard let client = MachineUsageClient.shared else { return }
+        let generation = refreshGeneration
         usageTask = Task { [weak self] in
-            defer { self?.usageTask = nil }
+            defer { if generation == self?.refreshGeneration { self?.usageTask = nil } }
             do {
                 let usage = (try await client.teamUsage()).byMachineID
                 guard !Task.isCancelled, CloudMachinesFeature.isEnabled, let self else { return }
@@ -535,26 +466,12 @@ final class MachinesPanelViewModel: ObservableObject {
     /// notification observer so a signed-out panel can never render a stale
     /// fleet while SwiftUI is catching up with the auth projection.
     func resetForAuthTransition() {
-        pollTask?.cancel()
-        pollTask = nil
-        refreshTask?.cancel()
-        refreshTask = nil
-        refreshRequestedWhileLoading = false
-        refreshGeneration &+= 1
-        statsTask?.cancel()
-        statsTask = nil
-        usageTask?.cancel()
-        usageTask = nil
-        usageFailureCount = 0
-        usageRetryNotBefore = nil
-        freeAccessTransitionTask?.cancel()
-        freeAccessTransitionTask = nil
-        treeTask?.cancel()
-        treeTask = nil
-        machineRefreshes.cancelAll()
+        resourceStats?.reset()
+        pausePolling()
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
+        machineIndexByID.removeAll()
         usageByMachineID = [:]
         catalog = .empty
         localWorkspaces = []
@@ -618,14 +535,14 @@ final class MachinesPanelViewModel: ObservableObject {
             try Task.checkCancellation()
             guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
                   CloudMachinesFeature.isEnabled else { return }
-            let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
+            let previous = resourceStats?.snapshot ?? [:]
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
                 MachineSnapshotBuilder.snapshot(
                     from: $0,
                     freeAccessWindowDays: freeAccessWindowDays,
-                    previousStats: previous[$0.id] ?? nil
+                    previousStats: previous[$0.id]
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
@@ -641,6 +558,7 @@ final class MachinesPanelViewModel: ObservableObject {
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
+            machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
@@ -653,9 +571,11 @@ final class MachinesPanelViewModel: ObservableObject {
         } catch is CancellationError {
             return
         } catch let error as VMClientError {
-            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
+            guard !Task.isCancelled, generation == refreshGeneration,
+                  scope == machinePinStore?.scopeIdentifier else { return }
             if case .notSignedIn = error {
                 machines = []
+                machineIndexByID.removeAll()
                 plan = nil
                 activeOperation = nil
                 lastErrorDescription = nil
@@ -667,7 +587,8 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
-            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
+            guard !Task.isCancelled, generation == refreshGeneration,
+                  scope == machinePinStore?.scopeIdentifier else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }

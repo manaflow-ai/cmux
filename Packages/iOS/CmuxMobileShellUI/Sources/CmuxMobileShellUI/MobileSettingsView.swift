@@ -871,13 +871,13 @@ struct MobileSettingsView: View {
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
             set: { newValue in
                 if let newValue, newValue != authManager.selectedTeamID {
-                    authManager.selectedTeamID = newValue
+                    Task { try? await authManager.selectTeam(id: newValue) }
                 }
             }
         )
