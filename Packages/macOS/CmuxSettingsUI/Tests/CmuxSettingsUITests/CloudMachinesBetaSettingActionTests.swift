@@ -29,7 +29,10 @@ struct CloudMachinesBetaSettingActionTests {
             changes.continuation.finish()
         }
         // Give the store actor its own non-Sendable UserDefaults handle.
-        let storeDefaults = try #require(UserDefaults(suiteName: suite))
+        guard let storeDefaults = UserDefaults(suiteName: suite) else {
+            Issue.record("Could not create the settings actor's preferences")
+            return
+        }
         let store = UserDefaultsSettingsStore(defaults: storeDefaults)
         let model = DefaultsValueModel(store: store, key: key)
         let action = CloudMachinesBetaSettingAction(model: model, notificationCenter: center)

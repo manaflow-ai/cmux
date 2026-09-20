@@ -128,9 +128,11 @@ jobs:
       ${{ needs.detect-ios-changes.outputs.should_run == 'true'
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
-    timeout-minutes: 10
+    # Focused runs build the shell and its macros from a cold SwiftPM cache.
+    timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
+      FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
     steps:
       - name: Validate package selection
         env:
@@ -185,6 +187,9 @@ jobs:
         run: |
           set -euo pipefail
           args=(--package-path Packages/Shared/CMUXMobileCore)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -199,6 +204,9 @@ jobs:
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
           args=(--package-path Packages/Shared/CmuxSyncStore)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -211,6 +219,9 @@ jobs:
         run: |
           set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobilePairedMac)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -223,6 +234,9 @@ jobs:
         run: |
           set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobileChanges)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -237,7 +251,10 @@ jobs:
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          args=(--package-path Packages/iOS/CmuxMobileShell --no-parallel)
+          args=(--package-path Packages/iOS/CmuxMobileShell)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -252,6 +269,9 @@ jobs:
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
           args=(--package-path Packages/iOS/CmuxMobileShellModel)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
