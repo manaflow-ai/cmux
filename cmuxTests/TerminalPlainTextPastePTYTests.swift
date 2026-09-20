@@ -14,6 +14,7 @@ import Testing
 extension TerminalPlainTextPasteStartupTests {
     @Test("Cold and repeated keyboard, menu and runtime pastes preserve PTY bytes")
     func realPTYDelivery() async throws {
+        defer { NSPasteboard.general.clearContents() }
         for optimized in [false, true] {
             let fixture = try PlainPastePTYFixture(optimized: optimized)
             defer { fixture.close() }
