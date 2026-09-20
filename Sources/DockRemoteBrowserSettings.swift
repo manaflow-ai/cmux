@@ -11,21 +11,12 @@ struct DockRemoteBrowserSettings: Sendable {
     let isRemoteWorkspace: Bool
     let remoteWebsiteDataStoreIdentifier: UUID?
     let remoteStatus: BrowserRemoteWorkspaceStatus?
-    /// Mirrors `BrowserPanel.init`'s `routesThroughRemoteProxy` — broader than
-    /// `isRemoteWorkspace`, since an ssh-tmux mirror workspace routes its
-    /// Dock browsers through the mirror's proxy without being
-    /// `isRemoteWorkspace`. Without this, a Dock browser panel in a mirror
-    /// workspace would fall back to the shared local website-data store
-    /// while still receiving the mirror's proxy endpoint broadcasts,
-    /// silently routing every other local browser on that store through it.
-    let routesThroughRemoteProxy: Bool
 
     static let local = DockRemoteBrowserSettings(
         proxyEndpoint: nil,
         bypassRemoteProxy: false,
         isRemoteWorkspace: false,
         remoteWebsiteDataStoreIdentifier: nil,
-        remoteStatus: nil,
-        routesThroughRemoteProxy: false
+        remoteStatus: nil
     )
 }

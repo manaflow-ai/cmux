@@ -187,7 +187,6 @@ extension DockSplitStore {
             remoteWebsiteDataStoreIdentifier: resolvedBypassRemoteProxy
                 ? nil
                 : settings.remoteWebsiteDataStoreIdentifier,
-            routesThroughRemoteProxy: settings.routesThroughRemoteProxy,
             websiteDataStore: websiteDataStore
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
