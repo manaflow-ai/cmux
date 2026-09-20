@@ -102,7 +102,9 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
     }
 
     var summaryText: String {
-        guard !entries.isEmpty else { return "actions: {}" }
+        guard !entries.isEmpty else {
+            return String(localized: "actions.discovery.empty", defaultValue: "No configured actions.")
+        }
         return entries.map { entry in
             let source = (entry.sourcePath as NSString).abbreviatingWithTildeInPath
             return [
