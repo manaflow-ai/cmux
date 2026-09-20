@@ -169,9 +169,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         panel.hostedView.setActive(true)
         panel.hostedView.layoutSubtreeIfNeeded()
         await waitForLiveSurface(panel.surface)
-        #expect(
+        try #require(
             panel.surface.hasLiveSurface,
             "Remote manual-I/O key coverage requires a live Ghostty surface"
+        )
+        try #require(
+            panel.surface.uiWindow != nil,
+            "Physical key coverage requires a usable window; hosted=\(String(describing: panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
         )
         return panel.surface
     }
@@ -222,8 +226,12 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         modifiers: NSEvent.ModifierFlags = [],
         to surface: TerminalSurface
     ) throws {
+        try #require(
+            surface.uiWindow != nil,
+            "Cannot send key \(keyCode): hosted=\(String(describing: surface.hostedView.window)), live=\(surface.hasLiveSurface)"
+        )
         let characters = String(try #require(UnicodeScalar(functionScalar)))
-        #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+        try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
             characters: characters,
             charactersIgnoringModifiers: characters,
             keyCode: UInt16(keyCode),
@@ -363,7 +371,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let surface = try await prepareSinglePaneInputSurface(in: harness)
 
         let commands = try await captureInputCommands(in: harness, expectedCount: 1) {
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "x",
                 charactersIgnoringModifiers: "x",
                 keyCode: UInt16(kVK_ANSI_X)
@@ -380,13 +388,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let surface = try await prepareSinglePaneInputSurface(in: harness)
 
         let commands = try await captureInputCommands(in: harness, expectedCount: 3) {
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "x",
                 charactersIgnoringModifiers: "x",
                 keyCode: UInt16(kVK_ANSI_X)
             ))
             try sendPhysicalKey(kVK_End, functionScalar: 0xF72B, to: surface)
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "y",
                 charactersIgnoringModifiers: "y",
                 keyCode: UInt16(kVK_ANSI_Y)

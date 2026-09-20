@@ -8,19 +8,38 @@ struct RemoteTmuxInputCommandCaptureTests {
 
     @Test func silentPipeHasDeadline() async throws {
         let pipe = Pipe()
+        let clock = CloudCommandDeadlineClock()
         defer { try? pipe.fileHandleForWriting.close(); try? pipe.fileHandleForReading.close() }
+        let task = Task {
+            try await capture.capture(from: pipe.fileHandleForReading, expectedCount: 1, clock: clock) {}
+        }
+        await clock.waitUntilSleeping()
+        clock.advance(by: .seconds(5))
         await #expect(throws: RemoteTmuxInputCommandCapture.CaptureError.timedOut(expected: 1, received: 0)) {
-            try await capture.capture(from: pipe.fileHandleForReading, expectedCount: 1, timeout: .milliseconds(25)) {}
+            try await task.value
         }
     }
 
     @Test func incompleteOutputHasDeadline() async throws {
         let pipe = Pipe()
+        let clock = CloudCommandDeadlineClock()
+        let (received, continuation) = AsyncStream<Void>.makeStream()
         defer { try? pipe.fileHandleForWriting.close(); try? pipe.fileHandleForReading.close() }
-        await #expect(throws: RemoteTmuxInputCommandCapture.CaptureError.timedOut(expected: 2, received: 1)) {
-            try await capture.capture(from: pipe.fileHandleForReading, expectedCount: 2, timeout: .seconds(1)) {
+        let task = Task {
+            try await capture.capture(
+                from: pipe.fileHandleForReading,
+                expectedCount: 2,
+                clock: clock,
+                onCommand: { _ in continuation.yield(); continuation.finish() }
+            ) {
                 try pipe.fileHandleForWriting.write(contentsOf: Data("send-keys -t %4 End\n".utf8))
             }
+        }
+        for await _ in received { break }
+        await clock.waitUntilSleeping()
+        clock.advance(by: .seconds(5))
+        await #expect(throws: RemoteTmuxInputCommandCapture.CaptureError.timedOut(expected: 2, received: 1)) {
+            try await task.value
         }
     }
 
