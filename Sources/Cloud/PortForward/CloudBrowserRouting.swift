@@ -14,7 +14,8 @@ struct CloudBrowserRouting {
         endpoint: CloudBrowserProxyEndpoint,
         address: String,
         port: Int,
-        timeout: Duration = .seconds(2)
+        timeout: Duration = .seconds(2),
+        clock: any Clock<Duration> = ContinuousClock()
     ) async throws -> Bool {
         let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard endpoint.host == "127.0.0.1", endpoint.port != 0,
@@ -34,7 +35,7 @@ struct CloudBrowserRouting {
                         return try await responseStatus(connection) == 200
                     }
                     group.addTask {
-                        try await Task.sleep(for: timeout)
+                        try await clock.sleep(for: timeout)
                         connection.cancel()
                         return false
                     }
@@ -79,6 +80,19 @@ struct CloudBrowserRouting {
         proxy.matchDomains = [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
         proxy.allowFailover = false
         return proxy
+    }
+
+    /// Replace credentials as one script registration. An old document-start
+    /// script must never win its installation guard after a carrier reconnect.
+    @MainActor
+    static func installWebSocketBridge(endpoint: CloudBrowserProxyEndpoint, address: String, on webView: WKWebView) {
+        let controller = webView.configuration.userContentController
+        let retained = controller.userScripts.filter { !$0.source.contains("window.__cmuxCloudWebSocketBridgeInstalled") }
+        controller.removeAllUserScripts()
+        for script in retained { controller.addUserScript(script) }
+        if let source = websocketBridgeScript(endpoint: endpoint, address: address) {
+            controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
     }
 
     /// Installs the promptless WebSocket bridge used by WKWebView, whose page

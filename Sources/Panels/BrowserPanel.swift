@@ -2008,11 +2008,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard endpoint != cloudBrowserProxyEndpoint else { return }
         cloudBrowserProxyEndpoint = endpoint
         websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        if let script = CloudBrowserRouting.websocketBridgeScript(endpoint: endpoint, address: address) {
-            webView.configuration.userContentController.addUserScript(
-                WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true)
-            )
-        }
+        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
         if webView.configuration.websiteDataStore !== websiteDataStore {
             replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
                                          reason: "cloud_browser_route", restoreAfterReplacement: false)

@@ -147,6 +147,54 @@ struct CloudBrowserProxyIntegrationTests {
         await access.retire()
     }
 
+    @Test("Replacing a carrier registers only its current WebSocket credentials")
+    func webSocketBridgeCredentialRotation() {
+        let configuration = WKWebViewConfiguration()
+        let retained = WKUserScript(source: "window.retained = true", injectionTime: .atDocumentStart, forMainFrameOnly: true)
+        configuration.userContentController.addUserScript(retained)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        for token in ["expired", "current"] {
+            CloudBrowserRouting.installWebSocketBridge(
+                endpoint: .init(host: "127.0.0.1", port: 1234, username: "user", password: "pass", websocketToken: token),
+                address: "10.16.0.10", on: webView
+            )
+        }
+        let scripts = configuration.userContentController.userScripts
+        #expect(scripts.count == 2)
+        #expect(scripts.contains { $0.source == retained.source })
+        #expect(!scripts.contains { $0.source.contains("expired") })
+        #expect(scripts.contains { $0.source.contains("current") })
+    }
+
+    @Test("Secure page WebSockets use WebKit's native TLS through the authenticated CONNECT proxy")
+    func secureWebSocketUsesNativeProxy() async throws {
+        let tls = try CloudBrowserTLSTestServer()
+        let port = try await tls.start()
+        defer { tls.stop() }
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.13", marker: "tls", securePort: port)
+        try await server.start()
+        defer { server.stop() }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: server.endpoint, address: server.address)]
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 600, height: 400), configuration: configuration)
+        let window = NSWindow(contentRect: webView.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        defer { webView.stopLoading(); webView.navigationDelegate = nil; window.contentView = nil; window.close() }
+        let navigation = CloudBrowserProxyTestNavigation()
+        navigation.trustedFixtureCertificate = tls.certificate
+        webView.navigationDelegate = navigation
+        try await navigation.load(try #require(URL(string: "https://\(server.address):8443/")), in: webView)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(8))
+        while (try await webView.evaluateJavaScript("document.body.dataset.ws") as? String) == "pending", ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try await webView.evaluateJavaScript("document.body.dataset.ws") as? String == "echo-ok")
+        #expect(server.authorizedTargets.filter { $0 == "\(server.address):8443" }.count >= 2,
+                "Both HTTPS and WSS must reach the authenticated CONNECT listener")
+    }
+
     @Test("a Cloud profile switch keeps localhost requests on the VM")
     func profileSwitchPreservesCloudRouting() async throws {
         let server = try CloudBrowserProxyTestServer(address: "10.16.0.11", marker: "profile")
@@ -411,6 +459,19 @@ private enum CloudBrowserProxyTestDeadline {
 @MainActor
 private final class CloudBrowserProxyTestNavigation: NSObject, WKNavigationDelegate {
     private var result: CloudLinkFirstValue<Result<Void, any Error>>?
+    var trustedFixtureCertificate: Data?
+
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let expected = trustedFixtureCertificate, let trust = challenge.protectionSpace.serverTrust,
+              let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first,
+              SecCertificateCopyData(leaf) as Data == expected else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        completionHandler(.useCredential, URLCredential(trust: trust))
+    }
+
 
     func load(_ url: URL, in webView: WKWebView) async throws {
         let first = CloudLinkFirstValue<Result<Void, any Error>>()
@@ -452,6 +513,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     let address: String
     let marker: String
     private let styles: CloudLinkFirstValue<Bool>?
+    private let securePort: UInt16?
     private let listener: NWListener
     private let queue = DispatchQueue(label: "cmux.tests.cloud-browser-connect")
     private let lock = NSLock()
@@ -468,10 +530,11 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
-    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil) throws {
+    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil, securePort: UInt16? = nil) throws {
         self.address = address
         self.marker = marker
         self.styles = styles
+        self.securePort = securePort
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -570,6 +633,14 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 try await Task.sleep(for: .seconds(5))
                 return
             }
+            if connect.target == "\(address):8443", let securePort {
+                let upstream = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: securePort)!, using: .tcp)
+                defer { upstream.cancel() }
+                try await upstream.startAndWaitUntilReady(queue: queue)
+                if !buffered.isEmpty { try await upstream.sendAll(buffered) }
+                await CloudPortForwardRelay.relay(connection, upstream)
+                return
+            }
             guard connect.target == "\(address):8000" else { return }
             var request = try await readRequest(connection, buffered: &buffered)
             if request.method == "OPTIONS" {
@@ -644,5 +715,81 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         let body = String(decoding: buffered.prefix(count), as: UTF8.self)
         buffered.removeFirst(count)
         return ParsedRequest(method: String(first[0]), target: String(first[1]), headers: headers, body: body)
+    }
+}
+
+/// Local TLS server; the delegate accepts only this ephemeral fixture certificate.
+/// Neither the OS trust store nor production certificate verification is modified.
+@MainActor
+private final class CloudBrowserTLSTestServer {
+    let directory: URL
+    let process = Process()
+    let certificate: Data
+
+    init() throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-wss-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let key = directory.appendingPathComponent("key.pem").path
+        let cert = directory.appendingPathComponent("cert.pem").path
+        for arguments in [
+            ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-keyout", key, "-out", cert, "-subj", "/CN=10.16.0.13"],
+            ["x509", "-in", cert, "-outform", "DER", "-out", directory.appendingPathComponent("cert.der").path]
+        ] {
+            let openssl = Process()
+            openssl.executableURL = URL(fileURLWithPath: "/usr/bin/openssl")
+            openssl.arguments = arguments
+            openssl.standardOutput = FileHandle.nullDevice
+            openssl.standardError = FileHandle.nullDevice
+            try openssl.run()
+            openssl.waitUntilExit()
+            guard openssl.terminationStatus == 0 else { throw URLError(.cannotCreateFile) }
+        }
+        certificate = try Data(contentsOf: directory.appendingPathComponent("cert.der"))
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-u", "-c", #"""
+        import socket, ssl, threading, hashlib, base64, sys
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(sys.argv[1],sys.argv[2])
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen()
+        print(listener.getsockname()[1], flush=True)
+        def serve(raw):
+          try:
+            with context.wrap_socket(raw,server_side=True) as s:
+              data=b''
+              while b'\r\n\r\n' not in data: data+=s.recv(4096)
+              headers=dict(line.split(':',1) for line in data.decode().split('\r\n')[1:] if ':' in line)
+              headers={k.lower():v.strip() for k,v in headers.items()}
+              if headers.get('upgrade','').lower()=='websocket':
+                accept=base64.b64encode(hashlib.sha1((headers['sec-websocket-key']+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest())
+                s.sendall(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+accept+b'\r\n\r\n'+b'\x81\x07echo-ok')
+                s.recv(4096)
+              else:
+                body=b'<html><body data-ws="pending"><script>const ws=new WebSocket("wss://"+location.host+"/socket");ws.onmessage=e=>document.body.dataset.ws=e.data;ws.onerror=()=>document.body.dataset.ws="failed";</script></body></html>'
+                s.sendall(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: '+str(len(body)).encode()+b'\r\nConnection: close\r\n\r\n'+body)
+          except Exception: raw.close()
+        while True:
+          raw,_=listener.accept();threading.Thread(target=serve,args=(raw,),daemon=True).start()
+        """#, cert, key]
+    }
+
+    func start() async throws -> UInt16 {
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        let ready = CloudLinkFirstValue<UInt16>()
+        process.terminationHandler = { _ in ready.resolve(nil) }
+        try process.run()
+        let reader = Task {
+            for await line in CloudLinkPipe.lines(from: output.fileHandleForReading) {
+                if let port = UInt16(line) { ready.resolve(port); break }
+            }
+        }
+        defer { reader.cancel() }
+        return try #require(await CloudBrowserProxyTestDeadline.value(ready))
+    }
+
+    func stop() {
+        if process.isRunning { process.terminate(); process.waitUntilExit() }
+        try? FileManager.default.removeItem(at: directory)
     }
 }
