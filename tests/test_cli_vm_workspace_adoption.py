@@ -141,7 +141,7 @@ class VMWorkspaceAdoptionTests(unittest.TestCase):
                 before_project = server.requests[:methods.index("surface.project")]
                 self.assertTrue(any(r["method"] == "workspace.cloud_vm_bind" and
                                     r["params"].get("remote_workspace_id") == "ws-first" for r in before_project))
-                self.assertIn("OK workspace=" + server.workspace, result.stdout)
+                self.assertIn("OK workspace=workspace:fixture", result.stdout)
 
     def test_failures_leave_the_owning_card_for_retry(self):
         for failure in ["vm.create", "surface.catalog", "surface.project"]:
