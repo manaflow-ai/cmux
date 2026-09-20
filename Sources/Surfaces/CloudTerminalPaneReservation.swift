@@ -28,6 +28,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         var remoteBindingPending = false
         var remoteRebind: (@Sendable () async -> Bool)?
         var remoteRebindInFlight = false
+        var remoteRebindToken: UUID?
         var discarded = false
     }
 
@@ -87,6 +88,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteSink = nil
             state.remoteRebind = nil
             state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
             promoteRequestedRouterIfReadyLocked(&state)
         }
     }
@@ -101,6 +103,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             guard !state.discarded, state.router == nil else { return false }
             state.remoteBindingPending = false
             state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
             state.remoteWorker?.cancel()
             state.remoteWorker = nil
             state.remoteWorkerToken = nil
@@ -147,6 +150,7 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             state.remoteInFlight = false
             state.remoteRebind = nil
             state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
             state.router = nil
             state.discarded = true
         }
@@ -183,15 +187,19 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
               !state.remoteRebindInFlight,
               let rebinder = state.remoteRebind else { return }
         state.remoteRebindInFlight = true
+        let token = UUID()
+        state.remoteRebindToken = token
         Task { [weak self] in
             let bound = await rebinder()
-            self?.remoteRebindFinished(bound)
+            self?.remoteRebindFinished(token: token, bound: bound)
         }
     }
 
-    private func remoteRebindFinished(_ bound: Bool) {
+    private func remoteRebindFinished(token: UUID, bound: Bool) {
         state.withLock { state in
+            guard !state.discarded, state.remoteRebindToken == token else { return }
             state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
             if !bound { state.remoteBindingPending = true }
         }
     }
