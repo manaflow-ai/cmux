@@ -32,6 +32,12 @@ struct CloudTerminalSourcePlacement: Sendable {
         guard let pendingCreation else { return self }
         let created = try await pendingCreation.value()
         let view = try remoteView(of: created)
+        guard view?.tabID.isEmpty == false else {
+            // A dependent split must have an exact daemon tab anchor. The
+            // workspace-only receipt is valid for its own pane but cannot safely
+            // authorize a child layout mutation.
+            throw CloudDiagnosticFailure.placement
+        }
         return CloudTerminalSourcePlacement(
             machine: machine, resource: created,
             remoteWorkspaceID: remoteWorkspaceID ?? view?.workspace.id ?? created.remoteWorkspace?.id,
