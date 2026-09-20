@@ -12,13 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `a268ca0714`, a merge of the current
-cmux pin `35ae29b7c2` with the merged embedded-environment lifetime fix from
-Ghostty PR #227 and the localhost-port punctuation fix from Ghostty PR #218.
-It preserves the Cloud loopback link-detection changes from cmux #12669 while
-adding owned POSIX environment snapshots for embedded hosts. The integration
-commit is reachable from the `teamleaderleo/ghostty`
-`fix-localhost-port-punctuation` branch pending maintainer integration.
+The submodule pinned by this branch is `c5c31ce819`, the upstream Ghostty
+merge commit for PR #218 after the embedded-environment lifetime fix from PR
+#227 was merged. It preserves cmux's Cloud loopback link-detection changes
+while adding the localhost-port punctuation fix and owned POSIX environment
+snapshots for embedded hosts. This SHA is reachable from `manaflow-ai/ghostty`
+main and is the release target for cmux's GhosttyKit build workflow.
 
 The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
@@ -42,8 +41,8 @@ resolution.
     through merge commit `3869e81a0`; the pin itself is one merge ahead of
     fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
-  - `a268ca0714` (Ghostty #218 punctuation fix on top of the current cmux pin
-    and the Ghostty #227 environment lifetime fix; preserves Cloud loopback)
+  - `c5c31ce819` (upstream merge of Ghostty #218 after #227; preserves Cloud
+    loopback behavior and is reachable from `manaflow-ai/ghostty:main`)
 - Summary:
   - Fixes localhost-port sentence punctuation and owns POSIX environment
     snapshots retained by embedded Ghostty, on top of the
