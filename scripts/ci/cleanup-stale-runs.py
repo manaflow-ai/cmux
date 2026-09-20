@@ -30,7 +30,11 @@ def classify_run(
     run: dict[str, Any], pull_requests: list[dict[str, Any]], *, now: dt.datetime, min_age_seconds: int
 ) -> str | None:
     """Return an eligible reason, or None when the run must be preserved."""
-    if not pull_requests or any(pr.get("state") == "open" for pr in pull_requests):
+    # Commit-to-PR association also exists for main pushes and scheduled runs.
+    # Only ordinary PR runs are eligible; unknown event/state facts fail closed.
+    if run.get("event") != "pull_request" or run.get("status") not in {"queued", "in_progress"}:
+        return None
+    if not pull_requests or any(pr.get("state") != "closed" for pr in pull_requests):
         return None
     created_at = run.get("created_at")
     if not created_at:
@@ -135,8 +139,16 @@ def main() -> int:
     for run, reason in eligible[:max_actions]:
         run_id = run.get("id")
         endpoint = f"/repos/{repo}/actions/runs/{run_id}"
-        method = "DELETE" if run.get("status") == "queued" else "POST"
         try:
+            # Runs can complete and PRs can reopen after inventory collection.
+            current = janitor.request("GET", endpoint)
+            prs = janitor.pull_requests_for_commit(current.get("head_sha", ""))
+            reason = classify_run(current, prs, now=dt.datetime.now(dt.timezone.utc),
+                                  min_age_seconds=min_age_minutes * 60)
+            if not reason:
+                print(f"preserved run {run_id}: no longer eligible")
+                continue
+            method = "DELETE" if current.get("status") == "queued" else "POST"
             janitor.request(method, endpoint + ("/cancel" if method == "POST" else ""))
             processed += 1
             print(f"processed run {run_id} ({reason})")
