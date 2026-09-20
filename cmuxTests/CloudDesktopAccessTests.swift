@@ -74,13 +74,15 @@ struct CloudDesktopAccessTests {
         #expect(await connected.result == true)
     }
 
-    @Test("Preparing a Cloud desktop never publishes a bootstrap about:blank URL")
-    func desktopRetainsPendingServiceIdentity() async throws {
+    @Test("Every Cloud website retains its requested URL through bootstrap commits",
+          arguments: ["http://10.0.0.7:6901/vnc.html", "http://10.0.0.7:3000/", "https://10.0.0.7:8443/app"])
+    func desktopRetainsPendingServiceIdentity(rawURL: String) async throws {
         let store = CloudPortAccessStore()
         let catalog = SurfaceCatalog()
         let readiness = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
-        let target = CloudPortForwardTarget(host: "10.0.0.7", port: 6901)
-        let model = store.model(machineID: "test-desktop", target: target) {
+        let remote = try #require(URL(string: rawURL))
+        let target = CloudPortForwardTarget(host: "10.0.0.7", port: remote.port!)
+        let model = store.model(machineID: "test-desktop", target: target, scheme: remote.scheme!) {
             CloudPortAccessModel(
                 target: target, coordinator: nil, wake: {},
                 startForward: { _ in Issue.record("Unexpected legacy route"); return 1 },
@@ -93,7 +95,6 @@ struct CloudDesktopAccessTests {
         let provider = provider(store: store, catalog: catalog)
         let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
         defer { browser.close(); readiness.resolve(nil) }
-        let remote = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: target.host)))
         // A delayed bootstrap commit from the original WebView must not replace
         // the Cloud identity while its authenticated replacement is being prepared.
         browser.webView.loadHTMLString("<title>bootstrap</title>", baseURL: nil)

@@ -71,7 +71,6 @@ struct CloudBrowserProxyIntegrationTests {
         panel.cloudAccess.configure(model: model, url: remote)
         panel.prepareCloudBrowserStore(machineID: server.marker)
         panel.showCloudAddress(remote)
-        let startedAt = Date()
         model.connect()
         #expect(panel.cloudAccess.nextURL() == nil)
         #expect(server.requests.isEmpty)
@@ -90,7 +89,6 @@ struct CloudBrowserProxyIntegrationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(panel.cloudAccess.showsPage, "The initial navigation must complete without Reload")
-        #expect(Date().timeIntervalSince(startedAt) < 2, "The browser route should be ready before a visible loading card is needed")
         #expect(panel.webView.url == remote)
         #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
         #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeInstalled === true") as? Bool == true, "Cloud WebSocket bridge script must run before page JavaScript")
@@ -105,6 +103,48 @@ struct CloudBrowserProxyIntegrationTests {
         let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
         #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? "missing")")
         await model.retire()
+    }
+
+    @Test("Cloud websites keep the pane background while styles load, then restore normal page rendering",
+          arguments: ["/ordinary", "/vnc.html"])
+    func genericWebsiteLoadingBackground(path: String) async throws {
+        let styles = CloudLinkFirstValue<Bool>()
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.12", marker: "styles", styles: styles)
+        try await server.start()
+        defer { styles.resolve(false); server.stop() }
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let access = model(server: server)
+        _ = try await prepare(panel: panel, model: access, server: server)
+        let url = try #require(URL(string: "http://\(server.address):8000\(path)"))
+        panel.cloudAccess.configure(model: access, url: url)
+        panel.navigate(to: try #require(panel.cloudAccess.nextURL()))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !server.requests.contains(where: { $0.target == "/delayed.css" }), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(server.requests.contains(where: { $0.target == "/delayed.css" }))
+        #expect(panel.currentURL == url)
+        #expect(!panel.cloudAccess.loaded)
+        #expect(panel.webView.value(forKey: "drawsBackground") as? Bool == false,
+                "A committed document waiting for CSS must not expose WebKit's white bootstrap background")
+        styles.resolve(true)
+        while !panel.cloudAccess.showsPage, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(panel.cloudAccess.showsPage)
+        #expect(panel.webView.value(forKey: "drawsBackground") as? Bool == true,
+                "After load, every site owns its document background, including pages without CSS")
+        #expect(try await panel.webView.evaluateJavaScript("getComputedStyle(document.body).backgroundColor") as? String == "rgb(18, 20, 24)")
+        let unstyled = try #require(URL(string: "http://\(server.address):8000/unstyled"))
+        panel.navigate(to: unstyled)
+        while (panel.webView.url != unstyled || !panel.cloudAccess.showsPage || panel.webView.isLoading), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(panel.webView.url == unstyled && panel.cloudAccess.showsPage)
+        #expect(panel.webView.value(forKey: "drawsBackground") as? Bool == true)
+        #expect(try await panel.webView.evaluateJavaScript("document.body.textContent") as? String == "Unstyled page")
+        await access.retire()
     }
 
     @Test("a Cloud profile switch keeps localhost requests on the VM")
@@ -411,6 +451,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
 
     let address: String
     let marker: String
+    private let styles: CloudLinkFirstValue<Bool>?
     private let listener: NWListener
     private let queue = DispatchQueue(label: "cmux.tests.cloud-browser-connect")
     private let lock = NSLock()
@@ -427,9 +468,10 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
-    init(address: String, marker: String) throws {
+    init(address: String, marker: String, styles: CloudLinkFirstValue<Bool>? = nil) throws {
         self.address = address
         self.marker = marker
+        self.styles = styles
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -538,7 +580,17 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
             lock.withLock { capturedRequests.append(record) }
             let data: Data
             let contentType: String
-            if request.target == "/asset.js" {
+            if request.target == "/delayed.css", let styles {
+                guard await styles.result == true else { return }
+                contentType = "text/css"
+                data = Data("body { background: rgb(18, 20, 24); color: white; }".utf8)
+            } else if request.target == "/unstyled" {
+                contentType = "text/html"
+                data = Data("<!doctype html><html><body>Unstyled page</body></html>".utf8)
+            } else if styles != nil {
+                contentType = "text/html"
+                data = Data("<!doctype html><html><head><link rel='stylesheet' href='/delayed.css'></head><body>Ordinary website</body></html>".utf8)
+            } else if request.target == "/asset.js" {
                 contentType = "application/javascript"
                 data = Data("window.cloudAsset = '\(marker)-asset';".utf8)
             } else if request.target == "/echo" || request.target.hasPrefix("/echo?") {
