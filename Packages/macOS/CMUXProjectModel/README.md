@@ -7,15 +7,15 @@ compilation caching, so cmux temporarily mirrors that dependency to the public
 1.0.1, changes only the Swift tools-version line, and does not imply upstream
 endorsement.
 
-SwiftPM does not inherit mirror configuration from a parent repository when a
-package is resolved directly. Use the tracked mirror explicitly for standalone
-commands:
+The mirror lives in `config/swiftpm/mirrors.json`. SwiftPM does not inherit mirror
+configuration from a parent repository, so this package links to that file from
+`.swiftpm/configuration/mirrors.json`, and the Xcode workspace links to it the same
+way. Standalone commands need no setup:
 
 ```bash
-SWIFTPM_MIRROR_CONFIG="$(git rev-parse --show-toplevel)/config/swiftpm/mirrors.json" \
-  swift test --package-path Packages/macOS/CMUXProjectModel
+swift test --package-path Packages/macOS/CMUXProjectModel
 ```
 
-The cmux build and test scripts and CI export this variable automatically. The
+The cmux build and test scripts and CI also export `SWIFTPM_MIRROR_CONFIG` with the same file. The
 mirror and the PathKit 1.0.2 lockfile pins can be removed when upstream PathKit
 publishes a modern tools-version manifest.
