@@ -847,6 +847,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
+        let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+        if isMac {
+            peerRequestHandler = { request in
+                await DeviceWorkspaceLayoutRPC(snapshot: { workspaceID in
+                    Workspace.liveWorkspace(id: workspaceID)?.deviceWorkspaceLayoutSnapshot()
+                }).handle(request)
+            }
+        } else {
+            peerRequestHandler = nil
+        }
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
@@ -860,11 +870,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             firstFrameTimeoutNanoseconds: 0,
             irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
             remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
-            peerRequestHandler: isMac ? { request in
-                await DeviceWorkspaceLayoutRPC(snapshot: { workspaceID in
-                    Workspace.liveWorkspace(id: workspaceID)?.deviceWorkspaceLayoutSnapshot()
-                }).handle(request)
-            } : nil,
+            peerRequestHandler: peerRequestHandler,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.isCurrent(token) == true }
