@@ -120,16 +120,8 @@ public enum MobileReleaseGateUIProbe {
         targetSurface = surfaceID
         selectIfReady()
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await _ in stream {
-                    if phase == .presented {
-                        guard let closeWorkspace else { throw Failure.unavailable }
-                        phase = .closing
-                        closeWorkspace()
-                    }
-                    if phase == .complete { return }
-                }
-                throw CancellationError()
+            group.addTask { @Sendable [stream] in
+                try await waitForPresentation(stream)
             }
             group.addTask {
                 try await Task.sleep(for: timeout)
@@ -138,6 +130,18 @@ public enum MobileReleaseGateUIProbe {
             defer { group.cancelAll() }
             try await group.next()
         }
+    }
+
+    private static func waitForPresentation(_ stream: AsyncStream<Void>) async throws {
+        for await _ in stream {
+            if phase == .presented {
+                guard let closeWorkspace else { throw Failure.unavailable }
+                phase = .closing
+                closeWorkspace()
+            }
+            if phase == .complete { return }
+        }
+        throw CancellationError()
     }
 
     public static func latencies() -> [String: Double] { measured }

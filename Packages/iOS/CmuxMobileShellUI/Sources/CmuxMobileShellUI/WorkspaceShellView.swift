@@ -842,7 +842,9 @@ struct WorkspaceShellView: View {
         .onAppear {
             workspacesStackIsOnScreen = true
             #if DEBUG
-            MobileReleaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            if MobileReleaseGateUIProbe.awaitsVisibleRows {
+                MobileReleaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            }
             #endif
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
