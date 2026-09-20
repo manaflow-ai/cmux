@@ -1,21 +1,34 @@
 name: publish-pypi
 
-# Publishes the Python distribution in python/ to PyPI with Trusted Publishing
-# (OIDC). No API token is stored in this repository.
+# Publishes a Python distribution to PyPI with Trusted Publishing (OIDC).
+# No API token is stored in this repository.
 #
-# PyPI pending-publisher settings that must match this file:
-#   PyPI project name : acpmux
+# The repository holds two PyPI projects, each in its own directory:
+#   acpmux -> python/
+#   amux   -> python-amux/
+#
+# PyPI publisher settings, registered once per project name. Both point at this
+# same workflow file, which is what lets one workflow serve both:
 #   Owner             : manaflow-ai
 #   Repository name   : acpmux
 #   Workflow name     : publish-pypi.yml
 #   Environment name  : (leave empty)
 #
 # Run it by hand from the Actions tab. Tag triggers are deliberately absent:
-# the version comes from python/pyproject.toml, so a tag could disagree with it.
+# the version comes from the project's pyproject.toml, so a tag could disagree
+# with it.
 
 on:
   workflow_dispatch:
     inputs:
+      project:
+        description: "PyPI project to publish"
+        required: true
+        default: amux
+        type: choice
+        options:
+          - amux
+          - acpmux
       repository:
         description: "Target index"
         required: true
@@ -29,10 +42,12 @@ permissions: {}
 
 jobs:
   build:
-    name: Build distributions
+    name: Build ${{ inputs.project }}
     runs-on: ubuntu-latest
     permissions:
       contents: read   # the repository is private; checkout needs it
+    env:
+      PKG_DIR: ${{ inputs.project == 'amux' && 'python-amux' || 'python' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -41,24 +56,38 @@ jobs:
           python-version: "3.12"
 
       - name: Build sdist and wheel
-        working-directory: python
+        working-directory: ${{ env.PKG_DIR }}
         run: |
           python -m pip install --upgrade build
           python -m build
 
       - name: Check metadata
-        working-directory: python
+        working-directory: ${{ env.PKG_DIR }}
         run: |
           python -m pip install --upgrade twine
           python -m twine check dist/*
 
+      - name: Confirm the built name matches the requested project
+        working-directory: ${{ env.PKG_DIR }}
+        run: |
+          set -eu
+          for f in dist/*.whl; do
+            base=$(basename "$f")
+            got=${base%%-*}
+            if [ "$got" != "${{ inputs.project }}" ]; then
+              echo "built '$got' but asked for '${{ inputs.project }}'" >&2
+              exit 1
+            fi
+          done
+          ls -l dist/
+
       - uses: actions/upload-artifact@v7
         with:
           name: dist
-          path: python/dist/
+          path: ${{ env.PKG_DIR }}/dist/
 
   publish:
-    name: Publish to ${{ inputs.repository }}
+    name: Publish ${{ inputs.project }} to ${{ inputs.repository }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
