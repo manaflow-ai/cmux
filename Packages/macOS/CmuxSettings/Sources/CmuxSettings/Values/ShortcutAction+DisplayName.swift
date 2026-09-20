@@ -5,6 +5,8 @@ extension ShortcutAction {
     public var displayName: String {
         switch self {
         case .openSettings: return "Settings…"
+        case .openTeamPicker:
+            return String(localized: "shortcut.openTeamPicker.label", defaultValue: "Open Team Picker")
         case .reloadConfiguration: return "Reload Configuration"
         case .showHideAllWindows: return "Show/Hide All Windows"
         case .globalSearch: return "Global Search"
