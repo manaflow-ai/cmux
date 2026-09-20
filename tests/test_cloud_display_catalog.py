@@ -204,6 +204,18 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         self.assertIs(service.named_processes[number]["openbox"], replacement)
         service.shutdown.set()
 
+    def test_recovery_adopts_display_scoped_processes_by_full_command(self):
+        service = display.DisplayService(self.catalog(), self.root / "runtime")
+
+        def pgrep(command, **_options):
+            if "cmux-display-2-openbox" in command[-1]:
+                return "12345\n"
+            raise display.subprocess.CalledProcessError(1, command)
+
+        with mock.patch.object(display.subprocess, "check_output", side_effect=pgrep):
+            service.recover_processes(2)
+        self.assertIn("openbox", service.named_processes[2])
+
     def test_additional_desktop_clients_use_display_scoped_process_names(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         source = self.root / "openbox"
