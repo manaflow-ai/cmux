@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage, parseVmResourceUsage } from "./resourceUsage";
-import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
+import {
+  applyVmResourceUsage,
+  VM_RESOURCE_USAGE_KEY,
+  VM_RESOURCE_USAGE_MAX_AGE_MS,
+  shouldReadVmResourceStatsDirectly,
+} from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -2989,31 +2993,22 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
-        // Local GCP dev backends do not share the production coderouter edge,
-        // so their baked guest reporter cannot authenticate its callback. Keep
-        // this explicit dev-only fallback behind an operator-set flag; release
-        // and staging continue to use the normal reporter metadata path.
-        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1") {
+        // The private development backend cannot receive production-edge reports.
+        // Production keeps the push path. Never probe non-awake machines, and
+        // prefer an existing fresh report over another guest round trip.
+        const fresh = reported.resourceSampledAt !== undefined
+          && reported.resourceSampledAt <= now
+          && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
           return Effect.succeed(reported);
         }
-        const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
-        return providers.exec(vm.provider, input.providerVmId, command).pipe(
-          Effect.map((result) => {
-            if (result.exitCode !== 0) return reported;
-            try {
-              const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
-              if (!usage) return reported;
-              return {
-                ...stats,
-                ...usage,
-                sampledAt: now,
-                resourceSampledAt: now,
-              };
-            } catch {
-              return reported;
-            }
-          }),
-          Effect.catchAll(() => Effect.succeed(reported)),
+        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+            [VM_RESOURCE_USAGE_KEY]: {
+              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+            },
+          }, input.providerVmId, Date.now()) : reported),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
         );
       }),
       Effect.mapError((error): VmWorkflowError => error),
