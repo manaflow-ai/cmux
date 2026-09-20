@@ -12,6 +12,47 @@ struct JSONConfigStoreTests {
         return (JSONConfigStore(fileURL: fileURL), fileURL, SettingCatalog())
     }
 
+    @Test(arguments: [
+        #"{"app": 1, "app": {"appearance": "dark"}}"#,
+        #"{"app": {"appearance": "shadowed", "keep": 1}, "app": {"appearance": "dark"}}"#,
+        #"{"app": {"nested": 1, "nested": {"appearance": "dark"}}}"#,
+    ])
+    func resetUsesEffectiveDuplicateAncestors(source: String) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(source.utf8).write(to: fileURL)
+        let path = source.contains("nested") ? "app.nested.appearance" : "app.appearance"
+        let key = JSONKey<String>(id: path, defaultValue: "default")
+        try await store.reset(key)
+        #expect(await store.value(for: key) == "default")
+        let fresh = JSONConfigStore(fileURL: fileURL)
+        #expect(await fresh.value(for: key) == "default")
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        if source.contains("shadowed") {
+            #expect(updated.contains(#""keep": 1"#))
+        }
+    }
+
+    @Test(arguments: [String.Encoding.utf8, .utf16LittleEndian, .utf16BigEndian, .utf32LittleEndian, .utf32BigEndian])
+    func editsPreserveSourceEncodingAndBOM(encoding: String.Encoding) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let source = "\u{feff}" + #"{"app": {"appearance": "dark"}}"#
+        let original = try #require(source.data(using: encoding))
+        try original.write(to: fileURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("light", for: key)
+        let expected = try #require(source.replacingOccurrences(of: "dark", with: "light").data(using: encoding))
+        #expect(try Data(contentsOf: fileURL) == expected)
+        #expect(await JSONConfigStore(fileURL: fileURL).value(for: key) == "light")
+        try await store.reset(key)
+        let resetBytes = try Data(contentsOf: fileURL)
+        let marker = try #require("\u{feff}".data(using: encoding))
+        #expect(resetBytes.starts(with: marker))
+        let resetText = try #require(String(data: resetBytes, encoding: encoding))
+        #expect(!resetText.contains("appearance"))
+    }
+
     @Test func readsDefaultWhenFileMissing() async {
         let (store, _, _) = makeStore()
         let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
