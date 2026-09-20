@@ -77,6 +77,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let expansionStore: CloudTreeExpansionStore
         private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
+        private var organizationObserver: NSObjectProtocol?
         weak var outlineView: CloudTreeNSOutlineView?
         var nodes: [CloudTreeNode] = []
         let organization: CloudSidebarOrganizationStore
@@ -118,6 +119,22 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
+            organizationObserver = NotificationCenter.default.addObserver(
+                forName: CloudSidebarOrganizationStore.didChangeNotification,
+                object: self.organization,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // Organization is local sidebar state. Reapply the current
+                    // immutable tree as soon as another entrypoint commits a
+                    // pin, so the leading icon never waits for fleet refresh.
+                    self.applyOrganization(nodes: self.organizationNodes)
+                }
+            }
+        }
+        deinit {
+            if let organizationObserver { NotificationCenter.default.removeObserver(organizationObserver) }
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.registration.end()
