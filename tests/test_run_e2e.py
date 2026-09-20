@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Exercise the focused-run launcher against a fake GitHub CLI."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 HEAD = "a" * 40
@@ -27,7 +29,7 @@ elif args[:2] == ["run", "list"]:
     fields = json.loads((root / "dispatch.json").read_text())
     print(json.dumps([
         {"databaseId": 999, "displayTitle": "someone else's newer run", "url": "https://github.com/manaflow-ai/cmux/actions/runs/999"},
-        {"databaseId": 123, "displayTitle": fields["test_filter"] + " on mac @ " + fields.get("ref", "main") + " [" + fields.get("request_id", "") + "]", "url": "https://github.com/manaflow-ai/cmux/actions/runs/123"}
+        {"databaseId": 123, "displayTitle": fields["test_filter"] + " on mac @ " + fields.get("ref", "main") + " [" + fields.get("dispatch_id", "") + "]", "url": "https://github.com/manaflow-ai/cmux/actions/runs/123"}
     ]))
 elif args[:2] == ["run", "watch"]:
     sys.exit(int(os.environ.get("LAUNCHER_WATCH_STATUS", "0")))
@@ -76,7 +78,7 @@ class FocusedLauncherTests(unittest.TestCase):
         result = self.launch("cmuxTests/ExampleTests")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.dispatch()["ref"], HEAD)
-        self.assertTrue(self.dispatch()["request_id"])
+        self.assertTrue(self.dispatch()["dispatch_id"])
         self.assertEqual(self.dispatch()["record_video"], "false")
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
@@ -110,7 +112,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotIn("999", watch)
 
     def test_rejects_invalid_selectors_before_dispatch(self):
-        for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\nrequest_id=bad", "cmuxTests/A;echo bad"):
+        for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\ndispatch_id=bad", "cmuxTests/A;echo bad"):
             with self.subTest(selector=selector):
                 self.assertNotEqual(self.launch(selector).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
@@ -120,6 +122,37 @@ class FocusedLauncherTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
+
+
+class RunDiscoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "focused_dispatch", ROOT / "scripts/ci/dispatch-focused-test.py"
+        )
+        cls.dispatch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.dispatch)
+
+    def test_waits_for_matching_dispatch_without_choosing_another_run(self):
+        other = {"databaseId": 999, "displayTitle": "Other on mac @ " + HEAD + " [other]"}
+        own = {"databaseId": 123, "displayTitle": "cmuxTests/Example on mac @ " + HEAD + " [mine]"}
+        with mock.patch.object(self.dispatch, "output", side_effect=[json.dumps([other]), json.dumps([other, own])]), mock.patch.object(self.dispatch.time, "sleep") as sleep:
+            result = self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
+        self.assertEqual(result["databaseId"], 123)
+        sleep.assert_called_once_with(5)
+
+    def test_missing_dispatch_fails_without_redispatching(self):
+        with mock.patch.object(self.dispatch, "output", return_value="[]") as output, mock.patch.object(self.dispatch.time, "sleep"):
+            with self.assertRaisesRegex(ValueError, "before dispatching again"):
+                self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
+        self.assertEqual(output.call_count, 12)
+        self.assertTrue(all(call.args[1:3] == ("run", "list") for call in output.call_args_list))
+
+    def test_ambiguous_dispatch_fails(self):
+        run = {"databaseId": 123, "displayTitle": "cmuxTests/Example on mac @ " + HEAD + " [mine]"}
+        with mock.patch.object(self.dispatch, "output", return_value=json.dumps([run, run])):
+            with self.assertRaisesRegex(ValueError, "refusing to guess"):
+                self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
 
 
 if __name__ == "__main__":
