@@ -18,14 +18,7 @@ func cliMockAgentHookDeliveryTargetResponse(
     case "surface.list":
         result = ["surfaces": [["id": surfaceId, "ref": "surface:1", "index": 1, "focused": true]]]
     case "agent.resolve_delivery_target":
-        var target: [String: Any] = ["workspace_id": workspaceId, "surface_id": surfaceId]
-        if params["pid"] != nil {
-            target["source"] = "pid"
-            target["pid_resolution"] = (params["pid_resolution"] as? String) ?? "corroborated"
-        } else {
-            target["source"] = "surface"
-        }
-        result = target
+        return nil
     default:
         return nil
     }
