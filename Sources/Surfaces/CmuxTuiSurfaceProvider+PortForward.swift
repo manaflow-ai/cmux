@@ -137,7 +137,6 @@ extension CmuxTuiSurfaceProvider {
             for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
                       isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }
-                materializedPanels.insert(projection.panelID)
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     guard let url = URL(string: raw) else { continue }
