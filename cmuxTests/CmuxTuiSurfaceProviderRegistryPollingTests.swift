@@ -110,4 +110,141 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         registry.syncPollingToActivationPolicy()
         #expect(registry.isPolling == false)
     }
+
+    @Test("An authenticated empty fleet prepares the shared terminal tunnel without delaying discovery")
+    @MainActor
+    func emptyFleetPreparesBeforeTheFirstMachine() async throws {
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let attempts = CloudWireGuardHubTests.AttemptCounter()
+        let h = makeHub {
+            _ = await attempts.next()
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            listPage: { VMListPage(vms: [], limits: nil) },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: SurfaceCatalog())
+        let discoveryFinished = CloudLinkFirstValue<Bool>()
+        let discovery = Task { discoveryFinished.resolve(await registry.refresh(force: true)) }
+        let discoveredWhileEnrollmentWasPending = await received(discoveryFinished)
+        let beganBeforeMachineCreation = await received(started)
+        release.resolve(true)
+        await discovery.value
+
+        // The first terminal joins the same preparation; it does not enroll again.
+        let terminal = try await h.hub.acquire()
+        await h.hub.release(terminal.lease)
+        let status = await h.hub.status()
+        await registry.accessDidEnd()
+
+        #expect(discoveredWhileEnrollmentWasPending)
+        #expect(beganBeforeMachineCreation)
+        #expect(await attempts.value == 1)
+        #expect(h.spawner.count == 1)
+        #expect(status.running)
+        #expect(status.leases == 1, "Cloud availability keeps the prepared hub alive with no machines")
+    }
+
+    @Test("Disabling Cloud or signing out cancels preparation before a helper can start", arguments: [false, true])
+    @MainActor
+    func endingAccessCancelsPendingPreparation(signOut: Bool) async {
+        var enabled = true
+        let started = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let closed = CloudLinkFirstValue<Bool>()
+        let h = makeHub {
+            started.resolve(true)
+            _ = await release.result
+            try Task.checkCancellation()
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let center = NotificationCenter()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            isCloudEnabled: { enabled },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            closeTransports: { await h.hub.stop(); closed.resolve(true) },
+            notificationCenter: center
+        )
+        registry.start(catalog: SurfaceCatalog())
+        let began = await received(started)
+        if signOut {
+            await registry.accessDidEnd()
+        } else {
+            enabled = false
+            center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
+        }
+        let stopped = await received(closed)
+        release.resolve(true)
+        let status = await h.hub.status()
+        await registry.accessDidEnd()
+
+        #expect(began)
+        #expect(stopped)
+        #expect(!status.running)
+        #expect(status.leases == 0)
+        #expect(h.spawner.count == 0)
+    }
+
+    @Test("A closed Cloud gate or an unauthenticated fleet read cannot prepare a tunnel", arguments: [false, true])
+    @MainActor
+    func unavailableCloudDoesNotPrepare(enabled: Bool) async {
+        let attempts = CloudWireGuardHubTests.AttemptCounter()
+        let h = makeHub {
+            _ = await attempts.next()
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            isCloudEnabled: { enabled },
+            listPage: { nil },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: SurfaceCatalog())
+        #expect(await registry.refresh(force: true) == false)
+        await registry.accessDidEnd()
+        #expect(await attempts.value == 0)
+        #expect(h.spawner.count == 0)
+    }
+
+    @MainActor
+    private func makeHub(
+        enrollment: @escaping @Sendable () async throws -> CloudWireGuardHub.Enrollment
+    ) -> (hub: CloudWireGuardHub, spawner: CloudWireGuardHubTests.FakeSpawner) {
+        let spawner = CloudWireGuardHubTests.FakeSpawner()
+        let hub = CloudWireGuardHub(configuration: .init(
+            enroll: enrollment,
+            clientURL: URL(fileURLWithPath: "/usr/bin/true"),
+            socketURL: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-preparation-\(UUID()).sock"),
+            spawner: spawner,
+            waitUntilReady: { _ in },
+            sleep: { try await ContinuousClock().sleep(for: $0) },
+            restartBackoff: [],
+            idleGrace: .seconds(3_600)
+        ))
+        return (hub, spawner)
+    }
+
+    /// A failure deadline, not a delay used to let production work settle.
+    private func received(_ signal: CloudLinkFirstValue<Bool>) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await signal.result == true }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: .seconds(5))
+                return false
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
 }
