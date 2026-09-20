@@ -96,7 +96,7 @@ struct CloudMachineWorkspaceAdoptionTests {
 
             // An ordinary terminal can contain the user's first command; it is
             // never consumed as a loading card, regardless of a matching title.
-            let ordinary = manager.addWorkspace(title: "Cloud VM", initialTerminalCommand: "echo first-command",
+            let ordinary = manager.addWorkspace(title: "Cloud VM", titleSource: .auto, initialTerminalCommand: "echo first-command",
                 select: false, eagerLoadTerminal: false, autoWelcomeIfNeeded: false)
             let command = try #require(ordinary.focusedTerminalPanel)
             catalog.bindCloudWorkspace(localWorkspaceID: ordinary.id, machine: provider.machine, remoteWorkspaceID: nil)
