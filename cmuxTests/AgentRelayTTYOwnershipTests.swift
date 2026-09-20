@@ -55,7 +55,6 @@ extension AgentNotificationRegressionTests {
         let paneID = try #require(fixture.source.bonsplitController.allPaneIds.first)
         _ = try #require(fixture.source.newTerminalSurface(inPane: paneID, focus: false))
         try movePanel(fixture)
-
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
@@ -77,7 +76,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/21"
         )
     }
-
     @Test("A disconnected remote terminal cannot resolve or register another TTY")
     func disconnectedRemoteTerminalCannotResolveOrRegisterTTY() throws {
         let fixture = try makeFixture()
@@ -95,9 +93,7 @@ extension AgentNotificationRegressionTests {
             attemptID: attemptID
         ))
         fixture.source.registerReportedSurfaceTTYName("pts/23", panelId: fixture.panelId)
-
         fixture.source.disconnectRemoteConnection()
-
         assertNoRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/23"
@@ -117,7 +113,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/24"
         )
     }
-
     @Test("A delayed TTY report cannot revive an ended remote terminal")
     func delayedTTYReportCannotReviveEndedRemoteTerminal() throws {
         let fixture = try makeFixture()
@@ -141,7 +136,6 @@ extension AgentNotificationRegressionTests {
                 relayPort: 64_007
             )
         )
-
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
@@ -157,7 +151,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/26"
         )
     }
-
     @Test("Relay provenance survives repeated ordinary workspace moves")
     func relayTTYProvenanceSurvivesRepeatedOrdinaryWorkspaceMoves() throws {
         let fixture = try makeFixture()
@@ -168,7 +161,6 @@ extension AgentNotificationRegressionTests {
         )
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
         fixture.source.registerReportedSurfaceTTYName("pts/27", panelId: fixture.panelId)
-
         try movePanel(fixture)
         let secondDestination = fixture.manager.addWorkspace(select: false)
         defer {
@@ -477,11 +469,19 @@ extension AgentNotificationRegressionTests {
         authenticatedWorkspaceID: UUID,
         ttyName: String
     ) {
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+        var params: [String: Any] = [
             "tty_name": ttyName,
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
-        ])
+        ]
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
+            let previousConnectionID = workspace.activeRemoteSessionControllerID
+            let connectionID = previousConnectionID ?? UUID()
+            workspace.activeRemoteSessionControllerID = connectionID
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
+            defer { workspace.activeRemoteSessionControllerID = previousConnectionID }
+        }
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
         guard case .err(let code, _, _) = result else {
             Issue.record("Expected relay TTY resolution to fail, got \(result)")
             return

@@ -452,11 +452,19 @@ extension AgentNotificationRegressionTests {
         authenticatedWorkspaceID: UUID,
         ttyName: String
     ) {
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+        var params: [String: Any] = [
             "tty_name": ttyName,
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
-        ])
+        ]
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
+            let previousConnectionID = workspace.activeRemoteSessionControllerID
+            let connectionID = previousConnectionID ?? UUID()
+            workspace.activeRemoteSessionControllerID = connectionID
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
+            defer { workspace.activeRemoteSessionControllerID = previousConnectionID }
+        }
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
         guard case .err(let code, _, _) = result else {
             Issue.record("Expected ended relay TTY resolution to fail, got \(result)")
             return

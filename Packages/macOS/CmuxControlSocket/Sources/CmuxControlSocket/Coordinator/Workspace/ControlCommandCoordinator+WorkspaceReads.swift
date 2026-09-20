@@ -80,7 +80,7 @@ extension ControlCommandCoordinator {
                 ? .err(code: "unavailable", message: "TabManager not available", data: nil)
                 : .err(
                     code: "remote_relay_workspace_denied",
-                    message: "",
+                    message: "Relay owner workspace is not active",
                     data: nil
                 )
         }
