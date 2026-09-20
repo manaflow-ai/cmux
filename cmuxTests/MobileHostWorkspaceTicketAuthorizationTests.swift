@@ -71,6 +71,22 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() throws {
+        let previous = MobileHostPublicStatusCache.currentV2DeviceID()
+        defer { MobileHostPublicStatusCache.updateV2DeviceID(previous) }
+        let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "", terminalID: nil, routes: [try irohRoute()], ttl: 60
+        )
+        #expect(ticket.macDeviceID == deviceID)
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let url = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
+        #expect(decoded.macDeviceID == deviceID)
+    }
+
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()
