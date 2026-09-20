@@ -287,6 +287,15 @@ export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string
   { arg: "CMUX_IMAGE_AGENT_BROWSER_VERSION", pkg: "agent-browser", binary: "agent-browser" },
 ];
 
+/** CodeRouter is installed as a native npm payload, not as a shell agent pin. */
+export function devboxCoderouterVersion(dockerfile = readDevboxDockerfile()): string {
+  const match = /^ARG CMUX_IMAGE_CODEROUTER_VERSION=(\S+)$/m.exec(dockerfile);
+  if (!match || !EXACT_AGENT_PIN.test(match[1])) {
+    throw new Error("devbox Dockerfile is missing an exact CMUX_IMAGE_CODEROUTER_VERSION");
+  }
+  return match[1];
+}
+
 export type AgentPin = { pkg: string; version: string; binary: string; spec: string };
 
 /** The npm pins come from the Dockerfile ARG defaults, never a second copy. */

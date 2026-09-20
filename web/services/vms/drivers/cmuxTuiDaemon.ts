@@ -262,6 +262,11 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
+    // cmux-tui is the unified Rust front door in Cloud. These aliases are
+    // deliberately symlinks to the same pinned binary, so `cmux coderouter`,
+    // `coderouter`, and `cr` cannot drift into separate command parsers.
+    `ln -sfn ${bin} /usr/local/bin/coderouter`,
+    `ln -sfn ${bin} /usr/local/bin/cr`,
     ...hookHelperInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
     `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
