@@ -18,9 +18,11 @@ trap cleanup EXIT
 
 mkfifo "$WORK/ready"
 python3 - "$WORK/store" "$WORK/ready" <<'PY' &
-import http.server, os, sys
+import hashlib, http.server, os, sys, threading
 store, ready = sys.argv[1], sys.argv[2]
 os.makedirs(store, exist_ok=True)
+metadata = {}
+lock = threading.Lock()
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args): pass
     def target(self): return os.path.join(store, self.path.lstrip("/"))
@@ -28,14 +30,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if "AWS4-HMAC-SHA256" not in self.headers.get("Authorization", ""):
             self.send_response(403); self.end_headers(); return
         body = self.rfile.read(int(self.headers["Content-Length"]))
-        os.makedirs(os.path.dirname(self.target()), exist_ok=True)
-        with open(self.target(), "wb") as out: out.write(body)
-        self.send_response(200); self.end_headers()
+        with lock:
+            target = self.target()
+            exists = os.path.isfile(target)
+            etag = '"' + hashlib.md5(open(target, "rb").read()).hexdigest() + '"' if exists else None
+            if (self.headers.get("If-None-Match") == "*" and exists) or (self.headers.get("If-Match") and self.headers["If-Match"] != etag):
+                self.send_response(412); self.end_headers(); return
+            # Deterministic fault injection exercises repair and CAS retries.
+            if "/latest/" in target:
+                for marker, code in [("fail-pointer", 403), ("race-pointer", 412)]:
+                    control = os.path.join(store, marker)
+                    if os.path.exists(control):
+                        os.unlink(control)
+                        self.send_response(code); self.end_headers(); return
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as out: out.write(body)
+            metadata[target] = self.headers.get("x-amz-meta-generation", "0")
+            self.send_response(200); self.end_headers()
     def serve(self, with_body):
         if not os.path.isfile(self.target()):
             self.send_response(404); self.end_headers(); return
         data = open(self.target(), "rb").read()
-        self.send_response(200); self.send_header("Content-Length", str(len(data))); self.end_headers()
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("ETag", '"' + hashlib.md5(data).hexdigest() + '"')
+        self.send_header("x-amz-meta-generation", metadata.get(self.target(), "0"))
+        self.end_headers()
         if with_body: self.wfile.write(data)
     def do_GET(self): self.serve(True)
     def do_HEAD(self): self.serve(False)
@@ -46,7 +66,7 @@ PY
 SERVER_PID=$!
 PORT="$(cat "$WORK/ready")"
 
-export RUNNER_OS=TestOS RUNNER_ARCH=TestArch
+export RUNNER_OS=TestOS RUNNER_ARCH=TestArch GITHUB_RUN_NUMBER=10
 export CI_CACHE_R2_PUBLIC_URL="http://127.0.0.1:$PORT/bucket"
 export CI_CACHE_R2_ENDPOINT="http://127.0.0.1:$PORT"
 export CI_CACHE_R2_BUCKET="bucket"
@@ -100,6 +120,28 @@ output_of save "$WORK/src" family-tool-one >/dev/null
 grep -q "already exists" "$WORK/log" || fail "saving an existing key must be skipped"
 [[ "$before" == "$(ls -l "$NS/objects/")" ]] || fail "saving an existing key must not rewrite it"
 echo "PASS: an existing key is not saved again"
+
+# Retrying a save repairs a failed pointer without re-uploading its archive.
+touch "$WORK/store/fail-pointer"
+output_of save "$WORK/src" repair-one >/dev/null
+[[ ! -f "$NS/latest/repair-" ]] || fail "the injected pointer failure did not occur"
+output_of save "$WORK/src" repair-one >/dev/null
+[[ "$(cat "$NS/latest/repair-")" == "repair-one" ]] || fail "an existing archive must repair a missing pointer"
+echo "PASS: an existing archive repairs failed pointer publication"
+
+# A later-finishing older run must not replace a newer run's pointer.
+GITHUB_RUN_NUMBER=30 output_of save "$WORK/src" order-new >/dev/null
+GITHUB_RUN_NUMBER=20 output_of save "$WORK/src" order-old >/dev/null
+[[ "$(cat "$NS/latest/order-")" == "order-new" ]] || fail "an older run regressed a newer pointer"
+# An existing object retains its original generation on a later retry.
+GITHUB_RUN_NUMBER=40 output_of save "$WORK/src" order-old >/dev/null
+[[ "$(cat "$NS/latest/order-")" == "order-new" ]] || fail "an old archive was promoted by a later retry"
+echo "PASS: out-of-order saves cannot regress pointers"
+
+touch "$WORK/store/race-pointer"
+output_of save "$WORK/src" race-one >/dev/null
+[[ "$(cat "$NS/latest/race-")" == "race-one" ]] || fail "a conditional write conflict must retry"
+echo "PASS: conditional pointer conflicts retry"
 
 echo "other-thing" > "$NS/latest/family-tool-"
 rm -rf "$WORK/dst"
