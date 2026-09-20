@@ -28,6 +28,20 @@ struct CloudPortRecoveryTests {
         await provider.stop()
     }
 
+    @Test("An explicit catalog refresh opts into demand-driven port discovery")
+    func explicitRefreshRequestsDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary(address: "10.0.0.7"), links: links, catalog: catalog
+        )
+        catalog.register(provider)
+        #expect(!provider.portDiscovery.mayScan)
+        await catalog.refresh(machine: .cloud("port-owner"), force: true)
+        #expect(provider.portDiscovery.mayScan)
+        await provider.stop()
+    }
+
     @Test("A metadata result from before retirement cannot revive a provider")
     func lateMetadataIsRejected() async throws {
         let catalog = SurfaceCatalog()

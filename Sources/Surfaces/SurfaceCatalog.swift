@@ -252,11 +252,12 @@ final class SurfaceCatalog {
     /// reconnect timeout.
     func refresh(machine: SurfaceMachineID, force: Bool = false) async {
         guard let provider = providers[machine] else { return }
+        if force { requestPortDiscovery(for: machine) }
         await provider.refresh(force: force)
     }
-
     func refreshAll(force: Bool = false) async {
         for provider in providers.values {
+            if force { requestPortDiscovery(for: provider.machine) }
             await provider.refresh(force: force)
         }
     }
@@ -1253,7 +1254,6 @@ final class SurfaceCatalog {
         }
         notifyChange()
     }
-
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
