@@ -75,6 +75,25 @@ class AmpInstallStateTests(unittest.TestCase):
         self.assertEqual(self.path.readlink(), target)
         self.assertFalse(target.exists())
 
+    def test_valid_managed_symlinks_are_preserved(self):
+        self.assertEqual(self.run_cli("install", "--yes").returncode, 0)
+        original = self.path.read_bytes()
+        self.path.unlink()
+        target = self.home / "user-managed-plugin.ts"
+        for content in (original, original + b"\n// old managed version\n"):
+            with self.subTest(current=content == original):
+                target.write_bytes(content)
+                self.path.symlink_to(target)
+                try:
+                    for arguments in (("install", "--status-json"), ("install", "--yes"), ("uninstall",)):
+                        result = self.run_cli(*arguments)
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertTrue(self.path.is_symlink())
+                        self.assertEqual(self.path.readlink(), target)
+                        self.assertEqual(target.read_bytes(), content)
+                finally:
+                    self.path.unlink(missing_ok=True)
+
     def test_install_does_not_replace_unreadable_hook(self):
         content = b"\xff\xfe\x80user-owned plugin"
         self.path.write_bytes(content)
