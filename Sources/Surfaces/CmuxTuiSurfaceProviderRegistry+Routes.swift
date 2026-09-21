@@ -30,7 +30,10 @@ extension CmuxTuiSurfaceProviderRegistry {
         // shortcut, even when the first background fleet read has not run.
         guard await providerRefreshingIfMissing(machineID: machineID) != nil else { return nil }
         let route = await links.privateRoute(for: machineID)
-        guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
+        guard !isRetired, epoch == accessEpoch,
+              !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            return nil
+        }
         return route
     }
 
