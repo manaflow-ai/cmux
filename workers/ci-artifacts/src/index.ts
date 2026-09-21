@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { authenticateActionsRequest } from "./actions-oidc";
+import { authenticateActionsRequest, type ActionsIdentity } from "./actions-oidc";
 
 const REPOSITORY = "manaflow-ai/cmux";
 const MAX_BYTES = 2 * 1024 ** 3;
@@ -251,7 +251,8 @@ export async function artifactHandler(
   if (expectedRunId !== undefined) headers.set("X-Cmux-Expected-Run-Id", expectedRunId);
   if (expectedRunAttempt !== undefined) headers.set("X-Cmux-Expected-Run-Attempt", expectedRunAttempt);
   const internal = new Request(request.url, { method: "GET", headers });
-  return env.ARTIFACT_IMPORTS.getByName(`${REPOSITORY}/${identity.id}/${identity.digest}`).fetch(internal);
+  const owner = expectedRunId === undefined ? "unbound" : `run/${expectedRunId}/${expectedRunAttempt}`;
+  return env.ARTIFACT_IMPORTS.getByName(`${REPOSITORY}/${owner}/${identity.id}/${identity.digest}`).fetch(internal);
 }
 
 export default {
@@ -259,7 +260,7 @@ export default {
     if (!route(request)) return new Response("Not found", { status: 404 });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CALLER_AUTH_TIMEOUT_MS);
-    let caller;
+    let caller: ActionsIdentity;
     try {
       caller = await bounded(
         authenticateActionsRequest(request, fetch, Date.now(), controller.signal),
