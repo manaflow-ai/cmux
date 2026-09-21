@@ -143,6 +143,25 @@ extension MobileShellComposite {
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
     public func reconnectOrRefresh() async {
+        let recoveryScope: (macDeviceID: String, instanceTag: String?)? =
+            workspaceListReconnectTarget()
+            ?? workspaceListConnectedRefreshTarget()
+            ?? connectedMacDeviceID.map {
+                (macDeviceID: $0, instanceTag: connectedMacInstanceTag)
+            }
+            ?? foregroundMacDeviceID.map {
+                (macDeviceID: $0, instanceTag: activeMacInstanceTag)
+            }
+        let recoveryGeneration = UUID()
+        workspaceListRecoveryGeneration = recoveryGeneration
+        workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
+        workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
+        defer {
+            if workspaceListRecoveryGeneration == recoveryGeneration {
+                workspaceListRecoveryOwnerID = nil
+                workspaceListRecoveryOwnerInstanceTag = nil
+            }
+        }
         let diagnosticStartedAt = appDiagnosticNow()
         let diagnosticCorrelationID = foregroundMacDeviceID
         recordAppEvent(
@@ -212,9 +231,23 @@ extension MobileShellComposite {
         ownerScoped: Bool = false
     ) {
         if ownerScoped {
-            guard pullToRefreshOwnerID == macDeviceID,
-                  pullToRefreshOwnerInstanceTag == instanceTag else {
-                return
+            if pullToRefreshTask != nil {
+                guard pullToRefreshOwnerID == macDeviceID,
+                      pullToRefreshOwnerInstanceTag == instanceTag else {
+                    return
+                }
+            }
+            if connectionRecoveryOwner.isActive {
+                guard workspaceListRecoveryOwnerID == macDeviceID,
+                      workspaceListRecoveryOwnerInstanceTag == instanceTag else {
+                    return
+                }
+            }
+            if pullToRefreshTask == nil, !connectionRecoveryOwner.isActive {
+                guard workspaceListRecoveryOwnerID == macDeviceID,
+                      workspaceListRecoveryOwnerInstanceTag == instanceTag else {
+                    return
+                }
             }
         }
         pullToRefreshTask?.cancel()
@@ -222,6 +255,9 @@ extension MobileShellComposite {
         pullToRefreshGeneration = UUID()
         pullToRefreshOwnerID = nil
         pullToRefreshOwnerInstanceTag = nil
+        workspaceListRecoveryGeneration = UUID()
+        workspaceListRecoveryOwnerID = nil
+        workspaceListRecoveryOwnerInstanceTag = nil
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         connectionRecoveryAttemptDeadlineTask = nil

@@ -1362,6 +1362,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// touching a newer retry started for the newly selected Mac.
     var pullToRefreshOwnerID: String?
     var pullToRefreshOwnerInstanceTag: String?
+    /// Stable Mac identity for the connection-recovery waiter currently owned
+    /// by the workspace-list Retry action.
+    var workspaceListRecoveryOwnerID: String?
+    var workspaceListRecoveryOwnerInstanceTag: String?
+    var workspaceListRecoveryGeneration = UUID()
     /// Generation of the task currently occupying ``pullToRefreshTask``.
     /// Cancelled attempts advance it before detaching their handle so a late
     /// completion cannot clear or mutate a newer retry.
@@ -1978,6 +1983,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pullToRefreshTask = nil
         self.pullToRefreshOwnerID = nil
         self.pullToRefreshOwnerInstanceTag = nil
+        self.workspaceListRecoveryOwnerID = nil
+        self.workspaceListRecoveryOwnerInstanceTag = nil
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
         self.foregroundWorkspaceMutationRefreshGeneration = UUID()
@@ -11486,6 +11493,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask = nil
         pullToRefreshOwnerID = nil
         pullToRefreshOwnerInstanceTag = nil
+        workspaceListRecoveryOwnerID = nil
+        workspaceListRecoveryOwnerInstanceTag = nil
+        workspaceListRecoveryGeneration = UUID()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryDebounceTask = nil
         workspaceChangesSummaryDebounceTaskID = nil
