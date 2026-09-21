@@ -171,7 +171,7 @@ final class SurfaceCatalog {
         if cloudStates[provider.machine] != nil {
             cloudWorkspaceProjectionCoordinator.request(machine: provider.machine, catalog: self)
         }
-        notifyChange()
+        notifyChange(for: machine)
     }
 
     func unregister(machine: SurfaceMachineID) {
@@ -213,7 +213,7 @@ final class SurfaceCatalog {
         updateCloudDirectoryMetadata(on: machine)
         projections = projections.filter { $0.resource.machine != machine }
         projectionVersions[machine] = nil
-        notifyChange()
+        notifyChange(for: resource.machine)
     }
 
     func provider(for machine: SurfaceMachineID) -> (any SurfaceProvider)? {
@@ -305,7 +305,7 @@ final class SurfaceCatalog {
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
         updateCloudDirectoryMetadata(on: machine)
-        notifyChange()
+        notifyChange(for: machine)
         return true
     }
 
@@ -316,7 +316,7 @@ final class SurfaceCatalog {
         resources[resource.id] = resource
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         resolvePendingRestoredProjections(on: resource.machine)
-        notifyChange()
+        notifyChange(for: resource.machine)
     }
 
     /// Remove a resource, optionally validating the provider that requested the mutation.
@@ -327,7 +327,7 @@ final class SurfaceCatalog {
         if resourceIDsByMachine[id.machine]?.isEmpty == true {
             resourceIDsByMachine[id.machine] = nil
         }
-        notifyChange()
+        notifyChange(for: id.machine)
     }
 
     /// A committed control-plane receipt can name a machine before discovery
@@ -336,7 +336,7 @@ final class SurfaceCatalog {
         guard !info.id.isLocal, machines[info.id] == nil else { return }
         machines[info.id] = info
         updateCloudDirectoryMetadata(on: info.id)
-        notifyChange()
+        notifyChange(for: info.id)
     }
 
     /// Update machine metadata, optionally validating the provider registration that supplied it.
@@ -344,7 +344,7 @@ final class SurfaceCatalog {
         guard accepts(writeFor: info.id, from: source) else { return }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
         updateCloudDirectoryMetadata(on: info.id)
-        notifyChange()
+        notifyChange(for: info.id)
     }
 
     /// Retains the last accepted graph while recording that the transport no
@@ -357,7 +357,7 @@ final class SurfaceCatalog {
     ) {
         guard cloudStates[machine] != nil else {
             if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
-            notifyChange()
+            notifyChange(for: machine)
             return
         }
         var observation = cloudStateObservations[machine] ?? .stale(reason: reason)
@@ -369,7 +369,7 @@ final class SurfaceCatalog {
             machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         }
         updateCloudDirectoryMetadata(on: machine)
-        notifyChange()
+        notifyChange(for: machine)
     }
 
     /// Publishes pending receipts separately from the accepted daemon document and derived rows.
@@ -1400,14 +1400,7 @@ final class SurfaceCatalog {
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     private var changeNotificationPending = false
+    private var pendingChangedMachines: Set<SurfaceMachineID> = []
 
-    func notifyChange() {
-        guard !changeNotificationPending else { return }
-        changeNotificationPending = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.changeNotificationPending = false
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
-        }
-    }
+
 }

@@ -182,7 +182,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
+            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)
+                .filter { [weak workspace] notification in
+                    guard let machine = workspace?.cloudVMID,
+                          let changedMachines = notification.userInfo?["machines"] as? [String]
+                    else { return false }
+                    return changedMachines.contains(machine)
+                }
+                .map { _ in () }
+                .eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in

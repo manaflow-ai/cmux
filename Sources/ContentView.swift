@@ -2805,7 +2805,15 @@ struct ContentView: View {
         // Cloud provider refreshes publish the authoritative machine link state
         // through the surface catalog. Re-resolve Files/Find without requiring
         // a sidebar toggle or a cwd change after reconnects.
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)) { _ in
+        view = AnyView(view.onReceive(
+            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)
+                .filter { [weak tabManager] notification in
+                    guard let machine = tabManager?.selectedWorkspace?.cloudVMID,
+                          let changedMachines = notification.userInfo?["machines"] as? [String]
+                    else { return false }
+                    return changedMachines.contains(machine)
+                }
+        ) { _ in
             syncFileExplorerDirectory()
         })
 

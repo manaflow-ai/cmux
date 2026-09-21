@@ -3207,6 +3207,7 @@
 		C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70530000000000000001 /* submit-cmux-profile */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */; };
+		CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */; };
 		F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */; };
 		78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */; };
 		F11347000000000000000001 /* SurfaceCatalog+CloudPorts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */; };
@@ -7206,6 +7207,7 @@
 		C0DE70530000000000000001 /* submit-cmux-profile */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/submit-cmux-profile"; sourceTree = SOURCE_ROOT; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		019F9382B99C46AAAEB9C91C /* SurfaceAgentNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceAgentNaming.swift"; sourceTree = "<group>"; };
+		CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+ChangeNotifications.swift"; sourceTree = "<group>"; };
 		F11347000000000000000008 /* SurfaceCatalog+CloudBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudBinding.swift"; sourceTree = "<group>"; };
 		7B2248ED1422420F90E0D71D /* SurfaceCatalog+CloudDirectoryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudDirectoryMetadata.swift"; sourceTree = "<group>"; };
 		F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+CloudPorts.swift"; sourceTree = "<group>"; };
@@ -10707,6 +10709,7 @@
 				CFSR00000000000000000005 /* FileSearchScope.swift */,
 				CFSR00000000000000000006 /* LiveCloudFileExplorerCommandRunner.swift */,
 				CFSR00000000000000000007 /* RemoteFileExplorerProvider.swift */,
+				CFSR00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift */,
 				CFSR00000000000000000012 /* FileExplorerRemotePreviewPresentation.swift */,
 				CFSR00000000000000000008 /* FileExplorerStore+RemoteRoots.swift */,
 				CFSR00000000000000000009 /* FileExplorerSearchController+Cloud.swift */,
@@ -14785,6 +14788,7 @@
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				C935C833B18F4CC18711BD77 /* SurfaceAgentNaming.swift in Sources */,
+				CFSF00000000000000000013 /* SurfaceCatalog+ChangeNotifications.swift in Sources */,
 				F11347000000000000000007 /* SurfaceCatalog+CloudBinding.swift in Sources */,
 				78F8D449BA0D4860AE1162C7 /* SurfaceCatalog+CloudDirectoryMetadata.swift in Sources */,
 				F11347000000000000000001 /* SurfaceCatalog+CloudPorts.swift in Sources */,
