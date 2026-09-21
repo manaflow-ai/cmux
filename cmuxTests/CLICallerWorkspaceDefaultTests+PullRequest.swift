@@ -7,7 +7,7 @@ extension CLICallerWorkspaceDefaultTests {
 
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "missing-directory", "nested-repository", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -77,6 +77,18 @@ extension CLICallerWorkspaceDefaultTests {
             unlink(socketPath)
         }
         let worktreePath = worktree.path
+        let workspaceDirectory: String = {
+            switch scenario {
+            case "missing-directory":
+                return directory.appendingPathComponent("missing-workspace").path
+            case "nested-repository":
+                let nested = worktree.appendingPathComponent("nested-repository", isDirectory: true)
+                try? FileManager.default.createDirectory(at: nested.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
+                return nested.path
+            default:
+                return worktreePath
+            }
+        }()
         let handled = Self.startMockServer(listenerFD: listener, state: state) { line in
             guard let object = Self.jsonObject(line), let id = object["id"] as? String else {
                 return "OK"
@@ -93,7 +105,7 @@ extension CLICallerWorkspaceDefaultTests {
             case "window.list":
                 return Self.v2Response(id: id, ok: true, result: ["windows": [["id": Self.focusedWorkspaceId]]])
             case "workspace.list":
-                var rows = [["id": Self.otherWorkspaceId, "current_directory": worktreePath, "remote": ["enabled": false]] as [String: Any]]
+                var rows = [["id": Self.otherWorkspaceId, "current_directory": workspaceDirectory, "remote": ["enabled": false]] as [String: Any]]
                 if scenario == "ambiguous" { rows.append(["id": Self.focusedWorkspaceId, "current_directory": worktreePath]) }
                 return Self.v2Response(id: id, ok: true, result: ["workspaces": rows])
             default:
@@ -129,7 +141,7 @@ extension CLICallerWorkspaceDefaultTests {
         #expect(!result.timedOut)
         let lines = state.linesSnapshot()
         let mutations = lines.filter { $0.contains("workspace_pr") }
-        let shouldFail = ["window-mismatch", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "blank", "option"].contains(scenario)
+        let shouldFail = ["window-mismatch", "missing-directory", "nested-repository", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "blank", "option"].contains(scenario)
         #expect((result.status != 0) == shouldFail, Comment(rawValue: result.stderr))
         #expect(!lines.contains { $0.contains("workspace.current") || $0.contains("window.focus") })
         if shouldFail {

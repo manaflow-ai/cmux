@@ -115,6 +115,7 @@ extension CMUXCLI {
     /// makes the candidate belong to a different repository and is rejected.
     private func pullRequestWorkspacePathBelongsToRepository(_ path: String, root: String) -> Bool {
         guard path == root || path.hasPrefix(root + "/") else { return false }
+        guard FileManager.default.fileExists(atPath: path) else { return false }
         let rootURL = URL(fileURLWithPath: root).standardizedFileURL
         let candidateURL = URL(fileURLWithPath: path).standardizedFileURL
         let rootComponents = rootURL.pathComponents
@@ -124,11 +125,24 @@ extension CMUXCLI {
         var current = rootURL
         for component in candidateComponents.dropFirst(rootComponents.count) {
             current.appendPathComponent(component, isDirectory: true)
-            if FileManager.default.fileExists(atPath: current.appendingPathComponent(".git").path) {
+            if FileManager.default.fileExists(atPath: current.appendingPathComponent(".git").path) ||
+                pullRequestIsBareRepositoryDirectory(current.path) {
                 return false
             }
         }
         return true
+    }
+
+    private func pullRequestIsBareRepositoryDirectory(_ path: String) -> Bool {
+        let fileManager = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+        return fileManager.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("HEAD").path) &&
+            fileManager.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("config").path) &&
+            fileManager.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("objects", isDirectory: true).path) &&
+            fileManager.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent("refs", isDirectory: true).path)
     }
 
     private static func pullRequestWindowIDsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
