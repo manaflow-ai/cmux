@@ -1710,6 +1710,22 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
+def test_guard_matrix_parallelizes_the_mixed_suite() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+
+    assert "group: [preflight, ci, app-host, release, quality]" in block
+    assert "name: workflow-guard-tests / ${{ matrix.group }}" in block
+    for step, group in (
+        ("Validate control-plane generated types", "preflight"),
+        ("Validate CI change area filter", "ci"),
+        ("Validate app-host xcodebuild retry guard", "app-host"),
+        ("Validate iOS App Store lane identity", "release"),
+        ("Validate test determinism gate", "quality"),
+    ):
+        marker = f"- name: {step}\n        if: ${{{{ matrix.group == '{group}' }}}}"
+        assert marker in block, (step, group)
+
+
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
