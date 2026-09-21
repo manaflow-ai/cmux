@@ -58,6 +58,9 @@ extension TerminalController {
                     defaultValue: "cmux is handling too many control-socket requests right now, so this one was not run. Retry in a moment."
                 )
             ),
+            configuration: ControlOverloadResponder.Configuration(
+                maximumConcurrentReplies: socketOverloadMaximumConcurrentReplies
+            ),
             onRejection: { rejection in
                 sentryBreadcrumb(
                     "socket.pool.rejection_answered",

@@ -56,6 +56,20 @@ final class SurfaceResumeApprovalSheetPresenter: SurfaceResumeApprovalSheetPrese
     }
 }
 
+/// What the prompter should do with a queued proposal when its turn comes.
+enum SurfaceResumeApprovalPromptResolution {
+    /// No record answers this command yet (or the record asks each time):
+    /// present the sheet.
+    case prompt
+    /// A record written since the proposal was queued (an earlier answer in
+    /// this queue, or Settings) already decides it: apply that record to the
+    /// proposal's binding without asking again.
+    case covered(SurfaceResumeApprovalRecord)
+    /// The approval store cannot answer right now (signing secret still
+    /// loading); the binding stays manual.
+    case unavailable
+}
+
 /// The single owner of resume-command approval prompting.
 ///
 /// Every proposal, whether it arrived over the control socket or from the
@@ -66,8 +80,9 @@ final class SurfaceResumeApprovalSheetPresenter: SurfaceResumeApprovalSheetPrese
 /// user.
 @MainActor
 final class SurfaceResumeApprovalPrompter {
-    /// Whether a proposal still needs the user's decision when its turn comes.
-    typealias PromptNeeded = @MainActor (SurfaceResumeBindingSnapshot) -> Bool
+    /// Decides, when a proposal's turn comes, whether it still needs the user,
+    /// is already covered by a record, or cannot be answered.
+    typealias Resolve = @MainActor (SurfaceResumeBindingSnapshot) -> SurfaceResumeApprovalPromptResolution
     /// Writes the signed approval record for a decision.
     typealias Approve = @MainActor (
         _ binding: SurfaceResumeBindingSnapshot,
@@ -77,7 +92,7 @@ final class SurfaceResumeApprovalPrompter {
 
     private let presenter: any SurfaceResumeApprovalSheetPresenting
     private let canPrompt: Bool
-    private let promptNeeded: PromptNeeded
+    private let resolve: Resolve
     private let approve: Approve
     private var queue: [SurfaceResumeApprovalProposal] = []
     private var isPresenting = false
@@ -92,13 +107,13 @@ final class SurfaceResumeApprovalPrompter {
     ///   - presenter: The sheet presenter.
     ///   - canPrompt: Whether this process may show approval UI at all. The
     ///     app passes `false` when hosted by a unit-test runner.
-    ///   - promptNeeded: The re-check run before each presentation.
+    ///   - resolve: The re-check run before each presentation.
     ///   - approve: The record writer.
     init(
         presenter: any SurfaceResumeApprovalSheetPresenting,
         canPrompt: Bool,
-        promptNeeded: @escaping PromptNeeded = { binding in
-            SurfaceResumeApprovalStore.proposalStillNeedsPrompt(binding)
+        resolve: @escaping Resolve = { binding in
+            SurfaceResumeApprovalStore.promptResolution(for: binding)
         },
         approve: @escaping Approve = { binding, policy, commandPrefix in
             SurfaceResumeApprovalStore.approve(
@@ -110,7 +125,7 @@ final class SurfaceResumeApprovalPrompter {
     ) {
         self.presenter = presenter
         self.canPrompt = canPrompt
-        self.promptNeeded = promptNeeded
+        self.resolve = resolve
         self.approve = approve
     }
 
@@ -136,8 +151,17 @@ final class SurfaceResumeApprovalPrompter {
         while !queue.isEmpty {
             let proposal = queue.removeFirst()
             // An earlier answer, or a record written through Settings, may
-            // already cover this command: never ask the same question twice.
-            guard promptNeeded(proposal.binding) else { continue }
+            // already cover this command: never ask the same question twice,
+            // but do apply that decision to every surface it covers.
+            switch resolve(proposal.binding) {
+            case .covered(let record):
+                proposal.apply(record)
+                continue
+            case .unavailable:
+                continue
+            case .prompt:
+                break
+            }
             isPresenting = true
             let alert = Self.makeAlert(for: proposal.binding)
             presenter.presentApprovalAlert(alert.alert, preferring: proposal.preferredWindow) { [weak self] response in
@@ -230,15 +254,22 @@ final class SurfaceResumeApprovalPrompter {
 }
 
 extension SurfaceResumeApprovalStore {
-    /// Whether a queued proposal still needs the user's decision: the store
-    /// is loaded and no record answers the command yet (or the record asks
-    /// each time).
-    static func proposalStillNeedsPrompt(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+    /// How a queued proposal should be handled when its turn comes: prompt
+    /// when no record answers the command yet (or the record asks each time),
+    /// apply the covering record otherwise, and wait when the store is still
+    /// loading.
+    static func promptResolution(
+        for binding: SurfaceResumeBindingSnapshot
+    ) -> SurfaceResumeApprovalPromptResolution {
         switch approvalProposalContext(for: binding) {
         case .pendingSigningSecret:
-            return false
+            return .unavailable
         case let .resolved(context):
-            return shouldPromptForProposal(binding: binding, existingRecord: context.existingRecord)
+            if shouldPromptForProposal(binding: binding, existingRecord: context.existingRecord) {
+                return .prompt
+            }
+            guard let record = context.existingRecord else { return .unavailable }
+            return .covered(record)
         }
     }
 }

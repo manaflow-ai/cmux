@@ -140,11 +140,10 @@ extension SocketControlServer {
             case .enqueued:
                 break
             case let .dropped(connection):
-                // The stream consumer fell behind its bounded buffer. The
-                // client sees a closed connection; record it so a saturated
-                // consumer is visible in Release telemetry instead of only
-                // as client-side EPIPE reports (#13369).
-                close(connection.socket)
+                // The stream consumer fell behind its bounded buffer. Record
+                // it so a saturated consumer is visible in Release telemetry,
+                // then hand the descriptor to the host so the client gets a
+                // real error instead of EPIPE (#13369).
                 events.breadcrumb(
                     "socket.listener.connection.dropped",
                     socketListenerEventData(
@@ -152,6 +151,11 @@ extension SocketControlServer {
                         extra: ["generation": generation]
                     )
                 )
+                if let connectionDropped = events.connectionDropped {
+                    connectionDropped(connection.socket, generation)
+                } else {
+                    close(connection.socket)
+                }
             case .terminated:
                 close(clientSocket)
             @unknown default:

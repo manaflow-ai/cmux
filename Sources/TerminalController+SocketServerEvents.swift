@@ -51,6 +51,15 @@ extension TerminalController {
                     consecutiveFailures: consecutiveFailures,
                     delayMs: delayMs
                 )
+            },
+            connectionDropped: { socket, _ in
+                // Listener-queue callback: the accept buffer was full. Answer
+                // the client with `overloaded` instead of a bare close.
+                guard let controller = target.controller else {
+                    close(socket)
+                    return
+                }
+                controller.rejectSocketClient(socket, reason: .acceptBufferFull)
             }
         )
     }

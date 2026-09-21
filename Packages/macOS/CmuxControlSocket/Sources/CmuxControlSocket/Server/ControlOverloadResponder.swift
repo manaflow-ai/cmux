@@ -14,6 +14,9 @@ public enum ControlOverloadReason: String, Sendable, Equatable {
     case preauthorizationSaturated = "preauthorization_saturated"
     /// The pool is stopping (application termination or a listener restart).
     case serverStopping = "server_stopping"
+    /// The accepted-connection buffer between the listener and the pool was
+    /// full because the consumer fell behind.
+    case acceptBufferFull = "accept_buffer_full"
 }
 
 /// One rejection handled by ``ControlOverloadResponder``, reported to the host.
@@ -48,7 +51,10 @@ public struct ControlOverloadRejection: Sendable, Equatable {
 ///
 /// At most `maximumConcurrentReplies` rejections are answered at once; past
 /// that the descriptor is closed immediately, which bounds the resources a
-/// rejection flood can hold. Each reply runs on its own detached task
+/// rejection flood can hold. Size it above everything the pool can reject in
+/// one burst (its live plus pending capacity, and the preauthorization
+/// claims), or a batch expiry would push concurrent rejections back to a bare
+/// close. Each reply runs on its own detached task
 /// because rejection happens inside the pool's synchronous drop callback.
 public final class ControlOverloadResponder: Sendable {
     /// Host-localized copy for the error reply.
@@ -76,12 +82,12 @@ public final class ControlOverloadResponder: Sendable {
         /// Creates a configuration.
         ///
         /// - Parameters:
-        ///   - maximumConcurrentReplies: Concurrent reply bound (default 64).
+        ///   - maximumConcurrentReplies: Concurrent reply bound (default 256).
         ///   - readDeadlineMilliseconds: First-line wait (default 2 s).
         ///   - maximumRequestBytes: First-line byte cap (default 64 KiB).
         ///   - retryAfterMilliseconds: Retry hint (default 500 ms).
         public init(
-            maximumConcurrentReplies: Int = 64,
+            maximumConcurrentReplies: Int = 256,
             readDeadlineMilliseconds: Int = 2_000,
             maximumRequestBytes: Int = 64 * 1024,
             retryAfterMilliseconds: Int = 500

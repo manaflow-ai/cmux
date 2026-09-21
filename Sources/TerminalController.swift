@@ -189,8 +189,8 @@ class TerminalController {
     /// Bounded async connection admission. The pool owns task lifetimes; an
     /// admitted connection owns its descriptor until its async handler exits.
     nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
-        maximumConcurrentJobs: 32,
-        maximumPendingJobs: 64,
+        maximumConcurrentJobs: TerminalController.socketClientMaximumConcurrentJobs,
+        maximumPendingJobs: TerminalController.socketClientMaximumPendingJobs,
         maximumPendingAgeNanoseconds: TerminalController.socketPendingConnectionMaximumAgeNanoseconds
     )
     /// Answers connections the pool cannot serve with a real `overloaded`
@@ -458,7 +458,7 @@ class TerminalController {
         transport: SocketTransport = SocketTransport(),
         listenerPolicy: SocketListenerPolicy = SocketListenerPolicy(),
         socketClientPreauthorizationLimiter: SocketClientPreauthorizationLimiter = .init(
-            maximumConcurrentClaims: 32
+            maximumConcurrentClaims: TerminalController.socketClientPreauthorizationMaximumClaims
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
         mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(

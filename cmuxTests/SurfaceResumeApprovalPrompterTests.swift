@@ -45,8 +45,9 @@ struct SurfaceResumeApprovalPrompterTests {
     private final class Approvals {
         var recorded: [(binding: SurfaceResumeBindingSnapshot, policy: SurfaceResumeApprovalPolicy, prefix: [String]?)] = []
         var applied: [SurfaceResumeApprovalRecord] = []
-        /// Commands that already have a decision; mirrors a written record.
-        var decidedCommands: Set<String> = []
+        /// Commands that already have a decision, with the record that
+        /// decided them; mirrors the approval store.
+        var decidedRecords: [String: SurfaceResumeApprovalRecord] = [:]
     }
 
     private func makeBinding(_ command: String) -> SurfaceResumeBindingSnapshot {
@@ -61,15 +62,18 @@ struct SurfaceResumeApprovalPrompterTests {
         SurfaceResumeApprovalPrompter(
             presenter: presenter,
             canPrompt: canPrompt,
-            promptNeeded: { binding in !approvals.decidedCommands.contains(binding.command) },
+            resolve: { binding in
+                approvals.decidedRecords[binding.command].map { .covered($0) } ?? .prompt
+            },
             approve: { binding, policy, prefix in
                 approvals.recorded.append((binding, policy, prefix))
-                approvals.decidedCommands.insert(binding.command)
-                return SurfaceResumeApprovalRecord(
+                let record = SurfaceResumeApprovalRecord(
                     commandPrefix: binding.command.split(separator: " ").map(String.init),
                     cwd: binding.cwd,
                     policy: policy
                 )
+                approvals.decidedRecords[binding.command] = record
+                return record
             }
         )
     }
@@ -143,8 +147,30 @@ struct SurfaceResumeApprovalPrompterTests {
 
         presenter.answer(.alertFirstButtonReturn)
 
+        // One record, one sheet, but every covered surface gets the decision.
         #expect(presenter.presented.count == 1)
         #expect(approvals.recorded.count == 1)
+        #expect(approvals.applied.count == 60)
+        #expect(approvals.applied.allSatisfy { $0.policy == .auto })
+        #expect(prompter.pendingProposalCount == 0)
+    }
+
+    @Test func appliesARecordWrittenElsewhereInsteadOfAskingAgain() {
+        let presenter = RecordingSheetPresenter()
+        let approvals = Approvals()
+        let prompter = makePrompter(presenter: presenter, approvals: approvals)
+        let binding = makeBinding("claude --resume settled")
+        approvals.decidedRecords[binding.command] = SurfaceResumeApprovalRecord(
+            commandPrefix: ["claude", "--resume"],
+            cwd: binding.cwd,
+            policy: .manual
+        )
+
+        #expect(prompter.enqueue(proposal(binding, approvals: approvals)))
+
+        #expect(presenter.presented.isEmpty)
+        #expect(approvals.recorded.isEmpty)
+        #expect(approvals.applied.map(\.policy) == [.manual])
         #expect(prompter.pendingProposalCount == 0)
     }
 

@@ -29,6 +29,21 @@ extension TerminalController {
     /// receives this reply rather than its own timeout.
     nonisolated static let socketMainActorHopDeadlineMilliseconds = 10_000
 
+    /// Connection jobs that may run at once.
+    nonisolated static let socketClientMaximumConcurrentJobs = 32
+    /// Connection jobs that may wait for a slot.
+    nonisolated static let socketClientMaximumPendingJobs = 64
+    /// Unauthenticated peers that may be read concurrently.
+    nonisolated static let socketClientPreauthorizationMaximumClaims = 32
+    /// Rejections the overload responder answers concurrently: everything the
+    /// pool can reject in one burst (a batch expiry of the whole pending
+    /// queue, or a stop that drops it) plus the preauthorization limiter's
+    /// denials, with headroom for the accept buffer, so a burst never falls
+    /// back to a bare close (#13397 review).
+    nonisolated static let socketOverloadMaximumConcurrentReplies =
+        socketClientMaximumConcurrentJobs + socketClientMaximumPendingJobs
+        + socketClientPreauthorizationMaximumClaims + 128
+
     /// Longest an accepted connection may wait for a pool slot. Matches the
     /// CLI's default response timeout: a job older than this belongs to a
     /// client that has already given up, so running it would only apply
