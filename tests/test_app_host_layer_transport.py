@@ -155,6 +155,50 @@ class LayerTransportTests(unittest.TestCase):
                 self.assertFalse(envfile.exists())
                 self.assertFalse(self.destination.exists())
 
+    def test_provider_error_detail_is_bounded(self):
+        with tempfile.TemporaryFile() as stream:
+            stream.write(b"x" * 5000)
+            detail = t.provider_error_detail(stream)
+        self.assertEqual(len(detail), 4096)
+        self.assertEqual(detail, "x" * 4096)
+
+    def test_restore_fallback_logs_provider_error_detail(self):
+        output = self.root / "result.out"
+        envfile = self.root / "result.env"
+        with (
+            mock.patch.object(t, "current_identity", return_value=self.identity),
+            mock.patch.object(t, "GitHub", return_value=self.api),
+            mock.patch.object(t, "restore_remote", side_effect=ValueError("provider denied artifact")),
+            mock.patch.dict(
+                t.os.environ,
+                {
+                    "GITHUB_REPOSITORY": "org/repo",
+                    "CMUX_RUN_HEAD_SHA": "a" * 40,
+                    "GITHUB_OUTPUT": str(output),
+                    "GITHUB_ENV": str(envfile),
+                },
+            ),
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    str(SCRIPT),
+                    "restore",
+                    str(self.destination),
+                    "--index-id",
+                    "50",
+                    "--index-digest",
+                    self.reference["artifact_digest"],
+                ],
+            ),
+        ):
+            t.main()
+        self.assertEqual(output.read_text(), "hit=false\n")
+        self.assertIn(
+            "Layered product unavailable (ValueError): provider denied artifact; using legacy aggregate.",
+            self.output.getvalue(),
+        )
+
     def test_roundtrip_downloads_exact_pinned_ids_and_all_four_layers(self):
         self.restore()
         self.assertEqual(self.api.downloaded, [50, 10, 11, 12, 13])

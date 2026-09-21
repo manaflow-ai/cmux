@@ -71,6 +71,12 @@ def positive(value):
     return int(value)
 
 
+def provider_error_detail(stream, limit=4096):
+    stream.flush()
+    stream.seek(0)
+    return stream.read(limit).decode("utf-8", "replace").strip()
+
+
 def producer(repository, identity, run_head_sha):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("invalid repository")
@@ -120,7 +126,9 @@ class GitHub:
                             raise ValueError("provider ZIP exceeds pinned size")
                         output.write(block)
                 if process.wait(timeout=max(1, deadline - time.monotonic())):
-                    raise ValueError("GitHub artifact download failed")
+                    detail = provider_error_detail(errors)
+                    suffix = f": {detail}" if detail else ""
+                    raise ValueError(f"GitHub artifact download failed{suffix}")
             finally:
                 if process.poll() is None:
                     process.kill()
@@ -368,7 +376,10 @@ def main():
         hit = True
     except (KeyError, ValueError, TypeError, OSError, TimeoutError, subprocess.SubprocessError,
             zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:
-        print(f"Layered product unavailable ({type(error).__name__}); using legacy aggregate.")
+        print(
+            f"Layered product unavailable ({type(error).__name__}): {error}; "
+            "using legacy aggregate."
+        )
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"hit={str(hit).lower()}\n")
     if hit:
