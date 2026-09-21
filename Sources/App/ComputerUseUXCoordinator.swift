@@ -352,18 +352,18 @@ final class ComputerUseUXCoordinator {
            hasValidSurface,
            ownsLocalSurface,
            runtimeService.acceptsNewLaunches {
+            if !runtimeService.desiredEnabled {
+                // Enable first so startup restores an existing scoped record or
+                // invalidates it for a replaced helper before the presentation
+                // decision is made.
+                try? await configStore.set(true, for: enabledKey)
+                await runtimeService.setEnabled(true)
+            }
             // Authenticated hook ingress has already established ownership of a
             // live local terminal. Agent process indexing may lag the first
             // hook, so it is used only for session bookkeeping below.
-            let requestedOnboarding = runtimeService.requestAutomaticOnboarding()
-            if requestedOnboarding {
+            if runtimeService.requestAutomaticOnboarding() {
                 _ = ensureOnboardingCoordinator().requestFromToolInvocation()
-            }
-            if !runtimeService.desiredEnabled {
-                // An explicit functional request is the opt-in. Persist it
-                // after presenting so the window is never delayed by config I/O.
-                try? await configStore.set(true, for: enabledKey)
-                await runtimeService.setEnabled(true)
             }
         }
         if isFunctionalInvocation,

@@ -11,6 +11,27 @@ extension CMUXCLI {
         client: SocketClient,
         deadline: Date
     ) -> (workspaceId: String, surfaceId: String)? {
+        if client.isRelayBacked,
+           let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: workspaceRaw) != nil,
+           UUID(uuidString: surfaceRaw) != nil,
+           let listed = try? client.sendV2(
+               method: "surface.list",
+               params: ["workspace_id": workspaceRaw],
+               responseTimeout: min(
+                   max(deadline.timeIntervalSinceNow - Self.feedAttentionSendReserveSeconds, 0.05),
+                   Self.feedAttentionProbeTimeoutCapSeconds
+               )
+           ),
+           let surfaces = listed["surfaces"] as? [[String: Any]],
+           let surface = surfaces.first(where: {
+               ($0["id"] as? String) == surfaceRaw || ($0["ref"] as? String) == surfaceRaw
+           }),
+           let liveSurface = (surface["id"] as? String).flatMap(UUID.init(uuidString:))
+        {
+            return (workspaceId: workspaceRaw, surfaceId: liveSurface.uuidString)
+        }
         if let target = resolvedAttentionDeliveryTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,

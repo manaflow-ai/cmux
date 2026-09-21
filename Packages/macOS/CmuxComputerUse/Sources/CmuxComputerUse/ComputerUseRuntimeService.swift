@@ -318,7 +318,18 @@ public final class ComputerUseRuntimeService {
         else {
             return status()
         }
+        let previousStatus = cachedStatus
         cachedStatus = cachedStatus.applyingProbeResult(latest)
+        if cachedStatus != previousStatus {
+            onboarding.statusChanged()
+        }
+        if cachedStatus.isKnown,
+           (!cachedStatus.accessibility || !cachedStatus.screenRecording),
+           onboarding.completionCommitted || onboarding.phase.isReady
+        {
+            onboarding.invalidateCompletion()
+            scheduleReadinessPublication()
+        }
         return status()
     }
 
