@@ -80,7 +80,11 @@ final class FakeTunnelController: CloudTunnelControlling, @unchecked Sendable {
     }
 
     func emit(_ status: CloudTunnelLinkStatus) {
-        for continuation in lock.withLock({ continuations }) {
+        let current = lock.withLock { () -> [AsyncStream<CloudTunnelLinkStatus>.Continuation] in
+            _currentStatusValue = status
+            return continuations
+        }
+        for continuation in current {
             continuation.yield(status)
         }
     }

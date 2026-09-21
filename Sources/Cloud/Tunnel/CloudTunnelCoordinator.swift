@@ -31,6 +31,7 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category:
 /// An unavailable backend fails closed for these callers. It does not run a
 /// command-line fallback.
 actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
+    private struct RetiredStartDeadline: Error {}
     let backend: CloudTunnelBackend
     private let controller: any CloudTunnelControlling
     private let enroller: any CloudTunnelEnrolling
@@ -376,7 +377,20 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             }
             for (retiredGeneration, retiredStart) in retiredStarts
                 where retiredGeneration <= lastRevokedStartGeneration && retiredGeneration < generation {
-                _ = try? await retiredStart.value
+                do {
+                    try await withDeadline(timing.connectTimeout) {
+                        _ = try await retiredStart.value
+                    }
+                } catch let error as CloudTunnelError where error == .deadlineExceeded {
+                    // A system-extension approval can outlive the task that
+                    // requested it. Do not let a replacement wait forever;
+                    // the revoked task remains owned by `retiredStarts` and
+                    // cleans up any late install when it eventually ends.
+                    throw RetiredStartDeadline()
+                } catch {
+                    // A revoked start that failed has no configuration to
+                    // protect, so the replacement may proceed.
+                }
             }
             // A stop may still be draining (idle timer, `vpn down`, sign-out);
             // starting on top of it would race NetworkExtension and fail into
@@ -440,11 +454,13 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             defer { linkBroadcast.remove(linkSubscriptionID) }
             let snapshotRevision = linkStatusRevision
             let current = await controller.currentStatus()
-            // `currentStatus()` can suspend while the extension reports a
-            // newer link event. Yield once so the observer can deliver that
-            // buffered event before deciding whether the snapshot is usable.
-            await Task.yield()
-            let settledStatus = linkStatusRevision == snapshotRevision ? current : linkStatus
+            // Read the status again after the first await. If the extension
+            // reported a disconnect while that snapshot was suspended, the
+            // second read observes the newer NetworkExtension state even if
+            // the coordinator's observer task has not run yet. Once the
+            // observer does run, the revision check remains authoritative.
+            let confirmed = await controller.currentStatus()
+            let settledStatus = linkStatusRevision == snapshotRevision ? confirmed : linkStatus
             linkStatus = settledStatus
             switch settledStatus {
             case .connected:
@@ -477,6 +493,14 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             await settleRefusedStart(enrolled: enrolled, installed: installed, generation: generation)
             setState(.off, generation: generation)
             throw CancellationError()
+        } catch is RetiredStartDeadline {
+            // A revoked approval-held start is still responsible for cleaning
+            // up its late install. Surface the bounded wait without stopping
+            // a tunnel owned by a newer generation.
+            let error = CloudTunnelError.deadlineExceeded
+            setState(.failed(error.description), generation: generation)
+            logger.error("retired tunnel start did not settle before replacement deadline")
+            throw error
         } catch let error as CloudTunnelError where error.isActivationRefusal {
             // A policy refusal is not a failure to back off from: the next
             // use re-asks the policy, and nothing was started. Record it
