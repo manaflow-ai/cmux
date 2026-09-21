@@ -29,13 +29,13 @@ final class CloudPaneCreationFailureStore {
     }
 
     /// Publishes a newly formatted failure, replacing any older card for this workspace.
-    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, title: String? = nil, recoveryText: String? = nil) {
+    func present(machine: SurfaceMachineID, error: Error, requestID: UUID, title: String? = nil, recoveryText: String? = nil, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         guard activeRequestID == requestID else {
             requests.removeValue(forKey: requestID)
             return
         }
         failedRequestID = requestID
-        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText))
+        phase = .failed(CloudPaneCreationFailure(machine: machine, error: error, title: title, recoveryText: recoveryText, context: context ?? CloudOperationContext.current, sourcePanelID: sourcePanelID))
     }
 
     /// Retains each independent intent until it completes or is dismissed. Retry
@@ -50,7 +50,8 @@ final class CloudPaneCreationFailureStore {
         onStart: @escaping @MainActor () -> Void,
         onFinish: @escaping @MainActor () -> Void,
         inlineFailure: (@MainActor (Error) -> Void)? = nil,
-        discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection
+        discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection,
+        operations: CloudOperationRecorder? = nil
     ) {
         let coordinator = CloudTerminalCreationCoordinator(
             create: create,
@@ -83,7 +84,8 @@ final class CloudPaneCreationFailureStore {
                 self?.requests.removeValue(forKey: requestID)
                 if self?.activeRequestID == requestID { self?.phase = .idle }
             },
-            discardProjection: discardProjection
+            discardProjection: discardProjection,
+            operations: operations
         )
         requests[requestID] = coordinator
         coordinator.start()

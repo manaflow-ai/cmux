@@ -13,7 +13,7 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TUNNEL_ENTITLEMENTS  entitlements for the Cloud tunnel system extension
-#                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly>.entitlements,
+#                              (default: TunnelExtension/cmuxTunnelExtension.<release|nightly|rc>.entitlements,
 #                              picked from the app entitlements file name)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
@@ -92,6 +92,7 @@ SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 
 case "$(basename "$APP_ENTITLEMENTS")" in
   *nightly*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.nightly.entitlements" ;;
+  *.rc.*) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.rc.entitlements" ;;
   *) DEFAULT_TUNNEL_ENTITLEMENTS="TunnelExtension/cmuxTunnelExtension.release.entitlements" ;;
 esac
 TUNNEL_ENTITLEMENTS="${CMUX_TUNNEL_ENTITLEMENTS:-$DEFAULT_TUNNEL_ENTITLEMENTS}"
@@ -218,11 +219,20 @@ if [[ -n "$APP_ID" ]]; then
     exit 1
   }
 fi
-/usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
-  | grep -q "com.apple.developer.web-browser.public-key-credential" || {
-    echo "error: signed app missing web-browser entitlement" >&2
-    exit 1
-  }
+# The WebAuthn browser entitlement is an Apple-approved capability request.
+# Stable and nightly request it; the RC App ID's request is still pending, so
+# cmux.rc.entitlements omits it. Assert it only when the channel asks for it,
+# so a channel that requests it can never ship without it.
+if plutil -convert xml1 -o - "$APP_ENTITLEMENTS" 2>/dev/null \
+  | grep -q "com.apple.developer.web-browser.public-key-credential"; then
+  /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 \
+    | grep -q "com.apple.developer.web-browser.public-key-credential" || {
+      echo "error: signed app missing web-browser entitlement" >&2
+      exit 1
+    }
+else
+  echo "note: $(basename "$APP_ENTITLEMENTS") does not request the web-browser entitlement; skipping that check"
+fi
 
 # These capabilities identify cmux as the responsible app for child-process
 # requests to macOS personal-information services. Keep this check next to the

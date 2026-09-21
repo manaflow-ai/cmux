@@ -1,35 +1,96 @@
 import AppKit
+import CmuxCloudMachines
 import Foundation
 
-// MARK: - New Cloud Workspace (Cmd+Y)
+// MARK: - Cloud creation actions
 
 extension AppDelegate {
-    /// Creates a workspace on the persisted default machine through the app-owned operation controller.
+    /// Creates on this window's last Cloud workspace machine, then sidebar order.
     @discardableResult
-    func performNewCloudWorkspaceOnDefaultMachineAction(
+    func performNewCloudWorkspaceOnResolvedMachineAction(
+        tabManager preferredTabManager: TabManager? = nil,
         preferredWindow: NSWindow? = nil,
         debugSource: String = "newCloudWorkspace",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
-              coordinator.isAvailable else { return false }
-        let context = preferredWindow.flatMap { contextForMainWindow($0) }
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
-        let focus = context?.tabManager.selectedTabId != nil
-        // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
-        // events while the remote receipt is still being discovered/attached.
-        return operationController.start(key: "new-cloud-workspace.default") {
-            guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
-                  !Task.isCancelled,
-                  coordinator.isAvailable else { return }
-            destination?.apply(workspaceID: workspaceID)
+              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else { return false }
+        guard let context = preferredTabManager.flatMap({ mainWindowContext(for: $0) })
+            ?? preferredWindow.flatMap({ contextForMainWindow($0) })
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource) else { return false }
+        let manager = context.tabManager
+        manager.recordCloudWorkspaceSelection()
+        let selection = manager.rememberedCloudWorkspaceSelection
+        let revision = manager.cloudWorkspaceSelection.revision
+        let windowID = context.windowId
+        return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
+            do {
+                guard let workspaceID = try await coordinator.createOnResolvedMachine(
+                    selection: selection, windowID: windowID, scopeID: scopeID
+                ), !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
+                destination?.apply(workspaceID: workspaceID)
+                self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
+            } catch CloudWorkspaceCreationError.noMachines {
+                guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return }
+                self?.presentNoCloudMachineAvailableAlert(windowID: windowID)
+            }
         }
     }
 
-    /// Presents machine provisioning and applies its exact workspace receipt to a group when requested.
+    /// Creates on the machine explicitly selected by Cmd+N and configured New Workspace.
     @discardableResult
-    func performNewCloudWorkspaceAction(
+    func performNewCloudWorkspaceOnCurrentMachineAction(
+        tabManager: TabManager,
+        vmID: String,
+        destination: CloudWorkspaceGroupDestination? = nil
+    ) -> Bool {
+        guard let coordinator = cloudWorkspaceCoordinator,
+              let operationController = cloudWorkspaceOperationController,
+              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier,
+              let context = mainWindowContext(for: tabManager) else { return false }
+        let resolvedDestination = destination ?? workspaceGroupNewWorkspaceTarget(in: context).map { target in
+            CloudWorkspaceGroupDestination(
+                tabManager: tabManager, groupId: target.groupId, placement: target.placement,
+                referenceWorkspaceId: target.referenceWorkspaceId, initialWorkspaceId: nil
+            )
+        }
+        let request = CloudWorkspaceCreationRequest(machineID: vmID, scopeID: scopeID, windowID: context.windowId)
+        let revision = tabManager.cloudWorkspaceSelection.revision
+        return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
+            guard let workspaceID = try await coordinator.createOnMachine(request),
+                  !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
+            resolvedDestination?.apply(workspaceID: workspaceID)
+            self?.focusCreatedCloudWorkspace(workspaceID, manager: tabManager, revision: revision, windowID: request.windowID)
+        }
+    }
+
+    private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) {
+        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+              tabManagerFor(windowId: windowID) === manager,
+              let window = mainWindowContexts.values.first(where: { $0.windowId == windowID }).flatMap({ resolvedWindow(for: $0) }),
+              window === NSApp.keyWindow,
+              let workspace = manager.workspacesById[workspaceID] else { return }
+        manager.selectWorkspace(workspace)
+    }
+
+    private func presentNoCloudMachineAvailableAlert(windowID: UUID) {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }),
+              let window = resolvedWindow(for: context) else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "machines.empty.title", defaultValue: "No machines yet")
+        alert.informativeText = String(
+            localized: "machines.workspace.noMachines",
+            defaultValue: "Create a machine with New Cloud Machine, then try again."
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.beginSheetModal(for: window)
+    }
+
+    /// Places a machine's reservation immediately; later provisioning cannot undo user navigation.
+    @discardableResult
+    func performNewCloudMachineAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         preferredWindow: NSWindow? = nil,
@@ -46,10 +107,10 @@ extension AppDelegate {
             ?? preferredWindow ?? event?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let presenter = newMachineSheetPresenter else { return false }
         return operationController.start {
-            guard let workspaceID = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow),
-                  !Task.isCancelled,
-                  operationController.isCurrentlyAvailable else { return }
-            destination?.apply(workspaceID: workspaceID)
+            _ = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow) { workspaceID in
+                guard operationController.isCurrentlyAvailable else { return }
+                destination?.apply(workspaceID: workspaceID)
+            }
         }
     }
 }

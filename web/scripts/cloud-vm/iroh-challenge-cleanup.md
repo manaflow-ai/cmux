@@ -5,7 +5,7 @@ legacy and IRX clients use this broker. No client update or schema change is
 required. The slot key is `(user_id, client_namespace, device_uuid, tag)`;
 `app_instance_id` is replaced when a build restarts.
 
-Run from `web/` with the same operator AWS access as `cloud-vm:migrate`:
+Run from `web/` with the same PlanetScale connection URL as `cloud-vm:migrate`:
 
 ```sh
 bun run cloud-vm:cleanup-iroh -- staging
@@ -34,7 +34,7 @@ Ongoing bounded storage depends on keeping the replacement issuer deployed.
 The protected `Cloud VM DB migration` workflow also accepts
 `cleanup_iroh_challenges=true`. It tests the data migration on isolated
 Postgres, then runs staging before production using the existing environment
-protections and AWS identity. Production source remains pinned to `main`.
+protections and PlanetScale credentials. Production source remains pinned to `main`.
 
 Deletion makes space reusable after PostgreSQL vacuuming; allocated bytes
 need not fall immediately. This command does not perform a blocking

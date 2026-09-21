@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -9,6 +10,9 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
 #if os(iOS)
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 #endif

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-Deterministically sort the high-churn sections of cmux.xcodeproj/project.pbxproj.
+Validate project syntax and object identities, then sort high-churn sections.
+
+Object IDs must be unique across the objects dictionary. Duplicate definitions
+silently replace each other in Xcode, and sorting can change which one wins.
+Reject them before normalizing or checking the project.
 
 What we sort:
   - Every entry inside PBXBuildFile and PBXFileReference (Xcode picks
@@ -31,6 +35,10 @@ from pathlib import Path
 DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
 
 ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
+OPENSTEP_TOKEN_RE = re.compile(
+    r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|[{}=;(),]|[^\s{}=;(),"]+',
+    re.DOTALL,
+)
 
 # Sections we sort flat. Every entry is a single line of the form
 #   <UUID> /* <label> */ = { ... };
@@ -48,6 +56,119 @@ BUILD_PHASE_SECTIONS = (
     "PBXFrameworksBuildPhase",
     "PBXCopyFilesBuildPhase",
 )
+
+
+def validate_syntax(text: str) -> None:
+    """Validate the OpenStep dictionaries, arrays and strings Xcode emits.
+
+    Run on Linux before normalization: balancing braces alone misses a removed
+    semicolon and can let malformed projects reach expensive macOS runners.
+    Keep token positions for diagnostics without parsing shell-script contents.
+    """
+    tokens: list[tuple[str, int]] = []
+    line = 1
+    end = 0
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        gap = text[end:match.start()]
+        if gap.strip():
+            raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+        line += gap.count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if token.startswith("/*"):
+            if not token.endswith("*/"):
+                raise ValueError(f"syntax error on line {token_line}: unterminated comment")
+        elif not token.startswith("//"):
+            tokens.append((token, token_line))
+    if text[end:].strip():
+        raise ValueError(f"syntax error on line {line}: unterminated quoted string")
+    tokens.append(("", line + text[end:].count("\n")))
+    index = 0
+
+    def fail(expected: str) -> None:
+        token, token_line = tokens[index]
+        found = repr(token) if token else "end of file"
+        raise ValueError(f"syntax error on line {token_line}: expected {expected}, found {found}")
+
+    def take(expected: str) -> None:
+        nonlocal index
+        if tokens[index][0] != expected:
+            fail(repr(expected))
+        index += 1
+
+    def scalar() -> None:
+        nonlocal index
+        if not tokens[index][0] or tokens[index][0] in "{}=;(),":
+            fail("a key or value")
+        index += 1
+
+    def value() -> None:
+        if tokens[index][0] == "{":
+            dictionary()
+        elif tokens[index][0] == "(":
+            take("(")
+            while tokens[index][0] != ")":
+                value()
+                if tokens[index][0] == ")":
+                    break
+                take(",")
+            take(")")
+        else:
+            scalar()
+
+    def dictionary() -> None:
+        take("{")
+        while tokens[index][0] != "}":
+            scalar()
+            take("=")
+            value()
+            take(";")
+        take("}")
+
+    dictionary()
+    if tokens[index][0]:
+        fail("end of file")
+
+
+def validate_object_ids(text: str) -> None:
+    """Reject repeated keys in the global objects dictionary, not references.
+
+    Track dictionary nesting in the token stream so quoted build scripts,
+    comments, and nested TargetAttributes keys cannot masquerade as objects.
+    IDs are not restricted to 24 hex characters: older and hand-edited projects
+    use shorter IDs, including the collision that broke nightly in #12736.
+    """
+    dictionaries: list[str | None] = []
+    previous: list[str] = []
+    definitions: dict[str, int] = {}
+    duplicates: list[str] = []
+    line = 1
+    end = 0
+    for match in OPENSTEP_TOKEN_RE.finditer(text):
+        line += text[end:match.start()].count("\n")
+        token = match.group()
+        token_line = line
+        line += token.count("\n")
+        end = match.end()
+        if token.startswith(("/*", "//")):
+            continue
+        if token == "{":
+            key = previous[-2].strip('"') if len(previous) == 2 and previous[-1] == "=" else None
+            if dictionaries == [None, "objects"] and key is not None:
+                if key in definitions:
+                    duplicates.append(
+                        f"duplicate object ID {key} (lines {definitions[key]} and {token_line})"
+                    )
+                else:
+                    definitions[key] = token_line
+            dictionaries.append(key)
+        elif token == "}" and dictionaries:
+            dictionaries.pop()
+        previous = (previous + [token])[-2:]
+    if duplicates:
+        raise ValueError("; ".join(duplicates))
 
 
 def entry_sort_key(line: str) -> tuple[str, str]:
@@ -111,6 +232,8 @@ def sort_build_phase_files(lines: list[str], section: str) -> list[str]:
 
 
 def normalize(text: str) -> str:
+    validate_syntax(text)
+    validate_object_ids(text)
     lines = text.splitlines(keepends=True)
     for section in FLAT_SECTIONS:
         lines = sort_flat_section(lines, section)
@@ -129,7 +252,11 @@ def main(argv: list[str]) -> int:
         return 2
 
     original = path.read_text()
-    normalized = normalize(original)
+    try:
+        normalized = normalize(original)
+    except ValueError as error:
+        print(f"error: {path}: {error}", file=sys.stderr)
+        return 1
 
     if check_only:
         if original != normalized:

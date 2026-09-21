@@ -27,7 +27,7 @@ import { Freestyle, type FirewallSpec } from "freestyle";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { cmuxTuiWebsocketSmokeCommand, readImageManifest } from "./devbox-image-common";
+import { cmuxTuiWebsocketSmokeCommand, devboxWaitForDaemonCommand, readImageManifest } from "./devbox-image-common";
 import { resolveCmuxTuiSource } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const argValue = (name: string): string | undefined => {
@@ -80,7 +80,6 @@ async function main(): Promise<void> {
   const FIREWALL: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
   const t0 = Date.now();
   const elapsed = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   console.log(`reaching ${kind}/${size} ${target} with client ${live.commit.slice(0, 10)} (${live.sha256.slice(0, 12)}…)`);
   const { vm, vmId } = await fs.vms.create({ snapshotId: target, displayName: "cmux devbox reachability", firewall: FIREWALL });
@@ -92,14 +91,12 @@ async function main(): Promise<void> {
       return { code: r.statusCode ?? 124, out: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() };
     };
 
-    const deadline = Date.now() + 120_000;
-    let up = await sh("test -s /etc/cmux/daemon-instance-id && systemctl is-active cmux-tui-daemon", 30_000);
-    while (up.code !== 0 && Date.now() < deadline) {
-      await sleep(2000);
-      up = await sh("test -s /etc/cmux/daemon-instance-id && systemctl is-active cmux-tui-daemon", 30_000);
-    }
-    if (up.code !== 0) throw new Error(`the baked daemon never came up: ${up.out.slice(-300)}`);
-    console.log(`${elapsed()} baked daemon is up`);
+    // A restored systemd unit can be active before its control socket exists,
+    // or while it still answers with the source snapshot's machine identity.
+    // Use the same readiness invariant as image baking and verification.
+    const up = await sh(devboxWaitForDaemonCommand(120), 150_000);
+    if (up.code !== 0) throw new Error(`the baked daemon never became ready: ${up.out.slice(-300)}`);
+    console.log(`${elapsed()} baked daemon is ready on this machine`);
 
     const baked = await sh("cut -d' ' -f1 /etc/cmux/cmux-tui-pin", 30_000);
     const bakedSha = baked.out.trim();

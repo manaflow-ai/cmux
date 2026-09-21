@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -28,6 +29,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
+        case emptyWorkspaceList
     }
 
     private struct HeightCacheKey: Hashable {
@@ -55,6 +57,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     #if DEBUG
     /// The most recent configuration-update route, exposed to package tests.
     var lastPayloadApplyRoute: PayloadApplyRoute?
+    var releaseGateUIProbe: MobileReleaseGateUIProbe?
+    var releaseGateSnapshotter: MobileReleaseGateUISnapshot?
+    private var releaseGateRowTask: Task<Void, Never>?
     #endif
     /// The row whose swipe controls UIKit is currently presenting.
     private var editedItemID: String?
@@ -137,6 +142,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func detach() {
+        #if DEBUG
+        releaseGateRowTask?.cancel()
+        releaseGateRowTask = nil
+        #endif
         pendingContextMenuWorkspaceClose = nil
         deferredConfigurationDuringDrag = nil
         deferredConfigurationDuringScroll = nil
@@ -165,6 +174,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
         apply(configuration: next, in: tableView)
+        #if DEBUG
+        scheduleReleaseGateRows(in: tableView)
+        #endif
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -693,6 +705,51 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return exact
     }
 
+    #if DEBUG
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        scheduleReleaseGateRows(in: tableView)
+    }
+
+    private func scheduleReleaseGateRows(in tableView: UITableView) {
+        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows, releaseGateRowTask == nil else { return }
+        releaseGateRowTask = Task { @MainActor [weak self, weak tableView] in
+            // Run after UIKit applies the current row update. This is an actor
+            // handoff, not a timing delay or a surrogate for data readiness.
+            await Task.yield()
+            guard let self else { return }
+            defer { self.releaseGateRowTask = nil }
+            guard !Task.isCancelled, let tableView, tableView.window != nil else { return }
+            probe.revealWorkspace = { [weak self, weak tableView] rawID in
+                guard let self, let tableView, tableView.window != nil else { return }
+                let id = MobileWorkspacePreview.ID(rawValue: rawID)
+                if let indexPath = self.dataSource?.indexPath(where: { $0.workspaceID == id }) {
+                    if tableView.indexPathsForVisibleRows?.contains(indexPath) != true {
+                        tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+                        tableView.layoutIfNeeded()
+                    }
+                } else if let groupID = self.configuration.workspacesByID[id]?.groupID,
+                          self.configuration.groupsByID[groupID]?.isCollapsed == true {
+                    self.configuration.toggleGroupCollapsed?(groupID, false)
+                }
+            }
+            for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+                guard let id = self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID,
+                      let workspace = self.configuration.workspacesByID[id],
+                      !(workspace.terminals.isEmpty),
+                      (workspace.macConnectionStatus ?? self.configuration.connectionStatus) == .connected else { continue }
+                probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
+                    guard let self, let tableView, tableView.window != nil,
+                          tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
+                          self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID == id else { return false }
+                    self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
+                    self.tableView(tableView, didSelectRowAt: indexPath)
+                    return true
+                }
+            }
+        }
+    }
+    #endif
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)
         guard
@@ -809,7 +866,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
             identifier = group.id.rawValue as NSString
             actions = contextMenuActions(for: group)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
         guard !actions.isEmpty else { return nil }
@@ -851,7 +908,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previousAnchor?.actionCapabilities.supportsCloseActions
                     != nextAnchor?.actionCapabilities.supportsCloseActions
                 || nativeActionAvailabilityChanged(previous: previous, next: next)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return false
         }
     }
@@ -960,7 +1017,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else { return nil }
             guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
             return configuration.workspacesByID[anchorWorkspaceID]
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
     }
@@ -981,7 +1038,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             configuration.groupsByID[groupID]
                 .map { !$0.isEmpty && groupActionCapabilities(for: $0).supportsMoveActions }
                 ?? false
-        case .chrome, .filterEmpty, .groupFooter:
+        case .chrome, .filterEmpty, .groupFooter, .emptyWorkspaceList:
             false
         }
     }
@@ -1055,6 +1112,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .margins(.trailing, 12)
         case .filterEmpty:
             break
+        case .emptyWorkspaceList:
+            hosting = hosting
+                .margins(.top, 8)
+                .margins(.bottom, 8)
+                .margins(.leading, 12)
+                .margins(.trailing, 12)
+                .minSize(width: 0, height: 0)
         }
         cell.contentConfiguration = hosting
     }
@@ -1203,6 +1267,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     showAll: configuration.showAll
                 )
             )
+        case .emptyWorkspaceList:
+            return AnyView(MobileWorkspaceListEmptyRow())
         }
     }
 
@@ -1263,6 +1329,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             ].joined(separator: "|"))
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
+        case .emptyWorkspaceList:
+            kind = .emptyWorkspaceList
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1375,6 +1443,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || (previous.reconnect != nil) != (next.reconnect != nil)
         case .filterEmpty:
             return previous.filter != next.filter
+        case .emptyWorkspaceList:
+            return false
         }
     }
 

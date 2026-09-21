@@ -97,6 +97,7 @@ final class TerminalPanel: Panel, ObservableObject {
     /// A native cloud pane's live attachment state (nil for local terminals).
     /// Written only by the owning cloud session; the view shows it.
     var cloudAttachment: CloudTerminalAttachmentStatus?
+    var deviceAttachment: DeviceTerminalAttachmentStatus?
 
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
     var onRequestAgentHibernationResume: ((Bool) -> Bool)?
@@ -158,7 +159,7 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
-        self.title = surface.agentPanelTitle ?? "Terminal"
+        self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -229,8 +230,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateTitle(_ newTitle: String) {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty && title != trimmed {
+        let trimmed = AutomaticTerminalTitle(newTitle)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty && title != trimmed {
             title = trimmed
         }
     }

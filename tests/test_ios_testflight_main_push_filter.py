@@ -264,6 +264,8 @@ const scenario = {json.dumps(scenario)};
 const outputs = {{}};
 const compareCalls = [];
 const warnings = [];
+const notices = [];
+const debugMessages = [];
 const waitCalls = [];
 const workflowRunRequests = [];
 const artifactRequests = [];
@@ -455,6 +457,12 @@ const core = {{
     warnings.push(message);
   }},
   info: () => {{}},
+  debug: (message) => {{
+    debugMessages.push(message);
+  }},
+  notice: (message) => {{
+    notices.push(message);
+  }},
   summary: {{
     addHeading() {{
       return this;
@@ -477,6 +485,8 @@ process.stdout.write(JSON.stringify({{
   outputs,
   compareCalls,
   warnings,
+  notices,
+  debugMessages,
   waitCalls,
   workflowRunCalls,
   workflowRunRequests,
@@ -874,10 +884,9 @@ def test_manual_override_artifact_is_excluded_from_canonical_history() -> None:
     assert scheduled_run["compareCalls"] == []
 
 
-def test_scheduled_run_waits_for_an_earlier_upload() -> None:
+def test_manual_run_waits_for_an_earlier_upload() -> None:
     result = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        event_name="workflow_dispatch",
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -917,10 +926,9 @@ def test_scheduled_run_waits_for_an_earlier_upload() -> None:
     }
 
 
-def test_scheduled_run_waits_before_upload_job_exists() -> None:
+def test_manual_run_waits_before_upload_job_exists() -> None:
     result = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
+        event_name="workflow_dispatch",
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
@@ -944,8 +952,7 @@ def test_scheduled_run_waits_before_upload_job_exists() -> None:
 def test_ordering_retries_transient_api_failures() -> None:
     for failed_api in ("runs", "jobs"):
         result = run_decision_scenario(
-            event_name="schedule",
-            schedule=IOS_SCHEDULES[0],
+            event_name="workflow_dispatch",
             prior_sha="base-sha",
             head_sha="head-sha",
             changed_files=("ios/cmux/App.swift",),
@@ -1017,15 +1024,34 @@ def test_ordering_skips_defunct_queued_prior_run() -> None:
     }
 
 
-def test_ordering_includes_manual_current_and_prior_runs() -> None:
-    scenarios = (
-        ("workflow_dispatch", "schedule"),
-        ("schedule", "workflow_dispatch"),
+def test_manual_run_waits_behind_a_scheduled_upload() -> None:
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        prior_sha="base-sha",
+        prior_event="schedule",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        blocking_prior_run=True,
     )
 
-    for event_name, prior_event in scenarios:
+    assert result["waitCalls"] == [60_000]
+    assert result["uploadJobStatuses"] == [
+        "in_progress",
+        "completed",
+    ]
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+
+
+def test_internal_poll_skips_instead_of_queueing_behind_an_upload() -> None:
+    # Waiting polls cost API calls quadratically. A poll is idempotent, so it
+    # must leave and let the next one build whatever main is by then.
+    for prior_event in ("schedule", "workflow_dispatch"):
         result = run_decision_scenario(
-            event_name=event_name,
+            event_name="schedule",
             schedule=IOS_SCHEDULES[0],
             prior_sha="base-sha",
             prior_event=prior_event,
@@ -1034,15 +1060,83 @@ def test_ordering_includes_manual_current_and_prior_runs() -> None:
             blocking_prior_run=True,
         )
 
+        assert result["waitCalls"] == []
+        assert result["workflowRunCalls"] == 1
+        assert result["warnings"] == []
+        assert len(result["notices"]) == 1
+        assert "have not finished uploading" in result["notices"][0]
+        assert result["outputs"] == {
+            "should_build": "false",
+            "last_uploaded_sha": "",
+            "variant": "internal",
+        }
+
+
+def test_internal_poll_skips_when_ordering_cannot_be_checked() -> None:
+    # Retrying for five hours is how a rate-limited poll keeps the limit
+    # exhausted. The next poll is the retry.
+    for failed_api in ("runs", "jobs"):
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            blocking_prior_run=True,
+            ordering_api_failure=failed_api,
+        )
+
+        assert result["waitCalls"] == []
+        # The run page is public: the notice must not carry the API's message.
+        assert len(result["notices"]) == 1
+        assert f"transient {failed_api} failure" not in result["notices"][0]
+        assert any(f"transient {failed_api} failure" in message for message in result["debugMessages"])
+        assert result["outputs"] == {
+            "should_build": "false",
+            "last_uploaded_sha": "",
+            "variant": "internal",
+        }
+
+
+def test_demo_schedule_still_waits_for_an_earlier_upload() -> None:
+    # Two DEMO uploads a day cannot pile up, and dropping one loses a build.
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        prior_sha="base-sha",
+        prior_artifact="ios-testflight-build-metadata-demo",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        blocking_prior_run=True,
+    )
+
+    assert result["waitCalls"] == [60_000]
+    assert result["notices"] == []
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "demo",
+    }
+
+
+def test_demo_schedule_retries_ordering_api_errors() -> None:
+    for failed_api in ("runs", "jobs"):
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[1],
+            prior_sha="base-sha",
+            prior_artifact="ios-testflight-build-metadata-demo",
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            blocking_prior_run=True,
+            ordering_api_failure=failed_api,
+        )
+
         assert result["waitCalls"] == [60_000]
-        assert result["uploadJobStatuses"] == [
-            "in_progress",
-            "completed",
-        ]
         assert result["outputs"] == {
             "should_build": "true",
             "last_uploaded_sha": "base-sha",
-            "variant": "internal",
+            "variant": "demo",
         }
 
 
@@ -1157,12 +1251,16 @@ if __name__ == "__main__":
     test_manual_run_builds_when_upload_history_is_unavailable()
     test_manual_demo_dispatch_builds_even_when_head_already_uploaded()
     test_manual_override_artifact_is_excluded_from_canonical_history()
-    test_scheduled_run_waits_for_an_earlier_upload()
-    test_scheduled_run_waits_before_upload_job_exists()
+    test_manual_run_waits_for_an_earlier_upload()
+    test_manual_run_waits_before_upload_job_exists()
     test_ordering_retries_transient_api_failures()
     test_ordering_ignores_later_active_runs()
     test_ordering_skips_defunct_queued_prior_run()
-    test_ordering_includes_manual_current_and_prior_runs()
+    test_manual_run_waits_behind_a_scheduled_upload()
+    test_internal_poll_skips_instead_of_queueing_behind_an_upload()
+    test_internal_poll_skips_when_ordering_cannot_be_checked()
+    test_demo_schedule_still_waits_for_an_earlier_upload()
+    test_demo_schedule_retries_ordering_api_errors()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()

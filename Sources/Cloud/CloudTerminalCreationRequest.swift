@@ -8,15 +8,23 @@ import Foundation
 @MainActor
 final class CloudTerminalCreationRequest {
     let id: UUID
+    private(set) var remoteWorkspaceID: String?
     let correlationKey: String
     private(set) var attemptKey: String
     private var submitted = false
 
-    init(id: UUID = UUID()) {
+    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil) {
         self.id = id
+        self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
         attemptKey = key
+    }
+
+    /// Binds the immutable Cloud workspace before the first daemon mutation.
+    func bind(remoteWorkspaceID: String) {
+        guard !submitted else { return }
+        self.remoteWorkspaceID = remoteWorkspaceID
     }
 
     /// First attempts omit the additive correlation flag for older daemons.
@@ -36,7 +44,7 @@ final class CloudTerminalCreationRequest {
         let data: Data
         do {
             data = try await runner.runTuiCommand(
-                arguments: ["--socket", socketPath, "--json", "session", "current", "creation", correlationKey, "resolve"],
+                arguments: CloudTuiRequest("session.creation.resolve", ["correlation_key": correlationKey]),
                 deadline: .seconds(30)
             )
         } catch {
@@ -52,6 +60,7 @@ final class CloudTerminalCreationRequest {
         ) else { throw CloudDiagnosticFailure.response }
         switch resolution {
         case .created(let terminal):
+            if let remoteWorkspaceID, terminal.workspaceID != remoteWorkspaceID { throw CloudDiagnosticFailure.placement }
             return terminal
         case .sameAttempt:
             return nil

@@ -5,6 +5,9 @@
 //! browser-aware frontends should branch on [`SurfaceKind`] before using
 //! VT operations.
 
+mod directory;
+use directory::PublishedDirectory;
+
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -1517,6 +1520,11 @@ pub struct PtyTerminalRuntime {
     dirty: AtomicBool,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
+    published_directory: Mutex<PublishedDirectory>,
+    directory_pending: AtomicBool,
+    /// A shell has reported a directory at least once; only then is a later
+    /// absent report a clear rather than the still-unreported launch directory.
+    directory_reported: AtomicBool,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
@@ -2418,6 +2426,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 #[cfg(test)]
@@ -2537,9 +2548,7 @@ impl Surface {
                                     mux.emit_terminal_title(surface.id, title.into());
                                 }
                             }
-                            if let Some(pwd) = term.pwd() {
-                                *pty.pwd.lock().unwrap() = Some(pwd);
-                            }
+                            pty.record_directory(term.pwd());
                             if before != after {
                                 scroll_changed = Some(after);
                                 broadcast_render_scroll_locked(pty, after);
@@ -2561,6 +2570,7 @@ impl Surface {
                             pty.journal_output_if_open(journal_target, journal_output.into_owned());
                         }
                         drop(journal_update);
+                        surface.publish_pending_directory();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -2915,7 +2925,10 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
+                directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
+                published_directory: Mutex::new(PublishedDirectory::Unreported),
+                directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(PtyGeometry {
                     cols: snapshot.cols,
                     rows: snapshot.rows,
@@ -3125,9 +3138,7 @@ impl Surface {
                                         *pty.title.lock().unwrap() = title.clone();
                                         title_update = Some(title);
                                     }
-                                    if let Some(pwd) = term.pwd() {
-                                        *pty.pwd.lock().unwrap() = Some(pwd);
-                                    }
+                                    pty.record_directory(term.pwd());
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
@@ -3144,6 +3155,7 @@ impl Surface {
                                     pty.journal_output_if_open(journal_target, journal_output);
                                 }
                                 drop(journal_update.take());
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3263,7 +3275,7 @@ impl Surface {
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
-                                    *pty.pwd.lock().unwrap() = pwd;
+                                    pty.record_directory(pwd);
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
                                     applied_color_revision = term.color_revision();
@@ -3289,6 +3301,7 @@ impl Surface {
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
                                 };
                                 drop(geometry);
+                                surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
@@ -3563,7 +3576,7 @@ impl Surface {
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
-                            *pty.pwd.lock().unwrap() = pwd;
+                            pty.record_directory(pwd);
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
@@ -3654,6 +3667,7 @@ impl Surface {
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
+                        surface.publish_pending_directory();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -3954,6 +3968,9 @@ impl Surface {
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(PtyGeometry {
                     cols,
                     rows,
@@ -4191,6 +4208,9 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
+                directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
@@ -5477,19 +5497,20 @@ impl Surface {
             }
             Surface::Browser(_) => false,
         };
+        // A hosted terminal's OSC 7 report counts only when it names this host
+        // (the same rule its published directory follows); a local PTY may also
+        // report a hostless URL or a plain path. Anything else falls back to the
+        // authenticated launch directory below.
         let terminal_pwd_to_local_path = if hosted {
             platform::terminal_pwd_to_local_path
         } else {
             platform::local_terminal_pwd_to_local_path
         };
-        let terminal_cwd = if hosted {
-            None
-        } else {
-            self.pwd()
-                .as_deref()
-                .and_then(terminal_pwd_to_local_path)
-                .map(|path| path.to_string_lossy().into_owned())
-        };
+        let terminal_cwd = self
+            .pwd()
+            .as_deref()
+            .and_then(terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned());
         terminal_cwd.or_else(|| {
             self.spawn_cwd()
                 .as_deref()
@@ -5500,7 +5521,9 @@ impl Surface {
 
     #[cfg(test)]
     pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
-        *self.as_pty().expect("test PTY surface").pwd.lock().unwrap() = pwd;
+        let pty = self.as_pty().expect("test PTY surface");
+        pty.record_directory(pwd);
+        pty.directory_pending.store(true, Ordering::Release);
     }
 
     pub fn process_id(&self) -> Option<u32> {

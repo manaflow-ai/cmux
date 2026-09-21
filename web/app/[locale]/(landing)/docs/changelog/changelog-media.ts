@@ -26,6 +26,26 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.25": {
+    title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
+    features: [
+      {
+        title: "SSH Workspaces Connect Again",
+        description:
+          "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+      },
+      {
+        title: "Steady Agent Layouts",
+        description:
+          "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+      },
+      {
+        title: "Light Mode Terminals",
+        description:
+          "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+      },
+    ],
+  },
   "0.64.24": {
     title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
     features: [

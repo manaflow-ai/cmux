@@ -69,6 +69,8 @@ python3 \
   --require-setup-zig \
   "$ROOT_DIR/.github/workflows"
 
+"$ROOT_DIR/tests/test_ghostty_cli_helper_cache.sh"
+
 if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$ROOT_DIR/scripts/setup.sh" ||
    ! grep -Fq 'ghostty_minimum_zig_version "$PROJECT_DIR"' "$ROOT_DIR/scripts/setup.sh" ||
    ! grep -Fq 'ZIG_ACTUAL="$(zig version)"' "$ROOT_DIR/scripts/setup.sh" ||

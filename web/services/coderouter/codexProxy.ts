@@ -1,3 +1,4 @@
+import { accountAccessForIdentity } from "./accountAccess";
 import {
   authenticateRouteToken,
   markAccountCooldown,
@@ -235,6 +236,7 @@ async function proxyCodexRequestWith(
         runtime.now,
         (signal) => dependencies.select({
           teamId: identity.teamId,
+          access: accountAccessForIdentity(identity),
           provider: RESPONSES_PROVIDERS,
           sessionKey,
           excludedAccountIds: attempted,
@@ -557,6 +559,8 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         identity.teamId,
         RESPONSES_PROVIDERS,
         attempted,
+        request.signal,
+        accountAccessForIdentity(identity),
       );
       recordCoderouterSpan({
         name: "account_selection",

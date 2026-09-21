@@ -416,11 +416,11 @@ describe("codex responses proxy VM-bound route tokens", () => {
     expect(selectInputs).toHaveLength(0);
   });
 
-  test("an unbound token ignores x-cmux-vm-id", async () => {
+  test("a VM header cannot substitute an unbound token", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(responsesRequest({ "x-cmux-vm-id": "vm-9" }));
-    expect(response.status).toBe(200);
-    expect(selectInputs).toHaveLength(1);
+    expect(response.status).toBe(401);
+    expect(selectInputs).toHaveLength(0);
   });
 
   test("the placeholder API key alone is never a credential", async () => {

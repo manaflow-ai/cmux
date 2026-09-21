@@ -1,5 +1,11 @@
 # Contributing to cmux
 
+For issues, RFCs, pull requests, and progress updates, follow the short [writing guide](STYLE.md).
+
+Start with the [verification ladder](docs/contributor-verification.md) to choose the
+smallest useful check for your change. It includes a local path that does not require
+maintainer runner access or shared backend credentials.
+
 ## Prerequisites
 
 - macOS 14+
@@ -45,8 +51,10 @@
 
 3. Build the debug app:
    ```bash
-   ./scripts/reload.sh --tag my-feature
+   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
    ```
+   `CMUX_DEV_BACKEND_MODE=local` points the build at the local dev origin. Without it, a tagged
+   build expects the maintainers' shared dev backend and exits before building.
    The script prints the `.app` path. Cmd-click to open, or pass `--launch` to open automatically.
 
 ## Development Scripts
@@ -106,17 +114,13 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 
 ## Running Tests
 
-### Basic tests (run on VM)
+Use the [contributor verification ladder](docs/contributor-verification.md): source checks,
+focused package tests, app and test compilation, then isolated socket/UI checks and
+physical dogfood where the change needs them. Record which layers actually ran in
+your PR; a successful parse or build does not mean tests executed.
 
-```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests_v2/test_update_timing.py && python3 tests_v2/test_signals_auto.py && python3 tests_v2/test_ctrl_socket.py && python3 tests_v2/test_notifications.py'
-```
-
-### UI tests (run on VM)
-
-```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test'
-```
+The guide covers local contributors first. Maintainer-only focused CI dispatch and
+fleet access are optional paths, not prerequisites for contributing.
 
 ## Ghostty Submodule
 

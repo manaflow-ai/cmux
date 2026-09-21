@@ -4,6 +4,13 @@ import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
+    private struct DetachedRuntime: Sendable {
+        let control: V2ControlService?
+        let endpointSupervisor: IrxEndpointSupervisor?
+        let directEndpointSupervisor: IrxEndpointSupervisor?
+        let engines: [IrxPeerEngine]
+    }
+
     /// Observes account/team authority for the lifetime of the app.
     public func configure(auth: AuthCoordinator) async {
         guard authTask == nil else { return }
@@ -24,7 +31,8 @@ extension MobileIrxRuntimeComposition {
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
         guard epoch == currentEpoch, let scope else { return }
         provisionTask = Task { [weak self] in
             var delay: TimeInterval = 1
@@ -150,7 +158,7 @@ extension MobileIrxRuntimeComposition {
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
         if snapshot.cache.authorityRevoked {
-            await MainActor.run { MobileMacListAuthState.shared.clear() }
+            await MainActor.run { self.macListAuthState.clear() }
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
@@ -207,6 +215,7 @@ extension MobileIrxRuntimeComposition {
     func recordEndpointReady(cached: Bool) {
         journal.record("v2-lifecycle", "endpoint-ready", ["cached": String(cached),
             "launchMs": String(Int(Date().timeIntervalSince(launchTime) * 1000))])
+        publish()
     }
 
     /// Retains healthy IROH sessions while the operating system suspends this process.
@@ -247,10 +256,11 @@ extension MobileIrxRuntimeComposition {
         guard activeScope == captured else { return }
         epoch &+= 1
         activeScope = nil
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
     }
 
-    func clearCurrentRuntime() async {
+    private func detachCurrentRuntime() async -> DetachedRuntime {
         provisionTask?.cancel(); provisionTask = nil
         controlTask?.cancel(); controlTask = nil
         foregroundTask?.cancel(); foregroundTask = nil
@@ -265,10 +275,23 @@ extension MobileIrxRuntimeComposition {
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
         publish()
-        await MainActor.run { MobileMacListAuthState.shared.clear() }
-        await oldControl?.stop()
-        for engine in oldEngines { await engine.stop() }
-        await oldSupervisor?.deactivate()
-        await oldDirectSupervisor?.deactivate()
+        await MainActor.run { self.macListAuthState.clear() }
+        return DetachedRuntime(
+            control: oldControl,
+            endpointSupervisor: oldSupervisor,
+            directEndpointSupervisor: oldDirectSupervisor,
+            engines: oldEngines
+        )
+    }
+
+    private func scheduleShutdown(of runtime: DetachedRuntime) {
+        Task {
+            await runtime.control?.stop()
+            for engine in runtime.engines {
+                await engine.stop()
+            }
+            await runtime.endpointSupervisor?.deactivate()
+            await runtime.directEndpointSupervisor?.deactivate()
+        }
     }
 }

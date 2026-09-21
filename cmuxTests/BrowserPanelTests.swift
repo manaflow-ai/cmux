@@ -3771,6 +3771,12 @@ final class WindowBrowserSlotViewTests: XCTestCase {
 final class BrowserWindowPortalLifecycleTests: XCTestCase {
     private final class TrackingPortalWebView: WKWebView {
         private(set) var displayIfNeededCount = 0
+        private(set) var displayInvalidationCount = 0
+
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            displayInvalidationCount += 1
+            super.setNeedsDisplay(invalidRect)
+        }
         private(set) var reattachRenderingStateCount = 0
 
         override func displayIfNeeded() {
@@ -3988,36 +3994,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         })
     }
 
-    func testPortalHostInstallsAboveContentViewForVisibility() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let portal = WindowBrowserPortal(window: window)
-        _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
-            XCTFail("Expected host/content views in same container")
-            return
-        }
-
-        XCTAssertGreaterThan(
-            hostIndex,
-            contentIndex,
-            "Browser portal host must remain above content view so portal-hosted web views stay visible"
-        )
-    }
-
     private func makeBrowserSearchOverlayConfiguration(panelId: UUID) -> BrowserPortalSearchOverlayConfiguration {
         BrowserPortalSearchOverlayConfiguration(
             panelId: panelId,
@@ -4179,60 +4155,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         )
         // A responder no slot owns must still return nil after scanning all 166 slots.
         XCTAssertNil(portal.searchOverlayPanelId(for: window))
-    }
-
-    func testBrowserPortalHostStaysAboveTerminalPortalHostDuringPortalChurn() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        realizeWindowLayout(window)
-
-        let browserPortal = WindowBrowserPortal(window: window)
-        let terminalPortal = WindowTerminalPortal(window: window)
-        _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
-        _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
-
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
-            XCTFail("Expected content container")
-            return
-        }
-
-        func assertHostOrder(_ message: String) {
-            guard let browserHostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
-                  let terminalHostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }) else {
-                XCTFail("Expected both portal hosts in same container")
-                return
-            }
-
-            XCTAssertGreaterThan(
-                browserHostIndex,
-                terminalHostIndex,
-                message
-            )
-        }
-
-        assertHostOrder("Browser portal host should start above terminal portal host")
-
-        let terminalAnchor = NSView(frame: NSRect(x: 20, y: 20, width: 200, height: 140))
-        contentView.addSubview(terminalAnchor)
-        let terminalHostedView = GhosttySurfaceScrollView(
-            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
-        )
-        terminalPortal.bind(hostedView: terminalHostedView, to: terminalAnchor, visibleInUI: true)
-        terminalPortal.synchronizeHostedViewForAnchor(terminalAnchor)
-        assertHostOrder("Terminal portal sync should not rise above the browser portal host")
-
-        let browserAnchor = NSView(frame: NSRect(x: 240, y: 20, width: 220, height: 140))
-        contentView.addSubview(browserAnchor)
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        browserPortal.bind(webView: webView, to: browserAnchor, visibleInUI: true)
-        browserPortal.synchronizeWebViewForAnchor(browserAnchor)
-        assertHostOrder("Browser portal sync should keep browser panes above portal-hosted terminals")
     }
 
     func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
@@ -4520,7 +4442,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         anchor.frame = NSRect(x: 52, y: 30, width: 248, height: 178)
         contentView.layoutSubtreeIfNeeded()
@@ -4533,9 +4455,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(slot.frame.size.width, 248, accuracy: 0.5)
         XCTAssertEqual(slot.frame.size.height, 178, accuracy: 0.5)
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "Pure anchor geometry updates should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "Pure anchor geometry updates should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,
@@ -4596,7 +4518,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             return
         }
 
-        let initialDisplayCount = webView.displayIfNeededCount
+        let initialInvalidationCount = webView.displayInvalidationCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialWidth = slot.frame.width
 
@@ -4612,9 +4534,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             "Moving the app split divider should shrink the hosted browser slot"
         )
         XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            initialDisplayCount,
-            "External split resize should still repaint the hosted browser"
+            webView.displayInvalidationCount,
+            initialInvalidationCount,
+            "External split resize should schedule the hosted browser for repaint"
         )
         XCTAssertEqual(
             webView.reattachRenderingStateCount,

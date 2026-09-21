@@ -463,3 +463,12 @@ describe("free-provisioning override audit", () => {
     }
   });
 });
+
+
+describe("PlanetScale database env audit", () => {
+  test("accepts deployed and direct URLs without demanding AWS database metadata", () => {
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["DATABASE_URL"]))).toBe(true);
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["DIRECT_DATABASE_URL"]))).toBe(true);
+    expect(requiredRuntimeEnvKeySatisfied("DATABASE_URL", new Set(["AWS_REGION", "PGHOST"]))).toBe(false);
+  });
+});

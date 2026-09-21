@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 import Observation
 
 /// Browser-owned navigation state, separate from the shared VM-port choice.
@@ -24,6 +25,15 @@ final class CloudBrowserAccessState {
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
 
+    /// A Cloud document can commit before its render-blocking resources arrive.
+    /// Use the pane's backing color through that initial load for every origin;
+    /// after load WebKit resumes its ordinary document background semantics.
+    var isPreparingDocument: Bool { model != nil && !loaded && failureMessage == nil }
+
+    var isDesktop: Bool {
+        model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
+    }
+
     var failureMessage: String? {
         if let error = desktopFailure ?? error ?? unavailable { return error }
         if case .failed(let message)? = model?.phase { return message }
@@ -39,8 +49,7 @@ final class CloudBrowserAccessState {
     /// noVNC's document may finish loading before its RFB/WebSocket fails.
     /// Only the current, committed Cloud Desktop document may report its state.
     func desktopConnectionDidChange(url: URL, isConnected: Bool) {
-        guard model?.target.port == CmuxTuiSnapshotParser.desktopPort,
-              remoteURL?.path == "/vnc.html", hasCommittedNavigation,
+        guard isDesktop, hasCommittedNavigation,
               let navigationURL, url == navigationURL else { return }
         if isConnected {
             desktopFailure = nil
@@ -60,6 +69,14 @@ final class CloudBrowserAccessState {
         parts.port = remoteURL.port
         parts.scheme = remoteURL.scheme
         return parts.url ?? remoteURL
+    }
+
+    /// A bootstrap document belongs to WebKit, not to the user's navigation.
+    /// Keep the requested Cloud origin until a real service document commits.
+    func displayURL(_ observedURL: URL?) -> URL? {
+        guard let remoteURL, !hasCommittedNavigation,
+              observedURL == nil || observedURL?.scheme == "about" else { return nil }
+        return remoteURL
     }
 
     func configure(model: CloudPortAccessModel, url: URL) {
@@ -98,7 +115,15 @@ final class CloudBrowserAccessState {
     }
 
     func didCommit(url: URL?) {
-        guard let url, owns(url), navigationURL != nil else { return }
+        guard let url, navigationURL != nil else { return }
+        guard owns(url) else {
+            if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { leave() }
+            return
+        }
+        if model?.usesBrowserProxy == true {
+            remoteURL = url
+            navigationURL = url
+        }
         hasCommittedNavigation = true
     }
 
@@ -109,7 +134,7 @@ final class CloudBrowserAccessState {
     }
 
     func didFail(url: URL?, message: String) {
-        guard let url, let expected = navigationURL, url.absoluteString == expected.absoluteString else { return }
+        guard let url, navigationURL != nil, owns(url) else { return }
         loaded = false
         error = message
     }
@@ -126,7 +151,18 @@ final class CloudBrowserAccessState {
 
     func owns(_ url: URL) -> Bool {
         guard let remoteURL else { return false }
+        if model?.usesBrowserProxy == true {
+            return ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host?.lowercased() == remoteURL.host?.lowercased()
+        }
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
+    }
+
+    /// Explicit localhost links within a VM page keep that page's VM as their owner.
+    func rewrittenLoopbackURL(_ url: URL) -> URL? {
+        guard model?.usesBrowserProxy == true, let remoteURL,
+              RemoteLoopbackProxyAlias.isLoopbackHost(url.host ?? ""),
+              let address = remoteURL.host else { return nil }
+        return CloudPortRoutePlan.privateURL(url.absoluteString, address: address)
     }
 
     func leave() {

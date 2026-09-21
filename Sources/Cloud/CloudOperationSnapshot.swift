@@ -14,6 +14,8 @@ struct CloudOperationSnapshot: Identifiable, Equatable, Sendable {
     let traceID: String
     let operation: CloudOperationKind
     let startedAt: Date
+    /// Wall-clock duration of the logical operation, including all recorded steps.
+    var durationMs: Int64? = nil
     var foreground: Bool
     var steps: [Step]
     var outcome: CloudTelemetrySpan.Outcome?

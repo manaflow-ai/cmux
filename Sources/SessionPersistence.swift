@@ -2,6 +2,7 @@ import CoreGraphics
 import CmuxBrowser
 import CmuxCore
 import Foundation
+import CmuxPanes
 import Bonsplit
 import CmuxWorkspaces
 #if canImport(CryptoKit)
@@ -1745,77 +1746,14 @@ struct SessionPanelSnapshot: Codable, Sendable {
 }
 extension SessionPanelSnapshot: WorkspaceSessionRemoteRestorePanelSnapshot {}
 
-enum SessionSplitOrientation: String, Codable, Sendable {
-    case horizontal
-    case vertical
-
-    init(_ orientation: SplitOrientation) {
-        switch orientation {
-        case .horizontal:
-            self = .horizontal
-        case .vertical:
-            self = .vertical
-        }
-    }
-
-    var splitOrientation: SplitOrientation {
-        switch self {
-        case .horizontal:
-            return .horizontal
-        case .vertical:
-            return .vertical
-        }
-    }
-}
-
-struct SessionPaneLayoutSnapshot: Codable, Sendable {
-    var panelIds: [UUID]
-    var selectedPanelId: UUID?
-    var isFullWidthTabMode: Bool? = nil
-}
-
-struct SessionSplitLayoutSnapshot: Codable, Sendable {
-    var orientation: SessionSplitOrientation
-    var dividerPosition: Double
-    var first: SessionWorkspaceLayoutSnapshot
-    var second: SessionWorkspaceLayoutSnapshot
-}
-
-indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
-    case pane(SessionPaneLayoutSnapshot)
-    case split(SessionSplitLayoutSnapshot)
-
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case pane
-        case split
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "pane":
-            self = .pane(try container.decode(SessionPaneLayoutSnapshot.self, forKey: .pane))
-        case "split":
-            self = .split(try container.decode(SessionSplitLayoutSnapshot.self, forKey: .split))
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unsupported layout node type: \(type)")
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .pane(let pane):
-            try container.encode("pane", forKey: .type)
-            try container.encode(pane, forKey: .pane)
-        case .split(let split):
-            try container.encode("split", forKey: .type)
-            try container.encode(split, forKey: .split)
-        }
-    }
-}
+// The pane layout value types and Bonsplit codec live in CmuxPanes so the
+// reusable topology boundary is independent of the app's session models. Keep
+// these module-local aliases for persisted-session source compatibility.
+typealias SessionSplitOrientation = CmuxPanes.SessionSplitOrientation
+typealias SessionPaneLayoutSnapshot = CmuxPanes.SessionPaneLayoutSnapshot
+typealias SessionSplitLayoutSnapshot = CmuxPanes.SessionSplitLayoutSnapshot
+typealias SessionWorkspaceLayoutSnapshot = CmuxPanes.SessionWorkspaceLayoutSnapshot
+typealias SessionSplitContainerLayoutCodec = CmuxPanes.SessionSplitContainerLayoutCodec
 
 /// One canvas pane's persisted geometry, ordered back-to-front so restore
 /// reproduces the z-order.

@@ -120,6 +120,7 @@ func cliRunProcess(_ process: Process) throws {
 
 func cliExecFailureErrno(_ body: () -> Void) -> Int32 {
     withCLIDefaultSIGPIPEForChildLaunch {
+        cliResetInheritedSignalStateForExec()
         body()
         return errno
     }

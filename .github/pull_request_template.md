@@ -1,3 +1,5 @@
+<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+
 ## Summary
 
 - What changed?
@@ -27,7 +29,10 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 
 - [ ] I tested the change locally
 - [ ] I added or updated tests for behavior changes
+- [ ] For iOS connectivity, auth, lifecycle, workspace or terminal changes, I updated the [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) or explained why existing coverage still applies, and recorded the affected workload result
 - [ ] I updated docs/changelog if needed
 - [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
+
+<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. -->

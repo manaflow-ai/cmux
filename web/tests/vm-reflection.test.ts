@@ -34,6 +34,7 @@ const ADDRESSLESS_ID = "55555555-2222-4333-8444-555555555555";
 function row(overrides: Partial<VmPrincipalRow> & { id: string }): VmPrincipalRow {
   return {
     userId: "user-1",
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-1",
     billingTeamId: "team-1",
     billingPlanId: "pro",
     provider: "freestyle",
@@ -109,7 +110,11 @@ describe("requireVmPrincipal", () => {
     expect(await requireVmPrincipal(guestRequest({ [VM_ID_HEADER]: PEER_ID }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
     expect(await requireVmPrincipal(guestRequest({ [ROUTE_TOKEN_HEADER]: "crt_revoked" }), { authenticate: boundIdentity, loadVm: async () => self })).toEqual({ ok: false, reason: "invalid_route_token" });
     const unbound = async () => ({ teamId: "team-1", stackUserId: "user-1", vmId: null });
-    expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_bound_token_required" });
+    expect(await requireVmPrincipal(guestRequest(), { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_mismatch" });
+    const unboundRequest = new Request("https://coderouter.dev/api/vm/reflection", {
+      headers: { authorization: "Bearer cmux-vm-edge-placeholder", [ROUTE_TOKEN_HEADER]: "crt_edge-injected" },
+    });
+    expect(await requireVmPrincipal(unboundRequest, { authenticate: unbound, loadVm: async () => self })).toEqual({ ok: false, reason: "vm_bound_token_required" });
   });
 
   test("rejects a missing, destroyed, or foreign machine even with a valid token", async () => {
@@ -118,11 +123,14 @@ describe("requireVmPrincipal", () => {
     expect(await requireVmPrincipal(guestRequest(), { authenticate: boundIdentity, loadVm: async () => otherOwner })).toEqual({ ok: false, reason: "vm_owner_mismatch" });
   });
 
-  test("ownership is the creating user or the billing team", () => {
-    expect(vmPrincipalOwns(self, { stackUserId: "user-1", teamId: "team-x" })).toBe(true);
+  test("the creator cannot authorize a machine through a different team", () => {
+    expect(vmPrincipalOwns(self, { stackUserId: "user-1", teamId: "team-x" })).toBe(false);
     expect(vmPrincipalOwns(self, { stackUserId: "user-x", teamId: "team-1" })).toBe(true);
     expect(vmPrincipalOwns(row({ id: SELF_ID, billingTeamId: null }), { stackUserId: "user-x", teamId: "user-1" })).toBe(false);
     expect(vmPrincipalOwns(self, { stackUserId: "user-x", teamId: "team-x" })).toBe(false);
+    const paidByAnotherTeam = { ...self, billingTeamId: "team-other" };
+    expect(vmPrincipalOwns(paidByAnotherTeam, { stackUserId: "user-1", teamId: "team-other" })).toBe(false);
+    expect(vmPrincipalOwns(paidByAnotherTeam, { stackUserId: "user-1", teamId: "team-1" })).toBe(true);
   });
 
   test("failures map to the status a caller can act on, and never leak a token", async () => {

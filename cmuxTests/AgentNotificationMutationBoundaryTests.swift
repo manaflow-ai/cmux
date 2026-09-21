@@ -39,7 +39,7 @@ extension AgentNotificationRegressionTests {
         return false
     }
 
-    @Test("PID routing bypasses a stale negative telemetry cache after exec")
+    @Test("PID routing reprobes an initially absent scope after exec")
     func pidResolutionBypassesStaleNegativeTelemetryCacheAfterExec() async throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
@@ -85,12 +85,10 @@ extension AgentNotificationRegressionTests {
         #expect(await waitForMarker(at: readyMarker))
 
         let identity = try #require(agentLiveProcessIdentity(pid: process.processIdentifier))
-        let cachedMiss = CmuxTopProcessSnapshot.cachedCMUXScope(
-            for: Int(process.processIdentifier),
-            cacheKey: identity.scopeCacheKey,
-            nowNanoseconds: DispatchTime.now().uptimeNanoseconds
+        let priorProbe = CmuxTopProcessSnapshot.cmuxScopeProbe(
+            for: Int(process.processIdentifier), expectedCacheKey: identity.scopeCacheKey
         )
-        #expect(cachedMiss == nil)
+        #expect(priorProbe == .resolved(nil))
         #expect(Darwin.kill(process.processIdentifier, SIGUSR1) == 0)
         #expect(await waitForMarker(at: execMarker))
         #expect(await waitForScopedProcess(pid: process.processIdentifier, surfaceId: fixture.panelId))

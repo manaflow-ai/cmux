@@ -15,153 +15,172 @@ private final class WindowKeyFocusableTestView: NSView {
 @MainActor
 @Suite(.serialized)
 struct MainWindowFocusRestoreTests {
-    @Test func windowKeyRestoreRefocusesFocusedTerminalAfterResponderClears() throws {
-        let appDelegate = try #require(AppDelegate.shared)
+    @Test func windowKeyRestoreRefocusesFocusedTerminalAfterResponderClears() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-        let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
-        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
+            let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
 
-        focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
-        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+            try await focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
+            appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
 
-        #expect(window.makeFirstResponder(nil), "Expected simulated window resign to clear first responder")
-        #expect(
-            !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before window-key restoration"
-        )
+            #expect(window.makeFirstResponder(nil), "Expected simulated window resign to clear first responder")
+            #expect(
+                !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "Expected terminal surface to lose first responder before window-key restoration"
+            )
 
-        #expect(
-            focusController.restoreTargetAfterWindowBecameKey(),
-            "Window key restoration should reapply focused terminal first responder before the next keyDown"
-        )
-        waitUntil(timeout: 1.0) {
-            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            #expect(
+                focusController.restoreTargetAfterWindowBecameKey(),
+                "Window key restoration should reapply focused terminal first responder before the next keyDown"
+            )
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            }
+
+            #expect(
+                terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "Window key restoration should restore the focused terminal surface as first responder"
+            )
+            #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
         }
-
-        #expect(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Window key restoration should restore the focused terminal surface as first responder"
-        )
-        #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
     }
 
-    @Test func windowKeyRestoreIgnoresSameWindowStrayResponderForFocusedTerminal() throws {
-        let appDelegate = try #require(AppDelegate.shared)
+    @Test func windowKeyRestoreIgnoresSameWindowStrayResponderForFocusedTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-        let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
-        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
+            let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
 
-        focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
+            try await focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
 
-        let strayResponder = WindowKeyFocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        (window.contentView?.superview ?? window.contentView)?.addSubview(strayResponder)
-        defer { strayResponder.removeFromSuperview() }
+            let strayResponder = WindowKeyFocusableTestView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+            (window.contentView?.superview ?? window.contentView)?.addSubview(strayResponder)
+            defer { strayResponder.removeFromSuperview() }
 
-        #expect(window.makeFirstResponder(strayResponder), "Expected same-window stray responder to take focus")
-        #expect(window.firstResponder === strayResponder)
-        #expect(
-            !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before stray-responder restoration"
-        )
+            #expect(window.makeFirstResponder(strayResponder), "Expected same-window stray responder to take focus")
+            #expect(window.firstResponder === strayResponder)
+            #expect(
+                !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "Expected terminal surface to lose first responder before stray-responder restoration"
+            )
 
-        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
-        #expect(
-            appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
-            "Main-panel intent should allow terminal focus before window-key restoration"
-        )
+            appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+            #expect(
+                appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
+                "Main-panel intent should allow terminal focus before window-key restoration"
+            )
 
-        #expect(
-            focusController.restoreTargetAfterWindowBecameKey(),
-            "Window key restoration should ignore same-window stray responders and restore the focused terminal"
-        )
-        waitUntil(timeout: 1.0) {
-            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            #expect(
+                focusController.restoreTargetAfterWindowBecameKey(),
+                "Window key restoration should ignore same-window stray responders and restore the focused terminal"
+            )
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            }
+
+            #expect(
+                terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "A same-window stray responder must not block terminal first-responder restoration"
+            )
+            #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
         }
-
-        #expect(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "A same-window stray responder must not block terminal first-responder restoration"
-        )
-        #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
     }
 
-    @Test func windowKeyRestoreIgnoresStrandedRightSidebarResponderForFocusedTerminal() throws {
-        let appDelegate = try #require(AppDelegate.shared)
+    @Test func windowKeyRestoreIgnoresStrandedRightSidebarResponderForFocusedTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
 
-        let window = try #require(mainWindow(for: windowId))
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-        let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
-        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+            let terminalView = try #require(surfaceView(in: terminalPanel.hostedView))
+            let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
 
-        focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
+            try await focusHostedTerminal(window: window, hostedView: terminalPanel.hostedView)
 
-        let staleSidebarResponder = RightSidebarKeyboardFocusView(
-            frame: NSRect(x: 0, y: 0, width: 24, height: 24)
-        )
-        (window.contentView?.superview ?? window.contentView)?.addSubview(staleSidebarResponder)
-        staleSidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
-        #expect(window.makeFirstResponder(staleSidebarResponder), "Expected right-sidebar responder to take focus")
-        #expect(window.firstResponder === staleSidebarResponder)
-        staleSidebarResponder.removeFromSuperview()
-        #expect(staleSidebarResponder.window == nil, "Expected a stranded right-sidebar responder")
-        #expect(
-            !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "Expected terminal surface to lose first responder before stranded-responder restoration"
-        )
+            let staleSidebarResponder = RightSidebarKeyboardFocusView(
+                frame: NSRect(x: 0, y: 0, width: 24, height: 24)
+            )
+            (window.contentView?.superview ?? window.contentView)?.addSubview(staleSidebarResponder)
+            staleSidebarResponder.registerWithKeyboardFocusCoordinatorIfNeeded()
+            #expect(window.makeFirstResponder(staleSidebarResponder), "Expected right-sidebar responder to take focus")
+            #expect(window.firstResponder === staleSidebarResponder)
+            staleSidebarResponder.removeFromSuperview()
+            #expect(staleSidebarResponder.window == nil, "Expected a stranded right-sidebar responder")
+            #expect(
+                !terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "Expected terminal surface to lose first responder before stranded-responder restoration"
+            )
 
-        appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
-        #expect(
-            appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
-            "Main-panel intent should allow terminal focus before window-key restoration"
-        )
+            appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: panelId, in: window)
+            #expect(
+                appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panelId, in: window),
+                "Main-panel intent should allow terminal focus before window-key restoration"
+            )
 
-        #expect(
-            focusController.restoreTargetAfterWindowBecameKey(),
-            "Window key restoration should ignore stranded right-sidebar responders and restore the focused terminal"
-        )
-        waitUntil(timeout: 1.0) {
-            terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            #expect(
+                focusController.restoreTargetAfterWindowBecameKey(),
+                "Window key restoration should ignore stranded right-sidebar responders and restore the focused terminal"
+            )
+            _ = await AppKitTestEventPump().waitUntil {
+                terminalPanel.hostedView.isSurfaceViewFirstResponder() && window.firstResponder === terminalView
+            }
+
+            #expect(
+                terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+                "A stranded right-sidebar responder must not block terminal first-responder restoration"
+            )
+            #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
         }
-
-        #expect(
-            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
-            "A stranded right-sidebar responder must not block terminal first-responder restoration"
-        )
-        #expect(window.firstResponder === terminalView, "Expected Ghostty surface view to own first responder after restore")
     }
 
-    private func focusHostedTerminal(window: NSWindow, hostedView: GhosttySurfaceScrollView) {
+    private func focusHostedTerminal(window: NSWindow, hostedView: GhosttySurfaceScrollView) async throws {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
+        _ = await AppKitTestEventPump().waitUntil {
+            hostedView.uiWindow === window && hostedView.surfaceView.window === window
+        }
+        try #require(
+            hostedView.uiWindow === window && hostedView.surfaceView.window === window,
+            "Expected terminal host and native view to finish mounting before focus setup"
+        )
+        let surface = try #require(hostedView.surfaceView.terminalSurface)
+        AppDelegate.shared?.noteTerminalKeyboardFocusIntent(
+            workspaceId: surface.tabId,
+            panelId: surface.id,
+            in: window
+        )
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         hostedView.moveFocus()
-        waitUntil(timeout: 1.0) {
+        _ = await AppKitTestEventPump().waitUntil {
             hostedView.isSurfaceViewFirstResponder()
         }
-        #expect(
+        try #require(
             hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to own first responder before restore test"
         )

@@ -57,6 +57,15 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Focused app-host suites invoke Node/Bun-backed helpers from the test process.
+# Xcode does not inherit these driver variables, so carry them through the
+# TEST_RUNNER_ channel when the caller supplied them.
+if [ -n "${TEST_RUNNER_PATH:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_PATH=$TEST_RUNNER_PATH")
+fi
+if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
+fi
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""
@@ -98,6 +107,42 @@ if [ -n "$app_host_home_input" ]; then
 fi
 
 app_host_xcodebuild_arguments=("$@")
+
+# Xcode's package-product layout can recreate or empty the top-level
+# PackageFrameworks directory while resolving/test-without-building. The app
+# host's rpath expects package frameworks there, so restage from the canonical
+# test-bundle copy immediately before every invocation. This keeps focused
+# gates and the sharded batches identical after any Xcode package operation.
+if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
+  package_products_dir="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+  package_framework_destination="$package_products_dir/PackageFrameworks"
+  stable_framework_destination="${RUNNER_TEMP:-/tmp}/cmux-app-host-package-frameworks"
+  package_framework_source="$(find "$package_products_dir" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+  if [ -d "$stable_framework_destination" ] && find "$stable_framework_destination" -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit | grep -q .; then
+    package_framework_source="$(find "$stable_framework_destination" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit)"
+  fi
+  if [ -n "$package_framework_source" ]; then
+    if [ -L "$package_framework_destination" ]; then
+      rm "$package_framework_destination"
+    fi
+    mkdir -p "$package_framework_destination"
+    package_framework_root="$(dirname "$package_framework_source")"
+    rsync -aL "$package_framework_root/" "$package_framework_destination/"
+    test -f "$package_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+    app_framework_destination="$package_products_dir/cmux DEV.app/Contents/Frameworks"
+    mkdir -p "$app_framework_destination"
+    rsync -aL "$package_framework_root/" "$app_framework_destination/"
+    test -f "$app_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+    mkdir -p "$stable_framework_destination"
+    rsync -aL "$package_framework_root/" "$stable_framework_destination/"
+    export DYLD_LIBRARY_PATH="$stable_framework_destination:$app_framework_destination${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    test -f "$stable_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+    app_host_test_runner_environment+=(
+      "TEST_RUNNER_DYLD_LIBRARY_PATH=$package_framework_destination:$app_framework_destination"
+    )
+  fi
+fi
+
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   # This compiled condition reaches the test bundle through Xcode build
   # settings, independently of the TEST_RUNNER_ runtime environment channel.

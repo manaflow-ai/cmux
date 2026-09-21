@@ -3,5 +3,9 @@ import AppKit
 /// Presents machine provisioning from synchronous AppKit command entrypoints.
 @MainActor
 protocol NewMachineSheetPresenting: AnyObject {
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID?
+    /// Publishes the reservation at acceptance; the returned receipt must not drive placement.
+    func presentNewMachineFetchingPlan(
+        preferredWindow: NSWindow?,
+        onReservation: @escaping @MainActor (UUID) -> Void
+    ) async -> UUID?
 }

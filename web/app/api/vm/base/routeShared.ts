@@ -102,6 +102,7 @@ export async function runBaseRoute(input: {
     provider,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
+    imageSize: imageSelection.size,
     baseName: parsed.body.name,
     modelPlane: vmModelPlaneGatewayFor({
       teamId: entitlements.billingTeamId,
@@ -162,8 +163,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         phase: "create",
         retryable: true,
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId,
         retryAction: operation === "reset"

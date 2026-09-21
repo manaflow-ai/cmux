@@ -51,6 +51,10 @@ public final class DiagnosticLog: Sendable {
     /// they enter the event ring. Swift supplies its process-randomized seed.
     private let correlation = DiagnosticCorrelation()
 
+    /// Terminal traces are breadcrumbs, so cap admission before they reach
+    /// either durable log while retaining ordinary diagnostics.
+    private let terminalTraceLimiter = TerminalTraceRateLimiter()
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -199,6 +203,29 @@ public final class DiagnosticLog: Sendable {
             a: kind.rawValue,
             b: failure?.rawValue,
             c: boundedCount
+        ))
+    }
+
+    /// Records one terminal-operation phase with a per-minute admission cap.
+    /// The ring and AppLog still provide their existing bounded retention.
+    public nonisolated func recordTerminalTrace(
+        operation: DiagnosticTerminalTraceOperation,
+        phase: DiagnosticTerminalTracePhase,
+        traceID: DiagnosticTerminalTraceID,
+        surface: UInt32? = nil,
+        elapsedMilliseconds: UInt32? = nil,
+        detail: Int? = nil
+    ) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard terminalTraceLimiter.admit(at: now) else { return }
+        record(DiagnosticEvent(
+            .terminalTrace,
+            surface: surface,
+            ms: elapsedMilliseconds,
+            a: operation.rawValue,
+            b: phase.rawValue,
+            c: detail.map { min(max(0, $0), Int(UInt32.max)) },
+            traceID: traceID.rawValue
         ))
     }
 
@@ -597,5 +624,25 @@ public final class DiagnosticLog: Sendable {
         func export() -> Data {
             snapshot(generatedAt: Date()).humanReadableExport()
         }
+    }
+}
+
+private final class TerminalTraceRateLimiter: @unchecked Sendable {
+    // Carve-out: the synchronous terminal event tap must admit/drop before queuing diagnostic work.
+    private let lock = NSLock()
+    private var windowStart: UInt64 = 0
+    private var admitted = 0
+    private let maximumPerMinute = 120
+
+    func admit(at now: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if windowStart == 0 || now < windowStart || now - windowStart >= 60 * 1_000_000_000 {
+            windowStart = now
+            admitted = 0
+        }
+        guard admitted < maximumPerMinute else { return false }
+        admitted += 1
+        return true
     }
 }

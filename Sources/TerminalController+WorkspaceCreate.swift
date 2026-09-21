@@ -115,6 +115,12 @@ extension TerminalController {
                     autoRefreshMetadata: execution.shouldAutoRefreshMetadata
                 ) else { return }
                 ws.taskCreateOperationID = operationID
+                if execution.titleSource == .auto, execution.title != nil {
+                    // The source is captured before this create returns to the
+                    // caller, so a later bind can distinguish the placeholder
+                    // from an explicit user rename with identical text.
+                    ws.customTitleSource = .auto
+                }
                 ws.setCustomDescription(execution.description)
                 if let layoutNode = execution.layoutNode {
                     ws.applyCustomLayout(
@@ -230,10 +236,8 @@ extension TerminalController {
         }
 
         let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
-        guard let panel = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
-            workspaceId: workspaceId,
-            initialCommand: command,
-            focus: focus
+        guard let panelID = workspace.prepareCloudTerminalAttachment(
+            command: command, deferTerminal: v2Bool(params, "defer_terminal") ?? false, focus: focus
         ) else {
             return .err(
                 code: "not_found",
@@ -247,8 +251,8 @@ extension TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": panel.id.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
+            "surface_id": panelID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: panelID),
         ])
     }
 

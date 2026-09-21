@@ -35,7 +35,19 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     func updateSurfaceID(_ surfaceID: UInt64) {
         queue.async { [self, surfaceID] in
             guard self.surfaceID != surfaceID else { return }
+            let previousSurfaceID = self.surfaceID
             self.surfaceID = surfaceID
+            if previousSurfaceID == 0, connection == nil {
+                // The first authenticated attachment resolves an unknown target.
+                // Retain early input, in order, for that exact initial binding.
+                pendingLines = pendingLines.compactMap { line in
+                    guard var command = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return nil }
+                    command["surface"] = surfaceID
+                    return commandBuilder.line(command)
+                }
+                pendingByteCount = pendingLines.reduce(0) { $0 + $1.count }
+                return
+            }
             // Pending lines already contain the old numeric target. Dropping
             // them is safer than delivering input to a reused surface slot;
             // subsequent keystrokes are encoded for the new ID.

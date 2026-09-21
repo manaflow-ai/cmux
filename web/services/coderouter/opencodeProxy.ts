@@ -1,3 +1,4 @@
+import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accountAccess";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
@@ -97,7 +98,7 @@ export async function openCodeClientConfig(
       request.signal,
       upstreamHeaderDeadlineAt,
       runtime.now,
-      (signal) => openCodeAccount(auth.identity.teamId, dependencies, signal),
+      (signal) => openCodeAccount(auth.identity.teamId, dependencies, signal, accountAccessForIdentity(auth.identity)),
     );
   } catch (error) {
     if (request.signal.aborted) throw error;
@@ -197,7 +198,7 @@ export async function proxyOpenCodeRequest(
       request.signal,
       upstreamHeaderDeadlineAt,
       runtime.now,
-      (signal) => openCodeAccount(auth.teamId, dependencies, signal),
+      (signal) => openCodeAccount(auth.teamId, dependencies, signal, accountAccessForIdentity(auth)),
     );
   } catch (error) {
     if (request.signal.aborted) throw error;
@@ -481,11 +482,12 @@ async function openCodeAccount(
   teamId: string,
   dependencies: Pick<OpenCodeDependencies, "select" | "credential"> = defaultDependencies,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ) {
   const attempted: string[] = [];
   for (let attempt = 0; attempt < 8; attempt++) {
     throwIfAborted(signal);
-    const account = await dependencies.select(teamId, "opencode-go", attempted, signal);
+    const account = await dependencies.select(teamId, "opencode-go", attempted, signal, access);
     throwIfAborted(signal);
     if (!account) return null;
     attempted.push(account.id);

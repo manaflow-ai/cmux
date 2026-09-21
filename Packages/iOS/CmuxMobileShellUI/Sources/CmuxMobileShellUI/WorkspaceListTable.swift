@@ -7,6 +7,10 @@ import UIKit
 /// UIKit-owned workspace list with exact, non-estimated row heights.
 @MainActor
 struct WorkspaceListTable: UIViewControllerRepresentable {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
+    #endif
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -66,7 +70,12 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let refresh: (@Sendable () async -> Void)?
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
-        WorkspaceListTableCoordinator(configuration: self)
+        let coordinator = WorkspaceListTableCoordinator(configuration: self)
+        #if DEBUG
+        coordinator.releaseGateUIProbe = releaseGateUIProbe
+        coordinator.releaseGateSnapshotter = releaseGateSnapshotter
+        #endif
+        return coordinator
     }
 
     func makeUIViewController(context: Context) -> WorkspaceListTableViewController {
@@ -93,6 +102,10 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         _ uiViewController: WorkspaceListTableViewController,
         context: Context
     ) {
+        #if DEBUG
+        context.coordinator.releaseGateUIProbe = releaseGateUIProbe
+        context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
+        #endif
         context.coordinator.update(
             configuration: self,
             in: uiViewController.tableView
