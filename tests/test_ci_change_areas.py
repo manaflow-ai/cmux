@@ -230,10 +230,11 @@ def test_workflow_changes_run_everything() -> None:
 
 
 def test_other_workflow_changes_skip_macos_and_web() -> None:
-    # ci.yml's macOS and web jobs never read another workflow file. Those edits
-    # are validated by workflow-guard-tests and by the edited workflow itself.
+    # Unrelated workflow edits are validated by the guard lane and by their
+    # own workflow triggers. The reusable guard workflow itself is part of CI
+    # routing and is intentionally covered by the fail-open assertion above.
     assert_areas(
-        [".github/workflows/relay-tls.yml", ".github/workflows/ci-guards.yml", ".github/actionlint.yaml"],
+        [".github/workflows/relay-tls.yml", ".github/actionlint.yaml"],
         macos=False,
         web=False,
     )
