@@ -171,6 +171,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWhatsNewPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.whatsNewPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -249,6 +257,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var whatsNewPreview: some View {
+        #if os(iOS) && DEBUG
+        MobileWhatsNewPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     var body: some View {
         rootContent
         #if os(iOS)
@@ -276,6 +292,12 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
+            #if os(iOS)
+            diagnosticLog?.recordAppEvent(
+                .dogfoodAttachEnvironmentObserved,
+                count: hasInjectedAttachLaunchRoute ? 1 : 0
+            )
+            #endif
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -495,6 +517,8 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
+        } else if shouldShowWhatsNewPreview {
+            whatsNewPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
@@ -921,7 +945,7 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -929,7 +953,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
-                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
             onComplete: completeOnboarding
         )
@@ -1105,6 +1129,10 @@ struct CMUXMobileRootView: View {
         #endif
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
+        diagnosticLog?.recordAppEvent(
+            .authBootstrapCompleted,
+            count: authManager.isAuthenticated ? 1 : 0
+        )
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
         }
@@ -1125,12 +1153,10 @@ struct CMUXMobileRootView: View {
             return
         }
         store.applyMacCompatibilityPolicy(macCompatCenter.policy)
-        whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
         Task { @MainActor in
             await macCompatCenter.refresh()
             guard !Task.isCancelled else { return }
             store.applyMacCompatibilityPolicy(macCompatCenter.policy)
-            whatsNewCenter?.applyMacCompatibilityPolicy(macCompatCenter.policy)
             store.revalidateActiveMacCompatibilityPolicy()
         }
     }
@@ -1420,6 +1446,7 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
+        diagnosticLog?.recordAppEvent(.dogfoodAttachStarted)
         return startupConnectionCoordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {

@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Fixed attention slot before the row icon; pins sit with trailing accessories.
+/// An optional leading pin and an unread badge over the icon, with no empty
+/// leading column. Read/unread changes never move the row's icon or title.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
@@ -8,26 +9,31 @@ struct CloudSidebarRowDecoration: ViewModifier {
     let hasUnreadNotification: Bool
 
     func body(content: Content) -> some View {
-        HStack(spacing: 4) {
-            if showsAttentionSlot {
-                // Always mounted: in-place outline reloads must repaint both the
-                // unread and read states without inserting a new SwiftUI subtree.
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                    .opacity(hasUnreadNotification ? 1 : 0)
-                    .accessibilityHidden(!hasUnreadNotification)
-                    .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
-                    .help(hasUnreadNotification
-                        ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
-            }
-            content
+        // Keep the pin in the same compact leading cluster as the row icon.
+        // Four points made the unread badge spill past the narrow sidebar's
+        // identity column; two points matches the tree's shared gaps.
+        HStack(spacing: 2) {
             if isPinned {
                 Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
+                    .cmuxFont(size: 9, weight: .semibold)
                     .foregroundStyle(.secondary)
+                    .fixedSize()
                     .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
+            content
+                .overlay(alignment: .topLeading) {
+                    if showsAttentionSlot {
+                        Circle()
+                            .fill(Color.accentColor)
+                            .frame(width: 6, height: 6)
+                            .opacity(hasUnreadNotification ? 1 : 0)
+                            .accessibilityHidden(!hasUnreadNotification)
+                            .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
+                            .help(hasUnreadNotification
+                                ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
+                            .allowsHitTesting(false)
+                    }
+                }
         }
     }
 }

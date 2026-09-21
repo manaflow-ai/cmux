@@ -53,7 +53,7 @@ extension AuthCoordinator {
 
     private func accessTokenWithoutStateClear() async throws -> String {
         let storageWasAvailable = await isTokenStorageAvailable()
-        if let token = await client.accessToken() {
+        if let token = try await client.resolvedAccessToken(forceRefresh: false) {
             return token
         }
         #if DEBUG
@@ -82,7 +82,7 @@ extension AuthCoordinator {
             password: credentials.password,
             setLoading: false
         )
-        return await client.accessToken()
+        return try? await client.resolvedAccessToken(forceRefresh: false)
         #else
         return nil
         #endif
@@ -94,53 +94,14 @@ extension AuthCoordinator {
         await client.refreshToken()
     }
 
-    /// Both tokens for the current session, for callers that talk to
-    /// cmux-owned backend endpoints (e.g. the cloud VM service) with the
-    /// `Authorization: Bearer <access>` + `X-Stack-Refresh-Token: <refresh>`
-    /// header pair.
-    ///
-    /// Awaits the launch restore first: RPCs firing before the restore
-    /// finishes could otherwise observe an empty token store on a
-    /// refresh-token-only start and report "Not signed in" even though a valid
-    /// session becomes available moments later.
-    /// - Returns: The access and refresh tokens.
-    /// - Throws: ``AuthError/networkError`` when the access token is missing
-    ///   but a refresh token survives, meaning the refresh failed transiently,
-    ///   or when token storage was unavailable because the device was locked;
-    ///   ``AuthError/unauthorized`` when available storage is missing either an
-    ///   access token with no refresh token to recover from, or the refresh
-    ///   token required by backend requests.
-    public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
-        await awaitBootstrapped()
-        let storageWasAvailable = await isTokenStorageAvailable()
-        guard let access = await client.accessToken(), !access.isEmpty else {
-            if let refresh = await client.refreshToken(), !refresh.isEmpty {
-                throw AuthError.networkError
-            }
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
-        }
-        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
-        }
-        return (access, refresh)
-    }
-
     /// Both tokens for the current session as ONE coherent pair, for callers that
     /// must never send a torn (old-access, new-refresh) credential set.
     ///
-    /// ``currentTokens()`` reads the access and refresh tokens through two
-    /// separate awaits, so a ``forceRefreshAccessToken()`` landing between them
-    /// can rotate the pair and return an old access token with a rotated refresh
-    /// token. This instead brackets the read with the refresh token: capture the
-    /// refresh, resolve the access token through the LIVE store — a still-fresh
-    /// stored token comes back without the network (an offline caller with a
-    /// valid stored pair succeeds), and a stale one is refreshed through the
-    /// SDK's own store, persisted and deduplicated with concurrent refreshes so
-    /// repeated captures never re-mint — then re-read the refresh token. An
-    /// unchanged refresh proves no rotation crossed the window, so the resolved
-    /// access belongs to the returned refresh; a changed one retries against
-    /// the new capture. The read runs inside the coordinator's bounded
-    /// token-touching phase like every other token accessor.
+    /// Shares the coherent capture used by ``currentTokens()``: a fresh token
+    /// resolves locally, while concurrent expired-token callers share the SDK
+    /// exchange. Bracketing the access read with the refresh token rejects a
+    /// rotation crossing the capture. The token-touching phase bounds the whole
+    /// read and preserves cancellation and timeout classifications.
     /// - Returns: The access and refresh tokens from one coherent capture.
     /// - Throws: ``AuthError/networkError`` when the refresh token survives but a
     ///   usable access token cannot be resolved for it (transient), when token
@@ -153,7 +114,7 @@ extension AuthCoordinator {
         }
     }
 
-    private func coherentTokenPairWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
+    func coherentTokenPairWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
         let storageWasAvailable = await isTokenStorageAvailable()
         for _ in 0..<3 {
             guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
@@ -164,11 +125,13 @@ extension AuthCoordinator {
             // refreshed through the SDK's own store — persisted, and
             // deduplicated with any concurrent refresh — so repeated captures
             // never re-mint a token the store already refreshed.
-            guard let access = await client.accessToken(), !access.isEmpty else {
-                // The refresh token survived but no usable access token could
-                // be resolved: stay retryable, matching currentTokens()'s
-                // classification of a surviving-refresh access miss.
-                throw AuthError.networkError
+            guard let access = try await client.resolvedAccessToken(forceRefresh: false), !access.isEmpty else {
+                // A definitive SDK rejection clears storage; only a surviving
+                // refresh token makes an access miss recoverable.
+                if let surviving = await client.refreshToken(), !surviving.isEmpty {
+                    throw AuthError.networkError
+                }
+                throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
             }
             // The bracket: an unchanged refresh across the access resolution
             // proves no rotation crossed the window, so the pair is coherent.
@@ -245,9 +208,8 @@ extension AuthCoordinator {
             throw AuthError.networkError
         }
         let generation = sessionGeneration
-        // Read both tokens as one coherent pair so a concurrent force refresh
-        // cannot pair an old access token with a rotated refresh token; the
-        // separately-read `currentTokens()` cannot make that guarantee.
+        // Use the same coherent capture as Cloud requests, pinned to this
+        // identity and session generation.
         let tokens = try await coherentTokenPair()
         guard sessionGeneration == generation,
               currentUser?.id == accountID else {
@@ -374,7 +336,7 @@ extension AuthCoordinator {
 
     private func forceRefreshAccessTokenWithoutStateClear() async throws -> String {
         let storageWasAvailable = await isTokenStorageAvailable()
-        if let token = await client.forceRefreshAccessToken() {
+        if let token = try await client.resolvedAccessToken(forceRefresh: true) {
             return token
         }
         // A surviving refresh token means the failure was transient
@@ -494,7 +456,7 @@ public extension AuthCoordinator {
 }
 
 extension AuthCoordinator {
-    private var publishedAuthenticatedSessionIdentity:
+    var publishedAuthenticatedSessionIdentity:
         AuthenticatedSessionIdentity? {
         guard isAuthenticated,
               !isCapturingSignOutCredentials,
@@ -511,5 +473,6 @@ extension AuthCoordinator {
         for continuation in authenticatedSessionIdentityContinuations.values {
             continuation.yield(identity)
         }
+        publishAuthenticatedTeamScope()
     }
 }

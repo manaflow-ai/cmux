@@ -36,6 +36,18 @@ struct CloudSidebarOrderingTests {
         #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
         #expect(fixture.provider.refreshCount == 0)
     }
+
+    @Test("An organization pin committed by another entrypoint repaints the right sidebar immediately")
+    func externalPinCommitRepaintsImmediately() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
+        #expect(fixture.catalog.sidebarOrganization.perform(.pin, id: folder.id, nodes: fixture.nodes()))
+        let current = try #require(outline.item(atRow: outline.row(forItem: folder)) as? CloudTreeNode)
+        #expect(current.isPinned)
+    }
     @Test("Pins and relative moves survive reconnect, restart, and renamed duplicate titles")
     func preferencesSurviveFreshSnapshots() throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -118,7 +130,7 @@ struct CloudSidebarOrderingTests {
         #expect(pasteboard.writeObjects([try #require(writer)]))
         #expect(pasteboard.string(forType: .cloudSidebarRow) == folder.id)
         #expect(fixture.transferRegistry.resolve(from: pasteboard) == nil)
-        #expect(SurfaceResourceDragRegistry.shared.group(id: id) != nil)
+        #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
         writer = nil
         #expect(SurfaceResourceDragRegistry.shared.group(id: id) == nil)
     }
@@ -180,11 +192,12 @@ final class CloudSidebarOrderingFixture {
         let catalog = catalog
         coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: MachineRowActions(
-                setupVPN: { _ in }, openShell: { _ in }, openDesktop: { _ in },
+                openShell: { _ in }, openDesktop: { _ in },
                 runCommand: { _, _ in }, confirmDelete: { _ in },
                 promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { nil },
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}
@@ -211,7 +224,21 @@ final class CloudSidebarOrderingFixture {
         container.layoutSubtreeIfNeeded()
         let bitmap = try #require(container.bitmapImageRepForCachingDisplay(in: container.bounds))
         container.cacheDisplay(in: container.bounds, to: bitmap)
-        let png = try #require(bitmap.representation(using: .png, properties: [:]))
+        // NSView caching preserves transparency. Composite onto the window's
+        // background so black sidebar ink stays readable in artifact viewers.
+        let context = try #require(CGContext(
+            data: nil, width: bitmap.pixelsWide, height: bitmap.pixelsHigh,
+            bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ))
+        let bounds = CGRect(x: 0, y: 0, width: CGFloat(bitmap.pixelsWide), height: CGFloat(bitmap.pixelsHigh))
+        window.effectiveAppearance.performAsCurrentDrawingAppearance {
+            context.setFillColor(window.backgroundColor.cgColor)
+        }
+        context.fill(bounds)
+        context.draw(try #require(bitmap.cgImage), in: bounds)
+        let opaque = NSBitmapImageRep(cgImage: try #require(context.makeImage()))
+        let png = try #require(opaque.representation(using: .png, properties: [:]))
         #if compiler(>=6.2)
         Attachment.record(png, named: name + ".png")
         #endif
@@ -220,7 +247,7 @@ final class CloudSidebarOrderingFixture {
     func folderID(_ id: String) -> String { CloudTreeNodeBuilder.nodeID(workspace: id, machine: machine) }
 
     func snapshot(titles: [String] = ["cmux1", "cmux2"]) -> SurfaceCatalogSnapshot {
-        let workspaces = (1...2).map {
+        let workspaces = (1...titles.count).map {
             SurfaceRemoteWorkspace(id: "ws_\($0)", name: titles[$0 - 1], index: $0 - 1, focused: $0 == 1)
         }
         let resources = workspaces.map { workspace in

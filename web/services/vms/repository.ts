@@ -282,6 +282,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
@@ -683,14 +684,7 @@ function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
 }) {
-  const billingTeamId = input.billingTeamId?.trim();
-  if (!billingTeamId) {
-    return and(
-      eq(cloudVms.userId, input.userId),
-      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, input.userId)),
-    );
-  }
-  return eq(cloudVms.billingTeamId, billingTeamId);
+  return eq(cloudVms.ownerTeamId, input.billingTeamId?.trim() || input.userId);
 }
 
 function positiveReservationInteger(value: unknown): number | null {
@@ -1469,6 +1463,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageId: input.image,
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
+                displayName: input.displayName ?? null,
                 idempotencyKey,
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,

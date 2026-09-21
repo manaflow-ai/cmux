@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 import Observation
@@ -235,14 +236,25 @@ final class RestoredAgentLifecycleCoordinator {
     /// the grace period and the launch never entered its command phase. A
     /// prompt-then-command sequence that settled into `.autoResumeCommandRunning`
     /// yields `nil`, and only one replay is ever handed out per restored launch.
+    /// Positive evidence of the matching live agent retires the retry even when
+    /// shell integration never reported the command starting (for example,
+    /// Apple Bash 3.2 can leave the cached state at `.promptIdle`).
     func takeStartupInputForResend(
         panelId: UUID,
-        shellState: PanelShellActivityState
+        shellState: PanelShellActivityState,
+        hasLiveAgent: Bool = false
     ) -> String? {
         armedStartupInputResendPanelIds.remove(panelId)
-        guard shellState == .promptIdle, awaitsStartupInput(panelId: panelId) else {
+        guard awaitsStartupInput(panelId: panelId) else { return nil }
+        // A live matching process owns the selector. Forget it permanently so
+        // a later idle-prompt report cannot inject the selector into an agent
+        // that already resumed successfully (#12653).
+        if hasLiveAgent {
+            clearStartupInput(panelId: panelId)
+            setResumeState(.autoResumeCommandRunning, panelId: panelId)
             return nil
         }
+        guard shellState == .promptIdle else { return nil }
         return pendingStartupInputsByPanelId.removeValue(forKey: panelId)
     }
 

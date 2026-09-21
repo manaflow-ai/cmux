@@ -42,18 +42,44 @@ public struct IrxAdmissionDenied: Error, Equatable, Sendable {
 public typealias IrxGrantJudgment =
     @Sendable (_ grantJWS: String?, _ remoteEndpointIDHex: String) throws -> IrxAdmittedPeerInfo
 
-public enum IrxAdmission {
+public struct IrxAdmission: Sendable {
+    public init() {}
+
     /// Admission must resolve fast or fail loud; nothing here touches the
     /// network beyond the connection itself.
-    public static let deadline: Duration = .seconds(5)
+    public let deadline: Duration = .seconds(5)
 
     /// Client half: open the control lane, send the hello (grantless in
     /// list-auth mode; the optional grant exists only for legacy dialects),
     /// await the admit. A denial arrives as the connection's own termination
     /// and is rethrown with its parsed code.
-    public static func performClient(
+    public func performClient(
         connection: IrxConnection,
         grantJWS: String? = nil,
+        journal: IrxJournal
+    ) async throws -> (IrxAdmit, IrxLaneStream) {
+        do {
+            return try await clientExchange(connection: connection, grantJWS: grantJWS, journal: journal)
+        } catch let denial as IrxAdmissionDenied {
+            throw denial
+        } catch {
+            try Task.checkCancellation()
+            // A remote denial can terminate any native open/write/read stage,
+            // not just yield EOF from the admit reader. Inspect the already
+            // published close reason without waiting for a second deadline.
+            if let reason = await connection.closeReason(),
+               let code = IrxCloseCode.parse(fromRenderedCause: reason),
+               code == .admissionTimeout || IrxCloseCode.terminalForAutoRedial.contains(code) {
+                journal.record("admission", "denied", ["code": code.rawValue])
+                throw IrxAdmissionDenied(code: code)
+            }
+            throw error
+        }
+    }
+
+    private func clientExchange(
+        connection: IrxConnection,
+        grantJWS: String?,
         journal: IrxJournal
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()
@@ -125,7 +151,7 @@ public enum IrxAdmission {
     /// judge the grant against the TLS key, admit or terminate with the
     /// denial code. On success the remote's lane credit is raised and the
     /// admit frame commits the session.
-    public static func performServer(
+    public func performServer(
         connection: IrxConnection,
         judgment: IrxGrantJudgment,
         journal: IrxJournal
@@ -158,7 +184,7 @@ public enum IrxAdmission {
                 await connection.close(code: .admissionTimeout, origin: .local)
                 return nil
             }
-            guard let hello, hello.proto == IrxProtocol.alpn else {
+            guard let hello, hello.proto == IrxProtocol().alpn else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.protocolMismatch.rawValue])
                 await connection.close(code: .protocolMismatch, origin: .local)
                 return nil

@@ -12,6 +12,19 @@ on:
         description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
+      swift_package:
+        description: "Optional SwiftPM package to test instead of the simulator; test_filter selects its suite"
+        required: false
+        default: ""
+        type: choice
+        options:
+          - ""
+          - CMUXMobileCore
+          - CmuxSyncStore
+          - CmuxMobilePairedMac
+          - CmuxMobileChanges
+          - CmuxMobileShell
+          - CmuxMobileShellModel
       ios_version:
         description: "Optional simulator OS version, for example 17.5, 18.5, or 26.3; empty keeps the default"
         required: false
@@ -34,7 +47,6 @@ on:
         options:
           - auto
           - blacksmith-6vcpu-macos-26
-          - macos-26
           - tart-ios
 
 permissions:
@@ -70,7 +82,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -78,7 +90,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -100,6 +112,7 @@ jobs:
 
       - name: Lint iOS package conventions
         run: |
+          python3 scripts/tests/test_ios_package_conventions.py
           # Mechanical enforcement of the modular-refactor conventions over the
           # iOS line (no singletons / Combine / locks / timer hacks / KVO /
           # namespace-enums) plus the repo-wide namespace-type rule (no
@@ -113,10 +126,23 @@ jobs:
     needs: detect-ios-changes
     if: >-
       ${{ needs.detect-ios-changes.outputs.should_run == 'true'
-          && !(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') }}
+          && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
-    timeout-minutes: 10
+    # Focused runs build the shell and its macros from a cold SwiftPM cache.
+    timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
+    env:
+      SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
+      FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
     steps:
+      - name: Validate package selection
+        env:
+          SELECTED_PACKAGE: ${{ inputs.swift_package }}
+        run: |
+          case "$SELECTED_PACKAGE" in
+            ""|CMUXMobileCore|CmuxSyncStore|CmuxMobilePairedMac|CmuxMobileChanges|CmuxMobileShell|CmuxMobileShellModel) ;;
+            *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
+          esac
+
       - name: Validate Tart runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
@@ -157,39 +183,105 @@ jobs:
           xcodebuild -version
 
       - name: Run CMUXMobileCore package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
         run: |
-          swift test --package-path Packages/Shared/CMUXMobileCore
+          set -euo pipefail
+          args=(--package-path Packages/Shared/CMUXMobileCore)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxSyncStore' }}
         run: |
+          set -euo pipefail
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
-          swift test --package-path Packages/Shared/CmuxSyncStore
+          args=(--package-path Packages/Shared/CmuxSyncStore)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
-          swift test --package-path Packages/iOS/CmuxMobilePairedMac
+          set -euo pipefail
+          args=(--package-path Packages/iOS/CmuxMobilePairedMac)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileChanges package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileChanges' }}
         run: |
-          swift test --package-path Packages/iOS/CmuxMobileChanges
+          set -euo pipefail
+          args=(--package-path Packages/iOS/CmuxMobileChanges)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileChanges-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
       - name: Run CmuxMobileShell package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}
         run: |
+          set -euo pipefail
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          swift test --package-path Packages/iOS/CmuxMobileShell
+          args=(--package-path Packages/iOS/CmuxMobileShell)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileShell-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShell}"
 
       - name: Run CmuxMobileShellModel package tests
+        if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShellModel' }}
         run: |
+          set -euo pipefail
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
-          swift test --package-path Packages/iOS/CmuxMobileShellModel
+          args=(--package-path Packages/iOS/CmuxMobileShellModel)
+          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
+            args+=(--no-parallel)
+          fi
+          if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
+            args+=(--filter "$SWIFT_TEST_FILTER")
+          fi
+          log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator:
     needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' }}
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
     # carries). iOS simulator XCTest runs inside the Simulator, not as a
     # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
@@ -422,6 +514,15 @@ jobs:
           if [ -n "${TEST_FILTER:-}" ]; then
             if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
               XCODEBUILD_ARGS+=(-testPlan cmux-ui)
+            else
+              # Keep focused package assertions bounded on virtualized iOS
+              # runners; failed sysdiagnose collection can otherwise take 10m.
+              XCODEBUILD_ARGS+=(
+                -collect-test-diagnostics never
+                -test-timeouts-enabled YES
+                -default-test-execution-time-allowance 60
+                -maximum-test-execution-time-allowance 120
+              )
             fi
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           else

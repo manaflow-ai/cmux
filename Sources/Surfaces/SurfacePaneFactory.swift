@@ -37,8 +37,8 @@ enum SurfacePaneFactory {
     }
 
     /// A browser pane loading `url` at the destination.
-    static func makeBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+    static func makeBrowserPane(url: URL?, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(typeRaw: "browser", url: url?.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
@@ -66,6 +66,21 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        // AppKit focus-intent bookkeeping is optional. Socket/headless and
+        // windowless workspaces still need the shared control-socket focus
+        // operation below.
+        if let appDelegate = AppDelegate.shared,
+           let manager = appDelegate.tabManagerFor(tabId: workspaceID),
+           let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.controlSurfaceTarget(for: panelID) != nil,
+           let windowID = appDelegate.windowId(for: manager),
+           let targetWindow = appDelegate.mainWindow(for: windowID) {
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: targetWindow
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
@@ -108,9 +123,9 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {

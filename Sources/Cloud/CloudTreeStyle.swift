@@ -9,9 +9,9 @@ import SwiftUI
 /// side by side so a variant is picked by looking, not by rebuilding.
 struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     enum MachineRowLayout: String, Sendable {
-        /// Name and resources plus a dim metadata subtitle.
+        /// Name and usage plus a dim metadata subtitle.
         case twoLine
-        /// Compact name and resources, without a metadata subtitle.
+        /// Compact name and usage, without a metadata subtitle.
         case singleLine
     }
 
@@ -75,29 +75,29 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     let showsGroupCounts: Bool
     /// The daemon-tab count badge on pool terminal rows.
     let showsViewBadges: Bool
-    /// A dedicated CPU/RAM/disk strip below the cloud machine name in every layout.
+    /// Legacy gallery geometry flag; machine headers no longer render stats inline.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
+    var rowGrid = CloudTreeRowGrid()
 
     var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
     var machineSubtitleLineHeight: CGFloat { detailSize + 3.5 }
+    var machineResourceHeight: CGFloat { detailSize + 3.5 }
+    var machineBandVerticalPadding: CGFloat { machineBand ? 4 : 0 }
 
-    var machineResourceHeight: CGFloat { detailSize + 2 + machineNameLineHeight + 1 }
-
-    /// Resource columns reserve space even before the first sample arrives.
-    /// Local/pending rows pass false and keep the preset's original density.
-    func machineRowHeight(hasStats: Bool) -> CGFloat {
-        if hasStats && showsMachineStats {
-            return machineVerticalPadding * 2 + machineNameLineHeight + 4 + machineResourceHeight
-                + (machineRowLayout == .twoLine ? 1 + machineSubtitleLineHeight : 0)
-                + (machineBand ? 8 : 0)
-        }
+    /// Compact rows remain one line; the card style reserves its additional details.
+    func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
-            return rowHeight + (machineBand ? 7 : 2)
+            let identityHeight = machineNameLineHeight
+                + 2 * (machineVerticalPadding + machineBandVerticalPadding)
+            return max(rowHeight + 2 * machineBandVerticalPadding, identityHeight)
         case .twoLine:
+            let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
+            let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
             return machineVerticalPadding * 2 + machineNameLineHeight + 1 + machineSubtitleLineHeight
+                + statsHeight + usageHeight + 2 * machineBandVerticalPadding
         }
     }
 
@@ -108,14 +108,14 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// too small next to the Files tree).
     static let compact = CloudTreeStyle(
         id: "compact", name: "Compact",
-        rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        rowHeight: 22, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 12,
+        indentPerLevel: 10,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
-        iconSize: 11, iconSlot: 16, iconGap: 7,
+        iconSize: 11, iconSlot: 16, iconGap: 4,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
-        machineVerticalPadding: 3
+        machineVerticalPadding: 2
     )
 
     /// System Settings voice: filled color squircles with white glyphs, so
@@ -125,7 +125,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 26, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .chips, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 13,
+        indentPerLevel: 11,
         machineNameSize: 12.5, titleSize: 12, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 10.5, iconSlot: 22, iconGap: 7,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
@@ -139,7 +139,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 21, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .tinted, groupLabelStyle: .uppercased, metaPlacement: .inline,
         machineBand: true, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 12,
+        indentPerLevel: 10,
         machineNameSize: 12, titleSize: 11.5, detailSize: 10, groupLabelSize: 9,
         iconSize: 10, iconSlot: 15, iconGap: 6,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
@@ -153,7 +153,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 18, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .uppercased, metaPlacement: .trailing,
         machineBand: false, monospacedText: true, rowSeparators: true,
-        indentPerLevel: 9,
+        indentPerLevel: 8,
         machineNameSize: 11, titleSize: 10.5, detailSize: 9.5, groupLabelSize: 8.5,
         iconSize: 8.5, iconSlot: 11, iconGap: 5,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
@@ -167,7 +167,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 34, machineRowLayout: .twoLine, leafLayout: .twoLine,
         iconTreatment: .tinted, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 15,
+        indentPerLevel: 13,
         machineNameSize: 13, titleSize: 12.5, detailSize: 10.5, groupLabelSize: 11,
         iconSize: 14, iconSlot: 22, iconGap: 8,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,

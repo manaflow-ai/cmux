@@ -31,6 +31,9 @@ final class MacPairedMacBackupPublisher {
     private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
+    private var latestRoutes: [CmxAttachRoute] = []
     /// The routes most recently published, so an unchanged status update (the
     /// common case) does not re-POST.
     private var lastPublishedRoutes: [CmxAttachRoute] = []
@@ -68,9 +71,42 @@ final class MacPairedMacBackupPublisher {
     func configure(auth: AuthCoordinator) {
         guard Self.isEnabled() else { return }
         self.auth = auth
-        // The iOS-pairing listener defaults ON in DEBUG builds (see
-        // MobileCatalogSection.iOSPairingHost), so an attach route comes up
-        // without a manual Settings toggle; we just observe and publish it.
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.evaluate()
+                }
+            }
+        }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.lastPublishedRoutes = []
+                    let routes = self.latestRoutes
+                    guard !routes.isEmpty else { return }
+                    Task { await self.publish(routes: routes) }
+                }
+            }
+        }
+        evaluate()
+    }
+
+    private func evaluate() {
+        guard MobileHostService.isListeningEnabled else {
+            observeTask?.cancel()
+            observeTask = nil
+            lastPublishedRoutes = []
+            return
+        }
         startObserving()
     }
 
@@ -79,6 +115,11 @@ final class MacPairedMacBackupPublisher {
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 guard let self, !Task.isCancelled else { break }
+                self.latestRoutes = status.routes
+                guard MobileHostService.isListeningEnabled else {
+                    self.lastPublishedRoutes = []
+                    continue
+                }
                 guard !status.routes.isEmpty, status.routes != self.lastPublishedRoutes else { continue }
                 await self.publish(routes: status.routes)
             }
@@ -86,6 +127,10 @@ final class MacPairedMacBackupPublisher {
     }
 
     private func publish(routes: [CmxAttachRoute]) async {
+        guard MobileHostService.isListeningEnabled else {
+            lastPublishedRoutes = []
+            return
+        }
         guard (try? await retryAfterGate.wait()) != nil else { return }
         guard let auth, let baseURL = PresenceHeartbeatClient.resolvedServiceURL() else { return }
         let tokens: (accessToken: String, refreshToken: String)
@@ -93,6 +138,10 @@ final class MacPairedMacBackupPublisher {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in -> nothing to publish
+        }
+        guard MobileHostService.isListeningEnabled else {
+            lastPublishedRoutes = []
+            return
         }
         let teamID = auth.resolvedTeamID
 
@@ -141,10 +190,10 @@ final class MacPairedMacBackupPublisher {
             let (_, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { return }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http,
-                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
                 return
             }
@@ -186,7 +235,7 @@ final class MacPairedMacBackupPublisher {
     /// Republishes unchanged routes after the selected iOS target changes.
     func pairingTargetDidChange(routes: [CmxAttachRoute]) {
         lastPublishedRoutes = []
-        guard !routes.isEmpty else { return }
+        guard MobileHostService.isListeningEnabled, !routes.isEmpty else { return }
         Task { await publish(routes: routes) }
     }
 }

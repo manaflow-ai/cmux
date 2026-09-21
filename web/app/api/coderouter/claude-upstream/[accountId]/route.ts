@@ -7,7 +7,7 @@ import {
   removeClaudeAccount,
   updateClaudeAccount,
 } from "../../../../../services/coderouter/claudeUpstream";
-import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
+import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -16,13 +16,13 @@ import {
 import { claudeUpstreamUnavailable, readJsonBody } from "../route";
 
 export type ClaudeAccountRouteDependencies = {
-  readonly resolveContext: typeof resolveCodeRouterRequestContext;
+  readonly resolveContext: typeof resolveCoderouterControlContext;
   readonly update: typeof updateClaudeAccount;
   readonly remove: typeof removeClaudeAccount;
 };
 
 const defaultDependencies: ClaudeAccountRouteDependencies = {
-  resolveContext: resolveCodeRouterRequestContext,
+  resolveContext: resolveCoderouterControlContext,
   update: updateClaudeAccount,
   remove: removeClaudeAccount,
 };
@@ -35,6 +35,8 @@ export function makeClaudeAccountHandlers(
   async function PATCH(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
+    const access = resolved.value.access;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -47,7 +49,7 @@ export function makeClaudeAccountHandlers(
     }
     const teamId = resolved.value.team.teamId;
     try {
-      const account = await dependencies.update(teamId, accountId, patch);
+      const account = await dependencies.update(teamId, accountId, patch, access);
       if (!account) return notFound();
       addCoderouterBreadcrumb("account", "Claude upstream account updated", {
         ...(patch.state ? { state: patch.state } : {}),
@@ -63,14 +65,16 @@ export function makeClaudeAccountHandlers(
   async function DELETE(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
+    const access = resolved.value.access;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const teamId = resolved.value.team.teamId;
-    let result;
+    let result: Awaited<ReturnType<ClaudeAccountRouteDependencies["remove"]>>;
     try {
-      result = await dependencies.remove(teamId, accountId);
+      result = await dependencies.remove(teamId, accountId, access);
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_claude_account" });
       return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream account. Nothing was changed; retry shortly.");

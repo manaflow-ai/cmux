@@ -85,6 +85,7 @@ export const navItems: NavEntry[] = [
   { titleKey: "dock", href: "/docs/dock" },
   { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
   { titleKey: "apiReference", href: "/docs/api" },
+  { titleKey: "computerUse", href: "/docs/computer-use" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
   { titleKey: "skills", href: "/docs/skills" },
   { titleKey: "notifications", href: "/docs/notifications" },

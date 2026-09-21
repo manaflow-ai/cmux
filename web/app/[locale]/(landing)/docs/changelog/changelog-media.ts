@@ -26,6 +26,46 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.25": {
+    title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
+    features: [
+      {
+        title: "SSH Workspaces Connect Again",
+        description:
+          "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+      },
+      {
+        title: "Steady Agent Layouts",
+        description:
+          "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+      },
+      {
+        title: "Light Mode Terminals",
+        description:
+          "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+      },
+    ],
+  },
+  "0.64.24": {
+    title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
+    features: [
+      {
+        title: "Reliable Codex Resumes",
+        description:
+          "Codex --yolo no longer calls a missing helper or replays a restore command after repeated resume cycles, keeping the active session identity attached to the right terminal.",
+      },
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "The CLI authorization page can sign out the current browser account and return to sign-in with the original confirmation code intact.",
+      },
+      {
+        title: "Cloud CLI Compatibility",
+        description:
+          "Cloud terminal sessions accept the workspace-close syntax used by the in-terminal CLI while preserving routing, JSON output, revision fences, and idempotency.",
+      },
+    ],
+  },
   "0.64.23": {
     title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
     features: [

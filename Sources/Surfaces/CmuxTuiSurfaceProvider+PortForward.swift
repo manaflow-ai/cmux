@@ -17,7 +17,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Create the browser with native connection state before attempting access.
-    /// The user chooses forwarding explicitly in that pane.
+    /// The authenticated userspace proxy keeps each VM's address and port.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
@@ -25,8 +25,9 @@ extension CmuxTuiSurfaceProvider {
         reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
     ) async throws -> (workspaceID: UUID, panelID: UUID) {
         try Task.checkCancellation()
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
+        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
@@ -40,31 +41,42 @@ extension CmuxTuiSurfaceProvider {
         return pane
     }
 
+    /// Bind the page to its machine proxy without activating a system VPN.
     func configureBrowser(_ browser: BrowserPanel, url: URL) {
         guard let address = info.privateAddress,
               let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
             browser.cloudAccess.showUnavailable(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
             return
         }
-        let port = privateURL.port ?? (privateURL.scheme == "https" ? 443 : 80)
+        // Check the VM origin before rewriting it to localhost. Otherwise the
+        // implicit localhost allowance could bypass a private-origin deny rule.
+        guard browserPolicy().allowsTrustedInternalURL(privateURL) else {
+            browser.cloudAccess.showUnavailable(String(localized: "browser.error.urlAllowlist.userMessage", defaultValue: "This URL is not allowed by the embedded-browser URL policy."))
+            return
+        }
+        let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
-        browser.cloudAccess.configure(model: accessModel(port: port, address: address), url: privateURL)
+        let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
+        browser.cloudAccess.configure(model: model, url: privateURL)
+        browser.prepareCloudBrowserStore(machineID: machineID)
         browser.showCloudAddress(privateURL)
+        model.connect()
     }
 
-    func accessModel(port: Int, address: String) -> CloudPortAccessModel {
+    func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
         let target = CloudPortForwardTarget(host: address, port: port)
-        return portAccessStore.model(machineID: machineID, target: target) {
+        return portAccessStore.model(machineID: machineID, target: target, scheme: scheme) {
             CloudPortAccessModel(
-                machineID: machineID,
                 target: target,
                 coordinator: portAccessStore.coordinator,
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
+                    // Sleeping machines need the control plane to wake. An awake
+                    // desktop is checked through the existing browser carrier below.
                     if !self.isAwake {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: port)
+                        _ = try await client.openPort(id: self.machineID, port: target.port)
                     }
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
@@ -78,12 +90,42 @@ extension CmuxTuiSurfaceProvider {
                         try Task.checkCancellation()
                         return await forward.localPort
                     } catch {
-                        await portForwards.close(machineID: self.machineID, port: port)
+                        await portForwards.close(machineID: self.machineID, port: target.port)
                         throw error
                     }
                 },
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
+                },
+                startBrowserProxy: { [weak self] in
+                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                    let generation = self.currentLifecycleGeneration
+#if DEBUG
+                    let desktopStartedAt = Date()
+                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
+                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                       try await !CloudBrowserRouting.desktopIsReachable(endpoint: endpoint, address: address, port: port) {
+                        try Task.checkCancellation()
+                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
+                        _ = try await client.openPort(id: self.machineID, port: port)
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                    }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    return endpoint
                 }
             )
         }

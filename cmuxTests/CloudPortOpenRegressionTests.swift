@@ -395,6 +395,7 @@ struct CloudPortOpenRegressionTests {
         var completion: AsyncStream<Void>.Continuation!
         let completionStream = AsyncStream<Void> { completion = $0 }
         let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { catalog },
             selectedWorkspaceID: { unrelatedWorkspaceID },
             selectLocalWorkspace: { _ in },

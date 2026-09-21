@@ -91,7 +91,7 @@ extension TerminalSurface {
 
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        CmuxPathEnvironment.prependingUniqueDirectory(directory, to: path)
+        CmuxPathEnvironment().prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key

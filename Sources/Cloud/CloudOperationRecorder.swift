@@ -76,7 +76,7 @@ final class CloudOperationRecorder {
         }
     }
 
-    func finish(_ context: CloudOperationContext, error: Error? = nil, httpStatus: Int? = nil) async {
+    func finish(_ context: CloudOperationContext, error: Error? = nil, httpStatus: Int? = nil, errorNumber: Int? = nil) async {
         guard active.removeValue(forKey: context.spanID) != nil else { return }
         let failure = error.map(CloudDiagnosticFailure.classify)
             ?? httpStatus.flatMap { $0 >= 400 ? CloudDiagnosticFailure.classify(status: $0) : nil }
@@ -93,6 +93,7 @@ final class CloudOperationRecorder {
             if context.parentSpanID == nil {
                 operations[index].outcome = outcome
                 operations[index].failure = failure
+                operations[index].durationMs = milliseconds
             } else if let step = operations[index].steps.firstIndex(where: { $0.id == context.spanID }) {
                 operations[index].steps[step].outcome = outcome
                 operations[index].steps[step].failure = failure
@@ -106,7 +107,7 @@ final class CloudOperationRecorder {
             traceId: context.traceID, spanId: context.spanID, parentSpanId: context.parentSpanID,
             operation: context.operation, phase: context.phase, outcome: outcome,
             startedAtMs: start, endedAtMs: start + milliseconds, attempt: context.attempt,
-            failure: failure, httpStatus: httpStatus, errorNumber: (error as? URLError)?.code.rawValue,
+            failure: failure, httpStatus: httpStatus, errorNumber: errorNumber ?? (error as? URLError)?.code.rawValue,
             sourceFile: context.sourceFile, sourceLine: context.sourceLine
         )
         if let uploader, let identity = context.identity {
@@ -121,7 +122,7 @@ final class CloudOperationRecorder {
         _ work: () async throws -> T
     ) async rethrows -> T {
         let root = await begin(operation, foreground: foreground, file: file, line: line)
-        return try await CloudOperationContext.$current.withValue(root) {
+        return try await CloudOperationContext.withCurrent(root) {
             do {
                 let value = try await work()
                 await finish(root)
@@ -131,6 +132,17 @@ final class CloudOperationRecorder {
                 throw error
             }
         }
+    }
+
+    /// CLI subprocess failures happen after the endpoint request completes.
+    /// Accept only structured enums; paths, commands, keys and stderr stay local.
+    func recordFileTransferFailure(phase: CloudOperationPhase, failure: CloudDiagnosticFailure, errorNumber: Int?) async -> String? {
+        guard identity() != nil else { return nil }
+        let root = begin(.file)
+        let child = beginChild(of: root, phase: phase, attempt: 0)
+        await finish(child, error: failure, errorNumber: errorNumber)
+        await finish(root, error: failure, errorNumber: errorNumber)
+        return "operation=\(root.operationID.uuidString.lowercased()) trace=\(root.traceID)"
     }
 
     func dismiss(_ id: UUID) { operations.removeAll { $0.id == id && !$0.isRunning } }
