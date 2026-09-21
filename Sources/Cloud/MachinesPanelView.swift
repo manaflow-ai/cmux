@@ -26,9 +26,6 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
-#if DEBUG
-    @Environment(\.cloudSidebarDebugSettings) private var cloudSidebarDebugSettings
-#endif
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
@@ -463,15 +460,6 @@ struct MachinesPanelView: View {
             coordinator: viewModel.createCoordinator
         )
     }
-    private var resolvedTreeStyle: CloudTreeStyle {
-        let base = CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
-#if DEBUG
-        return cloudSidebarDebugSettings?.metrics.resolvedStyle(base) ?? base
-#else
-        return base
-#endif
-    }
-
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
@@ -511,7 +499,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: resolvedTreeStyle,
+            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
