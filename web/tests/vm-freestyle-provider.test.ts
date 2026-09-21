@@ -439,7 +439,7 @@ describe("FreestyleProvider create with edge rules", () => {
     });
   });
 
-  test("passes the rule inline, installs only the guest adapter, and returns the machine", async () => {
+  test("passes the rule inline and relies on the baked guest CLI", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
@@ -454,14 +454,12 @@ describe("FreestyleProvider create with edge rules", () => {
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
     expect(fake.creates[0]).not.toHaveProperty("vpcs");
-    // The token reaches the platform create call and nothing else. The guest
-    // adapter itself is safe to write because it contains no issued token.
+    // The token reaches the platform create call and nothing else. A healthy
+    // snapshot already carries the guest adapter, so create does no guest
+    // writes or download/heal execs.
     expect(JSON.stringify(fake.execs)).not.toContain("crt_");
-    expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
-    expect(fake.writes[0]?.content).toContain("cmux auth status");
-    expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
+    expect(fake.execs).toEqual([]);
+    expect(fake.writes).toEqual([]);
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.deletes).toEqual([]);
   });
@@ -479,10 +477,8 @@ describe("FreestyleProvider create with edge rules", () => {
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
     expect(handle.providerMetadata).toMatchObject({ networkId: "vpc_1" });
-    expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
-    expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
+    expect(fake.execs).toEqual([]);
+    expect(fake.writes).toEqual([]);
     expect(handle.providerMetadata).toMatchObject({
       networkId: "vpc_1",
       networkIpv4: "10.4.0.7",
@@ -498,11 +494,11 @@ describe("FreestyleProvider create with edge rules", () => {
     await providerWith(fake).create({ image: "sh-devbox" });
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
-    expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
+    expect(fake.execs).toEqual([]);
+    expect(fake.writes).toEqual([]);
   });
 
-  test("restore passes the rule inline and installs the guest adapter", async () => {
+  test("restore passes the rule inline and relies on the baked guest CLI", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
     const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
@@ -511,10 +507,8 @@ describe("FreestyleProvider create with edge rules", () => {
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
-    expect(ok.writes).toHaveLength(1);
-    expect(ok.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
-    expect(ok.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(ok.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
+    expect(ok.execs).toEqual([]);
+    expect(ok.writes).toEqual([]);
     expect(ok.deletes).toEqual([]);
   });
 });

@@ -8085,6 +8085,51 @@ mod tests {
     }
 
     #[test]
+    fn parses_machine_provider_command_config() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-machine-provider-command-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(
+            &path,
+            r#"{"machine_provider":{"command":["/usr/local/bin/my-machine-provider","--control"]}}"#,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            config.machine_provider.command,
+            Some(vec!["/usr/local/bin/my-machine-provider".to_string(), "--control".to_string(),])
+        );
+    }
+
+    #[test]
+    fn rejects_machine_provider_command_without_program() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-machine-provider-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r#"{"machine_provider":{"command":[]}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(config.machine_provider.command.is_none());
+    }
+
+    #[test]
     fn machine_provider_command_parses_and_requires_a_program() {
         let raw: RawConfig = serde_json::from_str(
             r#"{"machine_provider":{"command":["/opt/provider/run.sh","--profile","prod"]}}"#,

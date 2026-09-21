@@ -4036,6 +4036,55 @@ mod tests {
     }
 
     #[test]
+    fn provider_resolution_uses_configured_command_after_cli_flags() {
+        let mut config = config::Config::default();
+        config.machine_provider.command =
+            Some(vec!["/usr/local/bin/my-machine-provider".into(), "--control".into()]);
+
+        // No CLI flags: the configured command provider launches.
+        assert_eq!(
+            resolve_provider_launch(&args(&[]), &config).unwrap(),
+            Some(ProviderLaunch::Command(vec![
+                OsString::from("/usr/local/bin/my-machine-provider"),
+                OsString::from("--control"),
+            ]))
+        );
+
+        // A CLI provider flag overrides the configured command.
+        assert_eq!(
+            resolve_provider_launch(&args(&["--machine-provider", "/tmp/provider.sock"]), &config)
+                .unwrap(),
+            Some(ProviderLaunch::Unix(PathBuf::from("/tmp/provider.sock")))
+        );
+        assert!(matches!(
+            resolve_provider_launch(&args(&["--cloud"]), &config).unwrap(),
+            Some(ProviderLaunch::Cloud(_))
+        ));
+
+        // A configured command beats the lower-precedence cloud config.
+        config.machine_provider.cloud.enabled = true;
+        assert_eq!(
+            resolve_provider_launch(&args(&[]), &config).unwrap(),
+            Some(ProviderLaunch::Command(vec![
+                OsString::from("/usr/local/bin/my-machine-provider"),
+                OsString::from("--control"),
+            ]))
+        );
+
+        // Static machines stay rejected with a configured command provider.
+        config.machines.push(config::MachineConfig {
+            id: "local-agents".into(),
+            name: "Local agents".into(),
+            subtitle: String::new(),
+            target: config::MachineTargetConfig::Unix {
+                socket: PathBuf::from("/tmp/local-agents.sock"),
+            },
+        });
+        let error = resolve_provider_launch(&args(&[]), &config).unwrap_err().to_string();
+        assert!(error.contains("only be combined with the local cloud"), "{error}");
+    }
+
+    #[test]
     fn provider_resolution_rejects_conflicts_and_limits_static_overlay() {
         let mut config = config::Config::default();
         let parsed = args(&["--machine-provider", "/tmp/provider.sock", "--cloud"]);

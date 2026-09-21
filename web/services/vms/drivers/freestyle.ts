@@ -118,12 +118,11 @@ import {
 // /etc/cmux/agent-config.sh sources it in every shell whatever user it runs as.
 //
 // Create runs no guest bootstrap. The devbox snapshot carries the pinned
-// cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
-// (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
-// fresh identity as soon as the machine resumes, keyed on the platform
-// instance id. Create is therefore `vms.create`, the grow-only resize, and one
-// safe guest-adapter write; attach heals a daemon that is not yet, or no
-// longer, listening.
+// cmux-tui build, the cmux-tui-daemon systemd unit, and the checksum-pinned
+// Cloud facade/guest shim. Its supervisor starts the daemon with a fresh
+// identity as soon as the machine resumes, keyed on the platform instance id.
+// Create is therefore `vms.create` plus the grow-only resize; attach heals a
+// daemon or guest CLI only when an older or damaged image needs it.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites `authorization`
@@ -1006,9 +1005,6 @@ export class FreestyleProvider implements VMProvider {
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
 
-            // The in-VM shim is a separate convenience layer over the baked
-            // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm, vmId, options.promptIdentity);
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1374,7 +1370,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const networkId = options?.network?.id;
-          const { vm, vmId, data } = await fs.vms.create({
+          const { vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -1387,22 +1383,9 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
           });
-          // The snapshot carries the installed binary and a persisted
-
-          // model-plane file with placeholders only. The guest adapter is a
-          // required artifact, so install it before returning; daemon healing
-          // remains best-effort for a transient resume race. The new machine's
-          // edge rule is supplied inline, so its route is still fail-closed.
-          try {
-            await this.installGuestCli(vm, vmId);
-            await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
-            await this.announcePrivateAddresses(vm, data);
-          } catch (err) {
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
-            throw err;
-          }
+          // The snapshot carries the daemon, Cloud facade, guest shim, and a
+          // model-plane file with placeholders only. Creation must remain a
+          // fast resume path; attach-time healing verifies and repairs drift.
           return {
             provider: "freestyle" as const,
             providerVmId: vmId,
