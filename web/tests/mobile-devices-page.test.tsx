@@ -32,10 +32,24 @@ mock.module("@hexclave/next", () => ({
   useUser: () => ({ selectedTeam: { id: "fixture-team" }, useTeams: () => [{ id: "fixture-team", displayName: "Personal" }] }),
 }));
 const { default: MobileDevicesPage } = await import("../app/[locale]/dashboard/mobile-devices/page");
+const { MobileDevicesDashboard } = await import("../app/[locale]/dashboard/mobile-devices/mobile-devices-dashboard");
 const { default: LegacyDevicesPage } = await import("../app/[locale]/dashboard/iroh/page");
 const { DashboardShell } = await import("../app/[locale]/dashboard/dashboard-shell");
 
 describe("mobile devices dashboard", () => {
+  test("uses the dashboard-wide team scope instead of rendering a page picker", async () => {
+    const messages = await loadMessages("en");
+    const html = renderToStaticMarkup(
+      <NextIntlClientProvider locale="en" messages={messages}>
+        <MobileDevicesDashboard userId="fixture-user" />
+      </NextIntlClientProvider>,
+    );
+    expect(html).toContain("Fixture team");
+    expect(html).toContain("Team scope active");
+    expect(html).not.toContain("mobile-devices-team");
+    expect(html).not.toContain("<select");
+  });
+
   test("renders the header while private authorization is still pending", async () => {
     authorization = "pending";
     try {
