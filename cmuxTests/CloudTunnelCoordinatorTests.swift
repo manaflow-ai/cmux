@@ -393,6 +393,32 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.enroller.enrollCount == 1)
     }
 
+    @Test("a disconnect during a connected status snapshot is not adopted as up")
+    func staleConnectedSnapshotDoesNotAdoptAfterDisconnect() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connected
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.starting) == .starting)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
+        await use.value
+        controller.onCurrentStatus = nil
+
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == ["install", "start"])
+    }
+
     @Test("a superseded start that fails late does not stop the newer start's tunnel")
     func supersededStartFailureLeavesNewerTunnelAlone() async {
         let harness = Harness()

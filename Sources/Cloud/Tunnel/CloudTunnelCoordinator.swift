@@ -46,6 +46,9 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private(set) var state: CloudTunnelState = .off
     private(set) var isPinned = false
     private var linkStatus: CloudTunnelLinkStatus = .disconnected
+    /// Monotonically tracks status notifications so a stale current-status
+    /// snapshot cannot overwrite a disconnect delivered while it was awaited.
+    private var linkStatusRevision = 0
     private var startTask: Task<Void, any Error>?
     /// Bumped per start so a cancelled start that resumes late (activation
     /// approval is not cancellable) cannot clobber a newer start's state.
@@ -435,9 +438,15 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             // An already-connected adoption never iterates the stream. Its
             // retained continuation still needs explicit release on every exit.
             defer { linkBroadcast.remove(linkSubscriptionID) }
+            let snapshotRevision = linkStatusRevision
             let current = await controller.currentStatus()
-            linkStatus = current
-            switch current {
+            // `currentStatus()` can suspend while the extension reports a
+            // newer link event. Yield once so the observer can deliver that
+            // buffered event before deciding whether the snapshot is usable.
+            await Task.yield()
+            let settledStatus = linkStatusRevision == snapshotRevision ? current : linkStatus
+            linkStatus = settledStatus
+            switch settledStatus {
             case .connected:
                 logger.notice("adopting a tunnel that is already connected")
             case .connecting, .reasserting:
@@ -445,7 +454,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
                     try await self.waitForLink(
                         .connected,
                         capturedUpdates: linkUpdates,
-                        initialStatus: current
+                        initialStatus: settledStatus
                     )
                 }
             case .disconnected, .disconnecting, .invalid:
@@ -454,7 +463,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
                     try await self.waitForLink(
                         .connected,
                         capturedUpdates: linkUpdates,
-                        initialStatus: current
+                        initialStatus: settledStatus
                     )
                 }
             }
@@ -663,6 +672,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     }
 
     private func linkStatusDidChange(_ status: CloudTunnelLinkStatus) {
+        linkStatusRevision += 1
         linkStatus = status
         linkBroadcast.yield(status)
         guard state == .up, status == .disconnected || status == .invalid else { return }

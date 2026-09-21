@@ -188,7 +188,8 @@ extension AppDelegate {
             let currentFrame = window.frame
             guard let corrected = Self.reconciledFrameAfterScreenChange(
                 frame: currentFrame,
-                availableDisplays: displays.available
+                availableDisplays: displays.available,
+                topologyTrusted: visibleFrameFitTopologySignature != nil
             ) else { continue }
 #if DEBUG
             cmuxDebugLog(
