@@ -1,5 +1,4 @@
 internal import Darwin
-internal import Dispatch
 public import Foundation
 internal import os
 

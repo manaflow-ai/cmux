@@ -1,4 +1,4 @@
-internal import Dispatch
+public import Dispatch
 
 /// A bounded executor for accepted control-socket connection jobs.
 ///
