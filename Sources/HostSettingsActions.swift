@@ -129,10 +129,11 @@ final class HostSettingsActions: SettingsHostActions {
         // The native Settings entry point keeps CLI diagnostics private. The
         // interactive picker still owns stdout/the TTY, while raw helper and
         // launch errors on stderr are suppressed on this user-facing path.
-        let initialCommand = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit"
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit\n"
         do {
             let picker = try SurfacePaneFactory.makeTerminalPane(
-                initialCommand: initialCommand,
+                initialCommand: nil,
+                initialInput: initialInput,
                 workingDirectory: nil,
                 at: .workspace(id: workspace.id, placement: .tab),
                 focus: true
