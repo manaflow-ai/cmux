@@ -42,6 +42,38 @@ self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
 that the resolved runner name starts with `tart-cmux-` and that the guest has
 the immutable `/etc/cmux-tart-ci` marker.
 
+## Shared physical-host interoperability
+
+The current required-CI policy continues to use isolated Tart guests or hosted
+providers. Any future path that executes directly on shared CMUX-owned hardware
+must preserve a separate caller identity, semantic workload request, and
+machine-local physical lease.
+
+Examples of callers that may share a host include GitHub Actions, `cmux-ci`,
+developer/build tooling, direct agents, operator commands, and reviewed fleet
+schedulers. They keep their own workflow state. The host-side execution adapter
+owns fresh admission, resource ownership, bounded execution, and settlement.
+
+A scheduler may select a candidate node. That selection stays advisory until
+the node rechecks current drain/pressure/resource state and acquires its local
+lease. When the CMUX controller already holds a machine or resource reservation,
+the host adapter validates that reservation's owner, scope, generation, and
+expiry, then binds local execution to it. It never creates an unrelated
+competing reservation for the same resource.
+
+Scarce local claims include native build lanes, heavy Linux slots,
+project-native locks, artifact-publisher slots, and resident workspaces.
+Participating adapters use one collision boundary for those claims. Runner
+liveness, process names, and apparent idleness are observation only.
+
+Execution receipts correlate the caller class and external request reference
+with the semantic workload, opaque node identity/class, local lease generation,
+result, and cleanup/settlement. Caller-private workflow state remains in the
+caller.
+
+Hosted/isolated fallback remains available when the shared host refuses local
+admission or is draining, pressured, or unavailable.
+
 ## Break-glass: switch a runner type to a paid provider
 
 There is no automatic overflow. If the Tart pool is unavailable or its queue is
