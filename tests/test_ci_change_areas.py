@@ -610,6 +610,9 @@ def linux_preflight_needs(
 def run_detect_step_for_paths(
     paths: list[str],
     workflow_path: Path = CI_WORKFLOW,
+    *,
+    rename_from: str | None = None,
+    rename_to: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -621,11 +624,20 @@ def run_detect_step_for_paths(
         helper_copy.parent.mkdir(parents=True, exist_ok=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
+        if (rename_from is None) != (rename_to is None):
+            raise ValueError("rename_from and rename_to must be supplied together")
+        if rename_from:
+            source = repo / rename_from
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("guarded source\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
         base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
 
-        if paths:
+        if rename_from:
+            (repo / rename_to).parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "mv", rename_from, rename_to], cwd=repo, check=True)
+        if paths or rename_from:
             for path in paths:
                 target = repo / path
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -655,6 +667,19 @@ def run_detect_step_for_paths(
             check=True,
         )
         return result, output_path.read_text(encoding="utf-8").splitlines()
+
+
+def test_workflow_routes_guarded_rename_source_into_docs() -> None:
+    # Git's default rename detection hides the old guarded path. The workflow
+    # must use --no-renames so both sides reach the path classifier.
+    result, outputs = run_detect_step_for_paths(
+        [], rename_from="Sources/Guarded.swift", rename_to="docs/Guarded.swift"
+    )
+
+    assert "Could not compute PR diff" not in result.stderr
+    assert "Sources/Guarded.swift" in result.stdout
+    assert "docs/Guarded.swift" in result.stdout
+    assert outputs[0] == "macos=true"
 
 
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
