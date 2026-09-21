@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+for argument in "$@"; do
+  case "$argument" in
+    --role|--role=*|--repo-root|--repo-root=*)
+      echo "error: cmux_linux_ci entrypoint fixes --role and --repo-root" >&2
+      exit 2
+      ;;
+  esac
+done
+exec python3 "$root/scripts/fleet_acceptance.py" --role cmux_linux_ci --repo-root "$root" "$@"
