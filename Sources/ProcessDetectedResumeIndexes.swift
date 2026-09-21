@@ -5,36 +5,40 @@ struct ProcessDetectedResumeIndexes: Sendable {
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
     static func load(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await loadOnWorker(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            maximumSnapshotAge: 5,
-            ttyDeviceBindings: ttyDeviceBindings
-        )
+        await Task.detached(priority: .utility) {
+            await loadOnWorker(
+                homeDirectory: homeDirectory ?? NSHomeDirectory(),
+                fileManager: fileManager ?? .default,
+                maximumSnapshotAge: 5,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
+        }.value
     }
 
     /// Loads current hook stores and captures an uncached process snapshot off-main.
     static func loadFresh(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await loadFreshOnWorker(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            ttyDeviceBindings: ttyDeviceBindings
-        )
+        await Task.detached(priority: .utility) {
+            await loadFreshOnWorker(
+                homeDirectory: homeDirectory ?? NSHomeDirectory(),
+                fileManager: fileManager ?? .default,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
+        }.value
     }
 
     /// Loads fresh process state with a bounded lifecycle deadline.
     @MainActor
     static func loadFreshWithDeadline(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default,
+        homeDirectory: String? = nil,
+        fileManager: FileManager? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
         deadline: Duration = .seconds(5),
         onWorkerCreated: @escaping @MainActor @Sendable (
@@ -57,8 +61,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         // finishes so a later recovery pass cannot overlap another scan.
         let worker = Task.detached(priority: .utility) {
             let result = await loadFreshOnWorker(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
+                homeDirectory: homeDirectory ?? NSHomeDirectory(),
+                fileManager: fileManager ?? .default,
                 ttyDeviceBindings: ttyDeviceBindings
             )
             workerFinishedContinuation.yield(())

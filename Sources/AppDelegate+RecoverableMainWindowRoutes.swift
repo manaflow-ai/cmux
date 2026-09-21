@@ -605,7 +605,9 @@ extension AppDelegate {
     ) -> [MainWindowPersistenceRouteSnapshot] {
         let windowsByWindowId = currentMainWindowsByWindowId()
         let maximumRecoverableRoutes = availableWindowlessPersistenceSlots()
-        if freezeWindowlessRoutes, let suppliedRestorableAgentIndex {
+        if freezeWindowlessRoutes,
+           let suppliedRestorableAgentIndex,
+           suppliedRestorableAgentIndex.isComplete {
             var candidateOrphanedRoutes: [RecoverableMainWindowRoute] = []
             for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
                 guard let snapshot = recoverableMainWindowPersistenceRouteSnapshot(

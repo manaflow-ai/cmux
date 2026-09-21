@@ -291,8 +291,8 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     /// Whether decoding observed a legacy binding without an execution location.
     private(set) var wasDecodedWithoutLaunchFlavor = false
     var updatedAt: TimeInterval
-    /// In-memory restore observation deadline; intentionally excluded from persisted snapshots.
-    var restoredProcessDetectionDeadlineUptime: TimeInterval?
+    /// In-memory restore observation policy; intentionally excluded from persisted snapshots.
+    var restoredProcessDetectionObservation: RestoredProcessDetectionObservation?
 
     init(
         name: String? = nil,
@@ -337,7 +337,7 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.approvalRecordId = Self.normalized(approvalRecordId)
         self.launchFlavor = launchFlavor
         self.updatedAt = updatedAt
-        self.restoredProcessDetectionDeadlineUptime = nil
+        self.restoredProcessDetectionObservation = nil
     }
 
     init(from decoder: Decoder) throws {

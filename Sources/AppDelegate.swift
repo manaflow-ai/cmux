@@ -5335,7 +5335,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Snapshot capture must not perform a cold hook-store/process scan on main.
         // Nil keeps cold windowless owners live until their asynchronous freeze resolves.
         let restorableAgentIndex = suppliedRestorableAgentIndex
-            ?? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
         let routes = orderedSessionRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
