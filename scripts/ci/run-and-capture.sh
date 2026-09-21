@@ -37,7 +37,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 set +e
-"$@" >>"$output_path" 2>&1
+CMUX_CI_FILE_CAPTURE_ACTIVE=1 "$@" >>"$output_path" 2>&1
 status=$?
 set -e
 
