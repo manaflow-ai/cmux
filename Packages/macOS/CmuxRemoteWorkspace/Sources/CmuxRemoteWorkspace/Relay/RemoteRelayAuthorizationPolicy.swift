@@ -20,7 +20,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     public static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
 
     private static let tmuxCompatibleMethods: Set<String> = [
-        "surface.split",
         "surface.close",
         "surface.send_text",
         "surface.report_tty",
@@ -35,7 +34,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
-        "workspace.remote.reconnect",
         "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "workspace.remote.terminal_session_end",
@@ -44,15 +42,12 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
-        "agent.restore.admit",
-        "agent.restore.release",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "notification.create",
         "notification.create_for_target",
     ]).union(tmuxCompatibleMethods)
 
@@ -63,8 +58,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.resume.set",
         "surface.resume.get",
         "surface.resume.clear",
-        "agent.restore.admit",
-        "agent.restore.release",
         "surface.read_text",
         "surface.read_selection",
         "notification.create_for_target",
@@ -74,13 +67,11 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "surface.split",
         "surface.close",
         "surface.send_text",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
-        "surface.split",
         "surface.close",
         "surface.send_text",
         "surface.report_tty",
@@ -122,8 +113,14 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "cwd", "environment",
     ]
 
-    /// Creates the default relay authorization policy.
-    public init() {}
+    private let invalidSelectorMessage: String
+
+    /// Creates the relay authorization policy with app-resolved error text.
+    /// - Parameter invalidSelectorMessage: Localized malformed-selector message;
+    ///   standalone callers default to the existing English protocol response.
+    public init(invalidSelectorMessage: String = "Relay selector is invalid") {
+        self.invalidSelectorMessage = invalidSelectorMessage
+    }
 
     /// Validates a decoded relay request against one owner's live snapshot.
     ///
@@ -285,6 +282,15 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         let message: String
     }
 
+    /// Malformed selectors keep their scope code regardless of their JSON type.
+    private func invalidSelector(_ key: String) -> SelectorFailure {
+        SelectorFailure(
+            code: Self.workspaceSelectorKeys.contains(key)
+                ? "remote_relay_workspace_denied" : "remote_relay_surface_denied",
+            message: invalidSelectorMessage
+        )
+    }
+
     private func containsTopLevelSelector(
         _ parameters: [String: Any],
         keys: Set<String>
@@ -315,8 +321,8 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
         if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
-           !(value is NSNull), !(value is String) {
-            return SelectorFailure(code: "remote_relay_surface_denied", message: "Relay selector is invalid")
+           !(value is String) {
+            return invalidSelector(key)
         }
         if let dictionary = value as? [String: Any] {
             for (childKey, childValue) in dictionary {
@@ -357,15 +363,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
               Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key) else {
             return nil
         }
-        if value is NSNull { return nil }
         guard let raw = value as? String,
               let id = UUID(uuidString: raw) else {
-            return SelectorFailure(
-                code: key.contains("workspace") || key == "tab_id"
-                    ? "remote_relay_workspace_denied"
-                    : "remote_relay_surface_denied",
-                message: "Relay selector is invalid"
-            )
+            return invalidSelector(key)
         }
         if Self.workspaceSelectorKeys.contains(key), id != ownerWorkspaceID {
             return SelectorFailure(

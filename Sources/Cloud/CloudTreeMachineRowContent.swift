@@ -18,7 +18,7 @@ struct CloudTreeMachineRowContent: View {
                     systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
                     tint: CloudTreeIconPalette.machine
                 )
-                .frame(height: scaled(style.machineNameLineHeight))
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {

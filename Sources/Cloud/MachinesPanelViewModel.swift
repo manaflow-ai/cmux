@@ -500,7 +500,11 @@ final class MachinesPanelViewModel: ObservableObject {
     func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
-        let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union([.local])
+        // The Cloud registry owns only Cloud account scope. The device registry
+        // independently retires unauthorized Macs, so a failed Cloud refresh
+        // must not hide live device rows and their already-open projections.
+        let independentMachines = snapshot.machines.filter { $0.id.cloudMachineID == nil }.map(\.id)
+        let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union(independentMachines)
         var scoped = snapshot
         scoped.machines.removeAll { !allowed.contains($0.id) }
         scoped.resources.removeAll { !allowed.contains($0.machine) }
@@ -511,12 +515,11 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
+        defer { isLoading = false }
         guard CloudMachinesFeature.isEnabled else {
-            isLoading = false
             return
         }
         guard let client = VMClient.shared else {
-            isLoading = false
             return
         }
         let generation = refreshGeneration
@@ -574,7 +577,6 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        isLoading = false
         hasLoadedOnce = true
     }
 }

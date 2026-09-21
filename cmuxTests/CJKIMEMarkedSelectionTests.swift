@@ -17,7 +17,7 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         let surfaceView: GhosttyNSView
     }
 
-    private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
+    private func makeHostedTerminalWindow() async throws -> HostedTerminalWindow {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -45,7 +45,8 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         contentView.layoutSubtreeIfNeeded()
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
-        RunLoop.current.run(until: Date.now.addingTimeInterval(0.05))
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+        _ = try XCTUnwrap(surface.surface, "Expected native surface before dispatching composed input")
 
         let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
         return HostedTerminalWindow(
@@ -164,142 +165,146 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
-    func testKeyDownDoesNotForwardWhenZhuyinStartsMarkedText() throws {
-        let hostedTerminal = try makeHostedTerminalWindow()
-        let terminalSurface = hostedTerminal.surface
-        let window = hostedTerminal.window
-        let surfaceView = hostedTerminal.surfaceView
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            window.orderOut(nil)
-            withExtendedLifetime(terminalSurface) {}
-        }
-
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, _ in
-            guard candidateView === surfaceView else { return false }
-            candidateView.setMarkedText(
-                "ㄓ",
-                selectedRange: NSRange(location: 1, length: 0),
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
-            return true
-        }
-
-        var forwardedPressCount = 0
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            forwardedPressCount += 1
-        }
-
-        let event = try keyEvent(text: "5", keyCode: 23, windowNumber: window.windowNumber)
-
-        window.makeFirstResponder(surfaceView)
-        withExtendedLifetime(terminalSurface) {
-            surfaceView.keyDown(with: event)
-        }
-
-        XCTAssertTrue(surfaceView.hasMarkedText(), "Zhuyin keyDown should start marked text")
-        XCTAssertEqual(
-            forwardedPressCount,
-            0,
-            "AppKit-consumed Zhuyin marked-text changes must not forward a duplicate Ghostty key"
-        )
-    }
-
-    func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() throws {
-        let hostedTerminal = try makeHostedTerminalWindow()
-        let terminalSurface = hostedTerminal.surface
-        let window = hostedTerminal.window
-        let surfaceView = hostedTerminal.surfaceView
-        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
-        let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
-        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
-        defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
-            KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
-            cjkIMEInterpretKeyEventsHook = previousInterpretHook
-            window.orderOut(nil)
-            withExtendedLifetime(terminalSurface) {}
-        }
-
-        let probes = [
-            KoreanArrowProbe(
-                text: "\u{F702}",
-                keyCode: UInt16(kVK_LeftArrow),
-                selectionBefore: NSRange(location: 5, length: 0),
-                selectionAfter: NSRange(location: 4, length: 0)
-            ),
-            KoreanArrowProbe(
-                text: "\u{F703}",
-                keyCode: UInt16(kVK_RightArrow),
-                selectionBefore: NSRange(location: 4, length: 0),
-                selectionAfter: NSRange(location: 5, length: 0)
-            ),
-        ]
-        var selectionAfterByKeyCode: [UInt16: NSRange] = [:]
-        for probe in probes {
-            selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
-        }
-
-        AppDelegate.installWindowResponderSwizzlesForTesting()
-        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
-        installCJKIMEInterpretKeyEventsSwizzle()
-        cjkIMEInterpretKeyEventsHook = { candidateView, events in
-            guard candidateView === surfaceView,
-                  let event = events.first,
-                  let selectionAfter = selectionAfterByKeyCode[event.keyCode] else {
-                return false
+    func testKeyDownDoesNotForwardWhenZhuyinStartsMarkedText() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hostedTerminal = try await makeHostedTerminalWindow()
+            let terminalSurface = hostedTerminal.surface
+            let window = hostedTerminal.window
+            let surfaceView = hostedTerminal.surfaceView
+            let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+            let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+                KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+                cjkIMEInterpretKeyEventsHook = previousInterpretHook
+                window.orderOut(nil)
+                withExtendedLifetime(terminalSurface) {}
             }
-            candidateView.setMarkedText(
-                "안녕하세요",
-                selectedRange: selectionAfter,
-                replacementRange: NSRange(location: NSNotFound, length: 0)
-            )
-            return true
-        }
 
-        var forwardedPressKeyCodes: [UInt32] = []
-        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
-            previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            forwardedPressKeyCodes.append(keyEvent.keycode)
-        }
-
-        window.makeFirstResponder(surfaceView)
-        try withExtendedLifetime(terminalSurface) {
-            for probe in probes {
-                surfaceView.setMarkedText(
-                    "안녕하세요",
-                    selectedRange: probe.selectionBefore,
+            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.TCIM.Zhuyin"
+            installCJKIMEInterpretKeyEventsSwizzle()
+            cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+                guard candidateView === surfaceView else { return false }
+                candidateView.setMarkedText(
+                    "ㄓ",
+                    selectedRange: NSRange(location: 1, length: 0),
                     replacementRange: NSRange(location: NSNotFound, length: 0)
                 )
-                let event = try keyEvent(
-                    text: probe.text,
-                    keyCode: probe.keyCode,
-                    windowNumber: window.windowNumber
-                )
-                window.sendEvent(event)
-                XCTAssertEqual(
-                    surfaceView.selectedRange(),
-                    probe.selectionAfter,
-                    "Korean 2-Set arrow handling should apply the IME marked-selection update"
-                )
+                return true
             }
-        }
 
-        XCTAssertEqual(
-            forwardedPressKeyCodes,
-            probes.map { UInt32($0.keyCode) },
-            "Korean 2-Set Left/Right after Hangul composition should reach the terminal cursor path"
-        )
+            var forwardedPressCount = 0
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                previousKeyEventObserver?(keyEvent)
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                forwardedPressCount += 1
+            }
+
+            let event = try keyEvent(text: "5", keyCode: 23, windowNumber: window.windowNumber)
+
+            window.makeFirstResponder(surfaceView)
+            withExtendedLifetime(terminalSurface) {
+                surfaceView.keyDown(with: event)
+            }
+
+            XCTAssertTrue(surfaceView.hasMarkedText(), "Zhuyin keyDown should start marked text")
+            XCTAssertEqual(
+                forwardedPressCount,
+                0,
+                "AppKit-consumed Zhuyin marked-text changes must not forward a duplicate Ghostty key"
+            )
+        }
+    }
+
+    func testKeyDownForKoreanPostCompositionHorizontalArrowsForwardsToTerminal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let hostedTerminal = try await makeHostedTerminalWindow()
+            let terminalSurface = hostedTerminal.surface
+            let window = hostedTerminal.window
+            let surfaceView = hostedTerminal.surfaceView
+            let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            let previousInputSourceOverride = KeyboardLayout.debugInputSourceIdOverride
+            let previousInterpretHook = cjkIMEInterpretKeyEventsHook
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+                KeyboardLayout.debugInputSourceIdOverride = previousInputSourceOverride
+                cjkIMEInterpretKeyEventsHook = previousInterpretHook
+                window.orderOut(nil)
+                withExtendedLifetime(terminalSurface) {}
+            }
+
+            let probes = [
+                KoreanArrowProbe(
+                    text: "\u{F702}",
+                    keyCode: UInt16(kVK_LeftArrow),
+                    selectionBefore: NSRange(location: 5, length: 0),
+                    selectionAfter: NSRange(location: 4, length: 0)
+                ),
+                KoreanArrowProbe(
+                    text: "\u{F703}",
+                    keyCode: UInt16(kVK_RightArrow),
+                    selectionBefore: NSRange(location: 4, length: 0),
+                    selectionAfter: NSRange(location: 5, length: 0)
+                ),
+            ]
+            var selectionAfterByKeyCode: [UInt16: NSRange] = [:]
+            for probe in probes {
+                selectionAfterByKeyCode[probe.keyCode] = probe.selectionAfter
+            }
+
+            AppDelegate.installWindowResponderSwizzlesForTesting()
+            KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
+            installCJKIMEInterpretKeyEventsSwizzle()
+            cjkIMEInterpretKeyEventsHook = { candidateView, events in
+                guard candidateView === surfaceView,
+                      let event = events.first,
+                      let selectionAfter = selectionAfterByKeyCode[event.keyCode] else {
+                    return false
+                }
+                candidateView.setMarkedText(
+                    "안녕하세요",
+                    selectedRange: selectionAfter,
+                    replacementRange: NSRange(location: NSNotFound, length: 0)
+                )
+                return true
+            }
+
+            var forwardedPressKeyCodes: [UInt32] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                previousKeyEventObserver?(keyEvent)
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                forwardedPressKeyCodes.append(keyEvent.keycode)
+            }
+
+            window.makeFirstResponder(surfaceView)
+            try withExtendedLifetime(terminalSurface) {
+                for probe in probes {
+                    surfaceView.setMarkedText(
+                        "안녕하세요",
+                        selectedRange: probe.selectionBefore,
+                        replacementRange: NSRange(location: NSNotFound, length: 0)
+                    )
+                    let event = try keyEvent(
+                        text: probe.text,
+                        keyCode: probe.keyCode,
+                        windowNumber: window.windowNumber
+                    )
+                    window.sendEvent(event)
+                    XCTAssertEqual(
+                        surfaceView.selectedRange(),
+                        probe.selectionAfter,
+                        "Korean 2-Set arrow handling should apply the IME marked-selection update"
+                    )
+                }
+            }
+
+            XCTAssertEqual(
+                forwardedPressKeyCodes,
+                probes.map { UInt32($0.keyCode) },
+                "Korean 2-Set Left/Right after Hangul composition should reach the terminal cursor path"
+            )
+        }
     }
 
     func testSuppressesZhuyinMarkedTextDownArrowAfterTextInputHandling() throws {

@@ -100,7 +100,10 @@ enum WorkspaceTerminalFontSizeChange: Equatable {
         let isExplicitOverride: Bool
         switch self {
         case .relative:
-            isExplicitOverride = true
+            // A bound no-op can claim an existing terminal's size, but a
+            // terminal-free workspace has no size to pin until it changes.
+            isExplicitOverride = sourceLineage != nil
+                || finalRuntimePoints != boundedStartingRuntimePoints
         case .resetThen(let resetTransform):
             isExplicitOverride = !resetTransform.isIdentity
         }

@@ -39,6 +39,10 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// Called after a restore recorded projections of resources this provider has
+    /// already published. Their panes are placeholders until the provider
+    /// materializes them, and no later publish is guaranteed to follow.
+    func projectionsRestored()
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
@@ -86,6 +90,8 @@ extension SurfaceProvider {
     func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
         nil
     }
+
+    func projectionsRestored() {}
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, at: destination, focus: focus)

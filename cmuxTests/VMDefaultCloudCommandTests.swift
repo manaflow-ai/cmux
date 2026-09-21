@@ -123,8 +123,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "route": "ws://10.40.0.10:1337/v1/link",
-                        "session": "cloud", "trusted_carrier": true,
+                        "session": "cloud",
                         "wireguard_hub_socket": "/tmp/cmux-wg-test.sock",
+                        "trusted_carrier": true,
                     ]
                 )
             case "workspace.create":
@@ -413,11 +414,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
         }
         XCTAssertEqual(keys.count, 2, "\(keys)")
-        XCTAssertFalse(keys[0].isEmpty)
-        XCTAssertFalse(keys[1].isEmpty)
+        let firstKey = try XCTUnwrap(keys.first, "Expected the first vm.create idempotency key")
+        let secondKey = try XCTUnwrap(keys.dropFirst().first, "Expected the retried vm.create idempotency key")
+        XCTAssertFalse(firstKey.isEmpty)
+        XCTAssertFalse(secondKey.isEmpty)
         XCTAssertNotEqual(
-            keys[0],
-            keys[1],
+            firstKey,
+            secondKey,
             "a recorded create failure must clear the stored key; reusing it can only replay the failure"
         )
     }
@@ -500,9 +503,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return (payload?["params"] as? [String: Any])?["idempotency_key"] as? String
         }
         XCTAssertEqual(keys.count, 2, "\(keys)")
+        let firstKey = try XCTUnwrap(keys.first, "Expected the first vm.create idempotency key")
+        let secondKey = try XCTUnwrap(keys.dropFirst().first, "Expected the retried vm.create idempotency key")
         XCTAssertEqual(
-            keys[0],
-            keys[1],
+            firstKey,
+            secondKey,
             "an in-progress create must keep the stored key so the retry joins the running attempt"
         )
     }
@@ -641,12 +646,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         stty -echo 2>/dev/null || true
         printf "lease@vm-ssh.freestyle.sh's password: " >&2
         IFS= read -r _cmux_password
+        [ "$_cmux_password" = "expired-lease-token" ] || exit 64
         printf '\\nPermission denied, please try again.\\n' >&2
         printf "lease@vm-ssh.freestyle.sh's password: " >&2
         IFS= read -r _cmux_password_again
         exit 255
         """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
         chmod(fakeSSHPath, 0o755)
+        try installRealExpectCloudSSHFixture(in: tempDirectory)
 
         defer {
             Darwin.close(listenerFD)
@@ -711,6 +718,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 255, result.stdout + result.stderr)
         XCTAssertTrue(result.stderr.contains("Cloud VM SSH credential was rejected"), result.stderr)
         XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
+        XCTAssertFalse((result.stdout + result.stderr).contains("expired-lease-token"))
     }
 
     func testDefaultFreestyleSSHAttachRelaysAfterDelayedSuccessfulCredential() throws {
@@ -726,13 +734,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        stty -echo 2>/dev/null || true
         printf "lease@vm-ssh.freestyle.sh's password: " >&2
         IFS= read -r _cmux_password
+        [ "$_cmux_password" = "lease-token" ] || exit 64
         sleep 9
         printf 'CMUX_DELAYED_RELAY_OK\\n'
         exit 0
         """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
         chmod(fakeSSHPath, 0o755)
+        try installRealExpectCloudSSHFixture(in: tempDirectory)
 
         defer {
             Darwin.close(listenerFD)
@@ -798,6 +809,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("CMUX_DELAYED_RELAY_OK"), result.stdout + result.stderr)
         XCTAssertFalse(result.stderr.contains("credential prompt timed out"), result.stderr)
         XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
+        XCTAssertFalse((result.stdout + result.stderr).contains("lease-token"))
     }
 
     func testDefaultFreestyleSSHAttachFailsClosedWhenVMIsMissing() throws {
@@ -997,7 +1009,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stderr.contains("Retrying in 0s (attempt 1/1)."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Retrying in now (attempt 1/1)."), result.stderr)
         XCTAssertEqual(
             state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info", "vm.ssh_info"]
@@ -1087,6 +1099,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
     private func decodedSingleEmbeddedStartupScript(_ command: String) -> String {
         SSHStartupCommandTestSupport.decodedScript(in: command) ?? command
+    }
+
+    private func installRealExpectCloudSSHFixture(in directory: URL) throws {
+        // Production pins /usr/bin/ssh. Redirect only that argv entry at the
+        // expect boundary while retaining the real credential/PTY state machine.
+        let expectPath = directory.appendingPathComponent("expect").path
+        try """
+        #!/bin/sh
+        [ "$#" -ge 2 ] && [ "$2" = /usr/bin/ssh ] || exit 64
+        cmux_fixture_script="$1"
+        shift 2
+        cmux_fixture_ssh="$(dirname "$0")/ssh"
+        exec /usr/bin/expect "$cmux_fixture_script" "$cmux_fixture_ssh" "$@"
+        """.write(toFile: expectPath, atomically: true, encoding: .utf8)
+        chmod(expectPath, 0o755)
     }
 
     private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
