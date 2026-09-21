@@ -11,11 +11,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
+sys.path.insert(0, str(HELPER.parent))
 LOADER = importlib.machinery.SourceFileLoader("cmux_settings_helper", str(HELPER))
 SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
 assert SPEC is not None
@@ -311,11 +313,12 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
                 for _ in range(200):
                     if ready.exists():
                         break
-                    __import__("time").sleep(0.01)
+                    time.sleep(0.01)
                 self.assertTrue(ready.exists())
                 self.run_helper(config, "set", "app.appearance", "light")
             finally:
-                holder.terminate()
+                if holder.poll() is None:
+                    holder.terminate()
                 holder.wait(timeout=5)
 
             self.assertIn('"light"', config.read_text(encoding="utf-8"))
