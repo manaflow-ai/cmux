@@ -28,7 +28,7 @@ test("persists, reloads, bounds, and removes task state", async () => {
   parentConversationId: "parent-conversation-1",
   startRequestId: "request-1",
   events: [
-    { kind: "routing", phase: "started", conversationId: "conversation-1", requestId: "request-1", attempt: 1, provider: "codex" },
+    { kind: "meta", providerSessionId: "provider-session-1" },
     { kind: "user", text: "hello" },
     { kind: "delta", text: "hi" },
   ],
