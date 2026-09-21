@@ -2802,6 +2802,13 @@ struct ContentView: View {
             syncFileExplorerDirectory()
         })
 
+        // Cloud provider refreshes publish the authoritative machine link state
+        // through the surface catalog. Re-resolve Files/Find without requiring
+        // a sidebar toggle or a cwd change after reconnects.
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)) { _ in
+            syncFileExplorerDirectory()
+        })
+
         // Prime background workspaces off-screen. Rendering them just to run a task
         // mounts every keepAllAlive tab view and can materialize hidden terminals.
         view = AnyView(view.task(id: backgroundWorkspacePrimeCoordinator.taskKey(for: tabManager)) {

@@ -21,7 +21,7 @@ extension FileSearchController {
         self.process = nil
         searchTask?.cancel()
         searchTask = nil
-        pipeline = nil
+        clearPipelineForLifecycle()
         guard let process else { return }
         if process.isRunning {
             _ = Darwin.kill(process.processIdentifier, SIGTERM)

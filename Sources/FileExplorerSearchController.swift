@@ -627,6 +627,10 @@ final class FileSearchController: FileSearchControlling {
         ))
     }
 
+    func clearPipelineForLifecycle() {
+        pipeline = nil
+    }
+
     private nonisolated static func streamStdout(
         from readHandle: FileSearchReadHandle,
         pipeline: FileSearchOutputPipeline,
