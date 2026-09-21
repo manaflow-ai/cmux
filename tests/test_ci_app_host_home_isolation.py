@@ -12,7 +12,11 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/ci.yml"
-WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+GUARD_WORKFLOW_PATH = ROOT / ".github/workflows/ci-guards.yml"
+WORKFLOWS = [
+    yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")),
+    yaml.safe_load(GUARD_WORKFLOW_PATH.read_text(encoding="utf-8")),
+]
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
 )
@@ -111,17 +115,21 @@ def require_no_test_runner_scheme_overrides(scheme: str) -> None:
 
 
 def require_job(job_name: str) -> dict:
-    if not isinstance(WORKFLOW, dict):
-        raise SystemExit("FAIL: workflow must be a mapping")
-
-    jobs = WORKFLOW.get("jobs")
-    if not isinstance(jobs, dict):
-        raise SystemExit("FAIL: workflow jobs must be a mapping")
-
-    job = jobs.get(job_name)
-    if not isinstance(job, dict):
-        raise SystemExit(f"FAIL: workflow job {job_name!r} is missing")
-    return job
+    matches = []
+    for workflow in WORKFLOWS:
+        if not isinstance(workflow, dict):
+            raise SystemExit("FAIL: workflow must be a mapping")
+        jobs = workflow.get("jobs")
+        if not isinstance(jobs, dict):
+            raise SystemExit("FAIL: workflow jobs must be a mapping")
+        job = jobs.get(job_name)
+        if isinstance(job, dict):
+            matches.append(job)
+    if len(matches) != 1:
+        raise SystemExit(
+            f"FAIL: workflow job {job_name!r} must exist in exactly one CI workflow"
+        )
+    return matches[0]
 
 
 def require_step(job_name: str, step_name: str) -> dict:
