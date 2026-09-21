@@ -162,6 +162,7 @@ export class ArtifactImport extends DurableObject<Env> {
     id: number, digest: string, timeout: number,
     expectedRunId?: number, expectedRunAttempt?: number,
   ): Promise<Cached> {
+    const startedAt = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     const signal = controller.signal;
@@ -193,6 +194,10 @@ export class ArtifactImport extends DurableObject<Env> {
         await Promise.allSettled([copying, storing]);
         throw error;
       }
+      console.log(JSON.stringify({
+        event: "artifact-import", id: artifact.id, run: artifact.run, bytes: artifact.size,
+        duration_ms: Math.max(0, Date.now() - startedAt),
+      }));
       return { ...artifact, key, cache: "fill" };
     } finally {
       controller.abort();
