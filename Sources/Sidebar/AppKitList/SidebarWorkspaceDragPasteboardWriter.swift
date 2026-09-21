@@ -88,19 +88,28 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     /// token-scoped terminal transition.
     func installProvisionalDelegate() {
         guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
-        if tableView.delegate !== self {
-            // Reconstruction can select another pending writer for this table.
-            // Forward directly to the original delegate: another writer may
-            // retire first, or be selected again, so chaining them loses the
-            // callback target or creates a forwarding cycle.
-            if let previousWriter = tableView.delegate as? SidebarWorkspaceDragPasteboardWriter {
-                previousTableDelegate = previousWriter.previousTableDelegate
-            } else {
-                previousTableDelegate = tableView.delegate
-            }
-            tableView.delegate = self
+        // Installing twice, or over another writer that already forwards to
+        // this one, must not make `responds(to:)` forward back here forever.
+        if tableView.delegate !== self,
+           !Self.forwardingChain(from: tableView.delegate, reaches: self) {
+            previousTableDelegate = tableView.delegate
         }
+        tableView.delegate = self
         controller = nil
+    }
+
+    private static func forwardingChain(
+        from delegate: NSTableViewDelegate?,
+        reaches target: SidebarWorkspaceDragPasteboardWriter
+    ) -> Bool {
+        var current = delegate
+        var hops = 0
+        while let writer = current as? SidebarWorkspaceDragPasteboardWriter, hops < 32 {
+            if writer === target { return true }
+            current = writer.previousTableDelegate
+            hops += 1
+        }
+        return false
     }
 
     /// Releases the old controller while leaving this writer's source table
