@@ -14,7 +14,7 @@ import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
-import type { CreateOptions } from "./drivers/types";
+import type { CmuxRemoteEndpoint, CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
   AttachEndpoint,
@@ -102,6 +102,7 @@ import {
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
+  type CloudVmNetworkRow,
   type BeginBaseCreateResult,
   type CloudVmBaseGenerationRow,
   type CloudVmBaseRow,
@@ -115,7 +116,15 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import type { VmDeferSink } from "./defer";
-import { findVmImageManifestEntry, vmImageEntryEpoch } from "./images/resolver";
+import {
+  GUEST_TOOLS_BAKED_EPOCH,
+  TRUSTED_CARRIER_EPOCH,
+  findVmImageManifestEntry,
+  imageEpochAtLeast,
+  vmImageEntryEpoch,
+} from "./images/resolver";
+import { clientProvenCmuxRemoteEndpoint, mintCmuxRemoteRouteToken } from "./attachContract";
+import { CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS, CMUX_TUI_SESSION } from "./drivers/cmuxTuiDaemon";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 
 export {
@@ -616,88 +625,12 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     // Record paid machine shapes for snapshot, fork, and resize recovery.
     const beginInput = createVmBeginInput(input);
 
-    // The owner's network row and the create row do not depend on each other,
-    // so the request pays the slower of the two reads, not their sum. A network
-    // failure after the row was inserted marks that row failed instead of
-    // leaving it "creating" forever; the network itself is an account-level
-    // resource, so nothing there needs unwinding.
-    const [networkResult, create] = yield* Effect.all(
-      [
-        Effect.either(
-          measureVmEffect(
-            input.timing,
-            "resolve_network",
-            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
-          ),
-        ),
-        beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
-      ],
-      { concurrency: 2 },
-    );
-    if (Either.isLeft(networkResult)) {
-      if (create.inserted) {
-        yield* repo.markCreateFailed({
-          id: create.vm.id,
-          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
-          message: errorMessage(networkResult.left),
-        }).pipe(Effect.catchAll(() => Effect.void));
-      }
-      return yield* Effect.fail(networkResult.left);
-    }
-    const network = networkResult.right;
-
-    if (!create.inserted) {
-      const existing = create.vm;
-      if (existing.status === "failed") {
-        return yield* Effect.fail(
-          new VmCreateFailedError({
-            idempotencyKey: input.idempotencyKey ?? "",
-            code: existing.failureCode,
-            message: existing.failureMessage ?? "previous VM create failed",
-          }),
-        );
-      }
-      if (!existing.providerVmId) {
-        return yield* Effect.fail(
-          new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
-        );
-      }
-      return vmEntryFromRow(existing);
-    }
+    const started = yield* beginCreateConcurrently(repo, providers, input, beginInput);
+    if ("replayed" in started) return started.replayed;
+    const { create, network, materials } = started.begun;
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
     yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
-
-    const materials = yield* measureVmEffect(
-      input.timing,
-      "model_plane_provision",
-      provisionModelPlane(input.modelPlane, create.vm.id),
-    ).pipe(
-      Effect.tapError((err) =>
-        Effect.all([
-          refundCredit(billing, repo, create.vm, creditReservation),
-          repo.markCreateFailed({
-            id: create.vm.id,
-            code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
-            message: errorMessage(err.cause),
-          }),
-          repo.recordUsageEvent({
-            userId: input.userId,
-            billingTeamId: input.billingTeamId,
-            billingPlanId: input.billingPlanId,
-            vmId: create.vm.id,
-            eventType: "vm.create.failed",
-            provider: input.provider,
-            imageId: input.image,
-            metadata: {
-              operation: "model_plane_provision",
-              kind: err.kind,
-              message: errorMessage(err.cause),
-            },
-          }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
-      ),
-    );
 
     const handle = yield* measureVmEffect(
       input.timing,
@@ -720,6 +653,9 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId },
+        // Past the baked epoch the image carries the guest tools, so the
+        // driver installs nothing on create (drivers/types.ts CreateOptions).
+        guestToolsBaked: imageEpochAtLeast(input.imageEpoch, GUEST_TOOLS_BAKED_EPOCH),
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -786,9 +722,165 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     );
 
     yield* recordCreateSuccessEvents(repo, input, running);
+    yield* recordCreateDialLease(repo, input, running);
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * A client that dials the daemon straight from the create response never
+ * calls attach-endpoint, so the lease sign-out revocation looks for is
+ * written here, after the response: one per machine and creator. The token
+ * is ledger-only (on a private machine the daemon's Noise session is the
+ * gate), and a row without a private address has nothing to dial, so it gets
+ * no lease.
+ */
+function recordCreateDialLease(
+  repo: VmRepositoryShape,
+  input: Pick<CreateVmInput, "userId" | "imageEpoch" | "defer">,
+  running: CloudVmRow,
+): Effect.Effect<void> {
+  const entry = vmEntryFromRow(running);
+  if (!entry.addressIpv4 && !entry.addressIpv6) return Effect.void;
+  return deferOrRun(input.defer, Effect.asVoid(repo.recordLease({
+    vmId: running.id,
+    userId: input.userId,
+    kind: "preview",
+    tokenHash: hashToken(mintCmuxRemoteRouteToken()),
+    expiresAt: new Date(Date.now() + CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS * 1000),
+    transport: "cmux-remote",
+    metadata: {
+      session: CMUX_TUI_SESSION,
+      invited: false,
+      trustedCarrier: imageEpochAtLeast(input.imageEpoch ?? entry.imageEpoch, TRUSTED_CARRIER_EPOCH),
+      source: "create",
+    },
+  })));
+}
+
+/** What a create holds once its row exists: the inserted row, the owner's network, and the model-plane materials (null when unwired). */
+type CreateVmBegun = {
+  readonly create: BeginCreateResult;
+  readonly network: CloudVmNetworkRow;
+  readonly materials: VmModelPlaneMaterials | null;
+};
+
+/**
+ * The three reads a create opens with, at once: the owner's network row, the
+ * create row (inserted under an id minted here) and the model-plane token
+ * bound to that id. The request pays the slowest of the three, not their
+ * sum. Each result is held as an Either so a failure in one never interrupts
+ * the others mid-flight; a token minted for a row that turns out not to be
+ * this create's (a failed insert, an idempotent replay) is revoked here, not
+ * leaked. A network failure after the row was inserted marks that row failed
+ * instead of leaving it "creating" forever; the network itself is an
+ * account-level resource, so nothing there needs unwinding. A mint failure
+ * fails the create with the row marked; no credit has been held yet, so
+ * there is nothing to refund. An idempotent replay answers with the existing
+ * machine instead.
+ */
+function beginCreateConcurrently(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: CreateVmInput,
+  beginInput: CreateVmInput,
+): Effect.Effect<{ readonly begun: CreateVmBegun } | { readonly replayed: VmEntry }, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const rowId = randomUUID();
+    const [networkResult, createResult, materialsResult] = yield* Effect.all(
+      [
+        Effect.either(
+          measureVmEffect(
+            input.timing,
+            "resolve_network",
+            resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
+          ),
+        ),
+        Effect.either(beginCreateWithLazyProviderRefresh(repo, providers, { ...beginInput, id: rowId })),
+        Effect.either(
+          measureVmEffect(
+            input.timing,
+            "model_plane_provision",
+            provisionModelPlane(input.modelPlane, rowId),
+          ),
+        ),
+      ],
+      { concurrency: 3 },
+    );
+    const revokeMinted = Either.isRight(materialsResult)
+      ? revokeModelPlane(input.modelPlane, rowId)
+      : Effect.void;
+    if (Either.isLeft(createResult)) {
+      yield* revokeMinted;
+      return yield* Effect.fail(createResult.left);
+    }
+    const create = createResult.right;
+    if (Either.isLeft(networkResult)) {
+      if (create.inserted) {
+        yield* repo.markCreateFailed({
+          id: create.vm.id,
+          code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+          message: errorMessage(networkResult.left),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+      yield* revokeMinted;
+      return yield* Effect.fail(networkResult.left);
+    }
+    if (!create.inserted) {
+      yield* revokeMinted;
+      return { replayed: yield* replayedCreateEntry(input, create.vm) };
+    }
+
+    // The row is this create's. A mint failure fails the create with the row
+    // marked; no credit has been held yet, so there is nothing to refund.
+    if (Either.isLeft(materialsResult)) {
+      const err = materialsResult.left;
+      yield* Effect.all([
+        repo.markCreateFailed({
+          id: create.vm.id,
+          code: VM_MODEL_PLANE_FAILURE_CODES[err.kind],
+          message: errorMessage(err.cause),
+        }),
+        repo.recordUsageEvent({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          billingPlanId: input.billingPlanId,
+          vmId: create.vm.id,
+          eventType: "vm.create.failed",
+          provider: input.provider,
+          imageId: input.image,
+          metadata: {
+            operation: "model_plane_provision",
+            kind: err.kind,
+            message: errorMessage(err.cause),
+          },
+        }),
+      ], { discard: true }).pipe(Effect.catchAll(() => Effect.void));
+      return yield* Effect.fail(err);
+    }
+    return { begun: { create, network: networkResult.right, materials: materialsResult.right } };
+  });
+}
+
+/** An idempotent replay: the existing machine, or the failed or still-provisioning state the earlier create left behind. */
+function replayedCreateEntry(
+  input: Pick<CreateVmInput, "idempotencyKey">,
+  existing: CloudVmRow,
+): Effect.Effect<VmEntry, VmCreateFailedError | VmCreateInProgressError> {
+  if (existing.status === "failed") {
+    return Effect.fail(
+      new VmCreateFailedError({
+        idempotencyKey: input.idempotencyKey ?? "",
+        code: existing.failureCode,
+        message: existing.failureMessage ?? "previous VM create failed",
+      }),
+    );
+  }
+  if (!existing.providerVmId) {
+    return Effect.fail(new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }));
+  }
+  return Effect.succeed(vmEntryFromRow(existing));
 }
 
 /**
@@ -3398,6 +3490,13 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  /**
+   * The caller already completed the Noise handshake with the daemon it
+   * dialed from the create response (attach body `readiness:
+   * "client-proven"`). On an image that bakes the guest tools the endpoint
+   * is then minted from the row and the manifest, without a provider call.
+   */
+  readonly clientProven?: boolean;
   readonly timing?: VmTimingSink;
   readonly defer?: VmDeferSink;
 }) {
@@ -3422,6 +3521,19 @@ export function openVmCmuxRemote(input: {
           cause: new VmOperationUnsupportedError({ provider: vm.provider, operation: "openCmuxRemote" }),
         }),
       );
+    }
+    // Past the baked epoch a healthy attach checks nothing in the guest, and
+    // a client that proved the dial itself (the Noise handshake succeeded)
+    // needs no probe or heal exec at all: answer from the row and the
+    // manifest. Below that epoch the provider path still runs, since only
+    // it heals the guest tools an older image lacks.
+    const guestToolsBaked = imageEpochAtLeast(rowImageEpoch(vm), GUEST_TOOLS_BAKED_EPOCH);
+    if (input.clientProven && guestToolsBaked && vm.status === "running" && vm.providerVmId) {
+      const proven = clientProvenCmuxRemoteEndpoint({
+        entry: vmEntryFromRow(vm),
+        manifestEntry: findVmImageManifestEntry(vm.provider, vm.imageId),
+      });
+      if (proven) return yield* recordClientProvenAttach(repo, input, vm, proven);
     }
     // A row the control plane wrote seconds ago (a create, a resume, a
     // rename) describes a machine that cannot have been idle-paused since:
@@ -3449,6 +3561,7 @@ export function openVmCmuxRemote(input: {
         deviceFingerprint: input.deviceFingerprint,
         clientCapabilities: input.clientCapabilities,
         providerMetadata: vm.providerMetadata,
+        guestToolsBaked,
       }),
       input.maxActiveVms,
     ));
@@ -3485,6 +3598,43 @@ export function openVmCmuxRemote(input: {
       }).pipe(Effect.catchAll(() => Effect.void)),
       backfillLearnedAddresses(repo, vm, endpoint.networkAddresses),
     ], { discard: true }));
+    return endpoint;
+  });
+}
+
+/**
+ * The ledger side of a client-proven attach (openVmCmuxRemote): the lease is
+ * what sign-out revocation finds, so it is written before the endpoint is
+ * handed out; the attach usage event is bookkeeping the response does not
+ * wait for. No provider endpoint was minted, so a lease failure has nothing
+ * to revoke upstream.
+ */
+function recordClientProvenAttach(
+  repo: VmRepositoryShape,
+  input: { readonly userId: string; readonly timing?: VmTimingSink; readonly defer?: VmDeferSink },
+  vm: CloudVmRow,
+  endpoint: CmuxRemoteEndpoint,
+): Effect.Effect<CmuxRemoteEndpoint, VmDatabaseError> {
+  return Effect.gen(function* () {
+    yield* measureVmEffect(input.timing, "lease", repo.recordLease({
+      vmId: vm.id,
+      userId: input.userId,
+      kind: "preview",
+      tokenHash: hashToken(endpoint.token),
+      expiresAt: new Date(endpoint.expiresAtUnix * 1000),
+      transport: "cmux-remote",
+      metadata: { session: endpoint.session, invited: false, trustedCarrier: endpoint.trustedCarrier, readiness: "client-proven" },
+    }));
+    yield* deferOrRun(input.defer, Effect.asVoid(repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.attach",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier, readiness: "client-proven" },
+    })));
     return endpoint;
   });
 }
@@ -4326,7 +4476,6 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   const metadata = row.providerMetadata ?? {};
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
-  const stampedEpoch = metadata["imageEpoch"];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -4338,10 +4487,16 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
-    imageEpoch: typeof stampedEpoch === "string" && stampedEpoch
-      ? stampedEpoch
-      : vmImageEntryEpoch(findVmImageManifestEntry(row.provider, row.imageId)) ?? null,
+    imageEpoch: rowImageEpoch(row),
   };
+}
+
+/** The epoch stamped on the row at create, else the manifest's for its image; null when neither knows. */
+function rowImageEpoch(row: Pick<CloudVmRow, "provider" | "imageId" | "providerMetadata">): string | null {
+  const stamped = (row.providerMetadata ?? {})["imageEpoch"];
+  return typeof stamped === "string" && stamped
+    ? stamped
+    : vmImageEntryEpoch(findVmImageManifestEntry(row.provider, row.imageId)) ?? null;
 }
 
 function baseVmEntryFromRows(

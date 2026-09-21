@@ -76,7 +76,12 @@ export async function POST(
           }, 400);
         }
         const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
-        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
+        // `readiness: "client-proven"`: the caller already dialed the daemon
+        // it was handed at create (the Noise handshake succeeded), so the
+        // workflow may answer from the row without a provider call when the
+        // image bakes the guest tools. Any other value means unproven.
+        const clientProven = optionalString(body.readiness) === "client-proven";
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote", "cmux.vm.attach.client_proven": clientProven });
         const run = await runVmRoute(openVmCmuxRemote({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
@@ -86,6 +91,7 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
+          clientProven,
           timing,
           // The attach usage event and the address backfill are written
           // after the response has left.

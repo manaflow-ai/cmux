@@ -1,5 +1,7 @@
-import { CMUX_TUI_SESSION } from "./drivers/cmuxTuiDaemon";
+import { randomBytes } from "node:crypto";
+import { CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS, CMUX_TUI_SESSION } from "./drivers/cmuxTuiDaemon";
 import { freestyleCmuxRemoteRoute } from "./drivers/freestyle";
+import type { CmuxRemoteEndpoint } from "./drivers/types";
 import {
   GUEST_TOOLS_BAKED_EPOCH,
   TRUSTED_CARRIER_EPOCH,
@@ -66,5 +68,40 @@ export function createAttachBlock(input: {
     daemonBuild: { commit: manifestEntry.cmuxTuiCommit ?? null, remoteProtocol: null, version: null },
     guestToolsBaked: imageEpochAtLeast(epoch, GUEST_TOOLS_BAKED_EPOCH),
     readiness: "dial",
+  };
+}
+
+/**
+ * A route token for the lease ledger. On a private machine it is never
+ * dialed with (the daemon's Noise session is the gate); the lease it is
+ * hashed into is what sign-out revocation finds.
+ */
+export function mintCmuxRemoteRouteToken(): string {
+  return `cmux-route-${randomBytes(32).toString("hex")}`;
+}
+
+/**
+ * The endpoint for a client that proved it can dial the daemon (the attach
+ * route's `readiness: "client-proven"`): the shape the driver returns,
+ * minted from the row and the manifest alone. Null when the attach block is
+ * (no private address, or an image outside the manifest).
+ */
+export function clientProvenCmuxRemoteEndpoint(input: {
+  readonly entry: VmAttachEntry;
+  readonly manifestEntry: VmImageManifestEntry | null;
+}): CmuxRemoteEndpoint | null {
+  const attach = createAttachBlock(input);
+  if (!attach) return null;
+  const ipv4 = input.entry.addressIpv4?.trim() || undefined;
+  const ipv6 = input.entry.addressIpv6?.trim() || undefined;
+  return {
+    transport: "cmux-remote",
+    route: attach.route,
+    token: mintCmuxRemoteRouteToken(),
+    expiresAtUnix: Math.floor(Date.now() / 1000) + CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS,
+    session: attach.session,
+    trustedCarrier: attach.trustedCarrier,
+    daemonBuild: attach.daemonBuild,
+    networkAddresses: { ...(ipv4 ? { ipv4 } : {}), ...(ipv6 ? { ipv6 } : {}) },
   };
 }
