@@ -21,7 +21,9 @@ import tempfile
 import time
 import zipfile
 
-from app_host_layered_products import LAYERS as NAMES, MANIFEST, SCHEMA as LAYER_SCHEMA
+from app_host_layered_products import LAYERS as NAMES, MANIFEST, SCHEMA as LAYER_SCHEMA, normalize_layers
+from app_host_layer_consumers import required_layers
+import app_host_consumer_receipt as consumer_receipt
 
 INDEX = "app-host-layer-index.json"
 MAX_INDEX = 8 * 1024 * 1024
@@ -177,6 +179,9 @@ def fetch_zip(api, reference, expected, target, limit, since, layer):
         record["elapsed_seconds"] = round(time.monotonic() - started, 3)
         record["downloaded_bytes"] = target.stat().st_size if target.exists() else 0
         print("CMUX_APP_HOST_LAYER_TRANSFER " + json.dumps(record, sort_keys=True))
+        consumer_receipt.add_transfer(
+            "github-layers", record["expected_zip_bytes"] or 0,
+            record["downloaded_bytes"], record["elapsed_seconds"])
 
 
 def extract_files(archive, expectations, output):
@@ -252,7 +257,8 @@ def publish_index(api, directory, receipts, identity, expected):
     (directory / INDEX).write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
 
 
-def restore_remote(api, reference, identity, expected, destination, restore):
+def restore_remote(api, reference, identity, expected, destination, restore, selected=None):
+    selection = normalize_layers(selected)
     since = verify_run(api, expected)
     if destination.is_symlink() or destination.exists():
         raise ValueError("layered consumer DerivedData must be absent")
@@ -288,28 +294,35 @@ def restore_remote(api, reference, identity, expected, destination, restore):
             raise ValueError("canonical identity mismatch")
         rows = records(index.get("layers", []))
         if len(rows) != len(NAMES) or {r.get("name") for r in rows} != set(NAMES):
-            raise ValueError("transport requires all four layers")
+            raise ValueError("transport index must describe all four canonical layers")
         if len({r.get("artifact_id") for r in rows}) != len(NAMES):
             raise ValueError("duplicate layer artifact IDs")
-        for row in rows:
-            canonical = layers[row["name"]]
+        row_map = {row["name"]: row for row in rows}
+        for name in NAMES:
+            row = row_map[name]
+            canonical = layers[name]
             if any(row.get(k) != canonical[k] for k in ("archive", "size", "sha256")):
                 raise ValueError("transport and canonical manifest disagree")
-            archive = root / (row["name"] + ".zip")
-            fetch_zip(api, row, expected, archive, MAX_ARCHIVE, since, row["name"])
+        for name in selection:
+            row = row_map[name]
+            archive = root / (name + ".zip")
+            fetch_zip(api, row, expected, archive, MAX_ARCHIVE, since, name)
             extract_files(archive, {row["archive"]: row}, root)
         # The local assembler owns pre-extraction archive checks, exact inventory,
         # signatures-preserving paths, and transactional publication of Products.
         started = time.monotonic()
         result = "failure"
         try:
-            restore(root / MANIFEST, destination, identity)
+            restore(root / MANIFEST, destination, identity, selection)
             result = "success"
         finally:
+            elapsed = round(time.monotonic() - started, 3)
             print("CMUX_APP_HOST_LAYER_ASSEMBLY " + json.dumps({
                 "producer_run_id": expected["run_id"], "producer_run_attempt": expected["run_attempt"],
-                "profile": "app-host-full", "layers": list(NAMES), "result": result,
-                "elapsed_seconds": round(time.monotonic() - started, 3)}, sort_keys=True))
+                "profile": "app-host-full", "layers": list(selection), "result": result,
+                "elapsed_seconds": elapsed}, sort_keys=True))
+            if result == "success":
+                consumer_receipt.layer_hit(selection, elapsed)
 
 
 def restore_warning_log(derived):
@@ -343,6 +356,7 @@ def main():
     parser.add_argument("--receipts", type=Path)
     parser.add_argument("--index-id")
     parser.add_argument("--index-digest")
+    parser.add_argument("--consumer")
     args = parser.parse_args()
     if args.mode == "restore-warning-log":
         restore_warning_log(args.path)
@@ -358,17 +372,23 @@ def main():
         return
     hit = False
     try:
-        def assemble(manifest, destination, expected_identity):
+        if not args.consumer:
+            raise ValueError("layer restore requires a declared consumer")
+        selected = required_layers(args.consumer)
+        def assemble(manifest, destination, expected_identity, selection):
             identity_path = manifest.parent / "expected-identity.json"
             identity_path.write_text(json.dumps(expected_identity))
             subprocess.run([os.sys.executable, str(Path(__file__).with_name("app_host_layered_products.py")),
-                            "restore", str(manifest), str(destination), "--identity", str(identity_path)], check=True)
+                            "restore", str(manifest), str(destination), "--identity", str(identity_path),
+                            "--layers", ",".join(selection)], check=True)
         restore_remote(api, {"artifact_id": args.index_id, "artifact_digest": args.index_digest},
-                       identity, expected, args.path, assemble)
+                       identity, expected, args.path, assemble, selected)
         hit = True
     except (KeyError, ValueError, TypeError, OSError, TimeoutError, subprocess.SubprocessError,
             zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:
-        print(f"Layered product unavailable ({type(error).__name__}); using legacy aggregate.")
+        reason = f"layers:{type(error).__name__}:{error}"
+        consumer_receipt.append_fallback(reason)
+        print(f"Layered product unavailable ({type(error).__name__}: {error}); using legacy aggregate.")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"hit={str(hit).lower()}\n")
     if hit:
