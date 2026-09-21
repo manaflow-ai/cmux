@@ -41,7 +41,7 @@ extension TerminalController {
 
         let defaultDestinationProfileID: UUID?
         do {
-            defaultDestinationProfileID = try BrowserImportDestinationResolver.resolve(
+            defaultDestinationProfileID = try BrowserImportDestinationResolver().resolve(
                 params: params,
                 destinationProfiles: BrowserProfileStore.shared.profiles
             )

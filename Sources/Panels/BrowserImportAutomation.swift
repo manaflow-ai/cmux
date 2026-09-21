@@ -17,7 +17,7 @@ enum BrowserImportAutomation {
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
-            let preferredDestinationProfileID = try BrowserImportDestinationResolver.resolve(
+            let preferredDestinationProfileID = try BrowserImportDestinationResolver().resolve(
                 params: params,
                 destinationProfiles: destinationProfiles
             )
