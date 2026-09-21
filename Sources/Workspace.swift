@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CMUXMobileCore
 import CmuxFoundation
 import Foundation
 import CmuxCore
@@ -217,8 +218,8 @@ extension Workspace {
         startupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
         deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
-        let work = TerminalGeometryDiagnostics().begin(.geometryPublication, workspaceID: id, transition: .restore)
-        defer { work.end() }
+        let finishWork = beginTerminalGeometryTransition(.restore)
+        defer { finishWork() }
         sessionRestoreLayoutSuppressionDepth += 1
         defer {
             sessionRestoreLayoutSuppressionDepth = max(sessionRestoreLayoutSuppressionDepth - 1, 0)
@@ -2618,6 +2619,7 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
+    @MainActor var terminalGeometryTransition: TerminalWorkContext.Transition = .unknown
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -14273,8 +14275,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         guard !isRetiredFromOwningTabManager else { return }
-        let work = TerminalGeometryDiagnostics().begin(.geometryPublication, workspaceID: id, transition: .split)
-        defer { work.end() }
+        let finishWork = beginTerminalGeometryTransition(.split)
+        defer { finishWork() }
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

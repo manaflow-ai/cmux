@@ -17,7 +17,7 @@ struct TerminalGeometryDiagnostics {
         // The existing ownership index and Dictionary.count keep this snapshot
         // independent of the number of other workspaces and panels.
         return .init(
-            transition: transition,
+            transition: workspace.terminalGeometryTransition == .unknown ? transition : workspace.terminalGeometryTransition,
             population: .workspace,
             workspaceCount: 1,
             surfaceCount: workspace.panels.count

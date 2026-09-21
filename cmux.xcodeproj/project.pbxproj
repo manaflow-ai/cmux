@@ -3544,6 +3544,7 @@
 		09C5101B19914926AD849851 /* TerminalPortalReconciliationRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B72F0DA688C0482DB7DF5483 /* TerminalPortalReconciliationRequest.swift */; };
 		1CDBA136884C4B8E9E03930D /* TerminalPortalReconciliationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43ABCA055AE54A31A46503DC /* TerminalPortalReconciliationScheduler.swift */; };
 		126570000000000000000004 /* TerminalPortalTestWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126570000000000000000003 /* TerminalPortalTestWorkspace.swift */; };
+		C168124D00114F78AC201CCA /* TerminalPortalTransitionAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6E489A561B4E319CE3331B /* TerminalPortalTransitionAttributionTests.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
 		C11322A10000000000012885 /* TerminalScrollBarGutterStabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11322A20000000000012885 /* TerminalScrollBarGutterStabilityTests.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
@@ -7504,6 +7505,7 @@
 		B72F0DA688C0482DB7DF5483 /* TerminalPortalReconciliationRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliationRequest.swift; sourceTree = "<group>"; };
 		43ABCA055AE54A31A46503DC /* TerminalPortalReconciliationScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliationScheduler.swift; sourceTree = "<group>"; };
 		126570000000000000000003 /* TerminalPortalTestWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalPortalTestWorkspace.swift"; sourceTree = "<group>"; };
+		5B6E489A561B4E319CE3331B /* TerminalPortalTransitionAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalTransitionAttributionTests.swift; sourceTree = "<group>"; };
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
 		C11322A20000000000012885 /* TerminalScrollBarGutterStabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollBarGutterStabilityTests.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
@@ -11378,6 +11380,7 @@
 				C12758000000000000000009 /* PlainPastePTYFixture.swift */,
 				C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */,
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
+				5B6E489A561B4E319CE3331B /* TerminalPortalTransitionAttributionTests.swift */,
 				60D3266B6D154D5C9F14286E /* TerminalPortalReconciliationReentrancyTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				804100000000000000000004 /* ReorderShortcutActionTests.swift */,
@@ -16508,6 +16511,7 @@
 				C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */,
 				2D928B1939594D7AA81AED6A /* TerminalPortalReconciliationReentrancyTests.swift in Sources */,
 				126570000000000000000004 /* TerminalPortalTestWorkspace.swift in Sources */,
+				C168124D00114F78AC201CCA /* TerminalPortalTransitionAttributionTests.swift in Sources */,
 				C11322A10000000000012885 /* TerminalScrollBarGutterStabilityTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				222425EC9FE2E318D8F6F46A /* TerminalSearchNavigationTests.swift in Sources */,

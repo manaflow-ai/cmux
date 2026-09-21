@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 
 /// Owns the boundary between SwiftUI/AppKit callbacks and terminal portal mutations.
 ///
@@ -19,9 +20,10 @@ final class TerminalPortalReconciliationScheduler {
 
     func stage(
         reasons: TerminalPortalReconciliationReasons = [],
+        transition: TerminalWorkContext.Transition = .unknown,
         reconciliation: @escaping @MainActor (TerminalPortalReconciliationRequest) -> Void
     ) {
-        pendingRequest.reasons.formUnion(reasons)
+        pendingRequest.merge(reasons: reasons, transition: transition)
         pendingReconciliation = reconciliation
         scheduleFlushIfNeeded()
     }
@@ -61,4 +63,3 @@ final class TerminalPortalReconciliationScheduler {
         reconciliation?(request)
     }
 }
-

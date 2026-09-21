@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import Bonsplit
 import CmuxTerminal
 import Foundation
@@ -33,9 +34,17 @@ extension GhosttyTerminalView {
         terminalSurface: TerminalSurface,
         snapshot: TerminalPortalReconciliationSnapshot,
         reasons: TerminalPortalReconciliationReasons,
+        transition: TerminalWorkContext.Transition = .unknown,
         reason: String
     ) {
-        coordinator.portalReconciliationScheduler.stage(reasons: reasons) {
+        // Capture the source before the run-loop hop. Binding is required for
+        // moves and ordinary updates too, so it does not establish a reveal.
+        let diagnostics = TerminalGeometryDiagnostics()
+        let capturedTransition = diagnostics.context(
+            workspaceID: terminalSurface.tabId,
+            transition: transition == .unknown ? diagnostics.resizeTransition(in: host.window) : transition
+        ).transition
+        coordinator.portalReconciliationScheduler.stage(reasons: reasons, transition: capturedTransition) {
             [weak host, weak hostedView, weak coordinator, weak terminalSurface] request in
             let reasons = request.reasons
             guard let host, let hostedView, let coordinator, let terminalSurface else { return }
