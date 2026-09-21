@@ -398,8 +398,9 @@ extension AppDelegate {
     ) {
         let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
         let windowId = route.windowId
+        let routeIdentity = ObjectIdentifier(route)
         let taskToken = UUID()
-        let task = Task { @MainActor [weak self, weak route] in
+        let task = Task { @MainActor [weak self] in
             defer {
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
@@ -407,11 +408,11 @@ extension AppDelegate {
                 )
             }
             guard !Task.isCancelled else { return }
-            guard let route,
-                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
-                      windowId: windowId
-                  ) === route,
-                  route.window == nil,
+            guard self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ).map({
+                ObjectIdentifier($0) == routeIdentity && $0.window == nil
+            }) == true,
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
@@ -420,7 +421,11 @@ extension AppDelegate {
                 windowId: windowId,
                 availablePersistenceSlots: self?.availableWindowlessPersistenceSlots() ?? 0
             ) == true else {
-                self?.retireWindowlessRecoverableMainWindowRoute(route)
+                if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                    windowId: windowId
+                ), ObjectIdentifier(currentRoute) == routeIdentity {
+                    self?.retireWindowlessRecoverableMainWindowRoute(currentRoute)
+                }
                 return
             }
             defer {
@@ -452,8 +457,9 @@ extension AppDelegate {
             guard !Task.isCancelled,
                   self?.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
-                  ) === route,
-                  route.window == nil,
+                  ).map({
+                      ObjectIdentifier($0) == routeIdentity && $0.window == nil
+                  }) == true,
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
@@ -482,13 +488,17 @@ extension AppDelegate {
             }
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
-            self?.freezeWindowlessRecoverableMainWindowRoute(
-                route,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
-                    ? detectedSurfaceResumeBindingIndex
-                    : nil
-            )
+            if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ), ObjectIdentifier(currentRoute) == routeIdentity {
+                self?.freezeWindowlessRecoverableMainWindowRoute(
+                    currentRoute,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
+                        ? detectedSurfaceResumeBindingIndex
+                        : nil
+                )
+            }
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
             task,

@@ -261,7 +261,7 @@ jobs:
       - name: Validate macOS localization parity
         run: python3 scripts/localization_catalog.py check
 
-      - name: Validate pbxproj objectVersion pin and normalization
+      - name: Validate pbxproj syntax, objectVersion pin and normalization
         run: |
           python3 tests/test_normalize_pbxproj.py
           ./scripts/check-pbxproj.sh
@@ -738,7 +738,25 @@ jobs:
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
-        run: bun run typecheck
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-typecheck.log"
+          set +e
+          bun run typecheck 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # The native TypeScript preview compiler can abort on a healthy
+          # runner. Retry that transient compiler crash once, while keeping
+          # real type errors as immediate failures.
+          if [ "$status" -ne 0 ] \
+            && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during web typecheck; retrying once"
+            bun run typecheck
+            exit $?
+          fi
+
+          exit "$status"
 
       - name: Web tests
         run: bun run test
@@ -747,26 +765,12 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/web-test-instant.log"
-          set +e
-          bun run test:instant 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          # The native TypeScript preview compiler can abort while Playwright
-          # starts its web server. Retry that transient compiler crash once,
-          # while preserving immediate failures for real type or test errors.
-          if [ "$status" -ne 0 ] \
-            && grep -Fq '[WebServer] $ tsgo --noEmit' "$log" \
-            && grep -Fq 'Aborted (core dumped)' "$log"; then
-            echo "::warning::native tsgo aborted during instant navigation tests; retrying once"
-            bun run test:instant
-            exit $?
-          fi
-
-          exit "$status"
+        env:
+          # The preceding Typecheck step owns the repository-wide tsgo gate;
+          # avoid launching a second tsgo process inside Playwright's server
+          # command on constrained Linux runners.
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
+        run: bun run test:instant
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
@@ -1085,12 +1089,18 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
+          resolve_log="$RUNNER_TEMP/cmux-swiftpm-resolve-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}.log"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
+              -resolvePackageDependencies 2>&1 | tee "$resolve_log"
+            resolve_status="${PIPESTATUS[0]}"
+            set -e
+
+            if [ "$resolve_status" -eq 0 ]; then
               # Guard against a stale/poisoned Swift-package cache: a restored
               # .ci-source-packages can make resolve report success without the
               # binary artifacts (Sparkle/Sentry) actually present, which then
@@ -1101,6 +1111,21 @@ jobs:
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
               rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
+
+            # SwiftPM stores binary download destinations under the runner's
+            # global cache even when clonedSourcePackagesDirPath is isolated.
+            # A reused runner can leave the Iroh archive destination behind;
+            # SwiftPM then reports "already exists in file system" on every
+            # retry. Clear both resolver layers only for that cache collision,
+            # while preserving other failures for diagnosis.
+            if [ "$resolve_status" -ne 0 ] && grep -Fq "already exists in file system" "$resolve_log"; then
+              echo "SwiftPM artifact cache collision detected; clearing resolver caches before retry" >&2
+              rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
+              mkdir -p "$HOME/Library/Caches/org.swift.swiftpm"
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
+            fi
+
             # Keep the existing three-attempt policy, but record resolver
             # state when a package attempt fails so provider incidents are
             # distinguishable from SwiftPM or cache defects.
@@ -1154,6 +1179,27 @@ jobs:
           else
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
+
+      - name: Run main window zoom placement regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The bulk app-host classifier tolerates ordinary assertion failures.
+          # Window placement regressions must fail the shard directly while
+          # reusing the compile-admission product.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/MainWindowZoomPlacementTests \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 60 \
+            test-without-building 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/MainWindowZoomPlacementTests
 
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1882,13 +1928,15 @@ jobs:
           }
 
           run_unit_tests() {
-            local logical_shard
+            local logical_shard combined_status=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
               run_unit_test_batch "$logical_shard" || {
-                local batch_status=$?
-                return "$batch_status"
+                # Keep the other batch visible after a failure, without allowing
+                # a later successful batch to turn this worker green.
+                combined_status=$?
               }
             done
+            return "$combined_status"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
@@ -2225,6 +2273,8 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
+    outputs:
+      release_archs: ${{ steps.release-archs.outputs.archs }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
@@ -2253,8 +2303,21 @@ jobs:
           # "Select package tests" diffs against.
           fetch-depth: 2
 
+      # Resolve once for the helper producer and Release consumer. Nightly
+      # still builds the shipped universal app independently of this policy.
+      - name: Resolve Release check architectures
+        id: release-archs
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
+        env:
+          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
+        run: |
+          set -euo pipefail
+          archs="$(./scripts/ci/release-build-archs.sh "$REQUESTED_ARCHS")"
+          echo "Release check architectures: $archs"
+          echo "archs=$archs" >> "$GITHUB_OUTPUT"
+
       # Only release-build consumes this artifact. Package/app-host tests use
-      # the prebuilt GhosttyKit framework and do not need the universal CLI.
+      # the prebuilt GhosttyKit framework and do not need the Release CLI.
       - name: Select helper Xcode
         if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: |
@@ -2275,22 +2338,36 @@ jobs:
           key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
           restore-keys: zig-packages-
 
-      - name: Build universal Ghostty CLI helper
+      - name: Build Release Ghostty CLI helper
         if: ${{ needs.changes.outputs.release_build == 'true' }}
+        env:
+          RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
         run: |
           set -euo pipefail
           mkdir -p ghostty-cli-helper
-          ./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty
-          lipo ghostty-cli-helper/ghostty -verify_arch arm64 x86_64
-          for arch in arm64 x86_64; do
-            thin="ghostty-cli-helper/ghostty-$arch"
-            lipo ghostty-cli-helper/ghostty -thin "$arch" -output "$thin"
+          # Keep this step parseable by the Ghostty submodule workflow guard.
+          if [[ "$RELEASE_ARCHS" == arm64 ]]; then
+            set -- --target aarch64-macos
+          elif [[ "$RELEASE_ARCHS" == "arm64 x86_64" ]]; then
+            set -- --universal
+          else
+            echo "unsupported Release helper architectures: $RELEASE_ARCHS" >&2
+            exit 1
+          fi
+          ./scripts/build-ghostty-cli-helper.sh "$@" --output ghostty-cli-helper/ghostty
+          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" ghostty-cli-helper/ghostty
+          for arch in $RELEASE_ARCHS; do
+            thin="ghostty-cli-helper/ghostty"
+            if [[ "$RELEASE_ARCHS" == "arm64 x86_64" ]]; then
+              thin="ghostty-cli-helper/ghostty-$arch"
+              lipo ghostty-cli-helper/ghostty -thin "$arch" -output "$thin"
+            fi
             HELPER_SDK_VERSION="$(otool -l "$thin" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
             echo "Ghostty helper $arch SDK version: $HELPER_SDK_VERSION"
             [[ "$HELPER_SDK_VERSION" == 15.* ]]
           done
 
-      - name: Upload universal Ghostty CLI helper
+      - name: Upload Release Ghostty CLI helper
         if: ${{ needs.changes.outputs.release_build == 'true' }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
@@ -2301,7 +2378,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Retry universal Ghostty CLI helper upload
+      - name: Retry Release Ghostty CLI helper upload
         if: ${{ needs.changes.outputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3276,24 +3353,15 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      # Nightly always builds the shipped universal app. A maintainer can set
-      # CI_RELEASE_BUILD_ARCHS=arm64 to drop the Intel whole-module compile from
-      # this pre-merge check, leaving Intel-only compile breaks to nightly.
-      - name: Resolve Release check architectures
-        id: release-archs
-        env:
-          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
-        run: |
-          set -euo pipefail
-          archs="$(./scripts/ci/release-build-archs.sh "$REQUESTED_ARCHS")"
-          echo "Release check architectures: $archs"
-          echo "archs=$archs" >> "$GITHUB_OUTPUT"
-
       - name: Build app (Release)
         env:
-          RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
+          RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
         run: |
           set -euo pipefail
+          case "$RELEASE_ARCHS" in
+            arm64|"arm64 x86_64") ;;
+            *) echo "missing or invalid producer architectures: $RELEASE_ARCHS" >&2; exit 1 ;;
+          esac
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
@@ -3304,14 +3372,15 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
-      - name: Download universal Ghostty CLI helper
+      - name: Download Release Ghostty CLI helper
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper
 
-      - name: Install universal Ghostty CLI helper
+      - name: Install Release helpers
         env:
+          RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
           # install-cmux-tui-client.sh verifies the manifest's build-provenance
           # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
@@ -3320,12 +3389,17 @@ jobs:
           /bin/bash ./tests/test_install_cmux_tui_client.sh
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
-            build-universal/Build/Products/Release/cmux.app
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+            build-universal/Build/Products/Release/cmux.app --archs "$RELEASE_ARCHS"
+          case "$RELEASE_ARCHS" in
+            arm64) client_arch=arm64 ;;
+            "arm64 x86_64") client_arch=universal ;;
+            *) echo "unsupported Release client architectures: $RELEASE_ARCHS" >&2; exit 1 ;;
+          esac
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app --arch "$client_arch"
 
       - name: Validate Release artifact slices
         env:
-          RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
+          RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
         run: |
           set -euo pipefail
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
@@ -3337,17 +3411,13 @@ jobs:
           test -x "$CLI_BINARY"
           TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
           test -x "$TUI_CLIENT"
-          lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
           test -x "$HELPER_BINARY"
           test -x "$CMUX_CUA_BINARY"
           test -x "$DIFF_SIDECAR"
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
-          # The helper and the TUI client are prebuilt downloads, so they are
-          # universal whichever architectures this check compiled.
-          lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
-          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"
+          ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"
           codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
