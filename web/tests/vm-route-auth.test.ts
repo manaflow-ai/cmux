@@ -581,7 +581,9 @@ describe("VM REST auth", () => {
         session: "cloud",
         trustedCarrier: true,
         daemonBuild: { commit: MANIFEST_DESKTOP_DEFAULT.cmuxTuiCommit, remoteProtocol: null, version: null },
-        guestToolsBaked: false,
+        // The manifest desktop default is at the 2026-09-21-r1 bake, so the
+        // create response tells the client nothing needs installing in the guest.
+        guestToolsBaked: true,
         readiness: "dial",
       },
     });
