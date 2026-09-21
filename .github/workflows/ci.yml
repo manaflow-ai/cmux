@@ -702,6 +702,24 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Download transport v3 native artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.macos-compile-admission.outputs.native_artifact_id }}
+          path: ${{ runner.temp }}/transport-v3-native
+          merge-multiple: true
+
+      - name: Restore transport v3 native artifact
+        env:
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.native_sha256 }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/transport-v3-native/transport-v3-native.tar.gz"
+          echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+          package="Packages/Shared/CmuxV3Transport"
+          rm -rf "$package/Native" "$package/Sources/CmuxV3Native"
+          tar -xzf "$archive" -C "$package"
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1844,6 +1862,9 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Prepare transport v3 native artifact
+        run: ./scripts/ensure-transport-v3.sh
+
       - name: Run Bonsplit package tests
         run: |
           set -euo pipefail
@@ -1901,6 +1922,7 @@ jobs:
             CmuxAuthRuntime
             CmuxBrowser
             CmuxIrohTransport
+            CmuxV3Transport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -2094,6 +2116,8 @@ jobs:
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       sha256: ${{ steps.package-products.outputs.sha256 }}
+      native_artifact_id: ${{ steps.upload-native.outputs.artifact-id }}
+      native_sha256: ${{ steps.package-native.outputs.sha256 }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -2146,6 +2170,25 @@ jobs:
           # the artifact before the first resolve instead of relying on a prior
           # setup or transport-v3 workflow job.
           ./scripts/ensure-transport-v3.sh
+
+      - name: Package transport v3 native artifact
+        id: package-native
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/transport-v3-native.tar.gz"
+          # Tar retains the macOS framework's version symlinks across runners.
+          tar -czf "$archive" -C Packages/Shared/CmuxV3Transport Native Sources/CmuxV3Native
+          echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload transport v3 native artifact
+        id: upload-native
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: transport-v3-native-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/transport-v3-native.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -2335,6 +2378,24 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Download transport v3 native artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.macos-compile-admission.outputs.native_artifact_id }}
+          path: ${{ runner.temp }}/transport-v3-native
+          merge-multiple: true
+
+      - name: Restore transport v3 native artifact
+        env:
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.native_sha256 }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/transport-v3-native/transport-v3-native.tar.gz"
+          echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+          package="Packages/Shared/CmuxV3Transport"
+          rm -rf "$package/Native" "$package/Sources/CmuxV3Native"
+          tar -xzf "$archive" -C "$package"
 
       - name: Cache Zig packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -2656,6 +2717,24 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
+
+      - name: Download transport v3 native artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.macos-compile-admission.outputs.native_artifact_id }}
+          path: ${{ runner.temp }}/transport-v3-native
+          merge-multiple: true
+
+      - name: Restore transport v3 native artifact
+        env:
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.native_sha256 }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/transport-v3-native/transport-v3-native.tar.gz"
+          echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+          package="Packages/Shared/CmuxV3Transport"
+          rm -rf "$package/Native" "$package/Sources/CmuxV3Native"
+          tar -xzf "$archive" -C "$package"
 
       - name: Cache DerivedData
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

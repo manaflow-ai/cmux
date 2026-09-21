@@ -17,22 +17,37 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+RECEIPT_LAYOUT_VERSION = 2
 
 
 def run(*args, env):
     subprocess.run(args, cwd=ROOT, env=env, check=True)
 
 
-def create_framework(stage: Path, identifier: str, library: Path, header: Path) -> Path:
-    """Create a versioned Apple framework accepted by macOS bundle validation."""
+def create_framework(
+    stage: Path,
+    identifier: str,
+    library: Path,
+    header: Path,
+    *,
+    versioned: bool,
+) -> Path:
+    """Create a framework with the bundle layout required by its platform.
+
+    macOS framework bundles may be versioned. iOS framework bundles are
+    shallow, and Xcode's framework loader expects their binary and metadata at
+    the framework root. Keeping this choice explicit also prevents a future
+    slice from inheriting the macOS layout by accident.
+    """
     framework = stage / identifier / 'CmuxV3NativeFFI.framework'
-    version = framework / 'Versions' / 'A'
-    headers_dir = version / 'Headers'
-    modules_dir = version / 'Modules'
-    resources_dir = version / 'Resources'
+    contents = framework / 'Versions' / 'A' if versioned else framework
+    headers_dir = contents / 'Headers'
+    modules_dir = contents / 'Modules'
+    resources_dir = contents / 'Resources' if versioned else None
     headers_dir.mkdir(parents=True)
     modules_dir.mkdir()
-    resources_dir.mkdir()
+    if resources_dir is not None:
+        resources_dir.mkdir()
     shutil.copy2(header, headers_dir / 'CmuxV3NativeFFI.h')
     (modules_dir / 'module.modulemap').write_text(
         'framework module CmuxV3NativeFFI {\n'
@@ -41,7 +56,7 @@ def create_framework(stage: Path, identifier: str, library: Path, header: Path) 
         '  module * { export * }\n'
         '}\n'
     )
-    (resources_dir / 'Info.plist').write_bytes(plistlib.dumps({
+    info = {
         'CFBundleDevelopmentRegion': 'en',
         'CFBundleExecutable': 'CmuxV3NativeFFI',
         'CFBundleIdentifier': 'dev.cmux.CmuxV3NativeFFI',
@@ -50,13 +65,71 @@ def create_framework(stage: Path, identifier: str, library: Path, header: Path) 
         'CFBundlePackageType': 'FMWK',
         'CFBundleShortVersionString': '1.0',
         'CFBundleVersion': '1',
-    }))
-    shutil.copy2(library, version / 'CmuxV3NativeFFI')
-    (framework / 'Versions' / 'Current').symlink_to('A')
-    for name in ('Headers', 'Modules', 'Resources', 'CmuxV3NativeFFI'):
-        (framework / name).symlink_to(f'Versions/Current/{name}')
-    (framework / 'Info.plist').symlink_to('Versions/Current/Resources/Info.plist')
+    }
+    if versioned:
+        assert resources_dir is not None
+        (resources_dir / 'Info.plist').write_bytes(plistlib.dumps(info))
+    else:
+        (framework / 'Info.plist').write_bytes(plistlib.dumps(info))
+    shutil.copy2(library, contents / 'CmuxV3NativeFFI')
+    if versioned:
+        (framework / 'Versions' / 'Current').symlink_to('A')
+        for name in ('Headers', 'Modules', 'Resources', 'CmuxV3NativeFFI'):
+            (framework / name).symlink_to(f'Versions/Current/{name}')
     return framework
+
+
+def framework_binary_path(framework: Path, *, versioned: bool) -> Path:
+    """Return the physical binary path for install_name_tool."""
+    contents = framework / 'Versions' / 'A' if versioned else framework
+    return contents / 'CmuxV3NativeFFI'
+
+
+def framework_install_name(*, versioned: bool) -> str:
+    """Return the install name matching the framework's public bundle path."""
+    suffix = '/Versions/A' if versioned else ''
+    return f'@rpath/CmuxV3NativeFFI.framework{suffix}/CmuxV3NativeFFI'
+
+
+def copy_artifact(source: Path, destination: Path) -> None:
+    """Copy an XCFramework without dereferencing framework symlinks."""
+    if destination.is_symlink():
+        destination.unlink()
+    elif destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(source, destination, symlinks=True)
+
+
+def artifact_manifest(package: Path, roots: list[Path]) -> dict[str, dict[str, str]]:
+    """Hash regular files and record symlink targets for receipt validation."""
+    files: dict[str, str] = {}
+    symlinks: dict[str, str] = {}
+    for root in roots:
+        paths = [root, *root.rglob('*')]
+        for path in sorted(paths):
+            relative = str(path.relative_to(package))
+            if path.is_symlink():
+                symlinks[relative] = os.readlink(path)
+            elif path.is_file():
+                files[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return {'files': files, 'symlinks': symlinks}
+
+
+def receipt_matches(package: Path, receipt: dict, stamp: str) -> bool:
+    if receipt.get('layout') != RECEIPT_LAYOUT_VERSION or receipt.get('source') != stamp:
+        return False
+    roots = [
+        package / 'Native' / 'CmuxV3NativeFFI.xcframework',
+        package / 'Sources' / 'CmuxV3Native' / 'CmuxV3Native.swift',
+    ]
+    if not all(root.exists() for root in roots):
+        return False
+    manifest = artifact_manifest(package, roots)
+    return (
+        bool(manifest['files'])
+        and receipt.get('files') == manifest['files']
+        and receipt.get('symlinks') == manifest['symlinks']
+    )
 
 
 def main():
@@ -85,10 +158,7 @@ def main():
     receipt_path = package/'Native'/'receipt.json'
     if args.if_stale and receipt_path.is_file():
         receipt = json.loads(receipt_path.read_text())
-        if receipt.get('source') == stamp and receipt.get('files') and all(
-            (package/name).is_file() and hashlib.sha256((package/name).read_bytes()).hexdigest() == sha
-            for name, sha in receipt['files'].items()
-        ):
+        if receipt_matches(package, receipt, stamp):
             print('Native artifact matches source and content hashes')
             return
     env = dict(os.environ, CARGO_TARGET_DIR=str(target), MACOSX_DEPLOYMENT_TARGET='14.0', IPHONEOS_DEPLOYMENT_TARGET='17.0')
@@ -123,15 +193,22 @@ def main():
         output = stage/'CmuxV3NativeFFI.xcframework'
         frameworks = []
         for identifier, library in libraries:
-            framework = create_framework(stage, identifier, library, headers/'CmuxV3NativeFFI.h')
+            versioned = identifier.startswith('macos-')
+            framework = create_framework(
+                stage,
+                identifier,
+                library,
+                headers/'CmuxV3NativeFFI.h',
+                versioned=versioned,
+            )
             install_name_tool = subprocess.check_output(
                 ['xcrun', '--find', 'install_name_tool'], text=True
             ).strip()
             run(
                 install_name_tool,
                 '-id',
-                '@rpath/CmuxV3NativeFFI.framework/CmuxV3NativeFFI',
-                str(framework/'Versions'/'A'/'CmuxV3NativeFFI'),
+                framework_install_name(versioned=versioned),
+                str(framework_binary_path(framework, versioned=versioned)),
                 env=env,
             )
             frameworks.append(framework)
@@ -147,15 +224,12 @@ def main():
         native = package/'Native'
         native.mkdir(exist_ok=True)
         destination = native/output.name
-        if destination.exists(): shutil.rmtree(destination)
-        shutil.copytree(output, destination)
+        copy_artifact(output, destination)
         sources = package/'Sources'/'CmuxV3Native'
         sources.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated/'CmuxV3Native.swift', sources)
-        files = sorted(p for p in destination.rglob('*') if p.is_file()) + [sources/'CmuxV3Native.swift']
-        receipt_path.write_text(json.dumps({'source': stamp, 'files': {
-            str(p.relative_to(package)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files
-        }}, indent=2)+'\n')
+        manifest = artifact_manifest(package, [destination, sources/'CmuxV3Native.swift'])
+        receipt_path.write_text(json.dumps({'source': stamp, 'layout': RECEIPT_LAYOUT_VERSION, **manifest}, indent=2)+'\n')
     print('Built', destination, 'macOS only' if args.mac_only else 'macOS + iOS + simulator')
 
 
