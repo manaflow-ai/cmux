@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
@@ -287,6 +288,44 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
                 )
 
             self.assertEqual(config.read_text(encoding="utf-8"), external)
+
+    def test_atomic_commit_preserves_edit_that_wins_before_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            original_text = '{"app":{"appearance":"dark"}}\n'
+            external_text = '{"app":{"appearance":"external"}}\n'
+            candidate_text = '{"app":{"appearance":"light"}}\n'
+            config.write_text(original_text, encoding="utf-8")
+            original = helper.current_revision(config)
+            real_exchange = helper.exchange_paths
+            injected = False
+
+            def exchange_after_external_edit(left: Path, right: Path) -> None:
+                nonlocal injected
+                if not injected:
+                    injected = True
+                    right.write_text(external_text, encoding="utf-8")
+                real_exchange(left, right)
+
+            with (
+                mock.patch.object(
+                    helper,
+                    "exchange_paths",
+                    side_effect=exchange_after_external_edit,
+                ),
+                self.assertRaisesRegex(
+                    SystemExit,
+                    "cmux config changed while preparing the edit",
+                ),
+            ):
+                helper.atomic_write_text(
+                    config,
+                    candidate_text,
+                    expected_revision=original,
+                )
+
+            self.assertTrue(injected)
+            self.assertEqual(config.read_text(encoding="utf-8"), external_text)
 
     def test_helper_waits_for_brief_shared_writer_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
