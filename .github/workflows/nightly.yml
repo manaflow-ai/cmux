@@ -56,14 +56,13 @@ on:
           - r2
 
 concurrency:
-  # A fast branch dogfood run must not wait behind a queued full matrix run on
-  # the same branch. Full runs remain serialized with other full runs. A
-  # build-only measurement run publishes nothing, so it gets a group of its own:
-  # GitHub cancels the pending run of a group when a newer run queues, and a
-  # measurement run must never cancel a pending publish.
-  group: nightly-build-${{ github.ref_name }}-${{ inputs.seed_only && 'cache-seed' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
-  # Queue concurrent runs instead of canceling them so no build is lost.
-  cancel-in-progress: false
+  # A six-hour cache warmup must not wait behind a publishing nightly build or
+  # hold one behind a saturated runner pool. Only that schedule gets a separate
+  # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
+  # publishing schedule, pushes, manual full runs, fast dogfood runs, and
+  # build-only measurements retain their existing serialization rules.
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed' || inputs.seed_only && 'cache-seed' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
 
 permissions:
   contents: write
