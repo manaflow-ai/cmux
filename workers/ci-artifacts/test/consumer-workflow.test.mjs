@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -25,10 +25,12 @@ function render(expression, values) {
 }
 
 const scenarios = ["true", "false", ""].flatMap((layerHit) =>
-  [true, false].map((enabled) => ({ layerHit, enabled })));
+  [true, false].map((enabled) => ({ layerHit, enabled }))).concat(
+    ["identity", "producer"].flatMap((layerFailure) =>
+      [true, false].map((enabled) => ({ layerHit: "", enabled, layerFailure }))));
 for (const jobName of ["app-host-unit-tests", "tests-build-and-lag"]) {
-  for (const { layerHit, enabled } of scenarios) {
-    test(`${jobName}: layers=${layerHit || "absent"}, R2=${enabled ? "enabled" : "disabled"}`, (t) => {
+  for (const { layerHit, enabled, layerFailure } of scenarios) {
+    test(`${jobName}: layers=${layerFailure || layerHit || "absent"}, R2=${enabled ? "enabled" : "disabled"}`, (t) => {
       const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-artifact-workflow-"));
       t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
       const bin = path.join(temporary, "bin");
@@ -65,7 +67,34 @@ else:
         },
       };
       const output = path.join(temporary, "output");
-      const tryR2 = evaluate(restore.if, values) === "true";
+      let jobSucceeded = true;
+      if (layerFailure) {
+        const layered = job.steps.find((step) => step.id === "restore-layers");
+        // Execute the real restore entrypoint, failing before it writes outputs.
+        // Stub toolchain discovery so this test runs on Linux without Xcode.
+        fs.writeFileSync(path.join(bin, "xcodebuild"), layerFailure === "identity"
+          ? "#!/bin/sh\nexit 71\n" : "#!/bin/sh\necho 'Xcode fixture'\n", { mode: 0o755 });
+        fs.writeFileSync(path.join(bin, "git"),
+          `#!/bin/sh\ntest "$1 $2 $3" = "rev-parse HEAD " || exit 72\necho ${"a".repeat(40)}\n`, { mode: 0o755 });
+        values.github.sha = "invalid-source-identity";
+        Object.assign(values.needs["macos-compile-admission"].outputs, {
+          layer_index_artifact_id: "789", layer_index_digest: "0".repeat(64),
+        });
+        assert.equal(evaluate(layered.if, values), "true");
+        const result = spawnSync("bash", ["-e", "-c", layered.run], { cwd: root, encoding: "utf8", env: {
+          ...process.env, PATH: `${bin}:${process.env.PATH}`, DEVELOPER_DIR: "/fixture/Xcode",
+          CMUX_DERIVED_DATA_PATH: path.join(temporary, "derived"),
+          GITHUB_OUTPUT: output, GITHUB_ENV: path.join(temporary, "env"),
+          GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1", GITHUB_REPOSITORY: "manaflow-ai/cmux",
+          ...Object.fromEntries(Object.entries(layered.env).map(([key, value]) => [key, render(value, values)])),
+        } });
+        assert.equal(result.status, 1);
+        assert.match(result.stderr, layerFailure === "identity" ? /CalledProcessError/ : /invalid source identity/);
+        assert.equal(fs.existsSync(output), false);
+        // Ordinary step conditions carry GitHub's implicit success() check.
+        jobSucceeded = result.status === 0 || layered["continue-on-error"] === true;
+      }
+      const tryR2 = jobSucceeded && evaluate(restore.if, values) === "true";
       assert.equal(tryR2, layerHit !== "true");
       if (tryR2) execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: temporary,
