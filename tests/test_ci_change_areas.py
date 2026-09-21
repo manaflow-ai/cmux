@@ -1828,6 +1828,20 @@ def test_guard_bun_setup_runs_only_for_preflight_group() -> None:
     assert block.count("setup-bun@") == 1
 
 
+def test_guard_python_39_setup_runs_only_for_release_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
+    prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
+    setup_block = block[setup:prepare]
+    assert "if: ${{ matrix.group == 'release' }}" in setup_block
+    prepare_block = block[prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)]
+    assert "if: ${{ matrix.group != 'preflight' }}" in prepare_block
+    assert "python3 -m venv" in prepare_block
+    assert "PyYAML==6.0.3" in prepare_block
+    assert "bashlex==0.18" in prepare_block
+    assert block.count("actions/setup-python@") == 1
+
+
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
