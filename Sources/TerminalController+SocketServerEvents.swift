@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxSettings
 import Foundation
 
 /// The composition-root wiring of ``SocketControlServerEvents`` for the app:
