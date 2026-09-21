@@ -179,6 +179,12 @@ struct SidebarWorkspaceChecklistPopover: View {
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
+        .onChange(of: editingText) { _, newValue in
+            guard let editingItemId,
+                  let item = model.items.first(where: { $0.id == editingItemId }),
+                  newValue != item.text else { return }
+            actions.editItem(editingItemId, newValue)
+        }
         // The round-5 first-responder policy lets native TextFields in the
         // popover child window keep focus over the terminal-backed pane.
         // Bump-driven add activations still explicitly re-arm the add field.

@@ -325,6 +325,10 @@ private struct WorkspaceTodoPaneContent: View {
                     )
                 },
                 beginEdit: { beginItemEdit(item) },
+                editText: { text in
+                    guard text != item.text else { return }
+                    WorkspaceTodoActions.editChecklistItem(id: item.id, text: text, in: workspace)
+                },
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
                 focusEditor: {
@@ -500,6 +504,7 @@ private struct WorkspaceTodoPaneContent: View {
 private struct WorkspaceTodoPaneItemRowActions {
     let toggleCompletion: () -> Void
     let beginEdit: () -> Void
+    let editText: (UUID, String) -> Void = { _, _ in }
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
     let focusEditor: () -> Void
@@ -566,6 +571,9 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .focused(editFieldFocused)
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: editingText) { _, newValue in
+                    actions.editText(item.id, newValue)
+                }
                 .backport.onKeyPress(.return) { modifiers in
                     if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
                         editingText.append("\n")

@@ -369,6 +369,10 @@ struct SidebarWorkspaceChecklistSection: View {
                     initialText: item.text,
                     placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
                     fontSize: 11 * fontScale,
+                    onTextChange: { text in
+                        guard text != item.text else { return }
+                        actions.editItem(item.id, text)
+                    },
                     onCommit: { commitItemEdit(item.id, text: $0) },
                     onCancel: cancelItemEdit,
                     selectsAllOnFocus: true,

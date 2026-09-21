@@ -1251,6 +1251,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
+    private var todoMutationObserver: NSObjectProtocol?
     static let screenChangeReconcileNotification = Notification.Name("com.cmuxterm.app.screenChangeReconcile")
     static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
     static let screenChangeReconcileRetryLimit = 3
@@ -4576,9 +4577,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveDeferredRetryPending = false
     }
 
+    /// Installs the immediate persistence bridge for todo mutations. The
+    /// workspace owns the mutation path, so UI, CLI, and socket edits all use
+    /// this same save path.
+    private func installTodoMutationObserverIfNeeded() {
+        guard todoMutationObserver == nil else { return }
+        todoMutationObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceTodoDidMutate,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.saveSessionSnapshotForTodoMutation()
+            }
+        }
+    }
+
+    /// Writes the current session snapshot as soon as a todo mutation reaches
+    /// the live workspace model. Cached process indexes keep this path free of
+    /// the off-main process scan used by the regular autosave timer.
+    private func saveSessionSnapshotForTodoMutation() {
+        guard !isTerminatingApp else { return }
+        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+        )
+        _ = saveSessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
     private func installLifecycleSnapshotObserversIfNeeded() {
         guard !didInstallLifecycleSnapshotObservers else { return }
         didInstallLifecycleSnapshotObservers = true
+        installTodoMutationObserverIfNeeded()
 
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         let powerOffObserver = workspaceCenter.addObserver(

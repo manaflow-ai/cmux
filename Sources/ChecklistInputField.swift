@@ -18,6 +18,8 @@ struct ChecklistInputField: NSViewRepresentable {
     let initialText: String
     let placeholder: String
     let fontSize: CGFloat
+    /// Called for every text change while the field is editing.
+    var onTextChange: (String) -> Void = { _ in }
     /// Return, or focus loss with non-empty text.
     let onCommit: (String) -> Void
     /// Escape.
@@ -28,7 +30,7 @@ struct ChecklistInputField: NSViewRepresentable {
     var textColor: NSColor = .labelColor
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onCommit: onCommit, onCancel: onCancel)
+        Coordinator(onTextChange: onTextChange, onCommit: onCommit, onCancel: onCancel)
     }
 
     func makeNSView(context: Context) -> FocusGrabbingTextField {
@@ -50,6 +52,7 @@ struct ChecklistInputField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: FocusGrabbingTextField, context: Context) {
+        context.coordinator.onTextChange = onTextChange
         context.coordinator.onCommit = onCommit
         context.coordinator.onCancel = onCancel
         nsView.font = .systemFont(ofSize: fontSize)
@@ -60,13 +63,24 @@ struct ChecklistInputField: NSViewRepresentable {
 
     /// Bridges Return/Escape and focus-loss to the commit / cancel closures.
     final class Coordinator: NSObject, NSTextFieldDelegate {
+        var onTextChange: (String) -> Void
         var onCommit: (String) -> Void
         var onCancel: () -> Void
         private var committed = false
 
-        init(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        init(
+            onTextChange: @escaping (String) -> Void,
+            onCommit: @escaping (String) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            self.onTextChange = onTextChange
             self.onCommit = onCommit
             self.onCancel = onCancel
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            let text = (obj.object as? NSTextField)?.stringValue ?? ""
+            onTextChange(text)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
