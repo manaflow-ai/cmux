@@ -113,7 +113,15 @@ class ProductPublicationTests(unittest.TestCase):
             step["run"] for step in package_job["steps"]
             if step.get("name") == "Run Swift package unit tests"
         )
-        self.assertIn("CmuxTerminalCore", package_run)
+        package_entries = (
+            package_run.split("PACKAGES=(", 1)[1]
+            .split(")", 1)[0]
+            .splitlines()
+        )
+        self.assertIn(
+            "CmuxTerminalCore",
+            [entry.strip() for entry in package_entries if entry.strip()],
+        )
 
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
