@@ -58,8 +58,8 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    await self.client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+                group.addTask { @MainActor [client = self.client] in
+                    await client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
                     try Task.checkCancellation()
                     for try await _ in proof {
                         try Task.checkCancellation()
