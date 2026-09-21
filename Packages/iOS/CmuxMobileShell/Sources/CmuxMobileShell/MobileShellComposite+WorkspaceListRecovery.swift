@@ -157,6 +157,13 @@ extension MobileShellComposite {
             }
     }
 
+    /// Whether a workspace-list Retry action currently owns recovery. The UI
+    /// uses this to render the shared Reconnecting status under the picker
+    /// while the row button stays visually stable.
+    public var isRecoveringWorkspaceList: Bool {
+        workspaceListRecoveryActive
+    }
+
     /// Reserves the recovery token used by the empty-state Retry action.
     /// Cancellation passes this token back so a stale row cannot cancel a
     /// later retry for another Mac.

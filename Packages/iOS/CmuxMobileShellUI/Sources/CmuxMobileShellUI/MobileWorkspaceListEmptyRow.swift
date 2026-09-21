@@ -87,37 +87,17 @@ struct MobileWorkspaceListEmptyRow: View {
                         retryRecoveryGeneration = nil
                         retryTimedOut = true
                     }
-                } label: {
-                    Label {
-                        Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
-                    } icon: {
-                        if isRetrying {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
+                    } label: {
+                        Label {
+                            Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                        } icon: {
                             Image(systemName: "arrow.clockwise")
                         }
                     }
-                }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
-                if isRetrying || retryTask != nil {
-                    Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
-                        retryTask?.cancel()
-                        (cancelRetryAttempt ?? { _ in cancelRetry?() })(retryRecoveryGeneration)
-                        retryTimeoutTask?.cancel()
-                        retryAttemptID = nil
-                        retryTask = nil
-                        retryTimeoutTask = nil
-                        isRetrying = false
-                        retryRecoveryGeneration = nil
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryCancel")
-                }
             }
             Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
                 Label(
@@ -138,7 +118,6 @@ struct MobileWorkspaceListEmptyRow: View {
         .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
-        .onChange(of: isRetrying) { _, _ in onLayoutChange?() }
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
             let hasActiveRetry = isRetrying || retryTask != nil
