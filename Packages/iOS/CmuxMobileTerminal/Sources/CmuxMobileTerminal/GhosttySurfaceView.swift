@@ -359,6 +359,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastPerfLogTime: CFTimeInterval = 0
         #endif
     }
+    // Carve-out: main-actor gestures and synchronous libghostty callbacks share one pixel-scroll snapshot.
     nonisolated let localPixelScrollState =
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
     /// Cumulative rows this view has pushed into its local mirror's scrollback

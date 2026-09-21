@@ -421,6 +421,12 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "network", value: reachabilityName(raw))
         case .transportCloseAttribution:
             return Field(key: "initiator", value: closeInitiatorName(raw))
+        case .transportDialSessionLinked:
+            return Field(key: "attempt", value: String(raw))
+        case .transportDialCancelled:
+            return Field(key: "cancellation", value: cancellationName(raw))
+        case .transportCloseReason:
+            return Field(key: "reason", value: remoteCloseReasonName(raw))
         case .transportPathEvent:
             return Field(key: "operation", value: pathEventName(raw))
         case .inputSeqBehind:
@@ -550,11 +556,15 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "public_relay_urls", value: String(raw))
         case .discoverySucceeded:
             return Field(key: "relay_fleet", value: String(raw))
-        case .transportDialStarted, .transportDialConnected, .transportDialFailed:
+        case .transportDialStarted, .transportDialConnected, .transportDialFailed,
+             .transportDialCancelled:
             return Field(key: "attempt", value: String(raw))
         case .sessionClosed, .transportSessionLifecycle,
-             .transportCloseAttribution, .transportPathEvent:
+             .transportCloseAttribution, .transportPathEvent,
+             .transportDialSessionLinked, .transportCloseReason:
             return Field(key: "session", value: String(raw))
+        case .recoveryStarted, .recoverySucceeded, .recoveryFailed:
+            return Field(key: "peer", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
         case .browserStreamLifecycle, .browserInputReplayed,
@@ -1273,6 +1283,36 @@ public struct DiagnosticEventPresentation: Sendable {
         return String(value)
     }
 
+    private func cancellationName(_ raw: Int) -> String {
+        guard let reason = DiagnosticCancellationReason(rawValue: raw) else {
+            return localized("diagnostics.unknown.cancellation", defaultValue: "Unknown cancellation (\(raw))")
+        }
+        switch reason {
+        case .unknown: return localized("diagnostics.cancellation.unknown", defaultValue: "Unknown cancellation")
+        case .requestCancelled: return localized("diagnostics.cancellation.requestCancelled", defaultValue: "Request cancelled")
+        case .requestTimedOut: return localized("diagnostics.cancellation.requestTimedOut", defaultValue: "Request timed out")
+        case .sessionTeardown: return localized("diagnostics.cancellation.sessionTeardown", defaultValue: "Session torn down")
+        case .sessionDeinitialized: return localized("diagnostics.cancellation.sessionDeinitialized", defaultValue: "Session deinitialized")
+        }
+    }
+
+    private func remoteCloseReasonName(_ raw: Int) -> String {
+        guard let reason = DiagnosticRemoteCloseReason(rawValue: raw) else {
+            return localized("diagnostics.unknown.closeReason", defaultValue: "Unknown remote reason (\(raw))")
+        }
+        switch reason {
+        case .unknown: return localized("diagnostics.closeReason.unknown", defaultValue: "Unknown remote reason")
+        case .clientClosed: return localized("diagnostics.closeReason.clientClosed", defaultValue: "Client closed")
+        case .serverClosed: return localized("diagnostics.closeReason.serverClosed", defaultValue: "Server closed")
+        case .superseded: return localized("diagnostics.closeReason.superseded", defaultValue: "Superseded session")
+        case .admissionLeaseExpired: return localized("diagnostics.closeReason.admissionLeaseExpired", defaultValue: "Admission lease expired")
+        case .admissionRevalidationFailed: return localized("diagnostics.closeReason.admissionRevalidationFailed", defaultValue: "Admission revalidation failed")
+        case .sendQueueOverflow: return localized("diagnostics.closeReason.sendQueueOverflow", defaultValue: "Send queue overflow")
+        case .serverFailure: return localized("diagnostics.closeReason.serverFailure", defaultValue: "Server failure")
+        case .serverCancelled: return localized("diagnostics.closeReason.serverCancelled", defaultValue: "Server cancelled")
+        }
+    }
+
     private func label(for key: String) -> String {
         switch key {
         case "workspace_count": localized("diagnostics.field.workspaceCount", defaultValue: "Workspace count")
@@ -1281,6 +1321,9 @@ public struct DiagnosticEventPresentation: Sendable {
         case "population": localized("diagnostics.field.population", defaultValue: "Population")
         case "main_thread": localized("diagnostics.field.mainThread", defaultValue: "Main thread")
         case "surface": localized("diagnostics.field.surface", defaultValue: "Surface")
+        case "peer": localized("diagnostics.field.peer", defaultValue: "Peer")
+        case "recovery": localized("diagnostics.field.recovery", defaultValue: "Recovery")
+        case "cancellation": localized("diagnostics.field.cancellation", defaultValue: "Cancellation")
         case "transport": localized("diagnostics.field.transport", defaultValue: "Transport")
         case "failure": localized("diagnostics.field.failure", defaultValue: "Failure")
         case "attempt": localized("diagnostics.field.attempt", defaultValue: "Attempt")

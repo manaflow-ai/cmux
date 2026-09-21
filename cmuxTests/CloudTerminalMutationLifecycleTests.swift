@@ -182,7 +182,7 @@ struct CloudTerminalMutationLifecycleTests {
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: summaries, limits: nil) },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {},
             notificationCenter: NotificationCenter()
         )
@@ -232,7 +232,7 @@ struct CloudTerminalMutationLifecycleTests {
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: [summary], limits: nil) },
-            refreshProvider: { _, _ in }, closeTransports: {}, notificationCenter: NotificationCenter()
+            refreshProvider: { _, _ in true }, closeTransports: {}, notificationCenter: NotificationCenter()
         )
         registry.start(catalog: catalog)
         _ = await registry.refresh(force: true)

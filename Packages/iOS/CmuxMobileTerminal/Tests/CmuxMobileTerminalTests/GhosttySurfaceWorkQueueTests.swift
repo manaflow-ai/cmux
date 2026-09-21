@@ -1,5 +1,8 @@
 import Foundation
 import Testing
+import os
+
+@testable import CmuxMobileTerminal
 
 @Test("scroll priority runs ahead of queued repaint work")
 func scrollPriorityRunsAheadOfQueuedRepaintWork() {
@@ -7,29 +10,22 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     let firstStarted = DispatchSemaphore(value: 0)
     let releaseFirst = DispatchSemaphore(value: 0)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = OSAllocatedUnfairLock(initialState: [String]())
 
     workQueue.async {
         firstStarted.signal()
         releaseFirst.wait()
-        lock.lock()
-        order.append("first")
-        lock.unlock()
+        order.withLock { $0.append("first") }
         completed.signal()
     }
     #expect(firstStarted.wait(timeout: .now() + 1) == .success)
 
     workQueue.async {
-        lock.lock()
-        order.append("repaint")
-        lock.unlock()
+        order.withLock { $0.append("repaint") }
         completed.signal()
     }
     workQueue.asyncPriority {
-        lock.lock()
-        order.append("scroll")
-        lock.unlock()
+        order.withLock { $0.append("scroll") }
         completed.signal()
     }
     releaseFirst.signal()
@@ -37,9 +33,7 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
-    lock.lock()
-    let observedOrder = order
-    lock.unlock()
+    let observedOrder = order.withLock { $0 }
     #expect(observedOrder == ["first", "scroll", "repaint"])
 }
 
@@ -47,28 +41,24 @@ func scrollPriorityRunsAheadOfQueuedRepaintWork() {
 func normalWorkIsServicedDuringSustainedScrollPriority() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 2)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = OSAllocatedUnfairLock(initialState: [String]())
+    // Enqueue the whole competing batch before the worker can select a job.
+    workQueue.queue.suspend()
     for index in 0..<5 {
         workQueue.asyncPriority {
-            lock.lock()
-            order.append("scroll-\(index)")
-            lock.unlock()
+            order.withLock { $0.append("scroll-\(index)") }
             completed.signal()
         }
     }
     workQueue.async {
-        lock.lock()
-        order.append("repaint")
-        lock.unlock()
+        order.withLock { $0.append("repaint") }
         completed.signal()
     }
+    workQueue.queue.resume()
     for _ in 0..<6 {
         #expect(completed.wait(timeout: .now() + 1) == .success)
     }
-    lock.lock()
-    let observedOrder = order
-    lock.unlock()
+    let observedOrder = order.withLock { $0 }
     #expect(observedOrder[4] == "repaint")
 }
 
@@ -76,22 +66,32 @@ func normalWorkIsServicedDuringSustainedScrollPriority() {
 func newInteractionStartsWithScrollPriorityAfterIdle() {
     let workQueue = GhosttySurfaceWorkQueue(generation: 3)
     let completed = DispatchSemaphore(value: 0)
-    let lock = NSLock()
-    var order: [String] = []
+    let order = OSAllocatedUnfairLock(initialState: [String]())
+    workQueue.queue.suspend()
     for _ in 0..<4 {
         workQueue.asyncPriority {
-            lock.lock(); order.append("scroll"); lock.unlock(); completed.signal()
+            order.withLock { $0.append("scroll") }
+            completed.signal()
         }
     }
+    workQueue.queue.resume()
     for _ in 0..<4 { #expect(completed.wait(timeout: .now() + 1) == .success) }
+    // The last callback signals before scheduleNext enqueues its idle check.
+    // Two FIFO fences wait for both the callback and that idle check.
+    workQueue.queue.sync {}
+    workQueue.queue.sync {}
+    workQueue.queue.suspend()
     workQueue.async {
-        lock.lock(); order.append("repaint"); lock.unlock(); completed.signal()
+        order.withLock { $0.append("repaint") }
+        completed.signal()
     }
     workQueue.asyncPriority {
-        lock.lock(); order.append("new-scroll"); lock.unlock(); completed.signal()
+        order.withLock { $0.append("new-scroll") }
+        completed.signal()
     }
+    workQueue.queue.resume()
     #expect(completed.wait(timeout: .now() + 1) == .success)
     #expect(completed.wait(timeout: .now() + 1) == .success)
-    lock.lock(); let observedOrder = order; lock.unlock()
+    let observedOrder = order.withLock { $0 }
     #expect(observedOrder.suffix(2).first == "new-scroll")
 }

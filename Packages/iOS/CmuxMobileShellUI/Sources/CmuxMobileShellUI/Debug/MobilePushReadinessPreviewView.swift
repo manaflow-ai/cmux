@@ -124,7 +124,7 @@ struct MobilePushReadinessPreviewView: View {
         switch repair {
         case .enableOnPhone:
             return await setPhoneEnabled(true)
-        case .retryDeviceTokenRegistration, .retryRegistration, .retrySecurePushSetup:
+        case .retryDeviceTokenRegistration, .retryRegistration:
             registration = Self.registered
             return true
         case .connectMac:
@@ -136,7 +136,7 @@ struct MobilePushReadinessPreviewView: View {
             return await mutateMac(.mode(.always))
         case .openSystemSettings, .signInAgain, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .signIntoMatchingAccount,
-             .rebuildMatchingApps, .waitForDeviceToken:
+             .rebuildMatchingApps, .waitForDeviceToken, .retrySecurePushSetup:
             return true
         }
     }

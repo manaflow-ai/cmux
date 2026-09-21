@@ -35,9 +35,11 @@ private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mo
 /// `@Environment` instead of `AuthManager.shared`.
 public struct CMUXMobileRootScene: View {
     private let runtime: CMUXMobileRuntime
+    private let macListAuthState: MobileMacListAuthState
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let analyticsClientID: String?
     private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
@@ -139,9 +141,11 @@ public struct CMUXMobileRootScene: View {
     ///     Diagnostics export.
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
@@ -160,9 +164,11 @@ public struct CMUXMobileRootScene: View {
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
@@ -197,16 +203,20 @@ public struct CMUXMobileRootScene: View {
     /// Creates the root scene (non-iOS: no push).
     public init(
         runtime: CMUXMobileRuntime,
+        macListAuthState: MobileMacListAuthState? = nil,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        analyticsClientID: String? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.analyticsClientID = analyticsClientID
         self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
@@ -356,7 +366,9 @@ public struct CMUXMobileRootScene: View {
             // window and the ToastCenter environment.
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
+            .environment(macListAuthState)
             .analytics(analytics)
+            .analyticsClientID(analyticsClientID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -438,7 +450,7 @@ public struct CMUXMobileRootScene: View {
         let accessGroup = auth.keychainAccessGroup
         return MobilePhonePushKeyExchangeHooks(
             makeDescriptor: {
-                let key = try PhonePushKeyStore.current(
+                let key = try PhonePushKeyMaterial.current(
                     bundleID: bundleID,
                     accessGroup: accessGroup
                 )
@@ -459,7 +471,7 @@ public struct CMUXMobileRootScene: View {
                     macInstanceTag: context.macInstanceTag,
                     macBuildID: context.macBuildID
                 )
-                PhonePushPeerKeyStore.pin(
+                PhonePushPeerKeyStore().pin(
                     descriptor.publicKey,
                     keyID: descriptor.keyID,
                     for: tuple
@@ -513,6 +525,7 @@ public struct CMUXMobileRootScene: View {
         #endif
         let store = CMUXMobileShellStore(
             runtime: runtime,
+            macListAuthState: macListAuthState,
             pairedMacStore: backedUpPairedMacStore,
             connectionMethodStore: connectionMethodStore,
             buildCompatibilityPolicy: buildCompatibilityPolicy,

@@ -387,7 +387,16 @@
       "revoked": "Tilbagekaldt",
       "relaySettings": "Relayindstillinger",
       "relaySettingsDescription": "Vælg de relayservere, som dette team bruger. Indtast én URL pr. linje.",
-      "saveRelaySettings": "Gem relayindstillinger"
+      "saveRelaySettings": "Gem relayindstillinger",
+      "eyebrow": "cloud / enheder",
+      "scopeActive": "Viser dette team",
+      "emptyTitle": "Ingen tilsluttede enheder endnu",
+      "emptyDescription": "Når en cmux-enhed parres med dette team, vises den her med platform, version og adgangskontrol.",
+      "revoking": "Tilbagekalder…",
+      "registeredDevices": "Registrerede enheder",
+      "activeDevices": "Aktive enheder",
+      "directoryRevision": "Oversigtens revision",
+      "savingRelaySettings": "Gemmer…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Del med teamet",

@@ -387,7 +387,16 @@
       "revoked": "Revogado",
       "relaySettings": "Configurações de relay",
       "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
-      "saveRelaySettings": "Salvar configurações de relay"
+      "saveRelaySettings": "Salvar configurações de relay",
+      "eyebrow": "nuvem / dispositivos",
+      "scopeActive": "Exibindo esta equipe",
+      "emptyTitle": "Nenhum dispositivo conectado ainda",
+      "emptyDescription": "Quando um dispositivo cmux for pareado com esta equipe, ele aparecerá aqui com plataforma, versão e controles de acesso.",
+      "revoking": "Revogando…",
+      "registeredDevices": "Dispositivos registrados",
+      "activeDevices": "Dispositivos ativos",
+      "directoryRevision": "Revisão do diretório",
+      "savingRelaySettings": "Salvando…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartilhar com a equipe",
