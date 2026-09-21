@@ -1279,6 +1279,7 @@
           "soundOverride": "En overstyring av varslingslyden. default bruker notifications.sound, none deaktiverer avspilling, og de øvrige verdiene velger en innebygd eller egendefinert lyd."
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "Plassering av lenker som klikkes i terminalen og oppfangede open-kommandoer: split gjenbruker en rute til høyre eller oppretter en deling; samePane oppretter en nettleserfane i kildeterminalens rute. Manuelle nettleserdelinger forblir uendret.",
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",

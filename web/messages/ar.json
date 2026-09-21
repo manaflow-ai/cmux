@@ -1279,6 +1279,7 @@
           "soundOverride": "تجاوز لصوت الإشعار. يستخدم default قيمة notifications.sound، ويعطّل none التشغيل، وتختار القيم الأخرى صوتًا مدمجًا أو مخصصًا."
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "موضع الروابط التي يتم النقر عليها في الطرفية وأوامر open المعترضة: يعيد split استخدام جزء على اليمين أو ينشئ تقسيمًا؛ وينشئ samePane علامة تبويب للمتصفح في جزء الطرفية المصدر. لا تتغير تقسيمات المتصفح اليدوية.",
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
           "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",

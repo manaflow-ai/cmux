@@ -114,6 +114,8 @@ esac
             cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
+[[ "${CMUX_TERMINAL_LINK:-}" == "1" ]] || exit 2
+[[ "${CMUX_SURFACE_ID:-}" == "11111111-2222-3333-4444-555555555555" ]] || exit 3
 printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
 url=""
 for arg in "$@"; do
@@ -139,6 +141,9 @@ exit 0
 
         env = os.environ.copy()
         env["CMUX_SOCKET_PATH"] = "/tmp/cmux-open-wrapper-test.sock"
+        env["CMUX_SURFACE_ID"] = "11111111-2222-3333-4444-555555555555"
+        env["HOME"] = str(tmp)
+        env["CFFIXED_USER_HOME"] = str(tmp)
         env["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.test"
         env["CMUX_OPEN_WRAPPER_SYSTEM_OPEN"] = str(system_open)
         env["CMUX_OPEN_WRAPPER_DEFAULTS"] = str(defaults)

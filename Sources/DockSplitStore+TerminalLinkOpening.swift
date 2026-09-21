@@ -1,5 +1,6 @@
 import AppKit
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
@@ -38,39 +39,21 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         false
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool = true
+    ) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
-              let sourcePane = paneId(forPanelId: panelId) else { return false }
-        if let targetPane = BrowserRightSidePaneResolver().preferredPane(
-            from: sourcePane,
-            in: bonsplitController
-        ) {
-            if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
-            guard let panelId = newSurface(
-                kind: .browser,
-                inPane: targetPane,
-                url: url,
-                focus: false
-            ) else { return false }
-            if focus { focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            ) }
-            return true
+              paneId(forPanelId: panelId) != nil else {
+            return false
         }
         if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
-        guard let panelId = newSplit(
-            kind: .browser,
-            orientation: .horizontal,
-            insertFirst: false,
-            sourcePanelId: panelId,
-            url: url,
-            focus: false
-        ) else { return false }
-        if focus { focusPanelFromDockInteraction(
-            panelId,
-            window: NSApp.keyWindow ?? NSApp.mainWindow
-        ) }
-        return true
+        return BrowserSplitContainer.dock(self).openBrowser(
+            of: panelId,
+            placement: placement,
+            request: BrowserSplitRequest(url: url, focus: focus, preloadInBackground: false)
+        ) != nil
     }
 }

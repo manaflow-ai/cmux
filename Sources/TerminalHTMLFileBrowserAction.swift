@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Opens terminal-linked HTML files through the shared browser-panel action.
@@ -28,7 +29,9 @@ struct TerminalHTMLFileBrowserAction {
         guard let browserURL = browserURL(for: fileURL) else { return false }
         return container.openTerminalBrowserLink(
             url: browserURL,
-            sourcePanelId: sourcePanelId
+            sourcePanelId: sourcePanelId,
+            placement: UserDefaultsSettingsClient(defaults: defaults)
+                .value(for: BrowserCatalogSection().terminalLinkBrowserPlacement)
         )
     }
 }

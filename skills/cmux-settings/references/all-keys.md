@@ -169,6 +169,7 @@ Embedded browser settings from Settings > Browser.
 | `browser.defaultZoomLevel` | number | `1` | Default page zoom factor for newly opened browser pages (0.25–5; 1 = 100%). |
 | `browser.openTerminalLinksInCmuxBrowser` | boolean | `true` | Open clicked terminal links in the embedded browser. |
 | `browser.interceptTerminalOpenCommandInCmuxBrowser` | boolean | `true` | Intercept terminal open http(s) commands and route them through the embedded browser. |
+| `browser.terminalLinkBrowserPlacement` | `"split"` or `"samePane"` | `"split"` | Placement for clicked terminal links and intercepted open commands: split reuses a pane to the right or creates a split; samePane creates a browser tab in the source terminal pane. Manual browser splits are unchanged. |
 | `browser.hostsToOpenInEmbeddedBrowser` | array<string> | `[]` | Allowlist of hosts that should stay inside the embedded browser. |
 | `browser.urlsToAlwaysOpenExternally` | array<string> | `[]` | Rules that always open matching URLs in the system browser. |
 | `browser.insecureHttpHostsAllowedInEmbeddedBrowser` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | HTTP hosts allowed in the embedded browser without a warning prompt. |

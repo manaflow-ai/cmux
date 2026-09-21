@@ -1279,6 +1279,7 @@
           "soundOverride": "通知聲音覆寫。default 使用 notifications.sound，none 停用播放，其餘值選擇內建或自訂聲音。"
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "終端機中點按的連結及被攔截的 open 指令的開啟位置：split 重用右側窗格或建立分割窗格；samePane 在來源終端機窗格中建立瀏覽器分頁。手動瀏覽器分割行為不變。",
           "defaultSearchEngine": "瀏覽器位址列輸入不是 URL 時使用的預設搜尋引擎。任意提供者請使用 custom 與 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 為 custom 時使用的顯示名稱。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 為 custom 時使用的搜尋 URL。使用查詢佔位符或 %s 表示已編碼的查詢。若沒有佔位符，cmux 會將 q= 加到 URL。",
