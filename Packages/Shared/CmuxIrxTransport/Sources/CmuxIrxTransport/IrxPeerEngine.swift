@@ -84,7 +84,7 @@ public actor IrxPeerEngine {
     /// clear or adopt anything.
     private var dialGeneration: UInt64 = 0
     private var redialTimer: Task<Void, Never>?
-    private(set) var terminationWatcher: Task<Void, Never>?
+    private var terminationWatcher: Task<Void, Never>?
     private var foregroundTask: Task<Void, Never>?
     private var activityGeneration: UInt64 = 0
     private var applicationActive: Bool

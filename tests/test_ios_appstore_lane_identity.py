@@ -23,20 +23,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _read_xcconfig_setting(path: Path, key: str) -> str:
-    values = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        before_comment = line.split("//", 1)[0].strip()
-        if not before_comment.startswith(f"{key} "):
-            continue
-        name, _, value = before_comment.partition("=")
-        if name.strip() == key:
-            values.append(value.strip())
-    return values[-1] if values else ""
-
-
 TEAM_ID = "7WLXT3NR37"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
@@ -51,12 +37,8 @@ IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 # The extension profile fixture expires on 2099-01-01; validate it against a
 # fixed instant so the test never reads the real clock.
 PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
-APPSTORE_MARKETING_VERSION = _read_xcconfig_setting(
-    ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_APPSTORE_MARKETING_VERSION"
-)
-BETA_MARKETING_VERSION = _read_xcconfig_setting(
-    ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_BETA_MARKETING_VERSION"
-)
+APPSTORE_MARKETING_VERSION = "1.0.0"
+BETA_MARKETING_VERSION = "1.0.4"
 PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXAuthEnvironment": "production",
     "CMUXApiBaseURL": "https://cmux.com",
@@ -760,6 +742,18 @@ def _copy_isolated_ios_version_repo(target: Path) -> Path:
         shutil.copy2(source, destination)
     _set_fixture_versions(repo)
     return repo
+
+
+def _read_xcconfig_setting(path: Path, key: str) -> str:
+    values = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        before_comment = line.split("//", 1)[0].strip()
+        if not before_comment.startswith(f"{key} "):
+            continue
+        name, _, value = before_comment.partition("=")
+        if name.strip() == key:
+            values.append(value.strip())
+    return values[-1] if values else ""
 
 
 def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) -> None:

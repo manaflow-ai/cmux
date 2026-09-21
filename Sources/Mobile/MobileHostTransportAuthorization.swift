@@ -17,11 +17,6 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
-extension MobileHostConnectionAuthorizationContext {
-    /// Private-network listeners retain the existing per-method bearer policy.
-    static let legacyPrivateNetworkListener: Self = .stackBearer
-}
-
 /// Immutable trust context carried from transport admission into RPC dispatch.
 struct MobileHostRPCExecutionContext: Sendable {
     /// The per-connection identity, used to key long-lived subscriptions

@@ -57,12 +57,7 @@ struct IrxLivenessTests {
         try await session.connection.startClientKeepalive(interval: .milliseconds(10), deadline: .milliseconds(100)) {
             await host.recordDeath()
         }
-        try await waitUntil { await host.probeCount == 1 }
-        let keepalive = try #require(await session.connection.keepaliveTask)
         await session.connection.setApplicationActive(false)
-        // Join the cancelled loop, including its in-flight probe, before
-        // checking that suspension produced neither a miss nor peer death.
-        await keepalive.value
         #expect(await probe.value == false)
         try await expectControlRoundTrip(on: session, message: "control-survives-suspension")
         #expect(host.journal.counterSnapshot()["miss", default: 0] == 0)

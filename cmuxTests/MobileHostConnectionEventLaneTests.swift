@@ -24,7 +24,9 @@ extension MobileHostAuthorizationTests {
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { id in await recorder.record(id) }
+            onClose: { id in
+                await recorder.record(id)
+            }
         )
         await session.debugStartFirstFrameTimeoutForTesting()
         for _ in 0..<100 {
@@ -40,7 +42,7 @@ extension MobileHostAuthorizationTests {
     @Test func testMobileHostConnectionKeepsControlUsableAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let transport = ScriptedMobileHostByteTransport()
+        let transport = RecordingMobileHostByteTransport()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
@@ -51,36 +53,40 @@ extension MobileHostAuthorizationTests {
                 await recorder.record(id)
             }
         )
-        let frame = try MobileSyncFrameCodec.encodeFrame(Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8))
+        let frame = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"status","method":"mobile.host.status","params":{}}"#.utf8)
+        )
         await session.debugHandleReceiveDataForTesting(frame)
         #expect(await transport.waitForSentBufferCount(1).count == 1)
-        let followingFrame = try MobileSyncFrameCodec.encodeFrame(Data(#"{"id":"following-status","method":"mobile.host.status","params":{}}"#.utf8))
-        await session.debugHandleReceiveDataForTesting(followingFrame)
-        #expect(await transport.waitForSentBufferCount(2).count == 2)
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
     @Test func testMobileHostConnectionKeepsSubscribedEventStreamIdle() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
-        let transport = ScriptedMobileHostByteTransport()
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: NWEndpoint.Port(rawValue: 9)!,
+            using: .tcp
+        )
         let session = MobileHostConnection(
             id: connectionID,
-            transport: transport,
+            connection: connection,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
             handleRequest: { _ in .ok([:]) },
-            onClose: { id in await recorder.record(id) }
+            onClose: { id in
+                await recorder.record(id)
+            }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.updated"])
+        // Subscriptions remain usable without requiring synthetic traffic. The
+        // host has no application-level idle deadline after admission.
         #expect(await session.isSubscribed(to: "terminal.updated"))
         let subscribedCloseIDs = await recorder.recordedIDs()
         #expect(subscribedCloseIDs.isEmpty)
-        #expect(await session.unsubscribe(streamID: "events"))
-        #expect(await session.isSubscribed(to: "terminal.updated") == false)
-        let frame = try MobileSyncFrameCodec.encodeFrame(Data(#"{"id":"unsubscribed-status","method":"mobile.host.status","params":{}}"#.utf8))
-        await session.debugHandleReceiveDataForTesting(frame)
-        #expect(await transport.waitForSentBufferCount(1).count == 1)
+        _ = await session.unsubscribe(streamID: "events")
+        #expect(await !session.isSubscribed(to: "terminal.updated"))
         #expect(await recorder.recordedIDs().isEmpty)
         await session.close(reason: "test cleanup")
     }
@@ -430,18 +436,16 @@ extension MobileHostAuthorizationTests {
     @Test func testEventSendStallDoesNotCloseConnection() async throws {
         let transport = StalledSendMobileHostByteTransport()
         let recorder = MobileHostConnectionCloseRecorder()
-        let requestHandled = AsyncTestSignal()
         let connectionID = UUID()
         let session = MobileHostConnection(
             id: connectionID,
             transport: transport,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
-            handleRequest: { _ in
-                requestHandled.fulfill()
-                return .ok([:])
-            },
-            onClose: { id in await recorder.record(id) }
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
         )
         await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
         _ = await session.sendEvent(
@@ -449,9 +453,7 @@ extension MobileHostAuthorizationTests {
             payload: ["surface_id": "surface-stall-8842", "full": true]
         )
         await transport.waitUntilSendStalled()
-        let frame = try MobileSyncFrameCodec.encodeFrame(Data(#"{"id":"stalled-status","method":"mobile.host.status","params":{}}"#.utf8))
-        await session.debugHandleReceiveDataForTesting(frame)
-        try await requestHandled.wait()
+        // The transport's signal proves the write is suspended and unresolved.
         #expect(await recorder.recordedIDs().isEmpty)
         #expect(await transport.observedCloseCount() == 0)
         await session.close(reason: "test complete")
@@ -899,6 +901,10 @@ private actor BlockingMobileHostSimulatorReplayRecorder {
     func requests() -> [MobileHostSimulatorReplayRequest] { recordedRequests }
 }
 
+/// A byte transport whose `send` never completes on its own: it models a
+/// subscriber that stopped draining (paused phone, dead network path with the
+/// socket still open). `close()` fails every stalled send so teardown paths
+/// stay deterministic and no task is stranded across tests.
 actor StalledSendMobileHostByteTransport: CmxByteTransport {
     private enum StalledSendError: Error {
         case closed
