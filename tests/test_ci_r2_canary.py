@@ -104,6 +104,15 @@ class PreflightTests(unittest.TestCase):
         self.run_mode('delete-worker')
         self.assertEqual(self.calls, [(f'workers/scripts/{self.resource}?force=true', 'DELETE', None)])
 
+    def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
+        workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
+        delete_step = workflow.split("name: Remove only the canary's artifact copy", 1)[1]
+        delete_step = delete_step.split('name: Remove an empty bucket created by this run', 1)[0]
+        self.assertIn('for attempt in 1 2 3 4; do', delete_step)
+        self.assertIn('wrangler r2 object delete "$key" --remote', delete_step)
+        self.assertIn('sleep "$((attempt * 5))"', delete_step)
+        self.assertIn('exit 1', delete_step)
+
 
 class MeasurementTests(unittest.TestCase):
     def test_hashes_real_bytes_and_distinguishes_fill_from_hit(self):
