@@ -163,8 +163,8 @@ def load_consumer(api, value, current_run, current_attempt, reasons):
         if not trusted_ci_run(run, api.repository):
             record_reason(reasons, "consumer_untrusted")
             return None
-        head = run.get("head_sha", "")
-        if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+        head = run.get("head_sha")
+        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
         if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
@@ -184,7 +184,12 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
         batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
         if not isinstance(batch, list):
             raise ValueError("invalid artifact listing")
-        candidates.extend(a for a in batch if a.get("name", "").startswith(prefix))
+        candidates.extend(
+            a for a in batch
+            if isinstance(a, dict)
+            and isinstance(a.get("name"), str)
+            and a["name"].startswith(prefix)
+        )
         if len(candidates) >= 6 or len(batch) < 100:
             break
     if not candidates:
@@ -199,7 +204,11 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 record_reason(reasons, "artifact_attempt_invalid")
                 continue
             producer_attempt = int(suffix)
-            if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
+            size = artifact.get("size_in_bytes")
+            if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+                record_reason(reasons, "artifact_size_invalid")
+                continue
+            if size > MAX_ARCHIVE_BYTES:
                 record_reason(reasons, "artifact_oversize")
                 continue
             workflow_run = artifact.get("workflow_run")
@@ -224,8 +233,8 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # source identity before downloading. The whole tree includes the CI
             # workflow and every build/packaging script; different producer code
             # cannot vouch for this checkout.
-            head = run.get("head_sha", "")
-            if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+            head = run.get("head_sha")
+            if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
                 record_reason(reasons, "producer_revision_invalid")
                 continue
             if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
@@ -250,14 +259,16 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             if compile_job is None:
                 record_reason(reasons, "producer_compile_unsuccessful")
                 continue
-            if not artifact.get("digest", "").startswith("sha256:"):
+            digest = artifact.get("digest")
+            if not isinstance(digest, str) or not digest.startswith("sha256:"):
                 record_reason(reasons, "artifact_digest_missing")
                 continue
             run = dict(run)
             run["_compile_seconds"] = compile_step_seconds(compile_job)
             run["_producer_attempt"] = producer_attempt
             yield artifact, run
-        except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+        except (TypeError, AttributeError, ValueError, KeyError, OSError,
+                subprocess.SubprocessError):
             # A stale candidate can disappear between the bounded artifact list
             # and its attempt/job/tree lookup. Treat only that candidate as a miss.
             record_reason(reasons, "producer_provenance_unavailable")
@@ -451,7 +462,8 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 # Verify the actual checkout commit against GitHub, independent of
                 # the artifact name and the earlier pre-download selection check.
                 for revision in (receipt["revision"], run["head_sha"]):
-                    if not re.fullmatch(r"[0-9a-f]{6,40}", revision):
+                    if (not isinstance(revision, str)
+                            or not re.fullmatch(r"[0-9a-f]{6,40}", revision)):
                         raise ValueError("invalid producer revision")
                     if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
                         raise ValueError("producer source tree mismatch")
@@ -465,7 +477,8 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                 products.restore(staging, {**current_identity, "revision": original["revision"]})
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
-            except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+            except (TypeError, AttributeError, ValueError, KeyError, OSError,
+                    subprocess.SubprocessError):
                 record_reason(reasons, "product_provenance_invalid")
                 continue
 
@@ -581,8 +594,8 @@ def main():
                 )
             else:
                 report["miss_reasons"] = "consumer_event_disallowed"
-        except (ValueError, KeyError, OSError, subprocess.SubprocessError,
-                tarfile.TarError, zipfile.BadZipFile):
+        except (TypeError, AttributeError, ValueError, KeyError, OSError,
+                subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile):
             print("Compiled-product reuse unavailable; compiling normally.")
             report["reason"] = "fallback"
             report["miss_reasons"] = "reuse_api_or_validation_error"
