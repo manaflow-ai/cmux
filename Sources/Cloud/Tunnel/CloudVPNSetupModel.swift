@@ -24,17 +24,18 @@ final class CloudVPNSetupModel {
 
     var state: CloudTunnelState { status?.state ?? .off }
     var isSupported: Bool { coordinator?.backend.isNetworkExtension == true }
-    var isCheckingStatus: Bool { isSupported && status == nil }
+    var isCheckingStatus: Bool { coordinator == nil || (isSupported && status == nil) }
     var canConnect: Bool { isSupported && status != nil && !isSubmitting && !state.isSettling && state != .up }
     var canDisconnect: Bool { !isSubmitting && (state == .up || state == .starting || state == .awaitingApproval) }
 
     var unavailableMessage: String? {
-        isSupported ? nil : String(localized: "cloud.vpn.setup.unavailable", defaultValue: "This copy of cmux does not include a signed VPN extension. Use a cmux release with Cloud VPN support. Cloud terminals, Ports, and Desktop remain available without the VPN.")
+        guard coordinator != nil, !isSupported else { return nil }
+        return String(localized: "cloud.vpn.setup.unavailable", defaultValue: "This copy of cmux does not include a signed VPN extension. Use a cmux release with Cloud VPN support. Cloud terminals, Ports, and Desktop remain available without the VPN.")
     }
 
     var statusTitle: String {
-        if !isSupported { return String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable") }
         if isCheckingStatus { return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting") }
+        if !isSupported { return String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable") }
         switch state {
         case .off: return String(localized: "cloud.vpn.setup.off", defaultValue: "Off")
         case .starting: return String(localized: "cloud.vpn.setup.waiting", defaultValue: "Waiting")
