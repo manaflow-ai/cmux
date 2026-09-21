@@ -39,6 +39,17 @@ import Testing
         ])
     }
 
+    @Test func paneLayoutSurvivesProjection() throws {
+        let data = Data(#"{"workspaces":[{"id":"w","title":"W","is_selected":true,"terminals":[],"surfaces":[{"surface_id":"s","kind":"terminal","title":"Shell"}],"panes":[{"pane_id":"p","x":0.5,"y":0,"width":0.5,"height":1,"surface_ids":["s"],"selected_surface_id":"s","is_focused":true}]}]}"#.utf8)
+        let response = try MobileSyncWorkspaceListResponse.decode(data)
+        let pane = try #require(MobileWorkspacePreview(remote: response.workspaces[0]).panes.first)
+        #expect(pane.id.rawValue == "p")
+        #expect(pane.frame == .init(x: 0.5, y: 0, width: 0.5, height: 1))
+        #expect(pane.surfaceIDs == ["s"])
+        #expect(pane.selectedSurfaceID == "s")
+        #expect(pane.isFocused)
+    }
+
     @Test(arguments: [
         "mobile.panel.artifact.stat",
         "mobile.panel.artifact.fetch",

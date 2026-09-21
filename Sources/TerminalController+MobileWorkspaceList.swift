@@ -262,6 +262,18 @@ extension TerminalController {
             }
             return payload
         }
+        let panes = mobileWorkspacePanes(in: workspace).map { pane in
+            [
+                "pane_id": pane.paneID,
+                "x": pane.x,
+                "y": pane.y,
+                "width": pane.width,
+                "height": pane.height,
+                "surface_ids": pane.surfaceIDs,
+                "selected_surface_id": v2OrNull(pane.selectedSurfaceID),
+                "is_focused": pane.isFocused,
+            ]
+        }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let unreadCount = store?.unreadCount(forTabId: workspace.id) ?? 0
@@ -307,8 +319,43 @@ extension TerminalController {
             "unread_count": unreadCount,
             "terminals": terminals,
             "surfaces": surfaces,
+            "panes": panes,
             "simulators": simulators
         ]
+    }
+
+    /// Projects workspace pane topology into normalized rectangles for the
+    /// mobile task composer. Keeping this projection beside the workspace list
+    /// means legacy reloads and state-sync snapshots expose the same target set.
+    func mobileWorkspacePanes(in workspace: Workspace) -> [WorkspaceSyncRecord.Pane] {
+        let snapshot = workspace.bonsplitController.layoutSnapshot()
+        let container = snapshot.containerFrame
+        guard container.width > 0, container.height > 0 else { return [] }
+        let frames = Dictionary(
+            snapshot.panes.map { ($0.paneId, $0.frame) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let focusedPaneID = workspace.bonsplitController.focusedPaneId?.id.uuidString
+        return workspace.bonsplitController.allPaneIds.compactMap { paneID in
+            guard let frame = frames[paneID.id.uuidString],
+                  frame.width > 0,
+                  frame.height > 0 else { return nil }
+            let tabs = workspace.bonsplitController.tabs(inPane: paneID)
+            let surfaceIDs = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id)?.uuidString }
+            let selectedSurfaceID = workspace.bonsplitController
+                .selectedTab(inPane: paneID)
+                .flatMap { workspace.panelIdFromSurfaceId($0.id)?.uuidString }
+            return WorkspaceSyncRecord.Pane(
+                paneID: paneID.id.uuidString,
+                x: (frame.x - container.x) / container.width,
+                y: (frame.y - container.y) / container.height,
+                width: frame.width / container.width,
+                height: frame.height / container.height,
+                surfaceIDs: surfaceIDs,
+                selectedSurfaceID: selectedSurfaceID,
+                isFocused: paneID.id.uuidString == focusedPaneID
+            )
+        }
     }
 
     /// Mobile-gated close of one explicit workspace. The Mac remains

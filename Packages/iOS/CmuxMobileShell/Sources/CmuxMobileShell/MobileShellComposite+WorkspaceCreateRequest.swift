@@ -115,7 +115,13 @@ extension MobileShellComposite {
         }
         do {
             var params: [String: Any] = [:]
-            if let groupID {
+            if let targetWorkspaceID = spec?.targetWorkspaceID,
+               let targetPaneID = spec?.targetPaneID {
+                params["target_workspace_id"] = remoteWorkspaceID(for: targetWorkspaceID).rawValue
+                params["target_pane_id"] = targetPaneID.rawValue
+            } else if spec?.targetWorkspaceID != nil || spec?.targetPaneID != nil {
+                return .failure(.rejected(hostDisplayName: context.hostDisplayName))
+            } else if let groupID {
                 params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
             }
             if let title = spec?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {

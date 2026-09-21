@@ -24,6 +24,15 @@ extension MobileWorkspacePreview {
                 MobileTerminalPreview(remote: terminal)
             },
             surfaces: (remote.surfaces ?? []).map(MobileSurfacePreview.init(remote:)),
+            panes: (remote.panes ?? []).map { pane in
+                MobilePanePreview(
+                    id: .init(rawValue: pane.paneID),
+                    frame: .init(x: pane.x, y: pane.y, width: pane.width, height: pane.height),
+                    surfaceIDs: pane.surfaceIDs.map(MobileSurfacePreview.ID.init(rawValue:)),
+                    selectedSurfaceID: pane.selectedSurfaceID.map(MobileSurfacePreview.ID.init(rawValue:)),
+                    isFocused: pane.isFocused
+                )
+            },
             simulators: remote.simulators
         )
     }

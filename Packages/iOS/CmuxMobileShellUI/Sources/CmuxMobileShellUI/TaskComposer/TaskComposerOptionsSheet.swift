@@ -20,6 +20,10 @@ struct TaskComposerOptionsSheet: View {
     let workspaceGroupSelectionPending: Bool
     let workspaceGroupSelectionRequiresResolution: Bool
     let showsWorkspaceGroupPicker: Bool
+    let paneWorkspaces: [MobileWorkspacePreview]
+    let selectedTargetWorkspaceID: MobileWorkspacePreview.ID?
+    let selectedTargetPaneID: MobilePanePreview.ID?
+    let selectTargetPane: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
     let directory: String
     let isDisabled: Bool
     let directoryCandidates: [MobileTaskDirectoryCandidate]
@@ -36,6 +40,7 @@ struct TaskComposerOptionsSheet: View {
     ) async -> Result<MobileTaskDirectoryListResponse, MobileTaskDirectoryListFailure>
 
     @State private var isDirectoryPickerPresented = false
+    @State private var isDestinationPickerPresented = false
 
     var body: some View {
         NavigationStack {
@@ -50,6 +55,11 @@ struct TaskComposerOptionsSheet: View {
                     workspaceGroupSelectionPending: workspaceGroupSelectionPending,
                     workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
                     showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
+                    paneWorkspaces: paneWorkspaces,
+                    selectedTargetWorkspaceID: selectedTargetWorkspaceID,
+                    selectedTargetPaneID: selectedTargetPaneID,
+                    selectTargetPane: selectTargetPane,
+                    presentDestinationPicker: { isDestinationPickerPresented = true },
                     directory: directory,
                     isDisabled: isDisabled,
                     endWorkspaceNameEditing: endWorkspaceNameEditing,
@@ -90,6 +100,15 @@ struct TaskComposerOptionsSheet: View {
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $isDestinationPickerPresented) {
+                TaskComposerDestinationPicker(
+                    workspaces: paneWorkspaces,
+                    selectedWorkspaceID: selectedTargetWorkspaceID,
+                    selectedPaneID: selectedTargetPaneID,
+                    isDisabled: isDisabled,
+                    select: selectTargetPane
+                )
             }
         }
         .presentationDetents([.medium])

@@ -1,7 +1,7 @@
 import CmuxSettings
 import Foundation
 
-private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [String: String] {
+func sanitizedInitialEnvironment(_ environment: [String: String]) -> [String: String] {
     environment.reduce(into: [:]) { result, pair in
         let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty,

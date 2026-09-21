@@ -25,6 +25,8 @@ struct TaskComposerSheet: View {
     @State var selectedMacDeviceID: String
     @State var selectedMacInstanceTag: String?
     @State var selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    @State var selectedTargetWorkspaceID: MobileWorkspacePreview.ID?
+    @State var selectedTargetPaneID: MobilePanePreview.ID?
     // A persisted group can be restored before the live host inventory arrives.
     // Keep it separate from an explicit user selection so an empty first
     // projection cannot silently turn a grouped task into an ungrouped one.
@@ -224,6 +226,8 @@ struct TaskComposerSheet: View {
         // sheet can be initialized, so an empty snapshot here means
         // "not loaded yet", not "definitively ungrouped".
         let initialWorkspaceGroupID = draft?.workspaceGroupID
+        let initialTargetWorkspaceID = draft?.targetWorkspaceID
+        let initialTargetPaneID = draft?.targetPaneID
         let draftTemplateID = draft?.templateID
             .flatMap { id in templates.contains(where: { $0.id == id }) ? id : nil }
         let selectedTemplateID = draftTemplateID
@@ -299,6 +303,8 @@ struct TaskComposerSheet: View {
             draft?.templateID == selectedTemplateID
                 && draftMatchesSelectedMac
                 && draft?.workspaceGroupID == initialWorkspaceGroupID
+                && draft?.targetWorkspaceID == initialTargetWorkspaceID
+                && draft?.targetPaneID == initialTargetPaneID
                 && canRestoreDraftDirectory
                 && draftModelSurvivedValidation
                 && draftEffortSurvivedValidation
@@ -321,6 +327,8 @@ struct TaskComposerSheet: View {
                 directory: initialDirectory,
                 workspaceName: initialWorkspaceName,
                 workspaceGroupID: initialWorkspaceGroupID,
+                targetWorkspaceID: initialTargetWorkspaceID,
+                targetPaneID: initialTargetPaneID,
                 didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
                 attachments: restoredAttachments.map {
                     MobileTaskSubmissionAttachment(uploadID: $0.id, byteCount: $0.byteCount)
@@ -341,12 +349,16 @@ struct TaskComposerSheet: View {
             directory: initialDirectory,
             didEditDirectory: canRestoreDraftDirectory && draft?.didEditDirectory == true,
             workspaceGroupID: initialWorkspaceGroupID,
+            targetWorkspaceID: initialTargetWorkspaceID,
+            targetPaneID: initialTargetPaneID,
             attachmentIDs: Set(initialAttachments.map(\.id))
                 .union(restoredAttachments.map(\.id))
         ))
         let canRestoreCompletedOperation = draft?.templateID == selectedTemplateID
             && draftMatchesSelectedMac
             && draft?.workspaceGroupID == initialWorkspaceGroupID
+            && draft?.targetWorkspaceID == initialTargetWorkspaceID
+            && draft?.targetPaneID == initialTargetPaneID
             && canRestoreDraftDirectory
             && draftModelSurvivedValidation
             && draftEffortSurvivedValidation
@@ -368,6 +380,8 @@ struct TaskComposerSheet: View {
         _selectedMacDeviceID = State(initialValue: selectedMacID)
         _selectedMacInstanceTag = State(initialValue: selectedMacInstanceTag)
         _selectedWorkspaceGroupID = State(initialValue: initialWorkspaceGroupID)
+        _selectedTargetWorkspaceID = State(initialValue: initialTargetWorkspaceID)
+        _selectedTargetPaneID = State(initialValue: initialTargetPaneID)
         _pendingRestoredWorkspaceGroupID = State(initialValue: draft?.workspaceGroupID)
         _displayedModels = State(initialValue: initialModelResult?.models ?? [])
         _displayedDefaultModel = State(initialValue: initialModelResult?.defaultModel)
@@ -579,6 +593,7 @@ struct TaskComposerSheet: View {
                 && attachmentStagingTask == nil
                 && !workspaceGroupSelectionNeedsInventory
                 && !workspaceGroupSelectionRequiresResolution
+                && selectedTargetPaneIsAvailable
                 && blockingCompletedOperationRecovery == nil,
             connectionWarningText: connectionWarningText,
             failureTitle: failureTitleStyle.title,
@@ -620,6 +635,10 @@ struct TaskComposerSheet: View {
             showsWorkspaceGroupPicker: canSelectWorkspaceGroup
                 || workspaceGroupSelectionNeedsInventory
                 || workspaceGroupSelectionRequiresResolution,
+            paneWorkspaces: paneWorkspacesForSelectedMachine,
+            selectedTargetWorkspaceID: selectedTargetWorkspaceID,
+            selectedTargetPaneID: selectedTargetPaneID,
+            selectTargetPane: selectTargetPane,
             directory: directory,
             isDisabled: submissionPhase.disablesRequestEditing,
             directoryCandidates: directoryCandidates,
@@ -692,6 +711,25 @@ struct TaskComposerSheet: View {
     private var workspaceGroups: [MobileWorkspaceGroupPreview] {
         guard canSelectWorkspaceGroup else { return [] }
         return availableWorkspaceGroups ?? store.workspaceGroups
+    }
+
+    private var paneWorkspacesForSelectedMachine: [MobileWorkspacePreview] {
+        store.workspaces.filter { workspace in
+            workspace.macDeviceID == selectedMacDeviceID
+                && workspace.macInstanceTag == selectedMacInstanceTag
+                && !workspace.panes.isEmpty
+        }
+    }
+
+    private var selectedTargetPaneIsAvailable: Bool {
+        guard let workspaceID = selectedTargetWorkspaceID,
+              let paneID = selectedTargetPaneID else {
+            return selectedTargetWorkspaceID == nil && selectedTargetPaneID == nil
+        }
+        return paneWorkspacesForSelectedMachine.contains { workspace in
+            workspace.rpcWorkspaceID == workspaceID
+                && workspace.panes.contains { $0.id == paneID }
+        }
     }
 
     private var canSelectWorkspaceGroup: Bool {
@@ -949,6 +987,8 @@ struct TaskComposerSheet: View {
             directory: directory,
             didEditDirectory: didEditDirectory,
             workspaceGroupID: selectedWorkspaceGroupID,
+            targetWorkspaceID: selectedTargetWorkspaceID,
+            targetPaneID: selectedTargetPaneID,
             attachmentIDs: isDraftAttachmentRestorePending
                 ? Set(restoredDraftAttachments.map(\.id))
                 : Set(attachments.map(\.id))
@@ -1063,6 +1103,8 @@ struct TaskComposerSheet: View {
             selectedMacInstanceTag = instanceTag
             pendingRestoredWorkspaceGroupID = nil
             workspaceGroupSelectionRequiresResolution = false
+            selectedTargetWorkspaceID = nil
+            selectedTargetPaneID = nil
             selectedWorkspaceGroupID = validWorkspaceGroupID(
                 selectedWorkspaceGroupID,
                 groups: workspaceGroups,
@@ -1083,6 +1125,32 @@ struct TaskComposerSheet: View {
             pendingRestoredWorkspaceGroupID = nil
             workspaceGroupSelectionRequiresResolution = false
             selectedWorkspaceGroupID = groupID
+            selectedTargetWorkspaceID = nil
+            selectedTargetPaneID = nil
+        }
+    }
+
+    private func selectTargetPane(
+        _ workspaceID: MobileWorkspacePreview.ID?,
+        _ paneID: MobilePanePreview.ID?
+    ) {
+        guard !submissionPhase.disablesRequestEditing else { return }
+        guard (workspaceID == nil && paneID == nil)
+            || paneWorkspacesForSelectedMachine.contains(where: { workspace in
+                workspace.rpcWorkspaceID == workspaceID
+                    && workspace.panes.contains(where: { $0.id == paneID })
+            }) else { return }
+        updateSubmissionRequest(reconcileRecovery: true) {
+            selectedTargetWorkspaceID = workspaceID
+            selectedTargetPaneID = paneID
+            if workspaceID != nil {
+                pendingRestoredWorkspaceGroupID = nil
+                workspaceGroupSelectionRequiresResolution = false
+                selectedWorkspaceGroupID = nil
+            }
+        }
+        if let paneID {
+            store.recordAppEvent(.taskRouteSelected, correlationID: paneID.rawValue)
         }
     }
 

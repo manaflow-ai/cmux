@@ -14,6 +14,8 @@ struct TaskComposerSessionFingerprint: Equatable {
     var directory: String
     var didEditDirectory: Bool
     var workspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    var targetWorkspaceID: MobileWorkspacePreview.ID?
+    var targetPaneID: MobilePanePreview.ID?
     var attachmentIDs: Set<UUID>
 }
 #endif

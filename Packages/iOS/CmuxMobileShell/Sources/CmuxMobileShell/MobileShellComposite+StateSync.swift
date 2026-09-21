@@ -401,6 +401,18 @@ extension MobileShellComposite {
                         todo: surface.todo
                     )
                 },
+                panes: record.panes?.map { pane in
+                    MobileSyncWorkspaceListResponse.Pane(
+                        paneID: pane.paneID,
+                        x: pane.x,
+                        y: pane.y,
+                        width: pane.width,
+                        height: pane.height,
+                        surfaceIDs: pane.surfaceIDs,
+                        selectedSurfaceID: pane.selectedSurfaceID,
+                        isFocused: pane.isFocused
+                    )
+                },
                 simulators: record.simulators
             )
         }

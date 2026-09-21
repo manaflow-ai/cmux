@@ -19,6 +19,16 @@ public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
     public var workspaceGroupID: MobileWorkspaceGroupPreview.ID?
     /// Stable identity for idempotent retry of one logical create operation.
     public var operationID: UUID?
+    /// Existing workspace to receive the new task terminal. When set, the
+    /// request creates a terminal in ``targetPaneID`` instead of a workspace.
+    public var targetWorkspaceID: MobileWorkspacePreview.ID?
+    /// Existing pane to receive the new task terminal.
+    public var targetPaneID: MobilePanePreview.ID?
+
+    /// Whether this request targets an existing pane.
+    public var targetsExistingPane: Bool {
+        targetWorkspaceID != nil || targetPaneID != nil
+    }
 
     /// Creates optional workspace-create parameters.
     /// - Parameters:
@@ -33,7 +43,9 @@ public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
         initialCommand: String? = nil,
         initialEnv: [String: String]? = nil,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
-        operationID: UUID? = nil
+        operationID: UUID? = nil,
+        targetWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        targetPaneID: MobilePanePreview.ID? = nil
     ) {
         self.title = title
         self.workingDirectory = workingDirectory
@@ -41,5 +53,7 @@ public struct MobileWorkspaceCreateSpec: Equatable, Sendable {
         self.initialEnv = initialEnv
         self.workspaceGroupID = workspaceGroupID
         self.operationID = operationID
+        self.targetWorkspaceID = targetWorkspaceID
+        self.targetPaneID = targetPaneID
     }
 }
