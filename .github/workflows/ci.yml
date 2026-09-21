@@ -975,7 +975,7 @@ jobs:
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
-      CMUX_APP_HOST_RESULT_BUNDLE_ROOT: ${{ runner.temp }}/cmux-app-host-xcresults
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -2277,7 +2277,7 @@ jobs:
             echo "sha=${{ github.sha }}"
             echo "physical_shard=${{ matrix.shard }}"
             echo "derived_data=${CMUX_DERIVED_DATA_PATH:-}"
-            echo "result_bundle_root=${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}"
+            echo "result_bundle_root=${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
           } >"$diagnostics/manifest.txt"
 
           shopt -s nullglob
@@ -2298,9 +2298,9 @@ jobs:
             cp "${capture_files[@]}" "$diagnostics/captures/" || true
           fi
 
-          if [ -n "${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}" ] \
-            && [ -d "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT" ]; then
-            cp -R "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT" "$diagnostics/xcresults" || true
+          result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
+          if [ -d "$result_bundle_root" ]; then
+            cp -R "$result_bundle_root" "$diagnostics/xcresults" || true
           fi
 
           # Preserve reports from the isolated XCTest HOME before the always-
