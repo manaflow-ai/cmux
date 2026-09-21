@@ -17,8 +17,9 @@ extension DockSplitStore {
                           )
                       ),
                       terminal.surface.surface != nil else { return }
-                _ = terminal.sendInputResult(input)
-                if var binding = self.surfaceResumeBindingsByPanelId[panelId] {
+                let sendResult = terminal.sendInputResult(input)
+                if sendResult.accepted,
+                   var binding = self.surfaceResumeBindingsByPanelId[panelId] {
                     // A replayed startup selector is the explicit settle signal
                     // for a process-detected restore with no command callback.
                     binding.clearRestoredProcessDetectionObservation()

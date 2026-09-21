@@ -28,8 +28,9 @@ extension Workspace {
                   hasLiveAgent: hasLiveAgent
               ),
               terminal.surface.surface != nil else { return }
-        _ = terminal.sendInputResult(input)
-        if var binding = surfaceResumeBindingsByPanelId[panelId] {
+        let sendResult = terminal.sendInputResult(input)
+        if sendResult.accepted,
+           var binding = surfaceResumeBindingsByPanelId[panelId] {
             // A replayed startup selector is the explicit settle signal for a
             // process-detected restore with no command callback.
             binding.clearRestoredProcessDetectionObservation()
