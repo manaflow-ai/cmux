@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import fcntl
+import importlib.machinery
+import importlib.util
 import json
 import os
 import subprocess
@@ -14,6 +16,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
+LOADER = importlib.machinery.SourceFileLoader("cmux_settings_helper", str(HELPER))
+SPEC = importlib.util.spec_from_loader(LOADER.name, LOADER)
+assert SPEC is not None
+helper = importlib.util.module_from_spec(SPEC)
+LOADER.exec_module(helper)
 
 
 class CmuxSettingsJSONCTests(unittest.TestCase):
@@ -258,6 +265,60 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("intermediate key 'app' is not an object", result.stderr)
             self.assertEqual(config.read_text(encoding="utf-8"), source)
+
+    def test_atomic_commit_refuses_stale_external_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
+            original = helper.current_revision(config)
+            external = '{"app":{"appearance":"external"}}\n'
+            config.write_text(external, encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                SystemExit,
+                "cmux config changed while preparing the edit",
+            ):
+                helper.atomic_write_text(
+                    config,
+                    '{"app":{"appearance":"light"}}\n',
+                    expected_revision=original,
+                )
+
+            self.assertEqual(config.read_text(encoding="utf-8"), external)
+
+    def test_helper_waits_for_brief_shared_writer_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
+            lock_path = Path(str(config.resolve()) + ".cmux-write.lock")
+            ready = Path(tmp) / "ready"
+            holder = subprocess.Popen([
+                sys.executable,
+                "-c",
+                (
+                    "import fcntl,os,pathlib,sys,time;"
+                    "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600);"
+                    "fcntl.flock(fd,fcntl.LOCK_EX);"
+                    "pathlib.Path(sys.argv[2]).write_text('ready');"
+                    "time.sleep(0.25);"
+                    "fcntl.flock(fd,fcntl.LOCK_UN);"
+                    "os.close(fd)"
+                ),
+                str(lock_path),
+                str(ready),
+            ])
+            try:
+                for _ in range(200):
+                    if ready.exists():
+                        break
+                    __import__("time").sleep(0.01)
+                self.assertTrue(ready.exists())
+                self.run_helper(config, "set", "app.appearance", "light")
+            finally:
+                holder.terminate()
+                holder.wait(timeout=5)
+
+            self.assertIn('"light"', config.read_text(encoding="utf-8"))
 
     def test_helper_refuses_while_shared_writer_lock_is_held(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
