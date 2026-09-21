@@ -407,6 +407,29 @@ struct CloudTreeMachineMenuTests {
         #expect(store.isPinned("old-machine"))
     }
 
+    @Test("A Cloud refresh does not hide independently discovered Macs")
+    func failedCloudScopeRefreshKeepsDeviceRows() async {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: "other-mac", tag: "default"))
+        let info = SurfaceMachineInfo(
+            id: machine, name: "Other Mac", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        var snapshot = Self.catalog(["retired-cloud-machine"])
+        snapshot.machines.append(info)
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            catalogProvider: { snapshot }
+        )
+        model.localWorkspacesProvider = { [] }
+        await model.refreshAccountScope(refreshCatalog: { false }).value
+        #expect(model.catalog.machines.map(\.id) == [machine])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
+        )
+        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+    }
+
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(machines: ids.map { id in
             SurfaceMachineInfo(

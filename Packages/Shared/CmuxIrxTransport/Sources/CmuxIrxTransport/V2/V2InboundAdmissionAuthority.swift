@@ -35,11 +35,11 @@ public final class V2InboundAdmissionAuthority: Sendable {
     ///   - host: Raw v2 Mac descriptor, including the bundle namespace without a UI prefix.
     ///   - wallNow: Wall time used when mapping server timestamps to local deadlines.
     ///   - monotonicNow: Clock used for every authorization and expiration check.
-    /// - Throws: A scope error if this is not an enabled Mac identity.
+    /// - Throws: A scope error if this is not a Mac identity.
     public init(host: V2DeviceDescriptor,
                 wallNow: @escaping @Sendable () -> Date = { Date() },
                 monotonicNow: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) throws {
-        guard host.metadata.platform == .mac, host.metadata.pairingEnabled,
+        guard host.metadata.platform == .mac,
               Self.validKey(host.endpointID), host.identityGeneration >= 0 else {
             throw V2ControlFailure.scopeMismatch
         }
@@ -178,7 +178,7 @@ public final class V2InboundAdmissionAuthority: Sendable {
               own.descriptor.identity == host.identity,
               own.descriptor.endpointID == host.endpointID,
               own.descriptor.identityGeneration == host.identityGeneration,
-              own.descriptor.metadata.platform == .mac, own.descriptor.metadata.pairingEnabled,
+              own.descriptor.metadata.platform == .mac,
               !current.revokedRecords.contains(own.deviceRecordID) else {
             if cache.formatVersion != 2 || cache.authorityRevoked || cache.device != nil || cache.identity != host.identity {
                 current.invalidated = true
@@ -186,6 +186,7 @@ public final class V2InboundAdmissionAuthority: Sendable {
             return clear(&current)
         }
         current.localRecordID = own.deviceRecordID
+        guard own.descriptor.metadata.pairingEnabled else { return clear(&current) }
         guard let directory = cache.directory else { return clear(&current) }
         guard directory.teamID == host.identity.teamID, directory.nextCursor == nil,
               (directory.inboundPeers?.count ?? 0) <= 4096 else { return clear(&current) }

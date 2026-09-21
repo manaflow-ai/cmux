@@ -194,8 +194,16 @@ export class TeamStore {
     const userId = requester.descriptor.identity.userId;
     const acceptsPeers = !requester.revoked && requester.descriptor.metadata.platform === "mac" && requester.descriptor.metadata.pairingEnabled;
     const visible = sql`(d."user_id" = ${userId} OR outgoing."connect" = 1)`;
-    const inbound = sql`(${acceptsPeers ? 1 : 0} = 1 AND d."platform" = 'ios' AND d."revoked" = 0
-      AND a."expires_at" > ${now} AND (d."user_id" = ${userId} OR incoming."connect" = 1))`;
+    const acceptsMacs = requester.descriptor.metadata.capabilities.includes("cmux.mac-host.v1");
+    // Mac access requires opt-in hosting, the same account and exact app/build.
+    // Existing team grants continue to govern the iOS admission path.
+    const macPeer = sql`(${acceptsMacs ? 1 : 0} = 1 AND d."platform" = 'mac'
+      AND d."user_id" = ${userId} AND d."endpoint_id" != ${requester.descriptor.endpointId}
+      AND d."app_namespace" = ${requester.descriptor.identity.appNamespace}
+      AND d."build_tag" = ${requester.descriptor.identity.buildTag}
+      AND EXISTS (SELECT 1 FROM json_each(d."capabilities_json") WHERE value = 'cmux.mac-devices.v1'))`;
+    const inbound = sql`(${acceptsPeers ? 1 : 0} = 1 AND d."revoked" = 0 AND a."expires_at" > ${now}
+      AND ((d."platform" = 'ios' AND (d."user_id" = ${userId} OR incoming."connect" = 1)) OR ${macPeer}))`;
     const rows = this.#db.all<DeviceRow & { visible: number; inbound_expires_at: number | null }>(sql`
       SELECT d.*, CASE WHEN ${visible} THEN 1 ELSE 0 END AS "visible",
         CASE WHEN ${inbound} THEN a."expires_at" ELSE NULL END AS "inbound_expires_at"

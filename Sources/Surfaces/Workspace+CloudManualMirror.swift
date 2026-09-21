@@ -15,6 +15,30 @@ import GhosttyKit
 /// (`Workspace+CloudTerminalReservation`).
 @MainActor
 extension Workspace {
+    /// A saved device terminal stays process-free until its provider reconnects:
+    /// the pane is built on the same manual-mirror path as a live attachment,
+    /// with no transport bound yet, and is never marked loading.
+    func restoreDeviceDisplayPanel(_ snapshot: SessionPanelSnapshot, in pane: PaneID) -> UUID? {
+        guard let panel = makeRemoteTmuxPanePanel(onInput: { _ in }, keyNameResolver: nil) else { return nil }
+        Self.bindCloudManualMirrorCallbacks(
+            panel: panel, onResize: { _ in }, onRuntimeReady: {}, onFocus: {}, attachment: nil
+        )
+        guard let panelID = try? insertCloudManualMirrorTab(panel, in: pane, focus: false, isLoading: false) else {
+            return nil
+        }
+        let status = DeviceTerminalAttachmentStatus()
+        panel.deviceAttachment = status
+        status.onChange = { [weak self] in self?.postRemoteConnectionPresentationDidChange() }
+        status.onRetry = { [weak self] in
+            guard self != nil, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
+                  let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) else { return }
+            Task { await provider.refresh(force: true) }
+        }
+        status.update(connected: false, connecting: false)
+        applySessionPanelMetadata(snapshot, toPanelId: panelID)
+        return panelID
+    }
+
     private static var cloudManualMirrorTabTitle: String {
         String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
     }
@@ -103,11 +127,11 @@ extension Workspace {
             case .split:
                 return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading)
             }
-        case .tab(_, let paneID, _):
+        case .tab(_, let paneID, let index):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading)
+            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading, index: index)
         case .split(_, let paneID, let direction):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
@@ -120,7 +144,8 @@ extension Workspace {
         _ panel: TerminalPanel,
         in pane: PaneID,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        index: Int? = nil
     ) throws -> UUID {
         panels[panel.id] = panel
         panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
@@ -138,6 +163,14 @@ extension Workspace {
             throw SurfaceCatalogError.unsupported("manual cloud terminal tab")
         }
         bindSurface(tab, toPanelId: panel.id)
+        if let index {
+            let tabs = bonsplitController.tabs(inPane: pane)
+            if let current = tabs.firstIndex(where: { $0.id == tab }) {
+                let target = min(max(index, 0), tabs.count - 1)
+                // Bonsplit accepts an insertion gap, not the final tab index.
+                _ = bonsplitController.reorderTab(tab, toIndex: target + (current < target ? 1 : 0))
+            }
+        }
         rememberTerminalConfigInheritanceSource(panel)
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {

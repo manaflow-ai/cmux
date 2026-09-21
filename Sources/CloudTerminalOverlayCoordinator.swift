@@ -79,23 +79,32 @@ final class CloudTerminalOverlayCoordinator {
         }
 
         let destination: NSView = presented ? hostedView : ((anchor as NSView?) ?? hostedView)
-        let dismissalID = hostedView.surfaceView.terminalSurface.map {
-            "cloud.remote-reconnect.\($0.id.uuidString)"
+        let deviceStatus = hostedView.surfaceView.terminalSurface.flatMap { surface in
+            surface.owningWorkspace()?.terminalPanel(for: surface.id)?.deviceAttachment
         }
+        let dismissalID = deviceStatus == nil ? hostedView.surfaceView.terminalSurface.map {
+            "cloud.remote-reconnect.\($0.id.uuidString)"
+        } : nil
         let effectiveCancel = { [weak self] in
-            if let onCancel {
+            if let deviceStatus {
+                deviceStatus.dismiss()
+            } else if let onCancel {
                 onCancel()
             } else if let session = self?.session {
                 session.cancelConnectionAttempt()
             }
         }
+        let dismissDevice: (() -> Void)?
+        if let deviceStatus { dismissDevice = { deviceStatus.dismiss() } }
+        else { dismissDevice = nil }
         apply(
             visible ? presentation : nil,
             in: destination,
             frame: presented ? contentFrame : destination.bounds,
             dismissalID: dismissalID,
             onReconnect: onReconnect,
-            onCancel: effectiveCancel
+            onCancel: effectiveCancel,
+            onDismiss: dismissDevice
         )
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
@@ -130,7 +139,8 @@ final class CloudTerminalOverlayCoordinator {
         frame: CGRect,
         dismissalID: String? = nil,
         onReconnect: @escaping () -> Void,
-        onCancel: (() -> Void)? = nil
+        onCancel: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         guard let presentation else {
             overlay?.removeFromSuperview()
@@ -151,7 +161,9 @@ final class CloudTerminalOverlayCoordinator {
         card.onReconnect = onReconnect
         card.onDismiss = { [weak self, weak card] in
             guard let self, let card else { return }
-            if presentation.showsProgress {
+            if let onDismiss {
+                onDismiss()
+            } else if presentation.showsProgress {
                 if let onCancel {
                     onCancel()
                 } else if let session = self.session {
