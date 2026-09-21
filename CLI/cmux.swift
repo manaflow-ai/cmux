@@ -17106,7 +17106,6 @@ struct CMUXCLI {
             return
         }
 
-
         if subcommand == "find" {
             let sid = try requireSurface()
             guard let locator = subArgs.first?.lowercased() else {
@@ -39562,42 +39561,15 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
-        // Every feed event needs a live, app-owned target. The environment
-        // surface is only a routing hint: it can be stale after a pane move or
-        // can belong to a different cmux instance. Lifecycle events have
-        // already gone through the stricter Codex resolver above; all other
-        // events use the same workspace/surface list validation before they
-        // are published.
         if validatedCodexFeedTarget == nil {
-            let rawWorkspaceID = feedWorkspaceId(
-                rawObject: stdinObj,
-                fallback: env["CMUX_WORKSPACE_ID"]
-            )
-            let workspaceID = rawWorkspaceID
-                .flatMap(resolveAccessibleWorkspaceId)
-                ?? processBinding()?.workspaceId.flatMap {
-                    resolveAccessibleWorkspaceId($0)
-                }
-            let rawSurfaceID = firstString(
-                in: stdinObj,
-                keys: ["surface_id", "surfaceId"]
-            ) ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
-                ?? processBinding()?.surfaceId
-            if let workspaceID,
-               let rawSurfaceID,
-               let surfaceID = resolveAccessibleSurfaceId(
-                   rawSurfaceID,
-                   workspaceId: workspaceID
-               ) {
-                validatedCodexFeedTarget = (workspaceID, surfaceID)
-            }
+            let workspaceID = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+                .flatMap(resolveAccessibleWorkspaceId) ?? processBinding()?.workspaceId.flatMap(resolveAccessibleWorkspaceId)
+            let surfaceID = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+                ?? normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? processBinding()?.surfaceId
+            if let workspaceID, let surfaceID,
+               let live = resolveAccessibleSurfaceId(surfaceID, workspaceId: workspaceID) { validatedCodexFeedTarget = (workspaceID, live) }
         }
-        guard let validatedCodexFeedTarget else {
-            print("{}")
-            return
-        }
-
+        guard let validatedCodexFeedTarget else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
