@@ -659,11 +659,6 @@ public struct WorkspaceListLayoutPreviewView: View {
             createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
-                if let delay = ProcessInfo.processInfo.environment[
-                    "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REFRESH_DELAY_MS"
-                ].flatMap(UInt64.init), delay > 0 {
-                    try? await Task.sleep(for: .milliseconds(delay))
-                }
                 await MainActor.run {
                     performPreviewRefresh()
                 }

@@ -5,6 +5,12 @@ import SwiftUI
 struct MobileWorkspaceListEmptyRow: View {
     let retry: (@Sendable () async -> Void)?
     @State private var isRetrying = false
+    @State private var retryTask: Task<Void, Never>?
+    @State private var retryFailure: String?
+
+    private enum RetryError: Error {
+        case timedOut
+    }
 
     var body: some View {
         ContentUnavailableView {
@@ -21,11 +27,35 @@ struct MobileWorkspaceListEmptyRow: View {
             if let retry {
                 Button {
                     guard !isRetrying else { return }
+                    retryFailure = nil
                     isRetrying = true
-                    Task {
-                        defer { isRetrying = false }
-                        await retry()
+                    let task = Task { @MainActor in
+                        defer {
+                            isRetrying = false
+                            retryTask = nil
+                        }
+                        do {
+                            try await withThrowingTaskGroup(of: Void.self) { group in
+                                defer { group.cancelAll() }
+                                group.addTask {
+                                    await retry()
+                                }
+                                group.addTask {
+                                    try await ContinuousClock().sleep(for: .seconds(15))
+                                    throw RetryError.timedOut
+                                }
+                                _ = try await group.next()
+                            }
+                        } catch is CancellationError {
+                            // Disappearing rows cancel an in-flight refresh.
+                        } catch {
+                            retryFailure = L10n.string(
+                                "mobile.workspaces.empty.retryFailed",
+                                defaultValue: "Couldn’t refresh. Try again."
+                            )
+                        }
                     }
+                    retryTask = task
                 } label: {
                     Label {
                         Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
@@ -42,6 +72,13 @@ struct MobileWorkspaceListEmptyRow: View {
                 .controlSize(.regular)
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
+            }
+            if let retryFailure {
+                Text(retryFailure)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryError")
             }
             Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
                 Label(
@@ -62,6 +99,10 @@ struct MobileWorkspaceListEmptyRow: View {
         .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
+        .onDisappear {
+            retryTask?.cancel()
+            retryTask = nil
+        }
     }
 }
 #endif
