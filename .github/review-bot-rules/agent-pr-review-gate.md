@@ -1,7 +1,40 @@
 # Agent PR review gate
 
-Opted-in agent-authored PRs carry `<!-- agent-pr-review-required -->` in the PR body. The `agent-pr-review-complete` workflow then evaluates current GitHub review threads.
+An agent-authored PR opts in by carrying `<!-- agent-pr-review-required -->` in
+its body. The `agent-pr-review-complete` workflow then reads GitHub's review
+data for the exact PR head. It is opt-in; it does not change branch protection
+or add a requirement to ordinary human-authored PRs.
 
-The gate counts only non-outdated inline threads whose first comment comes from the configured actionable review bots (`coderabbitai` and `greptile-apps` by default). Informational summaries, walkthroughs, and rate-limit notices are excluded. A thread is complete only when the PR author has replied after the latest bot comment; resolving the thread without an answer does not satisfy the gate.
+The default review-bot set is `coderabbitai,greptile-apps`; repositories can
+replace it with the `AGENT_REVIEW_BOTS` variable. Replies are accepted only
+from the configured `AGENT_REVIEW_REPLY_ACTORS` comma-separated list. When that
+variable is absent, the workflow explicitly configures the PR author's login.
+The checker never treats an arbitrary PR comment as an agent reply.
 
-The workflow runs in the read-only `pull_request` context with no secrets. It checks out the merge ref only to run this checker; the checker does not execute project code and reads the PR as data. Bot review coverage can be enabled for a repository once its providers expose reliable current-head review records by setting `REQUIRE_BOT_REVIEW_COVERAGE=1` and configuring `REVIEW_BOTS`.
+The read ledger records every configured-bot thread it can capture. A current,
+actionable inline finding is active when it is not outdated. Outdated threads
+stay in the ledger as `outdated`; resolved threads stay visible with their
+resolution state. Summary, walkthrough, and provider rate-limit/unavailable
+messages are classified as informational and are excluded from active finding
+obligations. A finding with a reply is `answered_unverified`, or
+`resolved_unverified` when GitHub also reports resolution. Those dispositions
+record evidence of a reply and resolution; a reply alone is not evidence that
+the finding was fixed.
+
+The gate fails active findings without a reply from a configured actor. It also
+fails if the read capture is incomplete. The GraphQL collector paginates the
+review, thread, and per-thread comment connections; a collector error is a
+failure rather than a pass. It does not write replies, resolve threads, or
+merge PRs.
+
+Current-head provider coverage is a separate, optional check. Set
+`REQUIRE_BOT_REVIEW_COVERAGE=1` only when the configured providers publish a
+reliable structured review record whose commit matches the PR head. The
+default is `0`, so the landing slice enforces answered current threads and
+reports coverage in the read ledger without claiming that every provider has
+reviewed the head. An unavailable provider never counts as a review when
+coverage is enabled.
+
+For an audit-friendly read, run the trusted base-branch checker with
+`--json`; it emits `cmux.agent-pr-review/v1` with the PR/head, configured bots
+and actors, coverage states, capture completeness, and obligation dispositions.

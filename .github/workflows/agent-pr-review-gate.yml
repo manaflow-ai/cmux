@@ -35,5 +35,6 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
+          AGENT_REVIEW_REPLY_ACTORS: ${{ vars.AGENT_REVIEW_REPLY_ACTORS || github.event.pull_request.user.login }}
           REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '0' }}
         run: python3 .github/scripts/agent-pr-review-gate.py
