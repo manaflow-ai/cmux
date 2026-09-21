@@ -387,7 +387,10 @@ final class WindowTerminalHostView: NSView {
     private func splitDividerRegions() -> [DividerRegion] {
         guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootSubviewIds == rootSubviewIds,
+           splitDividerCacheInvalidator.structureIsCurrent(),
+           PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds
@@ -1487,7 +1490,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry for permanent workspace unmounts without detaching it.
+    /// Removes an inactive terminal's view tree from the window while retaining its binding and PTY.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else {
             clearPresentationNotificationState(for: hostedId)
@@ -1500,6 +1503,9 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif

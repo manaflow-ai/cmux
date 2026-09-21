@@ -635,7 +635,9 @@ import Testing
             host: RemoteTmuxHost(destination: "parity-\(UUID().uuidString)@host"),
             sessionName: "work"
         )
-        let workspaceId = UUID()
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let workspaceId = workspace.id
         // Real panels: the parity judgment reads the panes' hosted terminal
         // views, so the fixture needs them mounted through the app's real
         // render chain. The spawn stays paced (no shells launch in a unit
@@ -684,6 +686,7 @@ import Testing
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
+        workspace.bind(to: window)
         let contentView = try #require(window.contentView)
         hostingView.frame = contentView.bounds
         hostingView.autoresizingMask = [.width, .height]
@@ -715,6 +718,10 @@ import Testing
         try #require(
             planViewMismatch(mirror) == nil,
             "fixture never converged to its own plan: \(planViewMismatch(mirror) ?? "")"
+        )
+        try #require(
+            mirror.isEffectivelyVisibleForSizing,
+            "The output-parity judge must observe visible authorized terminal portals"
         )
         mirror.setNeedsSizingPass()
         try await pump(6)
@@ -751,7 +758,7 @@ import Testing
         try await pump(60, until: { planViewMismatch(mirror) == nil })
         #expect(
             planViewMismatch(mirror) == nil,
-            "off-plan geometry never re-converged with unchanged inputs: \(planViewMismatch(mirror) ?? "") — the apply terminated off-target and no re-arm edge exists"
+            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
         )
         withExtendedLifetime(connection) {}
     }
@@ -1611,7 +1618,7 @@ import Testing
     /// settles, and the first settled pass consumes it.
     @Test func parkedReadingSurvivesALiveResizingWindowBound() throws {
         let window = LiveResizeProbeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 360),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
@@ -1675,7 +1682,7 @@ import Testing
         // The resize ends and the window grows past the reading; the first
         // settled pass consumes it.
         window.liveResizeActive = false
-        window.setContentSize(NSSize(width: 1140, height: 940))
+        window.setContentSize(NSSize(width: 740, height: 560))
         contentView.layoutSubtreeIfNeeded()
         let settled = try #require(mirror.visibleHostingContext()?.contentSize)
         #expect(settled.width >= postResize.width && settled.height >= postResize.height)

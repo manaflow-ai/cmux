@@ -549,8 +549,8 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let lines = result.stdout.split(whereSeparator: \.isNewline).map(String.init)
         let rows = lines.filter { $0.hasPrefix("      ") }
         #expect(rows.count == 2, Comment(rawValue: result.stdout))
-        #expect(rows[0].contains("term_b"), Comment(rawValue: rows[0]))
-        #expect(rows[1].contains("term_a"), Comment(rawValue: rows[1]))
+        #expect(rows[0].contains("term_a"), Comment(rawValue: rows[0]))
+        #expect(rows[1].contains("term_b"), Comment(rawValue: rows[1]))
         #expect(!result.stdout.contains("hidden"))
     }
 

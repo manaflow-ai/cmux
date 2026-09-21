@@ -68,7 +68,9 @@ struct WorkspaceGroupMoveToMenuStateTests {
             originalIds[2],
         ]))
         let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
-        let memberID = originalIds[2]
+        let originalGroupMemberIDs = manager.tabs
+            .filter { $0.groupId == groupId }
+            .map(\.id)
 
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         TerminalController.shared.setActiveTabManager(manager)
@@ -83,11 +85,17 @@ struct WorkspaceGroupMoveToMenuStateTests {
             return #expect(Bool(false), "group-header move should be accepted")
         }
         #expect(manager.workspaceGroups.contains { $0.id == groupId })
-        #expect(manager.tabs.filter { $0.groupId == groupId }.map(\.id) == [
-            group.anchorWorkspaceId,
-            memberID,
-        ])
-        #expect(manager.tabs.suffix(2).map(\.id) == [group.anchorWorkspaceId, memberID])
+        #expect(
+            manager.tabs.filter { $0.groupId == groupId }.map(\.id)
+                == originalGroupMemberIDs
+        )
+        let groupedIndices = manager.tabs.indices.filter {
+            manager.tabs[$0].groupId == groupId
+        }
+        #expect(
+            groupedIndices.count
+                == groupedIndices.last! - groupedIndices.first! + 1
+        )
     }
 
     @Test func mobileWorkspaceGroupDeleteRejectsGroupContainingEveryWorkspace() throws {

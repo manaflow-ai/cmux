@@ -117,7 +117,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
         )
     }
 
