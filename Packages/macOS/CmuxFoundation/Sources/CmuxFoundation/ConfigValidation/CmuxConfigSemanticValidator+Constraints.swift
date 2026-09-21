@@ -212,7 +212,12 @@ extension CmuxConfigSemanticValidator {
                 )
             )
         }
-        if let maximum = schemaInteger(schema["maxProperties"]), value.count > maximum {
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        let patternProperties = schema["patternProperties"] as? [String: Any] ?? [:]
+        let knownKeys = Set(value.keys.filter { key in
+            properties[key] != nil || patternProperties.keys.contains { matchesPattern(key, pattern: $0) }
+        })
+        if let maximum = schemaInteger(schema["maxProperties"]), knownKeys.count > maximum {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
@@ -239,15 +244,13 @@ extension CmuxConfigSemanticValidator {
             }
         }
 
-        let properties = schema["properties"] as? [String: Any] ?? [:]
-        let patternProperties = schema["patternProperties"] as? [String: Any] ?? [:]
         let propertyNameSchema = schema["propertyNames"] as? [String: Any]
         let additional = schema["additionalProperties"]
 
         for key in value.keys.sorted() {
             let child = childPath(path, key: key)
             guard let childValue = value[key] else { continue }
-            if let propertyNameSchema {
+            if knownKeys.contains(key), let propertyNameSchema {
                 issues.append(
                     contentsOf: validate(
                         key,

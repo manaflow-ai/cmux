@@ -74,6 +74,23 @@ struct CmuxConfigSemanticValidatorTests {
         ])
         #expect(validOverrides.isEmpty)
 
+        let futureOverrideField = try issues([
+            "schemaVersion": 2,
+            "notifications": [
+                "soundOverrides": [
+                    "codex": [
+                        "turnDone": [
+                            "sound": "Ping",
+                            "futureFieldA": true,
+                            "futureFieldB": 1,
+                            "futureFieldC": "kept",
+                        ],
+                    ],
+                ],
+            ],
+        ])
+        #expect(futureOverrideField.isEmpty)
+
         let invalidOverride = try issues([
             "notifications": [
                 "soundOverrides": [
