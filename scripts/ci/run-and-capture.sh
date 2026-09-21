@@ -44,13 +44,17 @@ forward_signal() {
     # The command runs as a new session/process-group leader. Forward
     # cancellation to the whole owned group so xcodebuild/test descendants do
     # not keep running after the capture wrapper is cancelled.
-    kill -s "$signal_name" -- "-$command_pid" 2>/dev/null \\n      || kill -s "$signal_name" "$command_pid" 2>/dev/null \\n      || true
+    kill -s "$signal_name" -- "-$command_pid" 2>/dev/null \
+      || kill -s "$signal_name" "$command_pid" 2>/dev/null \
+      || true
     for _ in 1 2 3 4 5; do
       kill -0 "$command_pid" 2>/dev/null || break
       sleep 1
     done
     if kill -0 "$command_pid" 2>/dev/null; then
-      kill -KILL -- "-$command_pid" 2>/dev/null \\n        || kill -KILL "$command_pid" 2>/dev/null \\n        || true
+      kill -KILL -- "-$command_pid" 2>/dev/null \
+        || kill -KILL "$command_pid" 2>/dev/null \
+        || true
     fi
     wait "$command_pid" 2>/dev/null || true
   fi
