@@ -1051,7 +1051,7 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
     assert early < package < upload
 
     script = workflow_job_step_script("macos-compile-admission", "Run early CLI binary smoke checks")
-    for failed_probe in ("version", "help", None, "missing-binary"):
+    for failed_probe in ("version", "help", "config-doctor", None, "missing-binary"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             derived = root / "derived with spaces"
@@ -1063,7 +1063,8 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
             (root / "tests").mkdir()
             trace = root / "probes.txt"
             for probe, filename in (("version", "test_cli_version_memory_guard.py"),
-                                    ("help", "test_cli_contract_help.py")):
+                                    ("help", "test_cli_contract_help.py"),
+                                    ("config-doctor", "test_cli_config_doctor.py")):
                 (root / "tests" / filename).write_text(
                     "import os,pathlib\n"
                     + "assert os.environ['CMUX_CLI_BIN'] == " + repr(str(cli)) + "\n"
@@ -1080,8 +1081,10 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 23 and invoked == ["version"]
             elif failed_probe == "help":
                 assert result.returncode == 23 and invoked == ["version", "help"]
+            elif failed_probe == "config-doctor":
+                assert result.returncode == 23 and invoked == ["version", "help", "config-doctor"]
             else:
-                assert result.returncode == 0 and invoked == ["version", "help"]
+                assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
