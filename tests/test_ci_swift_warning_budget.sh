@@ -9,7 +9,7 @@ cd "$ROOT_DIR"
 
 LOG="$TMP_DIR/build.log"
 BUDGET="$TMP_DIR/budget.tsv"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 GUARD_FILE="$ROOT_DIR/.github/workflows/ci-guards.yml"
 
 python3 - "$CI_FILE" "$GUARD_FILE" <<'PY'
