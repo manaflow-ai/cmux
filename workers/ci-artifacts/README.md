@@ -29,53 +29,83 @@ to this transport; neither packaging implementation is changed here.
 - Hits still check GitHub visibility/expiry/provenance. The bucket must remain
   private, without an R2 public domain or `r2.dev` access that bypasses these
   checks. This is separate from the existing public `ci-cache.cmux.com` store.
-- Clients send no credentials to the broker. Its server-only token is sent only
-  to `api.github.com`, never to redirected blob URLs. No R2 write credentials
-  enter PR jobs. The consumer independently obtains the provider ZIP digest
-  from GitHub, checks it, and extracts only one bounded, flat product archive.
+- Production callers present a short-lived GitHub Actions OIDC token with
+  audience `cmux-ci-artifacts`. The Worker verifies GitHub's signature plus the
+  repository ID, owner ID, public visibility, `ci.yml` workflow ref, event,
+  run ID and token lifetime before touching artifact state. A global Durable
+  Object admits at most 16 requests per run per minute and 120 total per minute.
+  The Worker's server-only Actions-read token is sent only to `api.github.com`,
+  never to redirected blob URLs. No R2 write credentials enter PR jobs. The
+  consumer independently obtains the provider ZIP digest from GitHub, checks it,
+  and extracts only one bounded, flat product archive.
 
 The default import deadline is 150 seconds (`IMPORT_TIMEOUT_MS`, capped at
-150000); R2 metadata/read calls have 10-second response deadlines. The consumer
-curl limit is 175 seconds and its subprocess limit is 180 seconds. GitHub
-metadata lookup adds up to 20 seconds. Errors, checksum mismatches and invalid
-ZIPs leave `hit=false` and use the existing GitHub action. Required inner product
-validation is never converted into an optional cache check.
+150000); R2 metadata/read calls have 10-second response deadlines. Production
+caller authentication is bounded at five seconds and admission at two seconds.
+The consumer's OIDC mint is bounded at 15 seconds, broker curl at 175 seconds,
+and broker subprocess at 180 seconds. Its independent GitHub artifact metadata
+lookup is bounded at 20 seconds. Errors, provider failures, checksum mismatches
+and invalid ZIPs leave `hit=false` and use the existing GitHub action. Required
+inner product validation remains authoritative.
 
 ## Enablement
 
-No deployment or live credentials are provided by this change.
+The reviewed production configuration uses its `workers.dev` origin with preview
+URLs disabled. The HTTP endpoint is internet-reachable; the artifact service is
+private through GitHub-signed caller identity and the bucket itself has no public
+R2 domain. The `REQUEST_ADMISSION` Durable Object provides the bounded request
+budget before any artifact import can consume GitHub API quota.
 
-1. Provision the private `cmux-ci-artifacts` R2 bucket, with a three-day lifecycle
-   for `github/`. Keep the existing public cache bucket unchanged.
-2. Provide `GITHUB_ARTIFACT_TOKEN` as a Worker secret: Actions-read access scoped
-   to this repository. Set its rotation/expiry ownership and request/rate limits
-   on the broker route before enabling CI traffic.
-3. The generic configuration has no public routes, `workers_dev=false`, and
-   preview URLs disabled. Do not expose it without a reviewed authenticated
-   admission policy; otherwise anonymous misses can consume GitHub API quota.
-   Run `npm ci`, `npm run check`, then deploy the reviewed Worker normally.
-   Wrangler declares the R2 binding and per-artifact Durable Object migration.
-4. Only after that production access policy and client integration are reviewed,
-   set the repository variable `CI_ARTIFACT_R2_URL` to the HTTPS Worker origin
-   with no path, credentials, query string or fragment. Remove the variable to
-   revert every consumer to the existing GitHub action.
+Activation remains an administrator operation:
+
+1. Merge this production-auth/measurement change and the isolated-canary cleanup
+   in #13342.
+2. Run the main-only canary while its current real artifact is still valid. It
+   must prove one cold `fill`, one warm `hit`, exact size/digest, and cleanup.
+3. Provision or confirm the dedicated `cmux-ci-artifacts` bucket, disable
+   `r2.dev`, confirm no enabled custom domain, and set a three-day lifecycle
+   for `github/manaflow-ai/cmux/`. Keep the general compilation-cache bucket
+   tracked in #13182 unchanged.
+4. Configure `GITHUB_ARTIFACT_TOKEN` as the Worker-only repository-scoped
+   Actions-read secret and deploy this reviewed Worker, including the
+   `ARTIFACT_IMPORTS` and `REQUEST_ADMISSION` Durable Object migrations.
+5. Set repository variable `CI_ARTIFACT_R2_URL` to the production
+   `https://cmux-ci-artifacts.<account>.workers.dev` origin with no path,
+   credentials, query or fragment. Removing that variable returns every
+   consumer to the measured GitHub artifact path.
+
+Issue #13364 carries the copy-paste administrator commands, expected output,
+live-traffic verification and rollback transcript so privileged operations stay
+outside ordinary PR jobs.
 
 ## Validation and measurement
 
 `npm run check` typechecks the generated binding types and runs local workerd
 tests using real R2/Durable Object implementations with a mocked GitHub origin.
-The tests cover six concurrent consumers and one upstream transfer, active CI
-with successful compile, checksum rejection with no committed object, failed or
-wrong producers, public/private transitions, and bounded concurrent waits.
-Workflow tests execute both real CI download steps with GitHub expressions and
-local command fixtures, including the default-disabled path. Python tests cover
-bad ZIPs, wrong producer IDs, stale outputs and traversal/symlink rejection.
+The tests cover all seven immediate consumers coalescing onto one upstream
+GitHub transfer, warm hits, corrupt bytes, expiry, wrong producer/workflow,
+provider digest mismatch, GitHub API failure, R2 failures and stalls, broker
+timeouts, public/private transitions, admission budgets and retry behavior.
+Workflow tests execute both real CI consumer contracts with GitHub expressions,
+OIDC credential handling and the default-disabled GitHub fallback. Python tests
+cover OIDC issuer pinning, secret-file permissions, transfer receipts, bad ZIPs,
+wrong producer IDs, stale outputs and traversal/symlink rejection.
 
-A cold miss adds a GitHub-to-R2 import before the R2 fan-out; it is not claimed
-to be faster. Measure end-to-end producer-to-last-consumer time, per-consumer
-download time, aggregate allocated runner time, hit/fill/miss counts and fallback
-delay on actual compressed products before widening usage. Log records contain
-artifact ID, byte count and cache outcome, not signed URLs or credentials.
+`CMUX_TEST_PRODUCT_TRANSFER` records transport, cache result, bytes, broker
+first-byte wait and transfer time for R2; the existing GitHub composite records
+its end-to-end artifact action duration and payload bytes.
+`CMUX_TEST_PRODUCT_RESTORE` separately records the authoritative inner archive
+hash/extraction/product-receipt restore duration. Failed broker attempts emit
+`CMUX_R2_ARTIFACT_ATTEMPT` with a bounded fallback reason and then use GitHub.
+`scripts/ci/measure-r2-artifact-run.py` combines those receipts with Actions
+job timestamps to report producer-to-last-consumer wall time and aggregate
+producer/consumer runner minutes.
+
+A cold miss necessarily includes one GitHub-to-R2 import before R2 fan-out.
+Measure the isolated cold `fill` / warm `hit`, a production R2 run and a
+GitHub-fallback run on actual compressed products before treating the lane as
+activated. Receipts contain IDs, timings, byte counts and cache outcomes, never
+signed URLs or credentials.
 
 References: [R2 streaming writes and checksums](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
 [GitHub artifact identity and downloads](https://docs.github.com/en/rest/actions/artifacts),
