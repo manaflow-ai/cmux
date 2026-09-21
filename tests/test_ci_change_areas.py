@@ -18,14 +18,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
-    "static-preflight",
     "workflow-guard-tests",
     "workflow-guard-history",
     "workflow-guard-cli-scripts",
     "workflow-guard-source-lints",
 )
+GUARD_ROUTE_JOBS = {
+    "linux_guard_tests": "workflow-guard-tests",
+    "linux_guard_history": "workflow-guard-history",
+    "linux_guard_cli": "workflow-guard-cli-scripts",
+    "linux_guard_source": "workflow-guard-source-lints",
+}
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
@@ -226,14 +232,14 @@ def test_other_workflow_changes_skip_macos_and_web() -> None:
     # ci.yml's macOS and web jobs never read another workflow file. Those edits
     # are validated by workflow-guard-tests and by the edited workflow itself.
     assert_areas(
-        [".github/workflows/relay-tls.yml", ".github/actionlint.yaml"],
+        [".github/workflows/relay-tls.yml", ".github/workflows/ci-guards.yml", ".github/actionlint.yaml"],
         macos=False,
         web=False,
     )
 
 
 def test_guard_only_tests_skip_macos() -> None:
-    # Referenced in ci.yml only by Linux jobs.
+    # Referenced only by Linux jobs in the CI caller or reusable guard workflow.
     assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
     assert_areas(
         [".github/workflows/ios-testflight.yml", "tests/test_ios_testflight_main_push_filter.py"],
@@ -594,10 +600,7 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "static-preflight": "success",
-        "workflow-guard-tests": "success",
-        "workflow-guard-history": "success",
-        "workflow-guard-cli-scripts": "success",
-        "workflow-guard-source-lints": "success",
+        "guards": "success",
         "ghosttykit-release-check": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
@@ -611,6 +614,35 @@ def linux_preflight_needs(
         name: {"result": result, "outputs": route_outputs if name == "changes" else {}}
         for name, result in job_results.items()
     }
+
+
+def run_guard_status(
+    *,
+    inputs: dict[str, str] | None = None,
+    results: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    route_inputs = dict.fromkeys(GUARD_ROUTE_JOBS, "true") if inputs is None else dict(inputs)
+    job_results = dict.fromkeys(GUARD_ROUTE_JOBS.values(), "success")
+    if results:
+        job_results.update(results)
+    script = workflow_job_step_script(
+        "guard-status", "Check routed guard jobs", GUARD_WORKFLOW
+    )
+    env = {
+        **os.environ,
+        "GUARD_INPUTS": json.dumps(route_inputs),
+        "GUARD_NEEDS": json.dumps(
+            {name: {"result": result} for name, result in job_results.items()}
+        ),
+    }
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
 def run_detect_step_for_paths(
@@ -971,7 +1003,8 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     for job_name in [
         "changes",
-        *GUARD_JOBS,
+        "static-preflight",
+        "guards",
         "web-typecheck",
         "react-apps-check",
         "diff-sidecar-check",
@@ -1565,13 +1598,25 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     )
 
 
+def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
+    block = workflow_job_block("guards")
+
+    assert "    needs: [changes, static-preflight]" in block
+    assert "    uses: ./.github/workflows/ci-guards.yml" in block
+    for route in GUARD_ROUTE_JOBS:
+        assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
+        assert f"needs.changes.outputs.{route} != 'false'" in block
+
+
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
     assert "name: linux-preflight" in block
     assert "      - changes" in block
+    assert "      - static-preflight" in block
+    assert "      - guards" in block
     for guard_job in GUARD_JOBS:
-        assert f"      - {guard_job}" in block
+        assert f"      - {guard_job}" not in block
     assert "      - ghosttykit-release-check" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
@@ -1579,25 +1624,38 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
+    assert 'guard_routes = (' in block
+    assert 'bad[f"guards.{route}"]' in block
+    assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
 
 
-def test_linux_preflight_requires_every_guard_job() -> None:
+def test_linux_preflight_requires_guard_aggregate_when_any_guard_is_routed() -> None:
     assert run_linux_preflight(linux_preflight_needs()).returncode == 0
 
-    for guard_job in GUARD_JOBS:
-        for outcome in ("failure", "cancelled", "skipped"):
-            result = run_linux_preflight(linux_preflight_needs(results={guard_job: outcome}))
+    for outcome in ("failure", "cancelled", "skipped"):
+        result = run_linux_preflight(linux_preflight_needs(results={"guards": outcome}))
 
-            assert result.returncode != 0, (guard_job, outcome)
-            assert f"{guard_job}: {outcome}" in result.stderr
+        assert result.returncode != 0, outcome
+        assert f"guards: {outcome} (one or more guard routes=true)" in result.stderr
+
+
+def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_false() -> None:
+    result = run_linux_preflight(
+        linux_preflight_needs(
+            outputs=dict.fromkeys(GUARD_ROUTE_JOBS, "false"),
+            results={"guards": "skipped"},
+        )
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
-        fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job)
+        fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
         assert fetches_history == (guard_job == "workflow-guard-history"), guard_job
 
 
@@ -1692,7 +1750,9 @@ def test_settings_store_noop_persistence_uses_a_nontolerant_focused_gate() -> No
 
 
 def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
-    script = workflow_job_step_script("workflow-guard-tests", "Validate test determinism gate")
+    script = workflow_job_step_script(
+        "workflow-guard-tests", "Validate test determinism gate", GUARD_WORKFLOW
+    )
 
     assert "scripts/check-test-determinism.py --self-test" in script
     assert "scripts/check-test-determinism.py --strict" in script
