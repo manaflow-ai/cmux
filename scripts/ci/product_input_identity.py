@@ -37,6 +37,7 @@ BUILD_ENV_KEYS = (
 NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Start compile admission timers",
     "Clear stale git locks (self-hosted reused workspace)",
+    "Retry checkout after transient network failure",
     "Diagnose checkout network failure",
     "Record hosted source preparation",
     "Measure hosted queue-to-start",
@@ -46,7 +47,6 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Observe persistent Mac compile candidate",
     "Download persistent Mac compile product",
     "Revalidate persistent Mac compile product",
-    "Capture Ghostty revision",
     "Cache GhosttyKit.xcframework",
     "Cache Swift packages",
     "Compute test compilation cache key",
