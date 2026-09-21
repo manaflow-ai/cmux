@@ -10,6 +10,14 @@ import Foundation
 /// files use a hard-link publish, which is an atomic no-replace operation on the
 /// same filesystem.
 struct JSONConfigAtomicPublisher: Sendable {
+    typealias ExchangeOperation = @Sendable (URL, URL) throws -> Void
+
+    private let exchangeOverride: ExchangeOperation?
+
+    init(exchangeOverride: ExchangeOperation? = nil) {
+        self.exchangeOverride = exchangeOverride
+    }
+
     func publish(_ data: Data, to target: URL, expected: Data?) throws {
         let fileManager = FileManager.default
         let parent = target.deletingLastPathComponent()
@@ -77,8 +85,14 @@ struct JSONConfigAtomicPublisher: Sendable {
             let currentPublished = try? Data(contentsOf: target)
             let currentRecovery = try? Data(contentsOf: staging)
             if currentPublished == data, currentRecovery == recovered {
-                try exchange(staging, target)
-                stagingContainsRecovery = false
+                do {
+                    try exchange(staging, target)
+                    stagingContainsRecovery = false
+                } catch let rollbackError as POSIXError {
+                    throw JSONConfigWriteConflict.sourceChangedRollbackFailed(
+                        rollbackErrno: Int32(rollbackError.code.rawValue)
+                    )
+                }
             }
             throw JSONConfigWriteConflict.sourceChanged
         }
@@ -98,6 +112,14 @@ struct JSONConfigAtomicPublisher: Sendable {
     }
 
     private func exchange(_ left: URL, _ right: URL) throws {
+        if let exchangeOverride {
+            try exchangeOverride(left, right)
+            return
+        }
+        try Self.exchangePaths(left, right)
+    }
+
+    static func exchangePaths(_ left: URL, _ right: URL) throws {
         let result = left.path.withCString { leftPath in
             right.path.withCString { rightPath in
                 renameatx_np(
