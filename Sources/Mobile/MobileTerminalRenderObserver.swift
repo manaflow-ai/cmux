@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 import os
 
 /// Pushes terminal render events only while a mobile client is actively subscribed.
@@ -232,10 +233,16 @@ final class MobileTerminalRenderObserver {
             MobileHostService.emitEvent(topic: "terminal.updated", payload: [:])
         } else if shouldEmitUpdatedEvents {
             for surfaceID in surfaceIDs {
-                MobileHostService.emitEvent(
-                    topic: "terminal.updated",
-                    payload: ["surface_id": surfaceID.uuidString]
-                )
+                // The effective grid rides along so a raw-byte subscriber (another
+                // Mac's Devices sidebar) learns of a resize without render grids.
+                var payload: [String: Any] = ["surface_id": surfaceID.uuidString]
+                if let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID)?
+                    .liveSurfaceForGhosttyAccess(reason: "mobile.terminal.updated") {
+                    let size = ghostty_surface_size(surface)
+                    payload["columns"] = max(Int(size.columns), 1)
+                    payload["rows"] = max(Int(size.rows), 1)
+                }
+                MobileHostService.emitEvent(topic: "terminal.updated", payload: payload)
             }
         }
 

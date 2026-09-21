@@ -692,7 +692,7 @@ jobs:
       contents: read
     # Every event checks that the pinned framework is available before using a Mac.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1200,6 +1200,39 @@ jobs:
             test-without-building 2>&1 | tee "$test_log"
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/MainWindowZoomPlacementTests
+
+      - name: Run My Devices regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        env:
+          CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
+        run: |
+          # The broad app-host suite tolerates ordinary assertion failures.
+          # Gate every My Devices suite directly on xcodebuild's exit status,
+          # with no retry that could hide a lifecycle timeout or host crash.
+          # Like the other focused steps, reuse the admission-produced test
+          # product instead of compiling the app again.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 120 \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/DeviceDirectoryLifecycleTests \
+            -only-testing:cmuxTests/DeviceDirectoryMergeTests \
+            -only-testing:cmuxTests/DeviceLinkReconnectPolicyTests \
+            -only-testing:cmuxTests/DevicePresenceWireTests \
+            -only-testing:cmuxTests/DeviceRegistryClientTests \
+            -only-testing:cmuxTests/DeviceRouteSelectorTests \
+            -only-testing:cmuxTests/DeviceTerminalMirrorTests \
+            -only-testing:cmuxTests/DeviceWorkspaceProjectionTests \
+            -only-testing:cmuxTests/DevicesCloudTreeBuilderTests \
+            -only-testing:cmuxTests/DevicesSidebarModeTests \
+            -only-testing:cmuxTests/SurfaceMachineIDDeviceEncodingTests \
+            test-without-building
 
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -2086,8 +2119,10 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_open_device_target.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_cloud_hostname.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_right_sidebar_aliases.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py
@@ -2506,6 +2541,8 @@ jobs:
             CmuxAgentSessionStore
             CmuxAuthRuntime
             CmuxIrohTransport
+            CmuxIrxTransport
+            CmuxHive
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -2569,7 +2606,7 @@ jobs:
             # CmuxFoundation has several process-tree suites whose child
             # fixtures share global process resources; run each suite in its
             # own Swift Testing process just like the auth/transport suites.
-            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport)
+            CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
