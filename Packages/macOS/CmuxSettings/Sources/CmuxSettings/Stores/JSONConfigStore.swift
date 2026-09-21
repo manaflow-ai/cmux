@@ -41,6 +41,7 @@ public actor JSONConfigStore {
 
     private let sanitizer: JSONCSanitizer
     private let sourceEditor: JSONCPathEditor
+    private let publisher: JSONConfigAtomicPublisher
     private let watcher: FileWatcher
     private var targetWatcher: FileWatcher?
     private var watchedTargetPath: String?
@@ -71,6 +72,7 @@ public actor JSONConfigStore {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
         self.sourceEditor = JSONCPathEditor()
+        self.publisher = JSONConfigAtomicPublisher()
         // The primary watcher observes the configured path, including symlink
         // replacement/retarget events in its parent directory. A secondary
         // target watcher observes edits that land in the resolved target's own
@@ -116,10 +118,10 @@ public actor JSONConfigStore {
     /// Creates the parent directory and the file if missing.
     ///
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
-    public func set<Value>(_ value: Value, for key: JSONKey<Value>) throws {
+    public func set<Value>(_ value: Value, for key: JSONKey<Value>) async throws {
         let encodedValue = value.encodeForJSON()
         let editorValue = JSONCPathEditor.EncodedValue(rawValue: encodedValue)
-        try mutateRoot(
+        try await mutateRoot(
             { root in
                 key.path.assign(encodedValue, in: &root)
             },
@@ -139,8 +141,8 @@ public actor JSONConfigStore {
     /// when no entries remain.
     ///
     /// - Throws: Errors from `FileManager`, JSON parsing, or the source edit.
-    public func reset<Value>(_ key: JSONKey<Value>) throws {
-        try mutateRoot(
+    public func reset<Value>(_ key: JSONKey<Value>) async throws {
+        try await mutateRoot(
             { root in
                 key.path.remove(in: &root)
             },
@@ -372,14 +374,14 @@ public actor JSONConfigStore {
     private func mutateRoot(
         _ mutate: (inout [String: Any]) -> Void,
         editingSource: (String) throws -> String
-    ) throws {
+    ) async throws {
         // Resolve once so parsing, source editing, and the atomic replace all
         // target the same file when cmux.json is a symlink.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
         // The persisted target is the source of truth. Every participating cmux
         // writer takes this sidecar lock before its authoritative read so no
         // read-edit-replace sequence can overlap another cmux writer.
-        let writeLock = try JSONConfigWriteLock(target: writeURL)
+        let writeLock = try await JSONConfigWriteLock.acquire(target: writeURL)
         defer { writeLock.release() }
         guard Self.resolvedWriteURL(for: fileURL) == writeURL else {
             throw JSONConfigWriteConflict.sourceChanged
@@ -423,14 +425,13 @@ public actor JSONConfigStore {
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
 
-        // A non-participating editor can still change the file while we prepare
-        // the candidate. Refuse that stale snapshot; participating cmux writers
-        // cannot enter this window because they share the lock above.
-        guard Self.resolvedWriteURL(for: fileURL) == writeURL,
-              try readDocument(at: writeURL).originalData == document.originalData else {
+        // The publisher performs the source-snapshot comparison as part of the
+        // same atomic exchange that installs the candidate. A non-participating
+        // editor that wins after our read is preserved and this mutation fails.
+        guard Self.resolvedWriteURL(for: fileURL) == writeURL else {
             throw JSONConfigWriteConflict.sourceChanged
         }
-        try data.write(to: writeURL, options: [.atomic])
+        try publisher.publish(data, to: writeURL, expected: document.originalData)
 
         // Only commit to cache after the file write succeeded.
         cachedRoot = writtenRoot

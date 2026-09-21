@@ -9,8 +9,8 @@ import Foundation
 /// swapped-out bytes, and restore them when the snapshot lost the race. Missing
 /// files use a hard-link publish, which is an atomic no-replace operation on the
 /// same filesystem.
-enum JSONConfigAtomicPublisher {
-    static func publish(_ data: Data, to target: URL, expected: Data?) throws {
+struct JSONConfigAtomicPublisher: Sendable {
+    func publish(_ data: Data, to target: URL, expected: Data?) throws {
         let fileManager = FileManager.default
         let parent = target.deletingLastPathComponent()
         try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -77,7 +77,7 @@ enum JSONConfigAtomicPublisher {
         stagingContainsRecovery = false
     }
 
-    private static func exchange(_ left: URL, _ right: URL) throws {
+    private func exchange(_ left: URL, _ right: URL) throws {
         let result = left.path.withCString { leftPath in
             right.path.withCString { rightPath in
                 renameatx_np(
