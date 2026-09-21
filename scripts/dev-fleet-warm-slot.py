@@ -1124,7 +1124,10 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 if not args.lease_id or reservation.get("lease_id") != args.lease_id:
                     event(layout, "task_fallback_required", task_id=args.task_id, reason="reservation_mismatch")
                     return {"status": "cold_fallback_required", "reason": "reservation_mismatch"}
-                if args.warm_generation_id and reservation.get("warm_generation_id") != args.warm_generation_id:
+                if (
+                    not args.warm_generation_id
+                    or reservation.get("warm_generation_id") != args.warm_generation_id
+                ):
                     event(layout, "task_fallback_required", task_id=args.task_id, reason="generation_mismatch")
                     return {"status": "cold_fallback_required", "reason": "generation_mismatch"}
             elif args.lease_id or args.warm_generation_id:
