@@ -179,6 +179,468 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   cooldown: markAccountCooldown,
 });
 
+type CodexRequestContext = {
+  readonly dependencies: CodexResponsesDependencies;
+  readonly runtime: CodexResponsesRuntime;
+  readonly request: Request;
+  readonly identity: RouteTokenIdentity;
+  readonly requestId: string;
+  readonly upstreamHeaderDeadlineAt: number;
+  readonly forwardedHeaders: Headers;
+  readonly sessionKey: string | null;
+};
+
+type CodexRequestState = {
+  readonly attempted: string[];
+  refreshRetries: number;
+  failureStage: "account_selection" | "credential_refresh" | "upstream_transport";
+  upstream: Response | null;
+};
+
+type CodexSelectedAccount = NonNullable<Awaited<ReturnType<CodexResponsesDependencies["select"]>>>;
+type CodexAttemptAction = "proceed" | "retry" | "stop";
+type CodexCredentialResult =
+  | { readonly kind: "credential"; readonly credential: CodeRouterCredential }
+  | { readonly kind: "retry" }
+  | { readonly kind: "stop" };
+
+async function selectCodexAttemptAccount(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  attempt: number,
+): Promise<CodexSelectedAccount | null> {
+  const { dependencies, runtime, request, identity, upstreamHeaderDeadlineAt, sessionKey } = context;
+  const selectStartedAt = performance.now();
+  let account: Awaited<ReturnType<CodexResponsesDependencies["select"]>>;
+  try {
+    account = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => dependencies.select({
+        teamId: identity.teamId,
+        access: accountAccessForIdentity(identity),
+        provider: RESPONSES_PROVIDERS,
+        sessionKey,
+        excludedAccountIds: state.attempted,
+        signal,
+      }),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    recordCoderouterSpan({
+      name: "account_selection",
+      startedAt: selectStartedAt,
+      error: error instanceof CoderouterOperationDeadlineError
+        ? "deadline_exceeded"
+        : error instanceof Error ? error.name : "select_failed",
+      attributes: {
+        provider: "codex",
+        attempt: attempt + 1,
+        ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+      },
+    });
+    if (error instanceof CoderouterOperationDeadlineError) {
+      state.failureStage = "account_selection";
+      return null;
+    }
+    throw error;
+  }
+  recordCoderouterSpan({
+    name: "account_selection",
+    startedAt: selectStartedAt,
+    attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
+  });
+  if (!account) return null;
+  state.attempted.push(account.id);
+  addCoderouterBreadcrumb("routing", "Selected provider account", {
+    provider: "codex",
+    attempt: attempt + 1,
+    sticky: account.sticky,
+  });
+  return account;
+}
+
+async function loadCodexAttemptCredential(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  attempt: number,
+): Promise<CodexCredentialResult> {
+  const { dependencies, runtime, request, identity, upstreamHeaderDeadlineAt } = context;
+  let credential;
+  const credentialStartedAt = performance.now();
+  try {
+    credential = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => credentialWithStickyPatience(
+        dependencies,
+        {
+          teamId: identity.teamId,
+          accountId: account.id,
+          expectedRevision: account.vaultRevision,
+          signal,
+        },
+        account.sticky,
+      ),
+    );
+    recordCoderouterSpan({ name: "credential", startedAt: credentialStartedAt, attributes: { provider: "codex", attempt: attempt + 1 } });
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    state.failureStage = "credential_refresh";
+    const tag = error && typeof error === "object" && "_tag" in error
+      ? String((error as { _tag: unknown })._tag)
+      : undefined;
+    recordCoderouterSpan({
+      name: "credential",
+      startedAt: credentialStartedAt,
+      error: error instanceof CoderouterOperationDeadlineError
+        ? "deadline_exceeded"
+        : tag ?? "credential_failed",
+      attributes: {
+        provider: "codex",
+        attempt: attempt + 1,
+        ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+      },
+    });
+    if (error instanceof CoderouterOperationDeadlineError) return { kind: "stop" };
+    if (tag === "CodeRouterRefreshBusy") return { kind: "retry" };
+    if (tag === "CodeRouterCredentialBroken") return { kind: "retry" };
+    throw error;
+  }
+  return { kind: "credential", credential };
+}
+
+async function sendCodexAttempt(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  credential: ResponsesCredential,
+  headersTimeoutMs: number,
+  attempt: number,
+): Promise<boolean> {
+  const { runtime, request, requestId, forwardedHeaders } = context;
+  const upstreamStartedAt = performance.now();
+  try {
+    state.upstream = await sendResponses(
+      request.clone(),
+      forwardedHeaders,
+      credential,
+      runtime.fetch,
+      headersTimeoutMs,
+    );
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      attributes: { provider: credential.provider, attempt: attempt + 1, status: state.upstream.status },
+    });
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    state.failureStage = "upstream_transport";
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      error: error instanceof Error ? error.name : "transport",
+      attributes: { provider: "codex", attempt: attempt + 1 },
+    });
+    reportCoderouterFailure("upstream_transport", error, {
+      provider: "codex",
+      attempt: attempt + 1,
+      request_id: requestId,
+    });
+    return false;
+  }
+  return true;
+}
+
+async function refreshRejectedCodexCredential(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  attempt: number,
+): Promise<CodexAttemptAction> {
+  const { dependencies, runtime, request, identity, requestId, upstreamHeaderDeadlineAt, forwardedHeaders } = context;
+  state.refreshRetries++;
+  addCoderouterBreadcrumb(
+    "refresh",
+    "Refreshing rejected credential",
+    {
+      provider: "codex",
+      attempt: attempt + 1,
+    },
+    "warning",
+  );
+  const refreshStartedAt = performance.now();
+  try {
+    const refreshed = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => dependencies.credential({
+        teamId: identity.teamId,
+        accountId: account.id,
+        expectedRevision: account.vaultRevision,
+        force: true,
+        signal,
+      }),
+    );
+    recordCoderouterSpan({ name: "credential_refresh", startedAt: refreshStartedAt, attributes: { provider: "codex", forced: true } });
+    if (refreshed.provider === "codex") {
+      const retryHeadersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+        upstreamHeaderDeadlineAt,
+        runtime.now(),
+        runtime.upstreamHeadersTimeoutMs,
+      );
+      if (retryHeadersTimeoutMs === null) {
+        state.failureStage = "upstream_transport";
+        state.upstream = null;
+        return "stop";
+      }
+      const retryStartedAt = performance.now();
+      state.upstream = await sendResponses(
+        request.clone(),
+        forwardedHeaders,
+        refreshed,
+        runtime.fetch,
+        retryHeadersTimeoutMs,
+      );
+      recordCoderouterSpan({
+        name: "upstream_attempt",
+        startedAt: retryStartedAt,
+        attributes: { provider: "codex", attempt: attempt + 1, status: state.upstream.status, forced: true },
+      });
+    }
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    state.failureStage = "credential_refresh";
+    recordCoderouterSpan({
+      name: "credential_refresh",
+      startedAt: refreshStartedAt,
+      error: error instanceof Error ? error.name : "refresh_failed",
+      attributes: { provider: "codex", forced: true },
+    });
+    reportCoderouterFailure("provider_refresh", error, {
+      provider: "codex",
+      forced: true,
+      request_id: requestId,
+    });
+    if (error instanceof CoderouterOperationDeadlineError) {
+      state.upstream = null;
+      return "stop";
+    }
+    return "retry";
+  }
+  return "proceed";
+}
+
+async function handleCodexRateLimit(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  upstream: Response,
+): Promise<CodexAttemptAction> {
+  const { dependencies, runtime, request, upstreamHeaderDeadlineAt } = context;
+  // A Codex usage-limit response commonly uses 429 too. Inspect it before
+  // applying the generic rate-limit path so a workspace quota gets the
+  // provider reset/holdout policy instead of a one-minute retry loop.
+  const probed = await probeCodexCapacity(upstream, request.signal);
+  if (probed.kind === "capacity") {
+    reportCoderouterFailure(
+      probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit",
+      new Error(`provider ${probed.failureCode}`),
+      { provider: "codex", capacity: true, capacity_reason: probed.failureCode, status: 429 },
+    );
+    const cooldownResult = await coolDownCapacityAccount(
+      dependencies,
+      account.id,
+      probed,
+      request,
+      upstreamHeaderDeadlineAt,
+      runtime,
+    );
+    if (cooldownResult === "deadline") {
+      state.failureStage = "upstream_transport";
+      state.upstream = null;
+      return "stop";
+    }
+    state.upstream = null;
+    return "retry";
+  }
+  state.upstream = probed.kind === "response" ? probed.response : upstream;
+  const cooldownMs = rateLimitDelay(state.upstream.headers);
+  reportCoderouterFailure(
+    "provider_rate_limit",
+    new Error("rate limited"),
+    {
+      provider: "codex",
+      status: 429,
+    },
+  );
+  try {
+    await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => dependencies.cooldown(account.id, cooldownMs, signal),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    if (error instanceof CoderouterOperationDeadlineError) {
+      state.failureStage = "upstream_transport";
+      return "stop";
+    }
+    throw error;
+  }
+  return "retry";
+}
+
+async function handleCodexErrorResponse(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  upstream: Response,
+): Promise<CodexAttemptAction> {
+  const { dependencies, runtime, request, upstreamHeaderDeadlineAt } = context;
+  const probed = await probeCodexCapacity(upstream, request.signal);
+  if (probed.kind === "capacity") {
+    const cooldownResult = await coolDownCapacityAccount(
+      dependencies,
+      account.id,
+      probed,
+      request,
+      upstreamHeaderDeadlineAt,
+      runtime,
+    );
+    if (cooldownResult === "deadline") {
+      state.failureStage = "upstream_transport";
+      state.upstream = null;
+      return "stop";
+    }
+    state.upstream = null;
+    return "retry";
+  }
+  state.upstream = probed.response;
+  return "proceed";
+}
+
+async function handleCodexStreamingResponse(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  upstream: Response,
+  attempt: number,
+): Promise<CodexAttemptAction> {
+  const { dependencies, runtime, request, requestId, upstreamHeaderDeadlineAt } = context;
+  const probed = await probeCodexCapacity(upstream, request.signal);
+  if (probed.kind === "capacity") {
+    recordCoderouterSpan({
+      name: "capacity_failover",
+      startedAt: performance.now(),
+      error: "provider_capacity",
+      attributes: {
+        provider: "codex",
+        attempt: attempt + 1,
+        retry_after_ms: capacityCooldownMs(probed),
+        capacity_reason: probed.failureCode,
+      },
+    });
+    addCoderouterBreadcrumb("routing", "Provider capacity; moving to another account", {
+      provider: "codex",
+      attempt: attempt + 1,
+    }, "warning");
+    reportCoderouterFailure(probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit", new Error("provider capacity"), {
+      provider: "codex",
+      capacity: true,
+      capacity_reason: probed.failureCode,
+      attempt: attempt + 1,
+      request_id: requestId,
+    });
+    const cooldownResult = await coolDownCapacityAccount(
+      dependencies,
+      account.id,
+      probed,
+      request,
+      upstreamHeaderDeadlineAt,
+      runtime,
+    );
+    if (cooldownResult === "deadline") {
+      state.failureStage = "upstream_transport";
+      state.upstream = null;
+      return "stop";
+    }
+    state.upstream = null;
+    return "retry";
+  }
+  state.upstream = probed.response;
+  return "proceed";
+}
+
+async function processCodexAttemptResponse(
+  context: CodexRequestContext,
+  state: CodexRequestState,
+  account: CodexSelectedAccount,
+  attempt: number,
+): Promise<CodexAttemptAction> {
+  if (state.upstream?.status === 401) {
+    const action = await refreshRejectedCodexCredential(context, state, account, attempt);
+    if (action !== "proceed") return action;
+  }
+  if (!state.upstream) return "stop";
+  if (state.upstream.status === 429) {
+    return handleCodexRateLimit(context, state, account, state.upstream);
+  }
+  // Capacity/quota errors can arrive as non-429 JSON or streaming errors.
+  if (state.upstream.status < 200 || state.upstream.status >= 300) {
+    const action = await handleCodexErrorResponse(context, state, account, state.upstream);
+    if (action !== "proceed") return action;
+  }
+  if (state.upstream && isStreamingResponse(state.upstream)) {
+    return handleCodexStreamingResponse(context, state, account, state.upstream, attempt);
+  }
+  return "proceed";
+}
+
+function codexHeadersTimeout(context: CodexRequestContext): number | null {
+  return remainingUpstreamHeadersTimeoutMs(
+    context.upstreamHeaderDeadlineAt,
+    context.runtime.now(),
+    context.runtime.upstreamHeadersTimeoutMs,
+  );
+}
+
+async function runCodexAttempts(context: CodexRequestContext): Promise<CodexRequestState> {
+  const state: CodexRequestState = {
+    attempted: [],
+    refreshRetries: 0,
+    failureStage: "account_selection",
+    upstream: null,
+  };
+  for (let attempt = 0; attempt < 8; attempt++) {
+    throwIfRequestAborted(context.request);
+    if (codexHeadersTimeout(context) === null) {
+      state.failureStage = "upstream_transport";
+      break;
+    }
+    const account = await selectCodexAttemptAccount(context, state, attempt);
+    if (!account) break;
+    const result = await loadCodexAttemptCredential(context, state, account, attempt);
+    if (result.kind === "stop") break;
+    if (result.kind === "retry") continue;
+    if (!servesResponses(result.credential)) continue;
+    throwIfRequestAborted(context.request);
+    const headersTimeoutMs = codexHeadersTimeout(context);
+    if (headersTimeoutMs === null) {
+      state.failureStage = "upstream_transport";
+      break;
+    }
+    if (!await sendCodexAttempt(context, state, result.credential, headersTimeoutMs, attempt)) continue;
+    const action = await processCodexAttemptResponse(context, state, account, attempt);
+    if (action !== "retry") break;
+  }
+  return state;
+}
+
 async function proxyCodexRequestWith(
   dependencies: CodexResponsesDependencies,
   runtime: CodexResponsesRuntime,
@@ -226,350 +688,16 @@ async function proxyCodexRequestWith(
     const value = request.headers.get(name);
     if (value) forwardedHeaders.set(name, value);
   }
-  const sessionKey = sessionKeyFromRequest(request);
-  const attempted: string[] = [];
-  let refreshRetries = 0;
-  let failureStage: "account_selection" | "credential_refresh" | "upstream_transport" =
-    "account_selection";
-  let upstream: Response | null = null;
-  for (let attempt = 0; attempt < 8; attempt++) {
-    throwIfRequestAborted(request);
-    if (remainingUpstreamHeadersTimeoutMs(
-      upstreamHeaderDeadlineAt,
-      runtime.now(),
-      runtime.upstreamHeadersTimeoutMs,
-    ) === null) {
-      failureStage = "upstream_transport";
-      break;
-    }
-    const selectStartedAt = performance.now();
-    let account: Awaited<ReturnType<CodexResponsesDependencies["select"]>>;
-    try {
-      account = await withCoderouterOperationDeadline(
-        request.signal,
-        upstreamHeaderDeadlineAt,
-        runtime.now,
-        (signal) => dependencies.select({
-          teamId: identity.teamId,
-          access: accountAccessForIdentity(identity),
-          provider: RESPONSES_PROVIDERS,
-          sessionKey,
-          excludedAccountIds: attempted,
-          signal,
-        }),
-      );
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      recordCoderouterSpan({
-        name: "account_selection",
-        startedAt: selectStartedAt,
-        error: error instanceof CoderouterOperationDeadlineError
-          ? "deadline_exceeded"
-          : error instanceof Error ? error.name : "select_failed",
-        attributes: {
-          provider: "codex",
-          attempt: attempt + 1,
-          ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
-        },
-      });
-      if (error instanceof CoderouterOperationDeadlineError) {
-        failureStage = "account_selection";
-        break;
-      }
-      throw error;
-    }
-    recordCoderouterSpan({
-      name: "account_selection",
-      startedAt: selectStartedAt,
-      attributes: { provider: "codex", attempt: attempt + 1, sticky: account?.sticky ?? false, healthy: account !== null },
-    });
-    if (!account) break;
-    attempted.push(account.id);
-    addCoderouterBreadcrumb("routing", "Selected provider account", {
-      provider: "codex",
-      attempt: attempt + 1,
-      sticky: account.sticky,
-    });
-    let credential;
-    const credentialStartedAt = performance.now();
-    try {
-      credential = await withCoderouterOperationDeadline(
-        request.signal,
-        upstreamHeaderDeadlineAt,
-        runtime.now,
-        (signal) => credentialWithStickyPatience(
-          dependencies,
-          {
-            teamId: identity.teamId,
-            accountId: account.id,
-            expectedRevision: account.vaultRevision,
-            signal,
-          },
-          account.sticky,
-        ),
-      );
-      recordCoderouterSpan({ name: "credential", startedAt: credentialStartedAt, attributes: { provider: "codex", attempt: attempt + 1 } });
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      failureStage = "credential_refresh";
-      const tag = error && typeof error === "object" && "_tag" in error
-        ? String((error as { _tag: unknown })._tag)
-        : undefined;
-      recordCoderouterSpan({
-        name: "credential",
-        startedAt: credentialStartedAt,
-        error: error instanceof CoderouterOperationDeadlineError
-          ? "deadline_exceeded"
-          : tag ?? "credential_failed",
-        attributes: {
-          provider: "codex",
-          attempt: attempt + 1,
-          ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
-        },
-      });
-      if (error instanceof CoderouterOperationDeadlineError) break;
-      if (tag === "CodeRouterRefreshBusy") continue;
-      if (tag === "CodeRouterCredentialBroken") continue;
-      throw error;
-    }
-    if (!servesResponses(credential)) continue;
-    throwIfRequestAborted(request);
-    const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
-      upstreamHeaderDeadlineAt,
-      runtime.now(),
-      runtime.upstreamHeadersTimeoutMs,
-    );
-    if (headersTimeoutMs === null) {
-      failureStage = "upstream_transport";
-      break;
-    }
-    const upstreamStartedAt = performance.now();
-    try {
-      upstream = await sendResponses(
-        request.clone(),
-        forwardedHeaders,
-        credential,
-        runtime.fetch,
-        headersTimeoutMs,
-      );
-      recordCoderouterSpan({
-        name: "upstream_attempt",
-        startedAt: upstreamStartedAt,
-        attributes: { provider: credential.provider, attempt: attempt + 1, status: upstream.status },
-      });
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      failureStage = "upstream_transport";
-      recordCoderouterSpan({
-        name: "upstream_attempt",
-        startedAt: upstreamStartedAt,
-        error: error instanceof Error ? error.name : "transport",
-        attributes: { provider: "codex", attempt: attempt + 1 },
-      });
-      reportCoderouterFailure("upstream_transport", error, {
-        provider: "codex",
-        attempt: attempt + 1,
-        request_id: requestId,
-      });
-      continue;
-    }
-    if (upstream.status === 401) {
-      refreshRetries++;
-      addCoderouterBreadcrumb(
-        "refresh",
-        "Refreshing rejected credential",
-        {
-          provider: "codex",
-          attempt: attempt + 1,
-        },
-        "warning",
-      );
-      const refreshStartedAt = performance.now();
-      try {
-        const refreshed = await withCoderouterOperationDeadline(
-          request.signal,
-          upstreamHeaderDeadlineAt,
-          runtime.now,
-          (signal) => dependencies.credential({
-            teamId: identity.teamId,
-            accountId: account.id,
-            expectedRevision: account.vaultRevision,
-            force: true,
-            signal,
-          }),
-        );
-        recordCoderouterSpan({ name: "credential_refresh", startedAt: refreshStartedAt, attributes: { provider: "codex", forced: true } });
-        if (refreshed.provider === "codex") {
-          const retryHeadersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
-            upstreamHeaderDeadlineAt,
-            runtime.now(),
-            runtime.upstreamHeadersTimeoutMs,
-          );
-          if (retryHeadersTimeoutMs === null) {
-            failureStage = "upstream_transport";
-            upstream = null;
-            break;
-          }
-          const retryStartedAt = performance.now();
-          upstream = await sendResponses(
-            request.clone(),
-            forwardedHeaders,
-            refreshed,
-            runtime.fetch,
-            retryHeadersTimeoutMs,
-          );
-          recordCoderouterSpan({
-            name: "upstream_attempt",
-            startedAt: retryStartedAt,
-            attributes: { provider: "codex", attempt: attempt + 1, status: upstream.status, forced: true },
-          });
-        }
-      } catch (error) {
-        if (request.signal.aborted) throw error;
-        failureStage = "credential_refresh";
-        recordCoderouterSpan({
-          name: "credential_refresh",
-          startedAt: refreshStartedAt,
-          error: error instanceof Error ? error.name : "refresh_failed",
-          attributes: { provider: "codex", forced: true },
-        });
-        reportCoderouterFailure("provider_refresh", error, {
-          provider: "codex",
-          forced: true,
-          request_id: requestId,
-        });
-        if (error instanceof CoderouterOperationDeadlineError) {
-          upstream = null;
-          break;
-        }
-        continue;
-      }
-    }
-    if (upstream.status === 429) {
-      // A Codex usage-limit response commonly uses 429 too. Inspect it before
-      // applying the generic rate-limit path so a workspace quota gets the
-      // provider reset/holdout policy instead of a one-minute retry loop.
-      const probed = await probeCodexCapacity(upstream, request.signal);
-      if (probed.kind === "capacity") {
-        reportCoderouterFailure(
-          probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit",
-          new Error(`provider ${probed.failureCode}`),
-          { provider: "codex", capacity: true, capacity_reason: probed.failureCode, status: 429 },
-        );
-        const cooldownResult = await coolDownCapacityAccount(
-          dependencies,
-          account.id,
-          probed,
-          request,
-          upstreamHeaderDeadlineAt,
-          runtime,
-        );
-        if (cooldownResult === "deadline") {
-          failureStage = "upstream_transport";
-          upstream = null;
-          break;
-        }
-        upstream = null;
-        continue;
-      }
-      upstream = probed.kind === "response" ? probed.response : upstream;
-      const cooldownMs = rateLimitDelay(upstream.headers);
-      reportCoderouterFailure(
-        "provider_rate_limit",
-        new Error("rate limited"),
-        {
-          provider: "codex",
-          status: 429,
-        },
-      );
-      try {
-        await withCoderouterOperationDeadline(
-          request.signal,
-          upstreamHeaderDeadlineAt,
-          runtime.now,
-          (signal) => dependencies.cooldown(account.id, cooldownMs, signal),
-        );
-      } catch (error) {
-        if (request.signal.aborted) throw error;
-        if (error instanceof CoderouterOperationDeadlineError) {
-          failureStage = "upstream_transport";
-          break;
-        }
-        throw error;
-      }
-      continue;
-    }
-    // Providers do not consistently use 429 for model capacity. Codex has
-    // returned the same capacity/quota error as a 400 or 503, sometimes as a
-    // small JSON body and sometimes as an SSE error event. Treat that signal
-    // like a rate limit before returning it to the caller so another account
-    // can serve the request.
-    if (upstream.status < 200 || upstream.status >= 300) {
-      const probed = await probeCodexCapacity(upstream, request.signal);
-      if (probed.kind === "capacity") {
-        const cooldownResult = await coolDownCapacityAccount(
-          dependencies,
-          account.id,
-          probed,
-          request,
-          upstreamHeaderDeadlineAt,
-          runtime,
-        );
-        if (cooldownResult === "deadline") {
-          failureStage = "upstream_transport";
-          upstream = null;
-          break;
-        }
-        upstream = null;
-        continue;
-      }
-      upstream = probed.response;
-    }
-    if (isStreamingResponse(upstream)) {
-      const probed = await probeCodexCapacity(upstream, request.signal);
-      if (probed.kind === "capacity") {
-        recordCoderouterSpan({
-          name: "capacity_failover",
-          startedAt: performance.now(),
-          error: "provider_capacity",
-          attributes: {
-            provider: "codex",
-            attempt: attempt + 1,
-            retry_after_ms: capacityCooldownMs(probed),
-            capacity_reason: probed.failureCode,
-          },
-        });
-        addCoderouterBreadcrumb("routing", "Provider capacity; moving to another account", {
-          provider: "codex",
-          attempt: attempt + 1,
-        }, "warning");
-        reportCoderouterFailure(probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit", new Error("provider capacity"), {
-          provider: "codex",
-          capacity: true,
-          capacity_reason: probed.failureCode,
-          attempt: attempt + 1,
-          request_id: requestId,
-        });
-        const cooldownResult = await coolDownCapacityAccount(
-          dependencies,
-          account.id,
-          probed,
-          request,
-          upstreamHeaderDeadlineAt,
-          runtime,
-        );
-        if (cooldownResult === "deadline") {
-          failureStage = "upstream_transport";
-          upstream = null;
-          break;
-        }
-        upstream = null;
-        continue;
-      }
-      upstream = probed.response;
-    }
-    break;
-  }
+  const { attempted, refreshRetries, failureStage, upstream } = await runCodexAttempts({
+    dependencies,
+    runtime,
+    request,
+    identity,
+    requestId,
+    upstreamHeaderDeadlineAt,
+    forwardedHeaders,
+    sessionKey: sessionKeyFromRequest(request),
+  });
   if (!upstream) {
     captureRouteHealth({
       requestId,
@@ -722,31 +850,19 @@ async function probeCodexCapacity(
       total += next.value.byteLength;
       text += decoder.decode(next.value, { stream: true });
       const verdict = classifyCodexCapacityPrefix(text, format);
-      const unstructuredCapacity = verdict.kind === "waiting" && format !== "ndjson" && isCodexCapacityText(text);
-      if (verdict.kind === "capacity" || unstructuredCapacity) {
+      const capacity = capacityFromProbeVerdict(verdict, text, format);
+      if (capacity) {
         await reader.cancel();
-        return verdict.kind === "capacity"
-          ? verdict
-          : {
-            kind: "capacity",
-            failureCode: codexCapacityFailureCode(text) ?? "model_capacity",
-            retryAfterMs: retryAfterFromCodexText(text),
-          };
+        return capacity;
       }
       if (verdict.kind === "output" || total >= MAX_PREOUTPUT_PROBE_BYTES) break;
     }
     text += decoder.decode();
     const finalVerdict = classifyCodexCapacityPrefix(format === "ndjson" ? text : `${text}\n\n`, format, true);
-    const unstructuredCapacity = finalVerdict.kind === "waiting" && format !== "ndjson" && isCodexCapacityText(text);
-    if (finalVerdict.kind === "capacity" || unstructuredCapacity) {
+    const capacity = capacityFromProbeVerdict(finalVerdict, text, format);
+    if (capacity) {
       await reader.cancel();
-      return finalVerdict.kind === "capacity"
-        ? finalVerdict
-        : {
-          kind: "capacity",
-          failureCode: codexCapacityFailureCode(text) ?? "model_capacity",
-          retryAfterMs: retryAfterFromCodexText(text),
-        };
+      return capacity;
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
@@ -886,12 +1002,28 @@ function classifyCodexNdjsonPrefix(
   return { kind: "waiting" };
 }
 
+function capacityFromProbeVerdict(
+  verdict: ReturnType<typeof classifyCodexCapacityPrefix>,
+  text: string,
+  format: CodexResponseStreamFormat,
+): Extract<CodexCapacityProbe, { kind: "capacity" }> | undefined {
+  if (verdict.kind === "capacity") return verdict;
+  if (verdict.kind !== "waiting" || format === "ndjson") return undefined;
+  const failureCode = codexCapacityFailureCode(text);
+  if (!failureCode) return undefined;
+  return { kind: "capacity", failureCode, retryAfterMs: retryAfterFromCodexText(text) };
+}
+
+function isCodexErrorObject(object: Record<string, unknown>): boolean {
+  const type = typeof object.type === "string" ? object.type : undefined;
+  return type?.toLowerCase() === "error" || !!type?.toLowerCase().endsWith(".error") ||
+    "error" in object || "codex_error_info" in object;
+}
+
 function codexCapacityFailureCodeFromPayload(value: unknown, errorContext = false): CodexCapacityFailureCode | undefined {
   if (!value || typeof value !== "object") return undefined;
   const object = value as Record<string, unknown>;
-  const type = typeof object.type === "string" ? object.type : undefined;
-  const errorLike = errorContext || type?.toLowerCase() === "error" || type?.toLowerCase().endsWith(".error") ||
-    "error" in object || "codex_error_info" in object;
+  const errorLike = errorContext || isCodexErrorObject(object);
   for (const candidate of [object.type, object.code, object.codex_error_info]) {
     if (typeof candidate === "string") {
       const failureCode = codexCapacityFailureCode(candidate);
@@ -950,15 +1082,16 @@ function isCodexOutputPayload(value: unknown): boolean {
   return type.endsWith(".delta");
 }
 
-function retryAfterFromCodexPayload(value: unknown): number | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const object = value as Record<string, unknown>;
-  const raw = object.retry_after_ms ?? object.retry_after;
+function explicitCodexRetryDelay(raw: unknown): number | undefined {
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(1_000, raw < 100 ? raw * 1_000 : raw);
   if (typeof raw === "string" && /^\d+(?:\.\d+)?s?$/.test(raw)) {
     const seconds = Number.parseFloat(raw);
     return Math.max(1_000, raw.endsWith("s") || seconds < 100 ? seconds * 1_000 : seconds);
   }
+  return undefined;
+}
+
+function codexResetDelay(object: Record<string, unknown>): number | undefined {
   const resetSeconds = object.resets_in_seconds;
   if (typeof resetSeconds === "number" && Number.isFinite(resetSeconds) && resetSeconds > 0) {
     return boundedCapacityDelay(resetSeconds * 1_000);
@@ -973,6 +1106,16 @@ function retryAfterFromCodexPayload(value: unknown): number | undefined {
     ? Number.parseInt(resetAt, 10) * 1_000
     : typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
   if (Number.isFinite(resetTime)) return boundedCapacityDelay(resetTime - Date.now());
+  return undefined;
+}
+
+function retryAfterFromCodexPayload(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const object = value as Record<string, unknown>;
+  const explicitDelay = explicitCodexRetryDelay(object.retry_after_ms ?? object.retry_after);
+  if (explicitDelay !== undefined) return explicitDelay;
+  const resetDelay = codexResetDelay(object);
+  if (resetDelay !== undefined) return resetDelay;
   const reachedType = object.rate_limit_reached_type;
   if (typeof reachedType === "string" && reachedType.toLowerCase().startsWith("workspace_")) {
     return WORKSPACE_QUOTA_COOLDOWN_MS;

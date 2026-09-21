@@ -501,7 +501,6 @@ async function routeWithFailover(
       healthy: selection.healthy,
       total: selection.total,
     });
-    let attempt: Attempt;
     const attemptStartedAt = performance.now();
     const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
@@ -509,29 +508,9 @@ async function routeWithFailover(
       runtime.upstreamHeadersTimeoutMs,
     );
     if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
-    try {
-      attempt = { kind: "response", response: await send(upstream, headersTimeoutMs) };
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      attempt = { kind: "transport", error };
-    }
-    if (surface === "messages" && attempt.kind === "response") {
-      attempt = await probeClaudeStreamFailure(attempt.response, request.signal);
-    }
+    const attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
     const verdict = classifyAttempt(attempt);
-    recordCoderouterSpan({
-      name: "upstream_attempt",
-      startedAt: attemptStartedAt,
-      ...(verdict.kind === "failover" ? { error: verdict.failureCode } : {}),
-      attributes: {
-        provider: "claude",
-        upstream_kind: upstream.kind,
-        attempt: attempts,
-        surface,
-        status: attempt.kind === "response" ? attempt.response.status : 0,
-        ...(verdict.kind === "failover" ? { failure_code: verdict.failureCode, cooldown_ms: verdict.cooldownMs } : {}),
-      },
-    });
+    recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
     if (verdict.kind === "done") {
       void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
       return { kind: "response", response: verdict.response, upstream, attempts, failed: false, failureStage: "none" };
@@ -575,6 +554,49 @@ async function routeWithFailover(
     excluded.push(upstream.accountId);
   }
   return deadlineResult(attempts, lastFailure);
+}
+
+async function sendClaudeAttempt(
+  send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
+  upstream: ClaudeUpstream,
+  headersTimeoutMs: number,
+  surface: ClaudeSurface,
+  signal: AbortSignal,
+): Promise<Attempt> {
+  let attempt: Attempt;
+  try {
+    attempt = { kind: "response", response: await send(upstream, headersTimeoutMs) };
+  } catch (error) {
+    if (signal.aborted) throw error;
+    attempt = { kind: "transport", error };
+  }
+  if (surface === "messages" && attempt.kind === "response") {
+    return probeClaudeStreamFailure(attempt.response, signal);
+  }
+  return attempt;
+}
+
+function recordClaudeAttempt(
+  startedAt: number,
+  upstream: ClaudeUpstream,
+  attemptCount: number,
+  surface: ClaudeSurface,
+  attempt: Attempt,
+  verdict: Verdict,
+): void {
+  recordCoderouterSpan({
+    name: "upstream_attempt",
+    startedAt,
+    ...(verdict.kind === "failover" ? { error: verdict.failureCode } : {}),
+    attributes: {
+      provider: "claude",
+      upstream_kind: upstream.kind,
+      attempt: attemptCount,
+      surface,
+      status: attempt.kind === "response" ? attempt.response.status : 0,
+      ...(verdict.kind === "failover" ? { failure_code: verdict.failureCode, cooldown_ms: verdict.cooldownMs } : {}),
+    },
+  });
 }
 
 function deadlineResult(
