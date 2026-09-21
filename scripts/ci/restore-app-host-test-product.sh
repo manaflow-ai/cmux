@@ -29,9 +29,9 @@ print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
 summary = os.environ.get("GITHUB_STEP_SUMMARY")
 if summary:
     with open(summary, "a") as handle:
-        handle.write("### Compiled test product restore\n\n\`\`\`json\n")
+        handle.write("### Compiled test product restore\n\n```json\n")
         handle.write(json.dumps(record, indent=2, sort_keys=True))
-        handle.write("\n\`\`\`\n")
+        handle.write("\n```\n")
 PY
   set -e
   return "$status"
