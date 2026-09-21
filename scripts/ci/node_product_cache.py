@@ -257,7 +257,7 @@ def _metadata_matches(metadata: dict, identity: Identity) -> bool:
         and metadata.get("object_digest") == identity.archive_digest
         and isinstance(metadata.get("size"), int)
         and metadata["size"] > 0
-        and metadata.get("source_class") in {"github", "r2", "producer-local"}
+        and metadata.get("source_class") in {"github", "r2", "peer", "producer-local"}
     )
 
 
@@ -333,6 +333,92 @@ def _validate_entry_locked(store: Store, identity: Identity) -> tuple[dict, Path
     return metadata, obj
 
 
+def _validate_entry_by_key_locked(store: Store, key: str) -> tuple[dict, Path] | None:
+    if not _HEX64.fullmatch(key):
+        return None
+    entry = store.entry(key)
+    metadata = _read_json(entry / METADATA_NAME)
+    obj = entry / OBJECT_NAME
+    identity = metadata.get("identity") if metadata else None
+    if (
+        metadata is None
+        or not isinstance(identity, dict)
+        or hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest() != key
+        or metadata.get("schema_generation") != SCHEMA_GENERATION
+        or metadata.get("format_generation") != FORMAT_GENERATION
+        or metadata.get("object_digest") != identity.get("archive_digest")
+        or not isinstance(metadata.get("size"), int)
+        or metadata["size"] <= 0
+        or metadata.get("source_class") not in {"github", "r2", "peer", "producer-local"}
+        or not obj.is_file()
+    ):
+        if entry.exists():
+            _remove_entry_locked(store, key)
+        return None
+    try:
+        if obj.stat().st_size != metadata["size"] or _sha256(obj) != metadata["object_digest"]:
+            _remove_entry_locked(store, key)
+            return None
+    except OSError:
+        _remove_entry_locked(store, key)
+        return None
+    return metadata, obj
+
+
+def peer_availability(store: Store, key: str) -> dict | None:
+    """Return bounded exact-object availability without paths or cache listings."""
+    try:
+        with store.lock(key):
+            validated = _validate_entry_by_key_locked(store, key)
+            if validated is None:
+                return None
+            metadata, _ = validated
+            return {
+                "object_identity": f"sha256:{key}",
+                "schema_generation": metadata["schema_generation"],
+                "size": metadata["size"],
+                "metadata": {
+                    "object_digest": metadata["object_digest"],
+                    "size": metadata["size"],
+                    "schema_generation": metadata["schema_generation"],
+                },
+            }
+    except (OSError, ValueError):
+        return None
+
+
+def acquire_peer_transfer(store: Store, key: str) -> dict | None:
+    """Acquire one in-use lease before exposing an exact immutable object to a peer."""
+    try:
+        with store.lock(key):
+            validated = _validate_entry_by_key_locked(store, key)
+            if validated is None:
+                return None
+            metadata, obj = validated
+            lease = _create_lease_locked(store, key)
+            return {
+                "path": obj,
+                "lease": lease,
+                "metadata": {
+                    "object_digest": metadata["object_digest"],
+                    "size": metadata["size"],
+                    "schema_generation": metadata["schema_generation"],
+                },
+            }
+    except (OSError, ValueError):
+        return None
+
+
+def release_peer_transfer(store: Store, key: str, lease: str) -> None:
+    if not lease or not _HEX64.fullmatch(key):
+        return
+    with contextlib.suppress(OSError):
+        with store.lock(key):
+            _release_lease_locked(store, key, lease)
+
+
 def _materialize(obj: Path, destination: Path) -> None:
     if destination.exists():
         raise FileExistsError("product destination already exists")
@@ -382,6 +468,7 @@ def _stats_update(store: Store, **increments) -> dict:
             "evicted_bytes": 0,
             "bytes_avoided_github": 0,
             "bytes_avoided_r2": 0,
+            "bytes_avoided_peer": 0,
         }
         for field, amount in increments.items():
             value[field] = int(value.get(field, 0)) + int(amount)
@@ -422,6 +509,7 @@ def _snapshot(store: Store, stats: dict | None = None) -> dict:
         "eviction_rate": round(evictions / lookups, 4) if lookups else 0.0,
         "bytes_avoided_github": int(stats.get("bytes_avoided_github", 0)),
         "bytes_avoided_r2": int(stats.get("bytes_avoided_r2", 0)),
+        "bytes_avoided_peer": int(stats.get("bytes_avoided_peer", 0)),
     }
 
 
@@ -453,7 +541,9 @@ def acquire(
                 avoided = metadata["size"]
                 fallback = os.environ.get("CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE", "").strip()
                 increments = {"hits": 1}
-                if fallback == "r2":
+                if fallback == "peer":
+                    increments["bytes_avoided_peer"] = avoided
+                elif fallback == "r2":
                     increments["bytes_avoided_r2"] = avoided
                 elif fallback == "github":
                     increments["bytes_avoided_github"] = avoided
@@ -681,7 +771,7 @@ def finalize(
 ) -> dict:
     if store is None:
         return {"status": "disabled"}
-    if source_class not in {"github", "r2", "producer-local"}:
+    if source_class not in {"github", "r2", "peer", "producer-local"}:
         source_class = "github"
     key = identity.key()
     if not restore_succeeded:
