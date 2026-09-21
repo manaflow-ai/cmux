@@ -104,6 +104,8 @@ func generatedSwiftCallsRealRustTransportThroughByteSeam() async throws {
     #expect(received == payload)
     try await server.send(Data("reply".utf8))
     #expect(try await transport.receive() == Data("reply".utf8))
+    try await server.finishSend()
+    #expect(try await transport.receive() == nil)
     observer?.cancel()
     #expect(await transport.isTransportClosed() == false)
     let read = Task { try await transport.receive() }

@@ -64,6 +64,29 @@ public actor V3ByteTransport: CmxByteTransport, CmxByteTransportLivenessObservin
         } onCancel: { operation.cancel() }
     }
 
+    /// Flush all queued bytes and send an ordered half-close marker. The
+    /// reverse direction remains available for a response or final ack.
+    public func finishSend() async throws {
+        let stream = try await connected()
+        let operation = CmuxV3Native.Operation()
+        try await withTaskCancellationHandler {
+            do {
+                try await stream.finishSend(operation: operation)
+                try Task.checkCancellation()
+                guard !closed else { throw NativeError.Closed }
+            } catch {
+                if case NativeError.Cancelled = error { throw error }
+                close()
+                throw error
+            }
+        } onCancel: { operation.cancel() }
+    }
+
+    /// Permanently stop this transport's receive side while preserving sends.
+    public func stopReceive() async {
+        stream?.stopReceive()
+    }
+
     public func close() {
         guard !closed else { return }
         closed = true

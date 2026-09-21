@@ -230,7 +230,7 @@ async fn pump<T>(
 
 async fn exchange(a: &session::Session, b: &mut session::Session) {
     a.send(b"alive"[..].into()).await.unwrap();
-    assert_eq!(b.receive().await.unwrap(), b"alive"[..]);
+    assert_eq!(b.receive().await.unwrap().unwrap(), b"alive"[..]);
 }
 
 #[tokio::test]

@@ -75,7 +75,7 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
                 .await
                 .unwrap();
             assert_eq!(
-                receiving.receive(Operation::new()).await.unwrap(),
+                receiving.receive(Operation::new()).await.unwrap().unwrap(),
                 b"request"
             );
             receiving
@@ -85,6 +85,14 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
         };
         let (result, ()) = tokio::join!(read, write);
         assert_eq!(result.unwrap(), b"reply");
+        sending.finish_send(Operation::new()).await.unwrap();
+        assert_eq!(receiving.receive(Operation::new()).await.unwrap(), None);
+        assert_eq!(
+            sending
+                .send(b"after finish".to_vec(), Operation::new())
+                .await,
+            Err(NativeError::Closed)
+        );
         let cancel = Operation::new();
         let read = receiving.receive(cancel.clone());
         cancel.cancel();
@@ -95,7 +103,7 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
             .await
             .unwrap();
         assert_eq!(
-            receiving.receive(Operation::new()).await.unwrap(),
+            receiving.receive(Operation::new()).await.unwrap().unwrap(),
             b"after cancel"
         );
         let left = vec![1; 128 * 1024];
@@ -110,7 +118,7 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
         let reads = async {
             let mut bytes = Vec::new();
             while bytes.len() < left.len() + right.len() {
-                bytes.extend(receiving.receive(Operation::new()).await.unwrap());
+                bytes.extend(receiving.receive(Operation::new()).await.unwrap().unwrap());
             }
             assert!(
                 bytes == [left.as_slice(), right.as_slice()].concat()

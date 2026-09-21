@@ -9,13 +9,17 @@ use libp2p::{PeerId, Stream, StreamProtocol};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore};
 use tokio_util::{
     codec::{Framed, LengthDelimitedCodec},
     compat::{Compat, FuturesAsyncReadCompatExt},
+    sync::CancellationToken,
 };
 
 pub const PROTOCOL: StreamProtocol = StreamProtocol::new("/cmux/transport/3/session");
@@ -27,6 +31,8 @@ const DATA: u8 = 0;
 const RENEW: u8 = 1;
 const RENEWED: u8 = 2;
 const DATA_ACK: u8 = 3;
+const FIN: u8 = 4;
+const FIN_ACK: u8 = 5;
 type Wire = Framed<Compat<Stream>, LengthDelimitedCodec>;
 type Reply = oneshot::Sender<Result<(), Error>>;
 
@@ -279,6 +285,9 @@ impl Context {
         let (closed_tx, closed_rx) = watch::channel(None);
         let (permit_tx, _) = watch::channel(Arc::new(admission));
         let pending_data = Arc::new(Mutex::new(HashMap::<u64, Reply>::new()));
+        let receive_stopped = CancellationToken::new();
+        let read_stop = receive_stopped.clone();
+        let sent_finish = Arc::new(AtomicBool::new(false));
         let guard = Arc::new(Guard {
             context: self.clone(),
             scope,
@@ -295,6 +304,7 @@ impl Context {
                 initiator,
                 cursor,
                 pending_data,
+                read_stop,
             )
             .await;
             closed_tx.send_replace(Some(result));
@@ -305,6 +315,9 @@ impl Context {
             closed: closed_rx,
             guard,
             task,
+            received_finish: false,
+            receive_stopped,
+            sent_finish,
         }
     }
 }
@@ -374,6 +387,8 @@ enum Outbound {
     Renew(String, Reply),
     RenewAck(u64),
     DataAck(u64),
+    Finish(Reply),
+    FinishAck(u64),
 }
 struct Pending {
     id: u64,
@@ -385,10 +400,17 @@ struct Pending {
 /// Dropping it closes the stream and releases the context's capacity permit.
 pub struct Session {
     outgoing: mpsc::Sender<Outbound>,
-    incoming: mpsc::Receiver<Bytes>,
+    incoming: mpsc::Receiver<Incoming>,
     closed: watch::Receiver<Option<Error>>,
     guard: Arc<Guard>,
     task: tokio::task::JoinHandle<()>,
+    received_finish: bool,
+    receive_stopped: CancellationToken,
+    sent_finish: Arc<AtomicBool>,
+}
+enum Incoming {
+    Data(Bytes),
+    Finished,
 }
 impl Drop for Session {
     fn drop(&mut self) {
@@ -404,6 +426,8 @@ impl Session {
             closed: self.closed.clone(),
             guard: self.guard.clone(),
             abort: self.task.abort_handle(),
+            receive_stopped: self.receive_stopped.clone(),
+            sent_finish: self.sent_finish.clone(),
         }
     }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
@@ -416,17 +440,32 @@ impl Session {
     pub async fn send_acknowledged(&self, bytes: Bytes) -> Result<(), Error> {
         self.sender().send_acknowledged(bytes).await
     }
+    /// Queue an ordered half-close marker after all prior outbound frames.
+    pub async fn finish(&self) -> Result<(), Error> {
+        self.sender().finish().await
+    }
     /// Returns only after the receiving endpoint acknowledges the signed renewal.
     /// Only the stream initiator may renew. This never extends a token locally.
     pub async fn renew(&self, token: String) -> Result<(), Error> {
         self.sender().renew(token).await
     }
-    pub async fn receive(&mut self) -> Result<Bytes, Error> {
+    pub async fn receive(&mut self) -> Result<Option<Bytes>, Error> {
         self.guard.check()?;
-        let bytes = self.incoming.recv().await.ok_or_else(|| self.failure())?;
-        // Never expose buffered application bytes after revocation or expiry.
-        self.guard.check()?;
-        Ok(bytes)
+        if self.received_finish {
+            return Ok(None);
+        }
+        let item = self.incoming.recv().await.ok_or_else(|| self.failure())?;
+        match item {
+            Incoming::Data(bytes) => {
+                self.guard.check()?;
+                Ok(Some(bytes))
+            }
+            Incoming::Finished => {
+                self.guard.check()?;
+                self.received_finish = true;
+                Ok(None)
+            }
+        }
     }
     pub async fn closed(&self) -> Error {
         let mut closed = self.closed.clone();
@@ -453,6 +492,8 @@ pub struct SessionSender {
     closed: watch::Receiver<Option<Error>>,
     guard: Arc<Guard>,
     abort: tokio::task::AbortHandle,
+    receive_stopped: CancellationToken,
+    sent_finish: Arc<AtomicBool>,
 }
 impl SessionSender {
     pub fn is_closed(&self) -> bool {
@@ -475,6 +516,11 @@ impl SessionSender {
     pub fn close(&self) {
         self.abort.abort();
     }
+    /// Abandon application reads while allowing the driver to process the
+    /// peer's control frames and send this side's remaining data.
+    pub fn stop_receive(&self) {
+        self.receive_stopped.cancel();
+    }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
         self.send_data(bytes, false).await
     }
@@ -483,11 +529,28 @@ impl SessionSender {
         self.send_data(bytes, true).await
     }
 
+    /// Send an ordered FIN. This does not abort the stream, so the peer may
+    /// continue sending its own final bytes in the reverse direction.
+    pub async fn finish(&self) -> Result<(), Error> {
+        if self.sent_finish.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        let (tx, rx) = oneshot::channel();
+        let result = self.command(Outbound::Finish(tx), rx).await;
+        if result.is_err() {
+            self.sent_finish.store(false, Ordering::Release);
+        }
+        result
+    }
+
     async fn send_data(&self, bytes: Bytes, acknowledged: bool) -> Result<(), Error> {
         if bytes.is_empty() || bytes.len() > MAX_DATA {
             return Err(Error::Protocol);
         }
         self.guard.check()?;
+        if self.sent_finish.load(Ordering::Acquire) {
+            return Err(Error::Closed);
+        }
         let (tx, rx) = oneshot::channel();
         self.command(
             Outbound::Data {
@@ -534,22 +597,28 @@ impl SessionSender {
 async fn drive(
     wire: Wire,
     mut outgoing: mpsc::Receiver<Outbound>,
-    incoming: mpsc::Sender<Bytes>,
+    incoming: mpsc::Sender<Incoming>,
     guard: Arc<Guard>,
     initiator: bool,
     cursor: Option<u64>,
     pending_data: Arc<Mutex<HashMap<u64, Reply>>>,
+    receive_stopped: CancellationToken,
 ) -> Error {
     let (mut sink, mut stream) = wire.split();
     let (control_tx, mut control_rx) = mpsc::channel(4);
     let pending = Mutex::<Option<Pending>>::new(None);
+    let pending_finish = Mutex::<Option<(u64, Reply)>>::new(None);
     let mut last_received = cursor.unwrap_or(0);
     let read = async {
+        let mut received_finish = false;
         while let Some(frame) = stream.next().await {
             let frame = frame.map_err(|_| Error::Transport)?;
             guard.check()?;
             match frame.first().copied() {
                 Some(DATA) if frame.len() > 9 => {
+                    if received_finish {
+                        return Err(Error::Protocol);
+                    }
                     if !initiator && guard.scope.lane == LaneKind::Terminal {
                         return Err(Error::Denied);
                     }
@@ -560,15 +629,50 @@ async fn drive(
                             return Err(Error::Protocol);
                         }
                         last_received = sequence;
-                        incoming
-                            .send(frame.freeze().slice(9..))
-                            .await
-                            .map_err(|_| Error::Closed)?;
+                        tokio::select! {
+                            biased;
+                            _ = receive_stopped.cancelled() => {},
+                            result = incoming.send(Incoming::Data(frame.freeze().slice(9..))) => {
+                                result.map_err(|_| Error::Closed)?;
+                            }
+                        }
                     }
                     control_tx
                         .send(Outbound::DataAck(sequence))
                         .await
                         .map_err(|_| Error::Closed)?;
+                }
+                Some(FIN) if frame.len() == 9 => {
+                    let sequence =
+                        u64::from_be_bytes(frame[1..9].try_into().map_err(|_| Error::Protocol)?);
+                    if received_finish || sequence != last_received {
+                        return Err(Error::Protocol);
+                    }
+                    received_finish = true;
+                    tokio::select! {
+                        biased;
+                        _ = receive_stopped.cancelled() => {},
+                        result = incoming.send(Incoming::Finished) => {
+                            result.map_err(|_| Error::Closed)?;
+                        }
+                    }
+                    control_tx
+                        .send(Outbound::FinishAck(sequence))
+                        .await
+                        .map_err(|_| Error::Closed)?;
+                }
+                Some(FIN_ACK) if frame.len() == 9 => {
+                    let sequence =
+                        u64::from_be_bytes(frame[1..9].try_into().map_err(|_| Error::Protocol)?);
+                    let (expected, reply) = pending_finish
+                        .lock()
+                        .map_err(|_| Error::Closed)?
+                        .take()
+                        .ok_or(Error::Protocol)?;
+                    if sequence != expected {
+                        return Err(Error::Protocol);
+                    }
+                    let _ = reply.send(Ok(()));
                 }
                 Some(RENEW) if !initiator && frame.len() > 9 && frame.len() <= 8192 + 9 => {
                     let id =
@@ -613,6 +717,7 @@ async fn drive(
     let write = async {
         let mut data_sequence = cursor.unwrap_or(0);
         let mut renew_sequence = 0_u64;
+        let mut sent_finish = false;
         loop {
             let command = tokio::select! {
                 biased;
@@ -627,6 +732,10 @@ async fn drive(
                     reply,
                     acknowledged,
                 } => {
+                    if sent_finish {
+                        let _ = reply.send(Err(Error::Closed));
+                        continue;
+                    }
                     if initiator && guard.scope.lane == LaneKind::Terminal {
                         let _ = reply.send(Err(Error::Denied));
                         continue;
@@ -655,6 +764,23 @@ async fn drive(
                 Outbound::DataAck(id) => {
                     body.extend_from_slice(&[DATA_ACK]);
                     body.extend_from_slice(&id.to_be_bytes());
+                    None
+                }
+                Outbound::Finish(reply) => {
+                    if sent_finish {
+                        let _ = reply.send(Err(Error::Closed));
+                        continue;
+                    }
+                    sent_finish = true;
+                    *pending_finish.lock().map_err(|_| Error::Closed)? =
+                        Some((data_sequence, reply));
+                    body.extend_from_slice(&[FIN]);
+                    body.extend_from_slice(&data_sequence.to_be_bytes());
+                    None
+                }
+                Outbound::FinishAck(sequence) => {
+                    body.extend_from_slice(&[FIN_ACK]);
+                    body.extend_from_slice(&sequence.to_be_bytes());
                     None
                 }
                 Outbound::Renew(token, reply) => {

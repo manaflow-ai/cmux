@@ -249,6 +249,7 @@ pub struct NativeStream {
     writing: Mutex<()>,
     sending: SessionSender,
     stopped: CancellationToken,
+    receive_stopped: CancellationToken,
     endpoint: CancellationToken,
 }
 impl NativeStream {
@@ -258,6 +259,7 @@ impl NativeStream {
             receiving: Mutex::new(session),
             writing: Mutex::new(()),
             stopped: CancellationToken::new(),
+            receive_stopped: CancellationToken::new(),
             endpoint,
         })
     }
@@ -290,7 +292,18 @@ impl NativeStream {
     }
     pub fn close(&self) {
         self.stopped.cancel();
+        self.receive_stopped.cancel();
         self.sending.close();
+    }
+    /// Finish this half of the stream after queued data, preserving the
+    /// reverse direction for replies. Cancellation leaves the stream usable.
+    pub async fn finish_send(&self, operation: Arc<Operation>) -> Result<(), NativeError> {
+        self.run(&operation, self.sending.finish()).await
+    }
+    /// Stop receiving without aborting outbound data or the remote half.
+    pub fn stop_receive(&self) {
+        self.receive_stopped.cancel();
+        self.sending.stop_receive();
     }
     pub async fn send(&self, data: Vec<u8>, operation: Arc<Operation>) -> Result<(), NativeError> {
         if data.is_empty() || data.len() > 16 * 1024 * 1024 {
@@ -336,12 +349,14 @@ impl NativeStream {
         }
         result
     }
-    pub async fn receive(&self, operation: Arc<Operation>) -> Result<Vec<u8>, NativeError> {
-        self.run(&operation, async {
-            self.receiving.lock().await.receive().await
-        })
-        .await
-        .map(|b| b.to_vec())
+    pub async fn receive(&self, operation: Arc<Operation>) -> Result<Option<Vec<u8>>, NativeError> {
+        tokio::select! {
+            biased;
+            _ = self.receive_stopped.cancelled() => Err(NativeError::Closed),
+            result = self.run(&operation, async {
+                self.receiving.lock().await.receive().await
+            }) => result.map(|b| b.map(|bytes| bytes.to_vec())),
+        }
     }
     pub async fn renew(&self, grant: String, operation: Arc<Operation>) -> Result<(), NativeError> {
         self.run(&operation, self.sending.renew(grant)).await

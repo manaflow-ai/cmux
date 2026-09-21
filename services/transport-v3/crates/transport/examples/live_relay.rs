@@ -123,10 +123,10 @@ async fn main() -> Result<()> {
                 let mut message = vec![b'x'; 2048];
                 message[..8].copy_from_slice(&index.to_be_bytes());
                 sending.send(message.clone().into()).await?;
-                let received = receiving.receive().await?;
+                let received = receiving.receive().await?.ok_or_else(|| anyhow::anyhow!("clean eof"))?;
                 anyhow::ensure!(received.as_ref() == message, "incorrect request bytes");
                 receiving.send(received).await?;
-                anyhow::ensure!(sending.receive().await?.as_ref() == message, "incorrect response bytes");
+                anyhow::ensure!(sending.receive().await?.as_ref().is_some_and(|received| received.as_ref() == message), "incorrect response bytes");
             }
             Ok::<_, anyhow::Error>(())
         }).await?;

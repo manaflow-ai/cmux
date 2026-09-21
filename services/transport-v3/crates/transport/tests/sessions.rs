@@ -147,14 +147,14 @@ async fn acknowledged_renewal_keeps_stream_alive_past_original_expiry() {
         let (mut a, mut b) = pair.open(old.clone()).await;
         let expires = now() + 5;
         a.send(Bytes::from_static(b"before")).await.unwrap();
-        assert_eq!(b.receive().await.unwrap(), b"before"[..]);
+        assert_eq!(b.receive().await.unwrap().unwrap(), b"before"[..]);
         a.renew(pair.grant(Some(60), 2)).await.unwrap();
         assert_eq!(a.renew(old).await, Err(Error::Denied));
         while now() < expires {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         b.send(Bytes::from_static(b"after")).await.unwrap();
-        assert_eq!(a.receive().await.unwrap(), b"after"[..]);
+        assert_eq!(a.receive().await.unwrap().unwrap(), b"after"[..]);
         assert_eq!(b.renew(pair.grant(Some(60), 2)).await, Err(Error::Denied));
     })
     .await
@@ -170,7 +170,7 @@ async fn acknowledged_data_waits_for_peer_queue_and_replays_from_cursor() {
         let receiving = b.receive();
         let (sent, received) = tokio::join!(sending, receiving);
         sent.unwrap();
-        assert_eq!(received.unwrap(), b"input"[..]);
+        assert_eq!(received.unwrap().unwrap(), b"input"[..]);
 
         // The lane cursor seeds the next sequence and rejects a gap, which is
         // the invariant a handover replay needs before accepting new bytes.
@@ -183,10 +183,34 @@ async fn acknowledged_data_waits_for_peer_queue_and_replays_from_cursor() {
         let receiving = b2.receive();
         let (sent, received) = tokio::join!(sending, receiving);
         sent.unwrap();
-        assert_eq!(received.unwrap(), b"after-replay"[..]);
+        assert_eq!(received.unwrap().unwrap(), b"after-replay"[..]);
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn finish_drains_ordered_data_and_preserves_reverse_direction() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut pair = Pair::new(4).await;
+        let (a, mut b) = pair.open(pair.grant(Some(60), 1)).await;
+        a.send(Bytes::from_static(b"last frame")).await.unwrap();
+        a.finish().await.unwrap();
+        assert_eq!(b.receive().await.unwrap().unwrap(), b"last frame"[..]);
+        assert_eq!(b.receive().await.unwrap(), None);
+        b.send(Bytes::from_static(b"final reply")).await.unwrap();
+        assert_eq!(a.receive().await.unwrap().unwrap(), b"final reply"[..]);
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn abrupt_close_is_not_reported_as_clean_eof() {
+    let mut pair = Pair::new(2).await;
+    let (a, mut b) = pair.open(pair.grant(Some(60), 1)).await;
+    a.sender().close();
+    assert_eq!(b.receive().await, Err(Error::Closed));
 }
 
 #[tokio::test]
@@ -220,7 +244,7 @@ async fn expiry_cancels_idle_reads_and_full_buffers_and_releases_capacity() {
         let token = pair.grant(Some(60), 1);
         let (a2, mut b2) = pair.open(token).await;
         a2.send(Bytes::from_static(b"new")).await.unwrap();
-        assert_eq!(b2.receive().await.unwrap(), b"new"[..]);
+        assert_eq!(b2.receive().await.unwrap().unwrap(), b"new"[..]);
     })
     .await
     .unwrap();
@@ -268,7 +292,7 @@ async fn malformed_oversized_or_forged_headers_never_admit_a_lane() {
         // Rejected headers release their slots; legitimate traffic still works.
         let (a, mut b) = pair.open(pair.grant(Some(60), 1)).await;
         a.send(Bytes::from_static(b"accepted")).await.unwrap();
-        assert_eq!(b.receive().await.unwrap(), b"accepted"[..]);
+        assert_eq!(b.receive().await.unwrap().unwrap(), b"accepted"[..]);
     })
     .await
     .unwrap();
@@ -287,7 +311,7 @@ async fn read_permission_cannot_open_or_send_terminal_input() {
         b.send(Bytes::from_static(b"terminal output"))
             .await
             .unwrap();
-        assert_eq!(a.receive().await.unwrap(), b"terminal output"[..]);
+        assert_eq!(a.receive().await.unwrap().unwrap(), b"terminal output"[..]);
         assert_eq!(
             a.send(Bytes::from_static(b"injected input")).await,
             Err(Error::Denied)
