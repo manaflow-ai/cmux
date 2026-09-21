@@ -5,13 +5,18 @@ import Foundation
 extension CmuxTuiSurfaceProviderRegistry {
     /// The headless link's local mux socket for a machine, connecting if needed.
     func linkSocketPath(machineID: String) async throws -> (socketPath: String, session: String) {
-        guard isCloudEnabled() else {
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             throw CloudMachineLinkManager.ManagerError.retryLater(String(
                 localized: "cloud.feature.disabled",
                 defaultValue: "Cloud Machines are temporarily unavailable."
             ))
         }
+        let epoch = accessEpoch
         let connected = try await links.connected(machineID: machineID)
+        guard !isRetired, epoch == accessEpoch,
+              !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            throw CancellationError()
+        }
         return (connected.socketPath, connected.session)
     }
 
@@ -30,13 +35,19 @@ extension CmuxTuiSurfaceProviderRegistry {
     }
 
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
-        guard isCloudEnabled() else {
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             throw CloudMachineLinkManager.ManagerError.retryLater(String(
                 localized: "cloud.feature.disabled",
                 defaultValue: "Cloud Machines are temporarily unavailable."
             ))
         }
-        return try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
+        let epoch = accessEpoch
+        let route = try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
+        guard !isRetired, epoch == accessEpoch,
+              !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            throw CancellationError()
+        }
+        return route
     }
 
 }
