@@ -625,6 +625,7 @@ class WorkloadProfileTests(unittest.TestCase):
                 mock.patch.object(profile, "validate_platform"),
                 mock.patch.object(profile, "source_identity", return_value=frozen),
                 mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
+                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
                 mock.patch.object(
                     profile,
                     "runtime_inputs",
@@ -690,6 +691,7 @@ class WorkloadProfileTests(unittest.TestCase):
                     },
                 ),
                 mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
+                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
                 mock.patch.object(profile, "runtime_inputs", return_value=[]),
                 mock.patch.object(profile, "settle_process_group", return_value=(False, "forced")),
                 mock.patch.object(profile, "collect_artifacts", return_value=([], [])),
