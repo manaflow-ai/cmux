@@ -2218,7 +2218,6 @@
 		17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */; };
 		A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */; };
 		730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */; };
-		730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */; };
 		D15AB1ED000000000000A002 /* ManagedCapabilityPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1ED000000000000A001 /* ManagedCapabilityPolicy.swift */; };
 		D15AB1ED000000000000A006 /* ManagedCapabilityPolicyGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15AB1ED000000000000A005 /* ManagedCapabilityPolicyGateTests.swift */; };
 		4DD540783D6349A794464BDA /* ManagedPolicyBrowserGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224F615BB3A34C66A999EACF /* ManagedPolicyBrowserGateTests.swift */; };
@@ -3260,7 +3259,6 @@
 		32A5901C769249B692FA1104 /* SurfaceDropFeedback.swift in Sources */ = {isa = PBXBuildFile; fileRef = E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */; };
 		F26476EEB1E440498FD2A4F5 /* SurfaceLayoutTerminalCreating.swift in Sources */ = {isa = PBXBuildFile; fileRef = 672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */; };
 		192E5E9E570B15C94D3A90EA /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 569371B7456D8607661C1946 /* SurfaceMachineIDDeviceEncodingTests.swift */; };
-		B6F7E55F17BBDBCDE0CC00CE /* SurfaceMachineInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B2E41C3B2086654EEEAB240 /* SurfaceMachineInfo.swift */; };
 		CB8C45C1D0ACE930F8CB0704 /* SurfaceMachineInfoPortStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1DDE1500A6CDE3E78573565 /* SurfaceMachineInfoPortStateTests.swift */; };
 		917D12A30EB4417BBE5E9E6A /* SurfaceOwnershipPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */; };
 		C11323110000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */; };
@@ -6269,7 +6267,6 @@
 		17C9F5BA0DD14EDC8C3E5002 /* MainWindowVisibilityControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityControllerTests.swift; sourceTree = "<group>"; };
 		A6D1F0100000000000000001 /* MainWindowVisibilityLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibilityLifecycleTests.swift; sourceTree = "<group>"; };
 		730600010000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowVisibleFrameFitCoreTests.swift; sourceTree = "<group>"; };
-		730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibleFrameFitRescue.swift; sourceTree = "<group>"; };
 		D15AB1ED000000000000A001 /* ManagedCapabilityPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedCapabilityPolicy.swift; sourceTree = "<group>"; };
 		D15AB1ED000000000000A005 /* ManagedCapabilityPolicyGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedCapabilityPolicyGateTests.swift; sourceTree = "<group>"; };
 		224F615BB3A34C66A999EACF /* ManagedPolicyBrowserGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedPolicyBrowserGateTests.swift; sourceTree = "<group>"; };
@@ -7296,7 +7293,6 @@
 		E192919EFE65466C84C0DD68 /* SurfaceDropFeedback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceDropFeedback.swift; sourceTree = "<group>"; };
 		672C19994B1744318706972D /* SurfaceLayoutTerminalCreating.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceLayoutTerminalCreating.swift"; sourceTree = "<group>"; };
 		569371B7456D8607661C1946 /* SurfaceMachineIDDeviceEncodingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceMachineIDDeviceEncodingTests.swift"; sourceTree = "<group>"; };
-		1B2E41C3B2086654EEEAB240 /* SurfaceMachineInfo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceMachineInfo.swift"; sourceTree = "<group>"; };
 		D1DDE1500A6CDE3E78573565 /* SurfaceMachineInfoPortStateTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceMachineInfoPortStateTests.swift"; sourceTree = "<group>"; };
 		B7A47B5093E24AAD8DE28313 /* SurfaceOwnershipPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceOwnershipPolicy.swift; sourceTree = "<group>"; };
 		C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfacePaneFactory+CloudManualMirror.swift"; sourceTree = "<group>"; };
@@ -8625,7 +8621,6 @@
 				C13234000000000000000018 /* SurfaceCatalog+PortDiscovery.swift */,
 				14D8703CDF43856369DCE15B /* CloudPortDiscovery.swift */,
 				F1BE71D511FF27AB7D0279A8 /* TerminalController+CloudMachinePayload.swift */,
-				1B2E41C3B2086654EEEAB240 /* SurfaceMachineInfo.swift */,
 				F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */,
 				A09B853868B54438A5B14F26 /* CloudProviderRefreshCoordinator.swift */,
 				7289F02703E9435CBA1C598B /* CmuxTuiSurfaceProvider+Refresh.swift */,
@@ -9398,7 +9393,6 @@
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
 				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
-				730600020000000000000001 /* MainWindowVisibleFrameFitRescue.swift */,
 				895500000000000000000004 /* MainWindowController.swift */,
 				A6D1F0000000000000000001 /* ReleasingWindowController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
@@ -14225,7 +14219,6 @@
 				9666D0019666D0019666D001 /* MainWindowRouteSnapshot.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
-				730600020000000000000002 /* MainWindowVisibleFrameFitRescue.swift in Sources */,
 				D15AB1ED000000000000A002 /* ManagedCapabilityPolicy.swift in Sources */,
 				F05288349F2E48398A0E0252 /* ManagedPolicyEnforcementObserver.swift in Sources */,
 				A28B087F0000000000000003 /* MarkdownEditableFocusMessageHandler.swift in Sources */,
@@ -14926,7 +14919,6 @@
 				201889FAA2BD4E1CB5094958 /* SurfaceCatalogSnapshot.swift in Sources */,
 				32A5901C769249B692FA1104 /* SurfaceDropFeedback.swift in Sources */,
 				F26476EEB1E440498FD2A4F5 /* SurfaceLayoutTerminalCreating.swift in Sources */,
-				B6F7E55F17BBDBCDE0CC00CE /* SurfaceMachineInfo.swift in Sources */,
 				917D12A30EB4417BBE5E9E6A /* SurfaceOwnershipPolicy.swift in Sources */,
 				C11323110000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift in Sources */,
 				D3D6AC9CC41C0052D47883CD /* SurfacePaneFactory+ProjectionLayout.swift in Sources */,
