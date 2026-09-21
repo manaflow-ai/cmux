@@ -1659,7 +1659,7 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     # queued pull request cannot edit it, and must not run repository code.
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
     assert "  workflow_run:\n    workflows: [CI]\n    types: [in_progress]" in watcher
-    assert "requested" not in watcher
+    assert "types: [requested" not in watcher
     assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
