@@ -333,9 +333,9 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
                     case 4:
                         guard let resource = try? CmxIrohResourceID(lane.resource ?? "") else { accepted.stream.close(); return }
                         let handler = MobileHostIrohArtifactLaneHandler(registry: self?.artifactTransfers ?? MobileHostIrohArtifactTransferRegistry())
-                        guard await handler.handleArtifactLane(resourceID: resource, offset: lane.cursor ?? 0, stream: stream, owner: .v3(peerID: peer.peerID)) else { accepted.stream.close() }
+                        guard await handler.handleArtifactLane(resourceID: resource, offset: lane.cursor ?? 0, stream: stream, owner: .v3(peerID: peer.peerID)) else { accepted.stream.close(); return }
                     case 5:
-                        guard await MobileSimulatorStreamV2Coordinator.shared.handleAdmittedLane(resourceID: lane.resource ?? "", stream: stream) else { accepted.stream.close() }
+                        guard await MobileSimulatorStreamV2Coordinator.shared.handleAdmittedLane(resourceID: lane.resource ?? "", stream: stream) else { accepted.stream.close(); return }
                     default:
                         accepted.stream.close()
                     }
