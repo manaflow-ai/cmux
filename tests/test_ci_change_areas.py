@@ -1732,12 +1732,14 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
 def test_merge_groups_stop_at_the_first_failure() -> None:
     shards = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "fail-fast: ${{ github.event_name == 'merge_group' }}" in shards
-    # The job that may cancel runs must come from the default branch, where a
-    # queued pull request cannot edit it, and must not run repository code.
+    # The privileged watcher is started by a merge-group-only workflow, so an
+    # ordinary pull request never creates a skipped fail-fast run. It still runs
+    # from the default branch and executes no repository code.
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [CI]\n    types: [in_progress]" in watcher
-    assert "types: [requested" not in watcher
-    assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
+    assert "  workflow_run:\n    workflows: [Merge-group policy checks]\n    types: [in_progress]" in watcher
+    assert "workflows: [CI]" not in watcher
+    assert "head_sha=$HEAD_SHA" in watcher
+    assert "event=merge_group" in watcher
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
