@@ -11,6 +11,8 @@ actor CloudReadRequestCoordinator {
     private nonisolated let clock: CloudRequestClock
     private nonisolated let budget: Duration
     private let onNetworkChange: @Sendable (Bool) async -> Void
+    nonisolated let networkEvents: AsyncStream<Bool>
+    private let networkEventsContinuation: AsyncStream<Bool>.Continuation
     private(set) var entries: [Key: Entry] = [:]
     private var networkTask: Task<Void, Never>?
     private var isOnline: Bool?
@@ -21,6 +23,9 @@ actor CloudReadRequestCoordinator {
         self.clock = clock
         self.budget = budget
         self.onNetworkChange = onNetworkChange
+        let (networkEvents, networkEventsContinuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        self.networkEvents = networkEvents
+        self.networkEventsContinuation = networkEventsContinuation
     }
 
     nonisolated func makeDeadline(elapsed: Duration = .zero, limit: Duration? = nil) -> Duration {
@@ -269,10 +274,14 @@ actor CloudReadRequestCoordinator {
                 if let pending = entry.pending { expirePending(key, id: pending.id, error: URLError(.notConnectedToInternet)) }
             }
         }
-        if changed { await onNetworkChange(isOnline) }
+        if changed {
+            networkEventsContinuation.yield(isOnline)
+            await onNetworkChange(isOnline)
+        }
     }
 
     deinit {
+        networkEventsContinuation.finish()
         networkTask?.cancel()
         for entry in entries.values {
             entry.work?.cancel()

@@ -70,7 +70,8 @@ struct VMClientReadCoalescingTests {
         await CloudRefreshURLProtocol.waitUntilStopped(after: stopBaseline)
         #expect(!model.isLoading)
         #expect(model.machines.isEmpty)
-        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": true])
+        await fixture.readRequests.networkChanged(isOnline: true)
+        for _ in 0..<10 { await Task.yield() }
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
     }
 
@@ -120,7 +121,8 @@ struct VMClientReadCoalescingTests {
         defer { model.stopPolling() }
         model.refresh()
         try await eventually { model.machines.first?.stats?.state == .awake }
-        NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
+        await fixture.readRequests.networkChanged(isOnline: false)
+        for _ in 0..<10 { await Task.yield() }
         #expect(model.machines.first?.stats?.state == .unknown)
         #expect(model.machines.first?.stats?.cpus == 2)
         #expect(model.machines.first?.stats?.cpuPercent == nil)

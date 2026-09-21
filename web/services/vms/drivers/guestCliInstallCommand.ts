@@ -238,16 +238,16 @@ try:
     install_prompt(json.loads(prompt_json) if prompt_json else None)
     stage = "publish"
     os.replace(source, target)
-    # Distribution releases and aliases were snapshotted with the rest of the
-    # install. Prune old releases only after every generation has published;
-    # cleanup is best effort so a stale cache cannot turn a successful install
-    # into a rollback after the active files are already committed.
-    if cleanup:
-        subprocess.run(["/bin/sh", "-c", cleanup], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     cleanup_generated()
     shutil.rmtree(backup_root)
     backup_root = None
+    # Distribution releases and aliases were snapshotted with the rest of the
+    # install. Prune only after cleanup and backup disposal have committed the
+    # transaction; a stale-cache failure cannot trigger rollback with the old
+    # release already deleted.
+    if cleanup:
+        subprocess.run(["/bin/sh", "-c", cleanup], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 except Exception as error:
     rollback_error = None
     try:

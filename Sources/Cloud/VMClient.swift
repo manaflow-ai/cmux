@@ -712,6 +712,14 @@ actor VMClient {
         }
     }
 
+    /// Typed reachability changes for scoped Cloud owners such as the machines
+    /// panel. The request coordinator remains the single reachability owner;
+    /// consumers subscribe to its stream instead of observing a process-wide
+    /// notification and maintaining a second state machine.
+    func networkChanges() -> AsyncStream<Bool> {
+        readRequests.networkEvents
+    }
+
     func listPage() async throws -> VMListPage {
         let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
             (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)

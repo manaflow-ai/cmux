@@ -448,10 +448,12 @@ struct CloudReadRequestCoordinatorTests {
 struct CloudMachinesOfflineStateTests {
     @Test("Offline before the first list load exposes retry state")
     @MainActor
-    func offlineBeforeFirstLoadIsVisible() {
-        let notificationCenter = NotificationCenter()
-        let model = MachinesPanelViewModel(client: nil, isCloudEnabled: { true }, notificationCenter: notificationCenter)
-        notificationCenter.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": false])
+    func offlineBeforeFirstLoadIsVisible() async throws {
+        let fixture = try await CloudRefreshFixture.make()
+        defer { fixture.session.invalidateAndCancel() }
+        let model = MachinesPanelViewModel(client: fixture.client, isCloudEnabled: { true })
+        await fixture.readRequests.networkChanged(isOnline: false)
+        for _ in 0..<10 { await Task.yield() }
         #expect(model.hasLoadedOnce)
         #expect(model.listProblem == .unreachable)
         #expect(model.lastErrorDescription != nil)

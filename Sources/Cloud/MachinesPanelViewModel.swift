@@ -92,13 +92,32 @@ final class MachinesPanelViewModel: ObservableObject {
         treeErrorDescription = description
     }
 
+    /// Projects the coordinator's typed reachability event into this panel's
+    /// local loading and empty-state model. The panel owns presentation state;
+    /// the coordinator remains the sole network-state owner.
+    private func applyNetworkChange(_ online: Bool) {
+        if online {
+            if wantsPolling { startPolling() }
+            return
+        }
+        clearUnavailableMetrics()
+        lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
+        listProblem = .unreachable
+        // Mark an interrupted first request as observed so the offline empty
+        // state renders its retry action.
+        hasLoadedOnce = true
+        // Retire the active transport and advance the generation so a late
+        // response cannot clear the offline state or schedule another refresh.
+        // `wantsPolling` remains true, allowing the online event to restart it.
+        pausePolling()
+    }
+
     var refreshTask: Task<Void, Never>?
     var statsID: UUID?
     let client: VMClient?
     let isCloudEnabled: @MainActor () -> Bool
     let pollingClock: any Clock<Duration>
-    private var networkObserver: NSObjectProtocol?
-    private let notificationCenter: NotificationCenter
+    private var networkTask: Task<Void, Never>?
     var pollTask: Task<Void, Never>?
     var statsTask: Task<Void, Never>?
     private var resourceUpdatesTask: Task<Void, Never>?
@@ -140,16 +159,15 @@ final class MachinesPanelViewModel: ObservableObject {
         pollingClock: any Clock<Duration> = ContinuousClock(),
         isCloudEnabled: @escaping @MainActor () -> Bool = { CloudMachinesFeature.isEnabled },
         catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
-        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil,
-        notificationCenter: NotificationCenter = .default
+        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
     ) {
-        self.client = client
+        let networkClient = client ?? VMClient.shared
+        self.client = networkClient
         self.pollingClock = pollingClock
         self.isCloudEnabled = isCloudEnabled
-        self.resourceStats = resourceStats ?? client?.resourceStats ?? VMClient.shared?.resourceStats
+        self.resourceStats = resourceStats ?? networkClient?.resourceStats ?? VMClient.shared?.resourceStats
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
-        self.notificationCenter = notificationCenter
         if let localWorkspacesProvider { self.localWorkspacesProvider = localWorkspacesProvider }
         // Resolve the main-actor-isolated default here, not in a default argument.
         let createCoordinator = createCoordinator ?? .shared
@@ -197,24 +215,13 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated { self?.readUnreadTerminalIDs() }
         }
         readUnreadTerminalIDs()
-        networkObserver = notificationCenter.addObserver(forName: .cmuxCloudReadNetworkChanged, object: nil, queue: .main) { [weak self] notification in
-            guard let online = notification.userInfo?["isOnline"] as? Bool else { return }
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                if online {
-                    if self.wantsPolling { self.startPolling() }
-                } else {
-                    self.clearUnavailableMetrics()
-                    self.lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
-                    self.listProblem = .unreachable
-                    // Mark an interrupted first request as observed so the
-                    // offline empty state renders its retry action.
-                    self.hasLoadedOnce = true
-                    // Retire the active transport and advance the generation
-                    // so a late response cannot clear the offline state or
-                    // schedule another refresh. `wantsPolling` remains true,
-                    // allowing the online branch to restart the cadence.
-                    self.pausePolling()
+        if let networkClient {
+            networkTask = Task { [weak self, networkClient] in
+                let changes = await networkClient.networkChanges()
+                for await online in changes {
+                    guard !Task.isCancelled else { return }
+                    guard let self else { return }
+                    self.applyNetworkChange(online)
                 }
             }
         }
@@ -257,13 +264,13 @@ final class MachinesPanelViewModel: ObservableObject {
         }
     }
     deinit {
+        networkTask?.cancel()
         refreshTask?.cancel()
         pollTask?.cancel()
         statsTask?.cancel()
         usageTask?.cancel()
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
-        if let networkObserver { notificationCenter.removeObserver(networkObserver) }
         resourceUpdatesTask?.cancel()
         for observer in authScopeObservers {
             NotificationCenter.default.removeObserver(observer)
