@@ -36,7 +36,8 @@ GLAEDA_BIN="$GLAEDA_INSTALL_ROOT/glaeda"
 umask 077
 install -d -m 700 "$FLEET_ROOT" "$FLEET_ROOT/acceptance" "$GLAEDA_INSTALL_ROOT"
 BOOTSTRAP="$(mktemp "$FLEET_ROOT/.bootstrap.XXXXXX")"
-chmod 600 "$BOOTSTRAP"
+POST_BOOTSTRAP="$(mktemp "$FLEET_ROOT/.post-bootstrap.XXXXXX")"
+chmod 600 "$BOOTSTRAP" "$POST_BOOTSTRAP"
 
 cd "$GLAEDA_ROOT"
 ./scripts/bootstrap
@@ -135,6 +136,31 @@ python3 "$CMUX_ROOT/scripts/ci/cmux_workload_profile.py" run "$PROFILE" \
 
 The canonical result binds exact source, profile generation, semantic validator, reviewed environment class, runtime-input identities, artifact identities, toolchain identity, benchmark identity, resource summary, process settlement, and terminal result. CMUX owns all of those workload semantics.
 
+Before finalization, rerun Glaeda's read-only bootstrap observation. This closes drift between enrollment and workload completion and is required by the v2 acceptance receipt in teamleaderleo/glaeda#1088:
+
+```bash
+case "$(uname -s)" in
+  Darwin)
+    bash "$GLAEDA_ROOT/scripts/cmux-fleet-bootstrap-macos" \
+      --cmux-root "$CMUX_ROOT" \
+      --glaeda "$GLAEDA_BIN" \
+      --cache-root "$CMUX_CACHE_ROOT" \
+      --hardware-class cmux-mac-build-large \
+      --role cmux_macos_native_build \
+      > "$POST_BOOTSTRAP"
+    ;;
+  Linux)
+    bash "$GLAEDA_ROOT/scripts/cmux-fleet-bootstrap-linux" \
+      --cmux-root "$CMUX_ROOT" \
+      --glaeda "$GLAEDA_BIN" \
+      --hardware-class cmux-linux-ci-medium \
+      --role cmux_linux_ci \
+      > "$POST_BOOTSTRAP"
+    ;;
+  *) echo "unsupported host" >&2; exit 1 ;;
+esac
+```
+
 ## 4. Finalize Glaeda acceptance
 
 ```bash
@@ -151,7 +177,7 @@ ACCEPTANCE="$FLEET_ROOT/acceptance/$ACCEPTANCE_ROLE.json"
 ACCEPTANCE_NEXT="$(mktemp "$FLEET_ROOT/acceptance/.$ACCEPTANCE_ROLE.XXXXXX")"
 
 python3 scripts/cmux_fleet.py finalize-acceptance \
-  "$ENROLLMENT" "$CMUX_RESULT" \
+  "$ENROLLMENT" "$CMUX_RESULT" "$POST_BOOTSTRAP" \
   --role "$ACCEPTANCE_ROLE" \
   --toolchain-generation "$TOOLCHAIN_GENERATION" \
   > "$ACCEPTANCE_NEXT"
@@ -159,9 +185,9 @@ chmod 600 "$ACCEPTANCE_NEXT"
 mv "$ACCEPTANCE_NEXT" "$ACCEPTANCE"
 ```
 
-Glaeda validates the canonical result envelope and its self-consistent comparison/toolchain/cleanup evidence, then records the exact CMUX result digest alongside enrollment generation, role/profile, toolchain generation, Glaeda generation, and process settlement.
+Glaeda validates the canonical result envelope and its self-consistent comparison/toolchain/cleanup evidence, then requires the post-run bootstrap to reconstruct the enrolled machine capability and selected toolchain generation. The v2 durable receipt records the exact CMUX result digest, CMUX environment class/toolchain identity, fresh-bootstrap digest, enrollment generation, role/profile, Glaeda generation, and process settlement.
 
-A result becomes accepted only when CMUX reports `passed` with complete process settlement.
+A result becomes accepted only when CMUX reports `passed` with complete process settlement and the fresh machine observation still matches enrollment.
 
 ## 5. Mark the node candidate-eligible
 
@@ -245,7 +271,7 @@ After successful re-enrollment and role acceptance:
 
 ```bash
 rm -f "$GLAEDA_INSTALL_ROOT/glaeda.rollback"
-rm -f "$BOOTSTRAP" "$CMUX_RESULT"
+rm -f "$BOOTSTRAP" "$POST_BOOTSTRAP"
 rm -rf "$CMUX_STATE"
 ```
 
@@ -258,4 +284,4 @@ Hosted CI validates the CMUX profile contract and Glaeda's enrollment/result-bin
 The first physical proof should use one CMUX-owned host with two caller classes converging on the same machine-local lease boundary. The preferred proof remains a GitHub Actions compile request plus a direct CMUX native request, or the Linux equivalent.
 
 Related CMUX work: #13091, #13095, #13198, #13325, #13411.
-Related Glaeda work: teamleaderleo/glaeda#546, #970, #1010, #1056, #1057, #1071.
+Related Glaeda work: teamleaderleo/glaeda#546, #970, #1010, #1056, #1057, #1071, #1088.
