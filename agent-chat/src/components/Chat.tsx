@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useCtx } from "../context";
+import { agentChatText } from "../i18n";
 import { readStoredProviderOptions, persistOptionsSnapshot, updateStoredProviderOption } from "../options-store";
 import type { OptionValue, SessionOption } from "../session";
 import { ArrowUp } from "./icons";
@@ -141,9 +142,9 @@ export function Chat() {
       </div>
       <div id="chat-input-row">
         {routing?.phase === "handoff" ? (
-          <div className="routing-notice" role="status">Continued in a new chat. Previous context is linked.</div>
+          <div className="routing-notice" role="status">{agentChatText("continuedNewChat")}</div>
         ) : routing?.phase === "rerouted" ? (
-          <div className="routing-notice" role="status">Moved to another serving route. Conversation context was preserved.</div>
+          <div className="routing-notice" role="status">{agentChatText("movedServingRoute")}</div>
         ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">
