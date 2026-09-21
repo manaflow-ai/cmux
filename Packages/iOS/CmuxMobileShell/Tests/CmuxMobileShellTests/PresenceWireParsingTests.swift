@@ -68,6 +68,23 @@ import Testing
         }
     }
 
+    @Test func parsesWorkspaceViewerFieldsOnOnlineFrame() throws {
+        let json = """
+        {"type":"online","instance":{"deviceId":"d","tag":"default","platform":"mac",
+         "workspaceId":"cloud:vm-a:workspace-1","viewerId":"user-1",
+         "viewerDisplayName":"Ada","viewerAvatarURL":"https://cdn.example/ada.png",
+         "capabilities":[],"online":true,"lastSeenAt":1}}
+        """
+        guard case .online(let instance) = try parse(json) else {
+            Issue.record("expected online")
+            return
+        }
+        #expect(instance.workspaceId == "cloud:vm-a:workspace-1")
+        #expect(instance.viewerId == "user-1")
+        #expect(instance.viewerDisplayName == "Ada")
+        #expect(instance.viewerAvatarURL == "https://cdn.example/ada.png")
+    }
+
     @Test func parsesSeen() throws {
         let json = """
         {"type":"seen","deviceId":"d","tag":"dev","lastSeenAt":42}

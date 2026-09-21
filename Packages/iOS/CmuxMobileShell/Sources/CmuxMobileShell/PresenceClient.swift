@@ -22,6 +22,10 @@ public actor PresenceClient {
     private let tokenSource: PresenceTokenSource
     private let teamIDProvider: @Sendable () async -> String?
     private let session: URLSession
+    private let deviceIDProvider: @Sendable () -> String
+    private let instanceTagProvider: @Sendable () -> String
+    private var workspaceScope: String?
+    private var heartbeatTask: Task<Void, Never>?
 
     /// Creates a presence client.
     ///
@@ -36,12 +40,55 @@ public actor PresenceClient {
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
-        session: sending URLSession = .shared
+        session: sending URLSession = .shared,
+        deviceIDProvider: @escaping @Sendable () -> String = { UUID().uuidString.lowercased() },
+        instanceTagProvider: @escaping @Sendable () -> String = { "default" }
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
         self.session = session
+        self.deviceIDProvider = deviceIDProvider
+        self.instanceTagProvider = instanceTagProvider
+    }
+
+    /// Publishes the phone's active workspace and keeps it fresh while that
+    /// scope remains visible. Passing nil immediately leaves the old scope.
+    public func setWorkspaceScope(_ scope: String?) async {
+        let trimmed = scope?.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspaceScope = trimmed?.isEmpty == false ? trimmed : nil
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
+        await sendWorkspaceHeartbeat()
+        guard workspaceScope != nil else { return }
+        heartbeatTask = Task { [weak self] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                guard (try? await clock.sleep(for: .seconds(15))) != nil else { return }
+                guard let self else { return }
+                await self.sendWorkspaceHeartbeat()
+            }
+        }
+    }
+
+    private func sendWorkspaceHeartbeat() async {
+        guard let accessToken = await tokenSource.accessToken(),
+              let teamID = await teamIDProvider() else { return }
+        guard let url = Self.heartbeatURL(serviceBaseURL: serviceBaseURL) else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        var body: [String: Any] = [
+            "deviceId": deviceIDProvider(),
+            "platform": "ios",
+            "tag": instanceTagProvider(),
+            "workspaceId": workspaceScope ?? NSNull(),
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await session.data(for: request)
     }
 
     /// The WebSocket subscribe URL for a service base URL, or nil when the
@@ -56,6 +103,13 @@ public actor PresenceClient {
         }
         let basePath = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
         comps.path = basePath + "/v1/presence/subscribe"
+        return comps.url
+    }
+
+    private static func heartbeatURL(serviceBaseURL: String) -> URL? {
+        guard var comps = URLComponents(string: serviceBaseURL) else { return nil }
+        let path = comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path
+        comps.path = path + "/v1/presence/heartbeat"
         return comps.url
     }
 

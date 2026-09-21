@@ -3895,6 +3895,9 @@
 		D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */; };
 		D7AB3605C10DEF0000000001 /* WorkspaceCloseTabsContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */; };
 		ED4BE012ED4BE012ED4BE012 /* WorkspaceCloudBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */; };
+		A13296000000000000000009 /* WorkspaceCollaboratorList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329600000000000000000A /* WorkspaceCollaboratorList.swift */; };
+		A1329600000000000000000B /* WorkspaceCollaboratorRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329600000000000000000C /* WorkspaceCollaboratorRow.swift */; };
+		A13296000000000000000007 /* WorkspaceCollaboratorsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000008 /* WorkspaceCollaboratorsView.swift */; };
 		970900030000000000000001 /* WorkspaceColorMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970900030000000000000002 /* WorkspaceColorMenuTests.swift */; };
 		A5FB1203 /* WorkspaceConfigActionCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1204 /* WorkspaceConfigActionCapture.swift */; };
 		5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */; };
@@ -3933,6 +3936,11 @@
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
+		A1329600000000000000000F /* WorkspacePresenceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000010 /* WorkspacePresenceContentView.swift */; };
+		A13296000000000000000001 /* WorkspacePresenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000002 /* WorkspacePresenceController.swift */; };
+		A13296000000000000000005 /* WorkspacePresencePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000006 /* WorkspacePresencePolicy.swift */; };
+		A1329600000000000000000D /* WorkspacePresencePolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1329600000000000000000E /* WorkspacePresencePolicyTests.swift */; };
+		A13296000000000000000003 /* WorkspacePresenceScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000004 /* WorkspacePresenceScope.swift */; };
 		5732A0055732A0055732A005 /* WorkspacePresentationModeChangeObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */; };
 		5732A0065732A0065732A006 /* WorkspacePresentationModeContentTopPaddingModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0065732B0065732B006 /* WorkspacePresentationModeContentTopPaddingModifier.swift */; };
 		5732A0105732A0105732A010 /* WorkspacePresentationModeRuntimeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0105732B0105732B010 /* WorkspacePresentationModeRuntimeCache.swift */; };
@@ -7881,6 +7889,9 @@
 		D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsBatching.swift; sourceTree = "<group>"; };
 		D7AB3605C10DEF0000000002 /* WorkspaceCloseTabsContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloseTabsContextMenuTests.swift; sourceTree = "<group>"; };
 		ED4BE013ED4BE013ED4BE013 /* WorkspaceCloudBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCloudBindingState.swift; sourceTree = "<group>"; };
+		A1329600000000000000000A /* WorkspaceCollaboratorList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCollaboratorList.swift; sourceTree = "<group>"; };
+		A1329600000000000000000C /* WorkspaceCollaboratorRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCollaboratorRow.swift; sourceTree = "<group>"; };
+		A13296000000000000000008 /* WorkspaceCollaboratorsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCollaboratorsView.swift; sourceTree = "<group>"; };
 		970900030000000000000002 /* WorkspaceColorMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceColorMenuTests.swift; sourceTree = "<group>"; };
 		A5FB1204 /* WorkspaceConfigActionCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceConfigActionCapture.swift; sourceTree = "<group>"; };
 		5732B0045732B0045732B004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentMinimalModeSafeAreaModifier.swift; sourceTree = "<group>"; };
@@ -7919,6 +7930,11 @@
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
+		A13296000000000000000010 /* WorkspacePresenceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresenceContentView.swift; sourceTree = "<group>"; };
+		A13296000000000000000002 /* WorkspacePresenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresenceController.swift; sourceTree = "<group>"; };
+		A13296000000000000000006 /* WorkspacePresencePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresencePolicy.swift; sourceTree = "<group>"; };
+		A1329600000000000000000E /* WorkspacePresencePolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresencePolicyTests.swift; sourceTree = "<group>"; };
+		A13296000000000000000004 /* WorkspacePresenceScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresenceScope.swift; sourceTree = "<group>"; };
 		5732B0055732B0055732B005 /* WorkspacePresentationModeChangeObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresentationModeChangeObserver.swift; sourceTree = "<group>"; };
 		5732B0065732B0065732B006 /* WorkspacePresentationModeContentTopPaddingModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresentationModeContentTopPaddingModifier.swift; sourceTree = "<group>"; };
 		5732B0105732B0105732B010 /* WorkspacePresentationModeRuntimeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresentationModeRuntimeCache.swift; sourceTree = "<group>"; };
@@ -8696,6 +8712,12 @@
 				D1F0A00400000000000000D2 /* PhoneForwardingMode.swift */,
 				DE71CE000000000000000003 /* DeviceRegistryClient.swift */,
 				D1F0A00100000000000000B2 /* PresenceHeartbeatClient.swift */,
+				A13296000000000000000002 /* WorkspacePresenceController.swift */,
+				A13296000000000000000004 /* WorkspacePresenceScope.swift */,
+				A13296000000000000000006 /* WorkspacePresencePolicy.swift */,
+				A13296000000000000000008 /* WorkspaceCollaboratorsView.swift */,
+				A1329600000000000000000A /* WorkspaceCollaboratorList.swift */,
+				A1329600000000000000000C /* WorkspaceCollaboratorRow.swift */,
 				D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */,
 				D1F0A0990000000000000002 /* PhoneReplyInboxClient.swift */,
 				D1F0A0990000000000000004 /* PhoneReplyInboxCoordinator.swift */,
@@ -10763,6 +10785,7 @@
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
+				A13296000000000000000010 /* WorkspacePresenceContentView.swift */,
 				272B367E39A68B0DCDE9E182 /* RightSidebarMode.swift */,
 				46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */,
 				468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */,
@@ -11341,6 +11364,7 @@
 				DE71CE000000000000000001 /* DeviceRegistryClientTests.swift */,
 				REE0CA0000000000000000B1 /* RemotesClientTests.swift */,
 				DE71CE000000000000000009 /* PresenceHeartbeatClientTests.swift */,
+				A1329600000000000000000E /* WorkspacePresencePolicyTests.swift */,
 				DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */,
 				AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */,
 				F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */,
@@ -15305,6 +15329,9 @@
 				B2929B53F4CC4C9D972771EC /* WorkspaceChecklistAttachmentQuickLookController.swift in Sources */,
 				D7AB3605C10DEF0000000003 /* WorkspaceCloseTabsBatching.swift in Sources */,
 				ED4BE012ED4BE012ED4BE012 /* WorkspaceCloudBindingState.swift in Sources */,
+				A13296000000000000000009 /* WorkspaceCollaboratorList.swift in Sources */,
+				A1329600000000000000000B /* WorkspaceCollaboratorRow.swift in Sources */,
+				A13296000000000000000007 /* WorkspaceCollaboratorsView.swift in Sources */,
 				A5FB1203 /* WorkspaceConfigActionCapture.swift in Sources */,
 					5732A0045732A0045732A004 /* WorkspaceContentMinimalModeSafeAreaModifier.swift in Sources */,
 				DFAAE6D5B2C449C4BC3AC238 /* WorkspaceContentView+PanelVisibility.swift in Sources */,
@@ -15319,6 +15346,10 @@
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
 				E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,
+				A1329600000000000000000F /* WorkspacePresenceContentView.swift in Sources */,
+				A13296000000000000000001 /* WorkspacePresenceController.swift in Sources */,
+				A13296000000000000000005 /* WorkspacePresencePolicy.swift in Sources */,
+				A13296000000000000000003 /* WorkspacePresenceScope.swift in Sources */,
 					5732A0055732A0055732A005 /* WorkspacePresentationModeChangeObserver.swift in Sources */,
 					5732A0065732A0065732A006 /* WorkspacePresentationModeContentTopPaddingModifier.swift in Sources */,
 					5732A0105732A0105732A010 /* WorkspacePresentationModeRuntimeCache.swift in Sources */,
@@ -16720,6 +16751,7 @@
 				D92310040000000000000001 /* WorkspaceHandoffRetirementGateTests.swift in Sources */,
 				B63E1257BB174740A44F458C /* WorkspaceIsStaleAgentHookBindingTests.swift in Sources */,
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
+				A1329600000000000000000D /* WorkspacePresencePolicyTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,
 				7BD653A20E3A45C693F8D441 /* WorkspaceRecoveryReviewRegressionTests.swift in Sources */,

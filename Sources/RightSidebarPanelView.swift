@@ -220,7 +220,6 @@ struct RightSidebarPanelView: View {
             refreshModeAvailabilityAndFocusIfNeeded()
         }
     }
-
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         return ZStack {
@@ -266,6 +265,7 @@ struct RightSidebarPanelView: View {
                         )
                     )
                 }
+                WorkspaceCollaboratorsView(workspaceScope: WorkspacePresenceScope.identifier(for: tabManager.selectedWorkspace), presence: AppDelegate.shared?.workspacePresenceController ?? WorkspacePresenceController())
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)

@@ -288,7 +288,14 @@ const worker = {
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
-      const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
+      const result = await team.stub.heartbeat(team.teamId, team.user.id, {
+        ...parsed.beat,
+        // Identity is resolved from the verified Stack response. Client JSON
+        // never gets to choose the collaborator shown to other team members.
+        viewerId: team.user.id,
+        viewerDisplayName: team.user.displayName?.trim() || undefined,
+        viewerAvatarURL: team.user.profileImageURL?.trim() || undefined,
+      });
       if ("error" in result) {
         return result.status === 429
           ? rateLimitedJson({ error: result.error })

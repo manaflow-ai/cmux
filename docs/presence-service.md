@@ -66,6 +66,13 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
   first-authenticated-writer-wins, because presence deliberately has no
   synchronous registry dependency and the registry does not yet issue
   verifiable device credentials; blast radius is presence display only.
+- **Workspace viewers**: a heartbeat may carry an additive `workspaceId` scope.
+  The worker adds the verified Stack `viewerId`, display name, and profile image
+  URL from `/users/me`; clients never choose another person's identity. A
+  workspace switch reuses the existing `online` frame with the full instance,
+  while an unchanged heartbeat remains a lightweight `seen` tick. The existing timeout/goodbye
+  alarm removes the viewer from its old scope without a second store or
+  persistence layer.
 - **Subscribe**: WebSocket (primary; DO hibernation API, so idle teams cost
   nothing) or SSE (fallback, curl-friendly). Both deliver a `snapshot` first,
   then `online` / `offline` (with `reason: "timeout" | "goodbye"`) / `seen`
@@ -159,7 +166,9 @@ the first production deploy and dogfood.
   `DeviceRegistryClient` / `PhonePushClient` pattern: same device UUID, same
   tag, best-effort, never disturbs the Mac. Every beat carries the full
   current attach-route set, a route change triggers one immediate
-  out-of-cadence beat, and a clean quit sends a goodbye.
+  out-of-cadence beat, and a clean quit sends a goodbye. Tab selection updates
+  the workspace scope; the right-sidebar presence controller renders distinct
+  collaborators for that same scope.
 - **iOS** (`Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
   typed WebSocket subscribe client. `MobileShellComposite` owns the
   subscription (starts on sign-in, blanks and stops on sign-out, backoff
@@ -167,7 +176,10 @@ the first production deploy and dogfood.
   overlays live online/offline on the device tree
   (https://github.com/manaflow-ai/cmux/pull/5648) rows, writes pushed routes
   through to the paired-Mac store, and kicks a reconnect when the active Mac
-  comes online while the phone is disconnected.
+  comes online while the phone is disconnected. The same client publishes a
+  bounded heartbeat while the selected workspace is visible, clears the scope
+  on sign-out or selection changes, and uses the phone's durable device id so
+  Mac and phone viewers share one canonical workspace scope.
 
 ## Local development
 

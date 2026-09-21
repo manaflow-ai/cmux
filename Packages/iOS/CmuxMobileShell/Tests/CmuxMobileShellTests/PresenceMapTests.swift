@@ -121,6 +121,17 @@ import Testing
         #expect(map.deviceSummary(deviceId: "mac-c")?.online == true)
     }
 
+    @Test func onlineEventReplacesWorkspaceViewerProjection() {
+        var map = PresenceMap()
+        map.apply(.online(instance(deviceId: "mac-a", online: true)))
+        var changed = instance(deviceId: "mac-a", online: true)
+        changed.workspaceId = "cloud:vm-a:workspace-2"
+        changed.viewerId = "user-1"
+        map.apply(.online(changed))
+        #expect(map.instance(deviceId: "mac-a", tag: "default")?.workspaceId == "cloud:vm-a:workspace-2")
+        #expect(map.instance(deviceId: "mac-a", tag: "default")?.viewerId == "user-1")
+    }
+
     @Test func instanceCountTracksSnapshotReplacementAndTransitionUpserts() {
         var map = PresenceMap()
         #expect(map.instanceCount == 0)

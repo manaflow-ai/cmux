@@ -9,6 +9,7 @@ import { sanitizePublishedRoutes } from "./routePrivacy";
 export const MAX_REQUEST_BYTES = 16 * 1024;
 export const MAX_TAG_LENGTH = 64;
 export const MAX_DISPLAY_NAME_LENGTH = 128;
+export const MAX_WORKSPACE_ID_LENGTH = 256;
 export const MAX_CAPABILITIES = 32;
 export const MAX_CAPABILITY_LENGTH = 64;
 /** Mirrors the registry route's `MAX_ROUTES` (`web/app/api/devices/route.ts`):
@@ -67,6 +68,19 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
     return { ok: false, error: "invalid_bundle_id" };
   }
 
+  let workspaceId: string | null | undefined;
+  if (Object.prototype.hasOwnProperty.call(body, "workspaceId")) {
+    if (body.workspaceId === null) {
+      workspaceId = null;
+    } else {
+      workspaceId = trimmedString(body.workspaceId);
+      if (workspaceId.length > MAX_WORKSPACE_ID_LENGTH) {
+        return { ok: false, error: "invalid_workspace_id" };
+      }
+      workspaceId = workspaceId || null;
+    }
+  }
+
   let capabilities: string[] | undefined;
   if (body.capabilities !== undefined) {
     if (!Array.isArray(body.capabilities)) return { ok: false, error: "invalid_capabilities" };
@@ -121,6 +135,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       platform,
       displayName: displayName || undefined,
       bundleId: bundleId || undefined,
+      workspaceId,
       capabilities,
       stopping: stopping || undefined,
       routes,

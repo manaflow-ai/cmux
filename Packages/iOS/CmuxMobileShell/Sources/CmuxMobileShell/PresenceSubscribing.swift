@@ -11,4 +11,11 @@ public protocol PresenceSubscribing: Sendable {
     func subscribe() async throws -> AsyncThrowingStream<PresenceUpdate, any Error>
 }
 
+/// Publishes the workspace currently visible on a phone into the same team
+/// presence stream. Implementations must clear the scope when passed `nil`.
+public protocol PresenceAnnouncing: Sendable {
+    func setWorkspaceScope(_ scope: String?) async
+}
+
 extension PresenceClient: PresenceSubscribing {}
+extension PresenceClient: PresenceAnnouncing {}
