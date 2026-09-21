@@ -89,7 +89,7 @@ struct SidebarProviderMenuRegressionTests {
     }
 
     @Test
-    func conversationSidebarAppearsOnlyWhileItsBetaIsEnabled() {
+    func conversationSidebarRequiresBetaAndReleaseGate() {
         withConversationBeta(false) {
             #expect(!CmuxExtensionSidebarSelection.descriptors.map(\.id).contains(
                 CmuxExtensionSidebarSelection.conversationSidebarProviderId
@@ -103,8 +103,11 @@ struct SidebarProviderMenuRegressionTests {
                 ) == CmuxExtensionSidebarSelection.defaultProviderId
             )
         }
+        // The local toggle cannot bypass the remote release gate. The explicit
+        // resolver overload remains covered so a remotely enabled rollout can
+        // preserve an existing selection while the beta setting is on.
         withConversationBeta(true) {
-            #expect(CmuxExtensionSidebarSelection.descriptors.map(\.id).contains(
+            #expect(!CmuxExtensionSidebarSelection.descriptors.map(\.id).contains(
                 CmuxExtensionSidebarSelection.conversationSidebarProviderId
             ))
             #expect(
