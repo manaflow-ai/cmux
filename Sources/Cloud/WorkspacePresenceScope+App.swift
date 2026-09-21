@@ -3,7 +3,7 @@ import CMUXMobileCore
 
 extension WorkspacePresenceScope {
     /// Resolves the host-owned scope used by Mac clients and Cloud projections.
-    static func forWorkspace(_ workspace: Workspace?) -> WorkspacePresenceScope? {
+    @MainActor static func forWorkspace(_ workspace: Workspace?) -> WorkspacePresenceScope? {
         guard let workspace else { return nil }
         if let binding = workspace.cloudVMBinding,
            let remote = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
