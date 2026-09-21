@@ -4,15 +4,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct MobileWorkspaceListEmptyRow: View {
-    private static let retryTimeout: Duration = .seconds(30)
-
     let retry: (@Sendable () async -> Void)?
     @State private var isRetrying = false
     @State private var retryTask: Task<Void, Never>?
-    @State private var retryTimeoutTask: Task<Void, Never>?
     @State private var retryAttemptID: UUID?
-    @State private var retryTimedOut = false
-    @State private var retryGate = MobileWorkspaceRetryGate()
 
     var body: some View {
         ContentUnavailableView {
@@ -24,54 +19,23 @@ struct MobileWorkspaceListEmptyRow: View {
                 systemImage: "macbook.and.iphone"
             )
         } description: {
-            VStack(spacing: 8) {
-                Text(MobilePairingCopy().emptyWorkspaceMessage)
-                if retryTimedOut {
-                    Text(
-                        L10n.string(
-                            "mobile.workspaces.empty.retryTimedOut",
-                            defaultValue: "The connection is taking longer than expected. Try again or check the setup guide."
-                        )
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryTimedOut")
-                }
-            }
+            Text(MobilePairingCopy().emptyWorkspaceMessage)
         } actions: {
             if let retry {
                 Button {
                     guard !isRetrying else { return }
                     let attemptID = UUID()
                     retryAttemptID = attemptID
-                    retryTimedOut = false
                     retryTask?.cancel()
-                    retryTimeoutTask?.cancel()
                     isRetrying = true
                     retryTask = Task { @MainActor in
                         defer {
                             if retryAttemptID == attemptID {
                                 retryTask = nil
-                                retryTimeoutTask?.cancel()
-                                retryTimeoutTask = nil
                                 isRetrying = false
                             }
                         }
-                        await retryGate.run(retry)
-                    }
-                    retryTimeoutTask = Task { @MainActor in
-                        do {
-                            try await ContinuousClock().sleep(for: Self.retryTimeout)
-                        } catch {
-                            return
-                        }
-                        if retryAttemptID == attemptID {
-                            retryTask?.cancel()
-                            retryTask = nil
-                            retryTimeoutTask = nil
-                            isRetrying = false
-                            retryTimedOut = true
-                        }
+                        await retry()
                     }
                 } label: {
                     Label {
@@ -89,6 +53,17 @@ struct MobileWorkspaceListEmptyRow: View {
                 .controlSize(.regular)
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
+                if isRetrying {
+                    Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
+                        retryTask?.cancel()
+                        retryAttemptID = nil
+                        retryTask = nil
+                        isRetrying = false
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.regular)
+                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryCancel")
+                }
             }
             Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
                 Label(
@@ -111,12 +86,9 @@ struct MobileWorkspaceListEmptyRow: View {
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .onDisappear {
             retryTask?.cancel()
-            retryTimeoutTask?.cancel()
             retryTask = nil
-            retryTimeoutTask = nil
             retryAttemptID = nil
             isRetrying = false
-            retryTimedOut = false
         }
     }
 }
