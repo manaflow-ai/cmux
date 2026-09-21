@@ -26,7 +26,6 @@ final class SessionTodoStatePersistenceCoordinator {
     private var consecutiveFailures = 0
     private var terminalFailure = false
 
-    private static let coalescingDelay: DispatchTimeInterval = .milliseconds(100)
     private static let maximumRetryCount = 3
 
     init(
@@ -55,8 +54,9 @@ final class SessionTodoStatePersistenceCoordinator {
         scheduleWriteIfNeeded()
     }
 
-    private func scheduleWriteIfNeeded(after delay: DispatchTimeInterval = Self.coalescingDelay) {
+    private func scheduleWriteIfNeeded(after requestedDelay: DispatchTimeInterval? = nil) {
         guard !writeInFlight, !pending.isEmpty, writeTimer == nil, !terminalFailure else { return }
+        let delay = requestedDelay ?? .milliseconds(100)
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
