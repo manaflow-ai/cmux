@@ -284,7 +284,7 @@ actor DeviceIrxClient {
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-            let (admit, control) = try await IrxAdmission.performClient(connection: connection, journal: journal)
+            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
             let latest = try intent.resolve(cache: await context.control.snapshot().cache,
                 localIdentity: context.localDevice.descriptor.identity, now: now())
             guard latest.deviceRecordID == target.deviceRecordID,

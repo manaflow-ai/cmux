@@ -43,7 +43,7 @@ struct IrxControlAuthorizationFixture: Sendable {
             let accepting = try await incoming.accept()
             let connection = try await accepting.connect()
             let irx = IrxConnection(connection: connection, role: .acceptor, journal: journal)
-            guard let (_, control, _) = await IrxAdmission.performServer(
+            guard let (_, control, _) = await IrxAdmission().performServer(
                 connection: irx,
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "control-test-grant"),
                 journal: journal
@@ -54,7 +54,7 @@ struct IrxControlAuthorizationFixture: Sendable {
             let connection = try await client.connect(
                 addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
             let clientConnection = IrxConnection(connection: connection, role: .dialer, journal: journal)
-            let (_, clientControl) = try await IrxAdmission.performClient(
+            let (_, clientControl) = try await IrxAdmission().performClient(
                 connection: clientConnection, grantJWS: "control-test-grant", journal: journal)
             let serverPair = try #require(try await serverTask.value)
             return IrxControlAuthorizationFixture(
