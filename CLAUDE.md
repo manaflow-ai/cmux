@@ -63,8 +63,8 @@ workflow state.
 When a controller has already reserved a machine, the execution adapter
 validates that reservation and binds its local lease to the same ownership
 evidence. A target-machine choice without reservation still goes through fresh
-host admission. Native build lanes, project locks, publisher slots, and resident
-workspaces must have one local owner before execution starts.
+host admission. Native build lanes, heavy Linux slots, project locks, publisher slots, and
+resident workspaces must have one local owner before execution starts.
 
 A busy/idle guess, runner process, SSH session, or process-name check never
 grants or releases that ownership. Keep using the existing controller job ID for
