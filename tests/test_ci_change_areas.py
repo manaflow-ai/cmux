@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1556,6 +1557,28 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "restore-app-host-test-product.sh" in app_host
     assert "EXPECTED_SHA256" in app_host
     assert "-xctestrun" in app_host
+
+    # Test consumers execute a sealed product. Rust is never invoked in this
+    # job, and only the standalone CmuxTerminalCore package regression needs
+    # the checkout-local GhosttyKit binary target.
+    assert "      - name: Install Rust" not in app_host
+    assert "scripts/install-rust-ci.sh" not in app_host
+    assert re.search(r"(?m)^\s*(?:sudo\s+)?rustup(?:\s|$)", app_host) is None
+    assert re.search(r"(?m)^\s*(?:sudo\s+)?cargo(?:\s|$)", app_host) is None
+    focused_condition = "if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}"
+    for step_name in (
+        "Capture Ghostty revision",
+        "Cache GhosttyKit.xcframework",
+    ):
+        start = app_host.index(f"      - name: {step_name}")
+        end = app_host.find("\n      - name: ", start + 1)
+        step_block = app_host[start: end if end != -1 else len(app_host)]
+        assert focused_condition in step_block, step_name
+    download_start = app_host.index("      - name: Download pre-built GhosttyKit.xcframework")
+    download_end = app_host.find("\n      - name: ", download_start + 1)
+    download_block = app_host[download_start: download_end if download_end != -1 else len(app_host)]
+    assert "matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD)" in download_block
+    assert "steps.cache-ghosttykit.outputs.cache-hit != 'true'" in download_block
 
     # The focused shard and the logical unit-test batches must both reuse the
     # admission-produced product. A later test invocation that silently changes
