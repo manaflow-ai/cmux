@@ -31,9 +31,14 @@ public final class CmuxPopoverGroup {
     /// Creates an independent dismissal group for one menu presentation.
     public init() {}
 
+    func parentID(for anchor: NSView) -> UUID? {
+        guard let window = anchor.window else { return nil }
+        return members.last { windows[$0.id]?() === window }?.id
+    }
+
     func register(popover: NSPopover, anchor: NSView) -> UUID {
         let id = UUID()
-        let parent = members.last { windows[$0.id]?() === anchor.window }?.id
+        let parent = parentID(for: anchor)
         let contains: (Int?, CGPoint) -> Bool = { [weak popover, weak anchor] windowNumber, point in
             if let window = popover?.contentViewController?.view.window,
                popover?.isShown == true,
@@ -58,7 +63,11 @@ public final class CmuxPopoverGroup {
             parent: parent,
             contains: contains,
             containsPointer: containsPointer,
-            close: { [weak popover] in popover?.close() }
+            close: { [weak popover] in
+                // Finish each child's close before its parent tears down its window.
+                popover?.animates = false
+                popover?.close()
+            }
         )
         windows[id] = { [weak popover] in popover?.contentViewController?.view.window }
         enableMouseTracking(in: anchor.window, for: id)

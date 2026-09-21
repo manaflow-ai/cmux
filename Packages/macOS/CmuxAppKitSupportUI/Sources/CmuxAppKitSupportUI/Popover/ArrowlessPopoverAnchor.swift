@@ -97,6 +97,14 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             _isPresented = binding
         }
 
+        /// Returns whether this coordinator should use AppKit's presentation transition.
+        ///
+        /// Root popovers retain the native transition; nested popovers open immediately
+        /// so the grouped hover path does not animate an independent child window.
+        static func shouldAnimatePresentation(reduceMotion: Bool, isSubmenu: Bool) -> Bool {
+            !reduceMotion && !isSubmenu
+        }
+
         func updateRootView(_ rootView: AnyView) {
             CmuxPopoverMutation.performWithoutImplicitAnimation {
                 hostingController.rootView = AnyView(rootView.fixedSize())
@@ -165,11 +173,13 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         func dismiss() {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
+            if group != nil { popover?.animates = false }
             popover?.performClose(nil)
             popover = nil
         }
 
         public func popoverWillClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             unregisterFromGroup()
         }
 
@@ -180,6 +190,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverDidClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
@@ -187,10 +198,16 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
         }
 
-        func makePopover() -> NSPopover {
+        private func makePopover() -> NSPopover {
             let popover = NSPopover()
             popover.behavior = group == nil ? .semitransient : .applicationDefined
-            popover.animates = group == nil
+            // Grouping owns dismissal, not the root menu's native opening transition.
+            // Hover submenus still open immediately, and Reduce Motion always wins.
+            let isSubmenu = anchorView.flatMap { group?.parentID(for: $0) } != nil
+            popover.animates = Coordinator.shouldAnimatePresentation(
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                isSubmenu: isSubmenu
+            )
             popover.setValue(true, forKeyPath: "shouldHideAnchor")
             popover.contentViewController = hostingController
             popover.delegate = self

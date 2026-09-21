@@ -1,19 +1,27 @@
 import AppKit
-import SwiftUI
 import Testing
 @testable import CmuxAppKitSupportUI
 
 @MainActor
 @Suite
 struct CmuxPopoverGroupTests {
-    @Test func groupedRootPopoverUsesNativeOpeningHint() {
-        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
-            isPresented: .constant(true), group: CmuxPopoverGroup()
-        )
-        let popover = coordinator.makePopover()
-        #expect(popover.behavior == .applicationDefined)
-        #expect(popover.animates)
-        coordinator.dismiss()
+    @Test func groupedRootUsesNativeOpeningAnimation() {
+        #expect(ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+            reduceMotion: false, isSubmenu: false
+        ))
+    }
+
+    @Test func groupedSubmenuRemainsImmediate() {
+        #expect(!ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+            reduceMotion: false, isSubmenu: true
+        ))
+    }
+
+    @Test(arguments: [false, true])
+    func reduceMotionDisablesOpeningAnimationForRootAndSubmenu(isSubmenu: Bool) {
+        #expect(!ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+            reduceMotion: true, isSubmenu: isSubmenu
+        ))
     }
 
     @Test func clicksInsideEitherMenuKeepBothOpen() {
