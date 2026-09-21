@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { GUEST_BROWSER_FILES, guestBrowserInstallCommand } from "../guestBrowser";
-import { guestCliDistributionCommand } from "../guestCliDistribution";
+import {
+  guestCliDistributionCommand,
+  guestCliDistributionInstallPaths,
+  guestCliDistributionPruneCommand,
+} from "../guestCliDistribution";
 import { guestPromptInstallFiles, type GuestPromptIdentity } from "../guestPrompt";
 import { shellQuote } from "./cmuxTuiDaemon";
 
@@ -16,6 +20,7 @@ const installPaths = [
   "/etc/cmux/vm-name",
   "/etc/bash.bashrc",
   "/etc/zsh/zshenv",
+  ...guestCliDistributionInstallPaths(),
 ];
 const promptName = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -24,7 +29,7 @@ const promptName = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 // so a rename cannot observe or race a partially-installed generation.
 const install = String.raw`
 import fcntl, hashlib, json, os, shutil, stat, subprocess, sys, tempfile
-source, target, digest, browser, prompt_json, paths_json, transaction_token = sys.argv[1:]
+source, target, digest, browser, prompt_json, paths_json, transaction_token, cleanup = sys.argv[1:]
 stage = "validate"
 lock = None
 backup_root = None
@@ -135,7 +140,7 @@ def restore_paths():
 
 def cleanup_generated():
     failures = []
-    prefixes = [".prompt-" + transaction_token + "-"]
+    prefixes = [".prompt-" + transaction_token + "-", ".cmux-cli-", ".cmux-link-"]
     prefixes.extend(os.path.basename(path) + "." + transaction_token + "." for path in paths)
     for directory in directory_paths:
         if not os.path.isdir(directory) or os.path.islink(directory):
@@ -225,6 +230,13 @@ try:
     install_prompt(json.loads(prompt_json) if prompt_json else None)
     stage = "publish"
     os.replace(source, target)
+    # Distribution releases and aliases were snapshotted with the rest of the
+    # install. Prune old releases only after every generation has published;
+    # cleanup is best effort so a stale cache cannot turn a successful install
+    # into a rollback after the active files are already committed.
+    if cleanup:
+        subprocess.run(["/bin/sh", "-c", cleanup], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     cleanup_generated()
     shutil.rmtree(backup_root)
     backup_root = None
@@ -272,6 +284,7 @@ export function guestCliInstallCommand(temporaryPath: string, identity?: GuestPr
     files: guestPromptInstallFiles,
   }) : "";
   const transactionToken = temporaryPath.replace(/[^A-Za-z0-9_-]/g, "_");
-  const browser = `${guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`)} && ${guestCliDistributionCommand()}`;
-  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))} ${shellQuote(transactionToken)}`;
+  const browser = `${guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`)} && ${guestCliDistributionCommand(false, undefined, undefined, undefined, false)}`;
+  const cleanup = guestCliDistributionPruneCommand();
+  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))} ${shellQuote(transactionToken)} ${shellQuote(cleanup)}`;
 }

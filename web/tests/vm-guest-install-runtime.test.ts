@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
@@ -15,6 +15,7 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
   const root = mkdtempSync(join(tmpdir(), "cmux-guest-install-"));
   roots.push(root);
   mkdirSync(join(root, "bin"));
+  mkdirSync(join(root, "libexec"));
   mkdirSync(join(root, "fixture-bin"));
   const trigger = options.promptFails || options.publishFails;
   writeFileSync(join(root, "fixture-bin/getent"), trigger
@@ -27,7 +28,8 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
     ? "#!/bin/sh\nif [ \"$CMUX_GUEST_FAILURE_STAGE\" = prompt ]; then rm -f \"$CMUX_GUEST_FIXTURE_ROOT/etc/prompt.bash\"; mkdir -p \"$CMUX_GUEST_FIXTURE_ROOT/etc/prompt.bash\"; fi\nif [ \"$CMUX_GUEST_FAILURE_STAGE\" = publish ]; then rm -f \"$CMUX_GUEST_FIXTURE_ROOT/bin/cmux\"; mkdir -p \"$CMUX_GUEST_FIXTURE_ROOT/bin/cmux\"; fi\nexit 0\n"
     : "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const prefixes: Record<string, string> = {
-    "/usr/local/bin": join(root, "bin"), "/usr/local/share": join(root, "share"),
+    "/usr/local/bin": join(root, "bin"), "/usr/local/libexec": join(root, "libexec"),
+    "/usr/local/share": join(root, "share"),
     "/etc/cmux": join(root, "etc"), "/etc": join(root, "system-etc"),
   };
   const rebase = (value: string) => value.replace(/\/usr\/local\/bin|\/usr\/local\/share|\/etc\/cmux|\/etc(?=\/)/g,
@@ -144,6 +146,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("previous name\n");
     const promptArtifacts = readdirSync(join(root, "etc"));
     expect(promptArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
+    expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
+    expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    expect(readdirSync(join(root, "libexec")).filter((name) => name.startsWith("cmux-cloud-")).length).toBe(0);
     expect(fixture.liveVms.size).toBe(0);
   });
 
@@ -169,6 +174,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("previous name\n");
     const publishArtifacts = readdirSync(join(root, "etc"));
     expect(publishArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
+    expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
+    expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
+    expect(readdirSync(join(root, "libexec")).filter((name) => name.startsWith("cmux-cloud-")).length).toBe(0);
     expect(fixture.liveVms.size).toBe(0);
   });
 });

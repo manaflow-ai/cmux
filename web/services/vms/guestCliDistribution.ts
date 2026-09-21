@@ -12,14 +12,66 @@ export type GuestCliDistribution = {
   binaries: Record<string, string>;
 };
 
+/** Every mutable path published by the distribution installer. */
+export function guestCliDistributionInstallPaths(
+  manifest: GuestCliDistribution = distribution,
+  libexec = LIBEXEC,
+  bin = BIN,
+): string[] {
+  const release = `${libexec}/cmux-cloud-${manifest.archiveSha256}`;
+  return [
+    `${release}/cmux-cloud-cli`,
+    `${release}/coderouter`,
+    `${libexec}/cmux-coderouter`,
+    `${bin}/cmux`,
+    `${bin}/coderouter`,
+    `${bin}/cr`,
+  ];
+}
+
+/** Prune stale immutable releases without touching the active release. */
+export function guestCliDistributionPruneCommand(
+  manifest: GuestCliDistribution = distribution,
+  libexec = LIBEXEC,
+  bin = BIN,
+): string {
+  const settings = Buffer.from(JSON.stringify({ manifest, libexec, bin })).toString("base64");
+  const script = `import base64, json, pathlib, shutil
+config = json.loads(base64.b64decode('${settings}'))
+root = pathlib.Path(config['libexec'])
+release = root / ('cmux-cloud-' + config['manifest']['archiveSha256'])
+if not root.is_dir():
+    raise SystemExit(0)
+active = set()
+for path in (root / 'cmux-coderouter', pathlib.Path(config['bin']) / 'cmux', pathlib.Path(config['bin']) / 'coderouter', pathlib.Path(config['bin']) / 'cr'):
+    try:
+        if path.is_symlink():
+            active.add(path.resolve().parent)
+    except OSError:
+        pass
+releases = []
+for candidate in root.iterdir():
+    suffix = candidate.name.removeprefix('cmux-cloud-')
+    if candidate == release or candidate.is_symlink() or not candidate.is_dir() or len(suffix) != 64 or any(char not in '0123456789abcdef' for char in suffix):
+        continue
+    releases.append(candidate)
+releases.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+for obsolete in releases[2:]:
+    if obsolete.resolve() not in active:
+        shutil.rmtree(obsolete, ignore_errors=True)
+`;
+  return `python3 -c '${script.replace(/'/g, `'\\''`)}'`;
+}
+
 /** Generate the same installer for create, attach healing, and local fixtures. */
 export function guestCliDistributionCommand(
   verify = false,
   manifest: GuestCliDistribution = distribution,
   libexec = LIBEXEC,
   bin = BIN,
+  prune = true,
 ): string {
-  const settings = Buffer.from(JSON.stringify({ verify, manifest, libexec, bin })).toString("base64");
+  const settings = Buffer.from(JSON.stringify({ verify, manifest, libexec, bin, prune })).toString("base64");
   const script = `import base64, hashlib, io, json, os, pathlib, shutil, tarfile, tempfile, urllib.request
 config = json.loads(base64.b64decode('${settings}'))
 manifest = config['manifest']
@@ -74,15 +126,24 @@ for path, target in links.items():
         os.replace(temporary, path)
     finally:
         if os.path.lexists(temporary): os.unlink(temporary)
-release_dirs = []
-for candidate in libexec.iterdir():
-    suffix = candidate.name.removeprefix('cmux-cloud-')
-    if candidate == release or candidate.is_symlink() or not candidate.is_dir() or len(suffix) != 64 or any(char not in '0123456789abcdef' for char in suffix):
-        continue
-    release_dirs.append(candidate)
-release_dirs.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
-for obsolete in release_dirs[2:]:
-    shutil.rmtree(obsolete, ignore_errors=True)
+if config['prune']:
+    release_dirs = []
+    for candidate in libexec.iterdir():
+        suffix = candidate.name.removeprefix('cmux-cloud-')
+        if candidate == release or candidate.is_symlink() or not candidate.is_dir() or len(suffix) != 64 or any(char not in '0123456789abcdef' for char in suffix):
+            continue
+        release_dirs.append(candidate)
+    release_dirs.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+    active = set()
+    for path in links:
+        try:
+            if path.is_symlink():
+                active.add(path.resolve().parent)
+        except OSError:
+            pass
+    for obsolete in release_dirs[2:]:
+        if obsolete.resolve() not in active:
+            shutil.rmtree(obsolete, ignore_errors=True)
 `;
   return `python3 -c '${script.replace(/'/g, `'\\''`)}'`;
 }
