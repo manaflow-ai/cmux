@@ -332,6 +332,92 @@ def write_output(name: str, value: object) -> None:
         stream.write(f"{name}={value}\n")
 
 
+def semantic_stage_seconds(result: dict[str, object], stage: str) -> float:
+    timings = result.get("stage_timings")
+    if not isinstance(timings, list):
+        raise Refusal("canonical workload result omitted stage timings")
+    matched = []
+    for item in timings:
+        if not isinstance(item, dict):
+            raise Refusal("canonical workload stage timing is invalid")
+        name = item.get("stage")
+        seconds = item.get("seconds")
+        if not isinstance(name, str) or type(seconds) not in (int, float) or seconds < 0:
+            raise Refusal("canonical workload stage timing is invalid")
+        if name == stage:
+            matched.append(float(seconds))
+    if len(matched) != 1:
+        raise Refusal(f"canonical workload result must report one {stage} stage")
+    return matched[0]
+
+
+def validate_semantic_result(
+    result: object, expected_commit: str, expected_tree: str
+) -> dict[str, object]:
+    if not isinstance(result, dict):
+        raise Refusal("canonical workload result is not an object")
+    if result.get("document_type") != "cmux-workload-result" or result.get("schema_version") != 1:
+        raise Refusal("canonical workload result identity is invalid")
+    if result.get("result") != "passed":
+        raise Refusal("canonical compile-admission workload did not pass")
+    if result.get("source") != {
+        "repository": "manaflow-ai/cmux",
+        "commit": expected_commit,
+        "tree": expected_tree,
+    }:
+        raise Refusal("canonical workload source identity mismatch")
+    if result.get("profile") != {
+        "id": "cmux.macos.compile-admission",
+        "generation": 1,
+    }:
+        raise Refusal("canonical workload profile identity mismatch")
+    if result.get("semantic_validator") != "cmux.compile-admission/v1":
+        raise Refusal("canonical workload semantic validator mismatch")
+
+    validation = result.get("validation")
+    if (
+        not isinstance(validation, dict)
+        or validation.get("missing_required_artifact_classes") != []
+    ):
+        raise Refusal("canonical workload artifact validation is incomplete")
+    cleanup = result.get("cleanup")
+    if (
+        not isinstance(cleanup, dict)
+        or cleanup.get("state") != "complete"
+        or cleanup.get("process_group_settled") is not True
+    ):
+        raise Refusal("canonical workload cleanup is incomplete")
+
+    benchmark = result.get("benchmark")
+    if not isinstance(benchmark, dict):
+        raise Refusal("canonical workload benchmark identity is missing")
+    state_class = benchmark.get("state_class")
+    if state_class not in {"cold", "compiler-warm"}:
+        raise Refusal("canonical workload used an unexpected benchmark state class")
+    for key in ("semantic_comparison_key", "comparison_context_key"):
+        value = benchmark.get(key)
+        if not isinstance(value, str) or re.fullmatch(r"sha256:[a-f0-9]{64}", value) is None:
+            raise Refusal(f"canonical workload {key} is invalid")
+
+    toolchain = result.get("toolchain")
+    if not isinstance(toolchain, dict):
+        raise Refusal("canonical workload toolchain identity is missing")
+    identity = toolchain.get("identity")
+    observations = toolchain.get("observations")
+    if (
+        not isinstance(identity, str)
+        or re.fullmatch(r"sha256:[a-f0-9]{64}", identity) is None
+        or not isinstance(observations, dict)
+    ):
+        raise Refusal("canonical workload toolchain identity is invalid")
+
+    semantic_stage_seconds(result, "setup")
+    semantic_stage_seconds(result, "dependency_preparation")
+    semantic_stage_seconds(result, "compile")
+    semantic_stage_seconds(result, "validation")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--glaeda", type=Path, required=True)
@@ -344,26 +430,42 @@ def main() -> int:
     args = parser.parse_args()
 
     project = Path.cwd().resolve()
+    semantic_runner = project / "scripts/ci/cmux_workload_profile.py"
+    semantic_registry = project / "scripts/ci/cmux-workload-profiles.json"
+    semantic_entrypoint = project / "scripts/ci/persistent-mac-semantic-entrypoint.sh"
+    if not semantic_runner.is_file() or not semantic_registry.is_file():
+        raise Refusal(
+            "canonical cmux.macos.compile-admission@1 is unavailable; "
+            "persistent routing remains disabled until #13411 is on the exact source"
+        )
+    if not semantic_entrypoint.is_file() or not os.access(semantic_entrypoint, os.X_OK):
+        raise Refusal("persistent semantic entrypoint is unavailable or not executable")
+
     lockfile = project / "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
     if not lockfile.is_file():
         raise Refusal(f"missing Package.resolved: {lockfile.relative_to(project)}")
     initial_package_identity = sha256(lockfile)
-    submodule_identity = hashlib.sha256(
-        output("git", "-C", str(project), "submodule", "status", "--recursive").encode()
-    ).hexdigest()
+    initial_submodules = output(
+        "git", "-C", str(project), "submodule", "status", "--recursive"
+    )
+    submodule_identity = hashlib.sha256(initial_submodules.encode()).hexdigest()
 
-    plan, generation, reset_reasons = plan_or_reset(
+    plan_receipt, generation, reset_reasons = plan_or_reset(
         args.glaeda.resolve(), project, args.request_id, args.source_reset == "true"
     )
-    initial_state = str(plan.get("state"))
+    initial_state = str(plan_receipt.get("state"))
     if initial_state not in {"cold", "prepared"}:
         raise Refusal(f"unexpected Glaeda cache state after admission: {initial_state}")
 
-    cache_key = plan.get("cache_key")
-    invocation_identity = plan.get("invocation_identity")
-    cache_root = plan.get("cache_root")
-    if (not isinstance(cache_key, str) or not re.fullmatch(r"[a-f0-9]{64}", cache_key)
-            or not isinstance(invocation_identity, str) or not re.fullmatch(r"[a-f0-9]{64}", invocation_identity)):
+    cache_key = plan_receipt.get("cache_key")
+    invocation_identity = plan_receipt.get("invocation_identity")
+    cache_root = plan_receipt.get("cache_root")
+    if (
+        not isinstance(cache_key, str)
+        or re.fullmatch(r"[a-f0-9]{64}", cache_key) is None
+        or not isinstance(invocation_identity, str)
+        or re.fullmatch(r"[a-f0-9]{64}", invocation_identity) is None
+    ):
         raise Refusal("Glaeda plan omitted valid cache lineage identities")
     expected_cache_root = f".glaeda/apple-build/cache/{cache_key}"
     if cache_root != expected_cache_root:
@@ -372,24 +474,6 @@ def main() -> int:
     cmux_state = project / ".glaeda" / "cmux-ci"
     cmux_state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(cmux_state, 0o700)
-
-    package_marker = cmux_state / "package-resolved.json"
-    package_identity = None
-    if package_marker.is_file():
-        try:
-            package_identity = json.loads(package_marker.read_text())
-        except (OSError, ValueError):
-            package_identity = None
-    package_cache_state = (
-        "matched"
-        if package_identity == {
-            "schema_version": 1,
-            "cache_key": cache_key,
-            "package_resolved_sha256": initial_package_identity,
-        }
-        else "changed-or-unseeded"
-    )
-
     build_marker = cmux_state / "last-successful-build.json"
     prior_build = None
     if build_marker.is_file():
@@ -406,37 +490,9 @@ def main() -> int:
         }
         else "changed-or-unseeded"
     )
-    ghostty_state = ensure_ghostty(project, cmux_state)
 
-    package_started = time.monotonic()
-    dependency, dependency_code = glaeda(
-        args.glaeda.resolve(),
-        "dependencies",
-        project,
-        generation,
-        expected_commit=args.expected_commit,
-        expected_tree=args.expected_tree,
-        require_clean=True,
-    )
-    package_seconds = time.monotonic() - package_started
-    publish_native_log(project, dependency, "package readiness")
-    require_exact_source(dependency, args.expected_commit, args.expected_tree, "dependency")
-    if dependency_code or dependency.get("exit_code") != 0:
-        raise Refusal(f"package readiness failed with exit {dependency.get('exit_code', dependency_code)}")
-
-    final_package_identity = sha256(lockfile)
-    if final_package_identity != initial_package_identity:
-        raise Refusal("Package.resolved changed during package readiness")
-    temporary_marker = package_marker.with_suffix(".tmp")
-    temporary_marker.write_text(json.dumps({
-        "schema_version": 1,
-        "cache_key": cache_key,
-        "package_resolved_sha256": final_package_identity,
-    }, sort_keys=True) + "\n")
-    temporary_marker.replace(package_marker)
-
-    build_started = time.monotonic()
-    build, build_code = glaeda(
+    native_started = time.monotonic()
+    native, native_code = glaeda(
         args.glaeda.resolve(),
         "run",
         project,
@@ -445,70 +501,133 @@ def main() -> int:
         expected_tree=args.expected_tree,
         require_clean=True,
     )
-    compile_seconds = time.monotonic() - build_started
-    publish_native_log(project, build, "compile")
-    require_exact_source(build, args.expected_commit, args.expected_tree, "build")
-    if build_code or build.get("exit_code") != 0:
-        raise Refusal(f"compile failed with exit {build.get('exit_code', build_code)}")
+    outer_native_seconds = time.monotonic() - native_started
+    publish_native_log(project, native, "canonical compile admission")
+    require_exact_source(native, args.expected_commit, args.expected_tree, "build")
+    if native_code or native.get("exit_code") != 0:
+        quarantine_state(project, args.request_id + "-semantic-failed")
+        raise Refusal(
+            "canonical compile admission failed with exit "
+            f"{native.get('exit_code', native_code)}"
+        )
 
     cache_directory = project / expected_cache_root
-    derived_data = cache_directory / "derived_data"
-    if derived_data.is_symlink() or not derived_data.is_dir():
-        raise Refusal("Glaeda native cache omitted a safe DerivedData directory")
+    if cache_directory.is_symlink() or not cache_directory.is_dir():
+        raise Refusal("Glaeda native cache omitted a safe cache directory")
+    canonical_cache_parent = (project / ".glaeda/apple-build/cache").resolve(strict=True)
     resolved_cache = cache_directory.resolve(strict=True)
-    resolved_derived = derived_data.resolve(strict=True)
-    if resolved_cache.parent != (project / ".glaeda/apple-build/cache").resolve(strict=True):
+    if resolved_cache.parent != canonical_cache_parent:
         raise Refusal("Glaeda cache locator escaped the project cache root")
-    if resolved_derived.parent != resolved_cache:
-        raise Refusal("Glaeda DerivedData escaped the admitted cache generation")
-    derived_data = resolved_derived
-    build_log = derived_data / "cmux-build.log"
-    products = derived_data / "Build" / "Products" / "Debug"
-    if not build_log.is_file() or not products.is_dir():
-        raise Refusal("native compile completed without the admission log/products")
 
+    products_root = cache_directory / "products"
+    semantic_state = products_root / "semantic-state"
+    semantic_result_path = products_root / "semantic-result.json"
+    derived_data = semantic_state / "derived-data"
+    for label, path in (
+        ("products", products_root),
+        ("semantic state", semantic_state),
+        ("DerivedData", derived_data),
+    ):
+        if path.is_symlink() or not path.is_dir():
+            raise Refusal(f"Glaeda native cache omitted a safe {label} directory")
+        resolved = path.resolve(strict=True)
+        if resolved_cache not in resolved.parents:
+            raise Refusal(f"{label} escaped the admitted Glaeda cache generation")
+    if semantic_result_path.is_symlink() or not semantic_result_path.is_file():
+        raise Refusal("canonical workload result is missing or unsafe")
+
+    try:
+        raw_semantic = json.loads(semantic_result_path.read_text())
+    except (OSError, ValueError) as error:
+        raise Refusal("canonical workload result cannot be read") from error
+    semantic = validate_semantic_result(
+        raw_semantic, args.expected_commit, args.expected_tree
+    )
+
+    final_package_identity = sha256(lockfile)
+    if final_package_identity != initial_package_identity:
+        quarantine_state(project, args.request_id + "-package-drift")
+        raise Refusal("Package.resolved changed during canonical compile admission")
+    final_submodules = output(
+        "git", "-C", str(project), "submodule", "status", "--recursive"
+    )
+    if final_submodules != initial_submodules:
+        quarantine_state(project, args.request_id + "-submodule-drift")
+        raise Refusal("submodule identity changed during canonical compile admission")
+
+    build_log = derived_data / "cmux-build.log"
+    debug_products = derived_data / "Build" / "Products" / "Debug"
+    if not build_log.is_file() or not debug_products.is_dir():
+        raise Refusal("canonical compile completed without admission log/products")
+    semantic_copy = derived_data / "cmux-workload-result.json"
+    shutil.copy2(semantic_result_path, semantic_copy)
+
+    semantic_state_class = semantic["benchmark"]["state_class"]
     classification = (
         "cold-reset"
-        if reset_reasons or initial_state == "cold"
+        if reset_reasons or initial_state == "cold" or semantic_state_class == "cold"
         else "hot"
-        if (ghostty_state == "reused" and package_cache_state == "matched"
-            and invocation_cache_state == "matched")
+        if semantic_state_class == "compiler-warm" and invocation_cache_state == "matched"
         else "partially-warm"
     )
     build_marker_tmp = build_marker.with_suffix(".tmp")
-    build_marker_tmp.write_text(json.dumps({
-        "schema_version": 1,
-        "cache_key": cache_key,
-        "invocation_identity": invocation_identity,
-    }, sort_keys=True) + "\n")
+    build_marker_tmp.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cache_key": cache_key,
+                "invocation_identity": invocation_identity,
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    )
     build_marker_tmp.replace(build_marker)
+
     toolchain = {
         "xcode": output("xcodebuild", "-version"),
         "sdk_version": output("xcrun", "--sdk", "macosx", "--show-sdk-version"),
         "sdk_build": output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
         "developer_dir": os.environ.get("DEVELOPER_DIR", ""),
     }
-    native_timings = build.get("timings_seconds")
-    native_work = build.get("native_work")
+    semantic_toolchain = semantic.get("toolchain", {})
+    observations = semantic_toolchain.get("observations", {})
+    if isinstance(observations, dict):
+        if observations.get("xcode") not in (None, toolchain["xcode"]):
+            raise Refusal("canonical workload Xcode observation differs after execution")
+        if observations.get("macos_sdk") not in (None, toolchain["sdk_version"]):
+            raise Refusal("canonical workload SDK observation differs after execution")
+
+    native_timings = native.get("timings_seconds")
+    native_work = native.get("native_work")
+    package_seconds = semantic_stage_seconds(semantic, "dependency_preparation")
+    compile_seconds = semantic_stage_seconds(semantic, "compile")
+    semantic_validation_seconds = semantic_stage_seconds(semantic, "validation")
+    setup_seconds = semantic_stage_seconds(semantic, "setup")
+
     metrics = {
         "schema_version": 1,
         "classification": classification,
         "source": {"commit": args.expected_commit, "tree": args.expected_tree},
         "source_preparation_seconds": round(args.source_preparation_seconds, 6),
-        "package_readiness_seconds": round(package_seconds, 6),
-        "compile_duration_seconds": round(compile_seconds, 6),
+        "setup_seconds": setup_seconds,
+        "package_readiness_seconds": package_seconds,
+        "compile_duration_seconds": compile_seconds,
+        "semantic_validation_seconds": semantic_validation_seconds,
+        "outer_native_seconds": round(outer_native_seconds, 6),
         "package_resolved_sha256": final_package_identity,
         "submodule_identity_sha256": submodule_identity,
-        "ghostty_state": ghostty_state,
-        "package_cache_state": package_cache_state,
         "invocation_cache_state": invocation_cache_state,
+        "semantic": semantic,
         "glaeda": {
             "generation": generation,
             "initial_state": initial_state,
             "reset_reasons": reset_reasons,
-            "cache_key": plan.get("cache_key"),
-            "invocation_identity": plan.get("invocation_identity"),
-            "native_timings_seconds": native_timings if isinstance(native_timings, dict) else {},
+            "cache_key": cache_key,
+            "invocation_identity": invocation_identity,
+            "native_timings_seconds": (
+                native_timings if isinstance(native_timings, dict) else {}
+            ),
             "native_work": native_work if isinstance(native_work, dict) else {},
         },
         "toolchain": toolchain,
@@ -526,6 +645,13 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (Refusal, OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+    except (
+        Refusal,
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        KeyError,
+        TypeError,
+    ) as error:
         print(f"persistent Mac compile refused: {error}", file=sys.stderr)
         raise SystemExit(1)
