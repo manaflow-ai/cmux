@@ -148,37 +148,38 @@ struct SSHConnectionSharingOptionsTests {
         ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
     }
 
-    @Test("An explicit host opt-out differs from OpenSSH defaults")
-    func detectsExplicitHostOptOutAgainstBaseline() {
-        let output = """
-        controlmaster false
-        controlpath none
-        controlpersist no
-        """
-        let baseline = """
-        controlmaster false
-        controlpath none
-        controlpersist no
-        """
-        #expect(options.userConfiguredControlOptions(
-            fromSSHConfigOutput: output,
-            baselineSSHConfigOutput: baseline,
-            explicitOptions: []
-        ) == nil)
-        let configured = """
-        controlmaster no
-        controlpath none
-        controlpersist no
-        """
+    @Test("Supported OpenSSH normalization drives host opt-out detection")
+    func detectsHostOptOutUsingRealOpenSSHNormalization() throws {
+        let host = "cmux-normalization.invalid"
+        let baseline = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: "/dev/null"
+        )
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-normalization-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: configURL) }
+        try """
+        Host cmux-normalization.invalid
+          ControlMaster no
+          ControlPath none
+          ControlPersist no
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let configured = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: configURL.path
+        )
+
+        // The supported macOS OpenSSH currently normalizes ControlMaster=no
+        // to the same controlmaster=false value as its built-in default.
+        // The product compares these exact ssh -G outputs, so this test owns
+        // that resolver boundary instead of inventing distinct text.
+        #expect(controlSettings(in: configured) == controlSettings(in: baseline))
         #expect(options.userConfiguredControlOptions(
             fromSSHConfigOutput: configured,
             baselineSSHConfigOutput: baseline,
             explicitOptions: []
-        ) == [
-            "ControlMaster=no",
-            "ControlPath=none",
-            "ControlPersist=no",
-        ])
+        ) == nil)
     }
 
     @Test("A baseline that omits unset keys still reads as OpenSSH defaults")
@@ -253,6 +254,38 @@ struct SSHConnectionSharingOptionsTests {
             "ControlMaster=no",
             "ControlPath=/tmp/cmux-ssh-501-%C",
         ]) == nil)
+    }
+
+    private func resolvedSSHConfiguration(
+        host: String,
+        configurationFile: String
+    ) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", configurationFile, host]
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        return String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+    }
+
+    private func controlSettings(in output: String) -> [String: String] {
+        var values: [String: String] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            if ["controlmaster", "controlpath", "controlpersist"].contains(key) {
+                values[key] = String(parts[1])
+            }
+        }
+        return values
     }
 
     @Test("Only enabled cmux-owned paths create an authentication lock")
