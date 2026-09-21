@@ -98,12 +98,15 @@ struct SplitPaneGeometryProjectionTests {
     }
 
     @Test func dividerRangeAndPaneMinimumsClampTheDivider() throws {
-        // The 100pt pane minimum narrows the 0.1...0.9 range to 0.125...0.875
-        // of the 799 available points before the position is clamped.
+        // The 100pt pane minimum narrows the 0.1...0.9 range to
+        // 100/799...1-100/799 of the 799 available points before the
+        // position is clamped, so the first pane stops one minimum short of
+        // the far edge.
         let ranged = try #require(Projection.project(
             Self.request(orientation: .horizontal, sourceIsFirst: true, dividerPosition: 0.99), chrome: Self.chrome
         ))
-        #expect(ranged.sourceContentFrame.width == 799 * 0.875)
+        #expect(abs(ranged.sourceContentFrame.width - (799 - 100)) < 0.001)
+        #expect(abs(ranged.newPaneContentFrame.width - 100) < 0.001)
 
         // A 128pt tall pane cannot hold two 100pt panes: bonsplit shares the
         // 127 available points evenly instead of forcing invalid bounds.
