@@ -7,8 +7,10 @@ import argparse
 from datetime import datetime, timezone
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -26,6 +28,43 @@ def parse_time(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+class RetryCancelled(RuntimeError):
+    """Raised when CI cancellation interrupts a bounded GitHub observation."""
+
+
+class RetryWait:
+    """Cancellation-aware bounded retry owner for GitHub control-plane observation."""
+
+    def __init__(self, *, clock=now, wait=None):
+        self._clock = clock
+        self._cancelled = threading.Event()
+        self._wait = wait or self._cancelled.wait
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def until(self, deadline: float, probe, *, initial_delay: float = 0.5, max_delay: float = 3.0):
+        delay = initial_delay
+        while True:
+            complete, value = probe()
+            if complete:
+                return value
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                return None
+            if self._cancelled.is_set() or self._wait(min(delay, remaining)):
+                raise RetryCancelled("persistent Mac route observation was cancelled")
+            delay = min(max_delay, delay * 2)
+
+
+def install_cancel_handlers(waiter: RetryWait) -> None:
+    def cancel_wait(_signum, _frame) -> None:
+        waiter.cancel()
+
+    signal.signal(signal.SIGINT, cancel_wait)
+    signal.signal(signal.SIGTERM, cancel_wait)
 
 
 class GitHub:
@@ -118,9 +157,15 @@ def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, st
     return True, "verified"
 
 
-def find_run(api: GitHub, request_id: str, deadline: float) -> dict[str, object]:
+def find_run(
+    api: GitHub,
+    request_id: str,
+    deadline: float,
+    waiter: RetryWait,
+) -> dict[str, object]:
     title = f"persistent-mac-compile-{request_id}"
-    while now() < deadline:
+
+    def observe():
         payload = api.api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=50")
         runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
         matches = [
@@ -129,11 +174,15 @@ def find_run(api: GitHub, request_id: str, deadline: float) -> dict[str, object]
             and run.get("display_title") == title
             and run.get("head_branch") == "main"
         ]
-        if matches:
-            matches.sort(key=lambda run: int(run.get("id", 0)), reverse=True)
-            return matches[0]
-        time.sleep(1)
-    raise RuntimeError("dispatched producer workflow did not become observable")
+        if not matches:
+            return False, None
+        matches.sort(key=lambda run: int(run.get("id", 0)), reverse=True)
+        return True, matches[0]
+
+    found = waiter.until(deadline, observe)
+    if found is None:
+        raise RuntimeError("dispatched producer workflow did not become observable")
+    return found
 
 
 def jobs(api: GitHub, run_id: int) -> list[dict[str, object]]:
@@ -229,6 +278,8 @@ def main() -> int:
 
     request_id = f"{args.run_id}-{args.run_attempt}"
     api = GitHub(args.repository)
+    waiter = RetryWait()
+    install_cancel_handlers(waiter)
     try:
         verified, live_reason = verify_live_request(api, args)
         if not verified:
@@ -236,7 +287,7 @@ def main() -> int:
 
         discovery_started = now()
         if args.observe_only:
-            run = find_run(api, request_id, discovery_started + 90)
+            run = find_run(api, request_id, discovery_started + 90, waiter)
         else:
             api.dispatch(
                 {
@@ -248,18 +299,24 @@ def main() -> int:
                     "head_sha": args.head_sha,
                 }
             )
-            run = find_run(api, request_id, discovery_started + 30)
+            run = find_run(api, request_id, discovery_started + 30, waiter)
         run_id = int(run["id"])
         queue_deadline = now() + args.queue_seconds
-        selected: dict[str, object] | None = None
-        while now() < queue_deadline:
+
+        def observe_queue():
             selected = compile_job(api, run_id)
             if selected and selected.get("started_at"):
-                break
+                return True, ("started", selected)
             if selected and selected.get("status") in TERMINAL:
-                conclusion = str(selected.get("conclusion") or "unknown")
-                return fallback(args.github_output, f"producer_{conclusion}", producer_run_id=run_id)
-            time.sleep(2)
+                return True, ("terminal", selected)
+            return False, None
+
+        queue_result = waiter.until(queue_deadline, observe_queue)
+        if queue_result is not None and queue_result[0] == "terminal":
+            selected = queue_result[1]
+            conclusion = str(selected.get("conclusion") or "unknown")
+            return fallback(args.github_output, f"producer_{conclusion}", producer_run_id=run_id)
+        selected = queue_result[1] if queue_result is not None else None
         if not selected or not selected.get("started_at"):
             if not args.observe_only:
                 cancel(api, run_id)
@@ -274,13 +331,14 @@ def main() -> int:
         queue_seconds = max(0.0, (started - created).total_seconds())
 
         execution_deadline = now() + args.execution_seconds
-        completed: dict[str, object] | None = None
-        while now() < execution_deadline:
+
+        def observe_execution():
             current = compile_job(api, run_id)
             if current and current.get("status") == "completed":
-                completed = current
-                break
-            time.sleep(3)
+                return True, current
+            return False, None
+
+        completed = waiter.until(execution_deadline, observe_execution)
         if completed is None:
             if not args.observe_only:
                 cancel(api, run_id)
