@@ -341,103 +341,56 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
-  tests:
-    name: tests
-    # Preserve the stable required check while platform jobs move behind reusable
-    # workflow boundaries. The called workflows enforce their internal routes.
-    needs:
-      - changes
-      - linux-preflight
-      - macos
-      - web
-    if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check platform workflow routing
-        env:
-          TESTS_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["TESTS_NEEDS"])
-          changes = needs["changes"]
-          if changes["result"] != "success":
-              print(f"changes: {changes['result']}", file=sys.stderr)
-              sys.exit(1)
-
-          preflight = needs["linux-preflight"]
-          if preflight["result"] != "success":
-              print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
-              sys.exit(1)
-
-          outputs = changes.get("outputs", {})
-          macos_route = outputs.get("macos")
-          if macos_route not in {"true", "false"}:
-              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
-              sys.exit(1)
-
-          macos_result = needs["macos"]["result"]
-          if macos_route == "true":
-              if macos_result != "success":
-                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
-                  sys.exit(1)
-          elif macos_result not in {"success", "skipped"}:
-              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
-              sys.exit(1)
-
-          web_result = needs["web"]["result"]
-          if web_result not in {"success", "skipped"}:
-              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
-              sys.exit(1)
-
-          print(f"changes.macos={macos_route}")
-          print(f"changes.full_suite={outputs.get('full_suite')}")
-          print(f"linux-preflight={preflight['result']}")
-          print(f"macos={macos_result}")
-          print(f"web={web_result}")
-          PY
-
-  linux-preflight:
-    name: linux-preflight
+  macos:
     needs:
       - changes
       - static-preflight
       - guards
       - ghosttykit-release-check
       - web
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.guards.result == 'success' && needs.ghosttykit-release-check.result == 'success' && needs.web.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/ci-macos.yml
+    with:
+      macos: ${{ needs.changes.outputs.macos }}
+      full_suite: ${{ needs.changes.outputs.full_suite }}
+      compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
+      release_build: ${{ needs.changes.outputs.release_build }}
+      cache_backend: ${{ inputs.cache_backend }}
+      release_archs: ${{ inputs.release_archs }}
+  ci-status:
+    needs:
+      - changes
+      - static-preflight
+      - guards
+      - ghosttykit-release-check
+      - web
+      - macos
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
-      - name: Check cheap CI layer before macOS runners
+      - name: Check routed CI jobs
         env:
-          PREFLIGHT_NEEDS: ${{ toJSON(needs) }}
+          CI_NEEDS: ${{ toJSON(needs) }}
         run: |
           python3 - <<'PY'
           import json
           import os
           import sys
 
-          needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = (
-              "changes",
-              "static-preflight",
-          )
-          allowed_routed = {
-              "ghosttykit-release-check",
-          }
-
+          needs = json.loads(os.environ["CI_NEEDS"])
           bad = {}
-          for name in required:
+
+          for name in ("changes", "static-preflight"):
               result = needs[name]["result"]
               if result != "success":
                   bad[name] = result
 
           outputs = needs["changes"].get("outputs", {})
+
           guard_routes = (
               "linux_guard_tests",
               "linux_guard_history",
@@ -475,22 +428,32 @@ jobs:
           elif not invalid_web_routes and web_result not in {"success", "skipped"}:
               bad["web"] = web_result
 
-          routed_outputs = {
-              "ghosttykit-release-check": "ghosttykit_release",
-          }
-          for name in sorted(allowed_routed):
-              result = needs[name]["result"]
-              route = routed_outputs[name]
-              if outputs.get(route) not in {"true", "false"}:
-                  bad[name] = f"invalid route {route}={outputs.get(route)!r}"
-              elif outputs.get(route) == "true":
-                  if result != "success":
-                      bad[name] = f"{result} (route {route}=true)"
-              elif result not in {"success", "skipped"}:
-                  bad[name] = result
+          ghostty_route = outputs.get("ghosttykit_release")
+          ghostty_result = needs["ghosttykit-release-check"]["result"]
+          if ghostty_route not in {"true", "false"}:
+              bad["ghosttykit-release-check"] = (
+                  f"invalid route ghosttykit_release={ghostty_route!r}"
+              )
+          elif ghostty_route == "true":
+              if ghostty_result != "success":
+                  bad["ghosttykit-release-check"] = (
+                      f"{ghostty_result} (route ghosttykit_release=true)"
+                  )
+          elif ghostty_result not in {"success", "skipped"}:
+              bad["ghosttykit-release-check"] = ghostty_result
+
+          macos_route = outputs.get("macos")
+          macos_result = needs["macos"]["result"]
+          if macos_route not in {"true", "false"}:
+              bad["macos"] = f"invalid route macos={macos_route!r}"
+          elif macos_route == "true":
+              if macos_result != "success":
+                  bad["macos"] = f"{macos_result} (route macos=true)"
+          elif macos_result not in {"success", "skipped"}:
+              bad["macos"] = macos_result
 
           if bad:
-              for name, result in bad.items():
+              for name, result in sorted(bad.items()):
                   print(f"{name}: {result}", file=sys.stderr)
               sys.exit(1)
 
@@ -500,62 +463,6 @@ jobs:
               f"web={outputs.get('web')} "
               f"agent_session_web={outputs.get('agent_session_web')}"
           )
-          for name, data in sorted(needs.items()):
-              print(f"{name}: {data['result']}")
-          PY
-
-  macos:
-    needs:
-      - changes
-      - linux-preflight
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
-    permissions:
-      actions: read
-      contents: read
-    uses: ./.github/workflows/ci-macos.yml
-    with:
-      macos: ${{ needs.changes.outputs.macos }}
-      full_suite: ${{ needs.changes.outputs.full_suite }}
-      compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
-      release_build: ${{ needs.changes.outputs.release_build }}
-      cache_backend: ${{ inputs.cache_backend }}
-      release_archs: ${{ inputs.release_archs }}
-
-  ci-status:
-    needs:
-      - changes
-      - static-preflight
-      - guards
-      - ghosttykit-release-check
-      - web
-      - linux-preflight
-      - macos
-      - tests
-    if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Check routed CI jobs
-        env:
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["CI_NEEDS"])
-          allowed = {"success", "skipped"}
-          bad = {
-              name: data["result"]
-              for name, data in sorted(needs.items())
-              if data["result"] not in allowed
-          }
-
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
-
           for name, data in sorted(needs.items()):
               print(f"{name}: {data['result']}")
           PY

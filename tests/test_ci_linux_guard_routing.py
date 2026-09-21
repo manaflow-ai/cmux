@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from test_ci_change_areas import (
-    linux_preflight_needs, run_guard_status, run_linux_preflight, workflow_job_step_script,
+    ci_status_needs, run_guard_status, run_ci_status, workflow_job_step_script,
 )
 
 
@@ -73,7 +73,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     results=dict.fromkeys(REUSABLE_GUARDS.values(), "skipped"),
                 )
                 self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
-                result = run_linux_preflight(linux_preflight_needs(
+                result = run_ci_status(ci_status_needs(
                     outputs=outputs,
                     results={"guards": "skipped", "ghosttykit-release-check": "skipped"},
                 ))
@@ -110,7 +110,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     results=guard_results,
                 )
                 self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
-                result = run_linux_preflight(linux_preflight_needs(
+                result = run_ci_status(ci_status_needs(
                     outputs=outputs,
                     results={"guards": "success", "ghosttykit-release-check": "skipped"},
                 ))
@@ -180,7 +180,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
         for outcome in ("skipped", "failure", "cancelled"):
             with self.subTest(job="ghosttykit-release-check", outcome=outcome):
-                result = run_linux_preflight(linux_preflight_needs(
+                result = run_ci_status(ci_status_needs(
                     results={"ghosttykit-release-check": outcome},
                 ))
                 self.assertNotEqual(result.returncode, 0)
@@ -196,12 +196,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 invalid[route_name] = value
                 self.assertNotEqual(run_guard_status(inputs=invalid).returncode, 0)
 
-        needs = linux_preflight_needs()
+        needs = ci_status_needs()
         del needs["changes"]["outputs"]["ghosttykit_release"]
-        self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+        self.assertNotEqual(run_ci_status(needs).returncode, 0)
         for value in ("", "False", "invalid"):
             needs["changes"]["outputs"]["ghosttykit_release"] = value
-            self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+            self.assertNotEqual(run_ci_status(needs).returncode, 0)
 
 if __name__ == "__main__":
     unittest.main()

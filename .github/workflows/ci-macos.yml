@@ -289,10 +289,9 @@ jobs:
     needs:
       - macos-compile-admission
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
-    # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
-    # transitive skip otherwise marks every macOS job skipped even when
-    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    # over the transitive needs chain: the caller already admitted the cheap Linux layer. Keep only the direct
+    # internal dependency here so routed skips outside this workflow cannot
+    # suppress a selected macOS job.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
@@ -1590,10 +1589,9 @@ jobs:
 
   swift-package-tests:
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
-    # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
-    # transitive skip otherwise marks every macOS job skipped even when
-    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    # over the transitive needs chain: the caller already admitted the cheap Linux layer. Keep only the direct
+    # internal dependency here so routed skips outside this workflow cannot
+    # suppress a selected macOS job.
     if: ${{ inputs.macos == 'true' && inputs.full_suite == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
@@ -1944,10 +1942,9 @@ jobs:
     needs:
       - macos-compile-admission
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
-    # over the transitive needs chain: linux-preflight runs behind routed linux
-    # jobs that legitimately skip (web/go/agent-session paths), and that
-    # transitive skip otherwise marks every macOS job skipped even when
-    # linux-preflight itself succeeds. Require the direct needs explicitly.
+    # over the transitive needs chain: the caller already admitted the cheap Linux layer. Keep only the direct
+    # internal dependency here so routed skips outside this workflow cannot
+    # suppress a selected macOS job.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # Reuse compile admission's app and UI test products; this runner only
     # performs display and runtime verification.
@@ -2209,8 +2206,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     # See app-host-unit-tests: explicit direct-needs gate instead of the
-    # implicit success() so skipped routed linux jobs upstream of
-    # linux-preflight do not skip this job transitively.
+    # implicit success() so only this workflow's direct dependencies gate it.
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
