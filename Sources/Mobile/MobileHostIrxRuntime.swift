@@ -58,12 +58,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private weak var auth: AuthCoordinator?
     private var authObservationTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
-    private var shutdownTask: Task<Void, Never>?
-    private var activeScope: AuthenticatedTeamScope?
+    private var activeScope: AuthenticatedTeamScope? { lifecycle.scope }
     private var signingOutScope: AuthenticatedTeamScope?
     private var wantsHost = true
-    private var requiresTransition = false
-    private var generationToken = UUID()
+    private var generationToken: UUID { lifecycle.generation }
+    private lazy var lifecycle = MobileHostLifecycleCoordinator<AuthenticatedTeamScope>(
+        invalidate: { [weak self] in self?.invalidateGeneration() },
+        retire: { [weak self] in await self?.retireGeneration() },
+        activate: { [weak self] scope, token in self?.activate(scope: scope, token: token) }
+    )
     private var activationTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
     private var endpointTask: Task<Void, Never>?
@@ -116,7 +119,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     private func isCurrent(_ token: UUID) -> Bool {
-        guard generationToken == token, wantsHost, isNetworkingAllowed,
+        guard generationToken == token, !lifecycle.isTransitioning, wantsHost, isNetworkingAllowed,
               let activeScope, signingOutScope != activeScope else { return false }
         return auth?.isAuthenticatedTeamScopeCurrent(activeScope) == true
     }
@@ -160,31 +163,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     func prepareForStop() {
         wantsHost = false
-        requiresTransition = true
-        admission?.invalidate()
-        generationToken = UUID()
-        listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        lifecycle.request(nil, restart: activeScope == nil && settingsPhase != .idle)
     }
 
     func stopHost() async {
         prepareForStop()
-        await transition(to: nil)
+        await lifecycle.waitForTransition()
     }
 
     func beginSignOutPreparation() {
         signingOutScope = auth?.authenticatedTeamScope
-        admission?.invalidate()
-        generationToken = UUID()
-        wantsHost = false
-        listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
-        let token = generationToken
-        shutdownTask?.cancel()
-        shutdownTask = Task { @MainActor [weak self] in
-            guard let self, self.generationToken == token else { return }
-            await self.stopHost()
-        }
+        prepareForStop()
     }
 
     func foreground() async {
@@ -199,7 +188,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
 
     func restartForConfigurationChange() async {
         guard wantsHost, isNetworkingAllowed else { return }
-        await transition(to: auth?.authenticatedTeamScope)
+        lifecycle.request(auth?.authenticatedTeamScope, restart: true)
     }
 
     #if DEBUG
@@ -218,17 +207,22 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func reconcile() async {
         let scope = wantsHost && isNetworkingAllowed ? auth?.authenticatedTeamScope : nil
         let permitted = scope == signingOutScope ? nil : scope
-        guard requiresTransition || permitted != activeScope || (permitted != nil && controlService == nil && activationTask == nil)
-                || (permitted == nil && settingsPhase != .idle) else { return }
-        await transition(to: permitted)
+        lifecycle.request(permitted, restart: permitted == nil && settingsPhase != .idle)
     }
 
-    private func transition(to scope: AuthenticatedTeamScope?) async {
-        requiresTransition = false
-        generationToken = UUID()
-        let token = generationToken
-        activeScope = scope
+    /// Revoke admission before suspending, including while an older cleanup is draining.
+    private func invalidateGeneration() {
         admission?.invalidate()
+        legacyService?.listCurrent.clear()
+        activationTask?.cancel(); controlTask?.cancel(); endpointTask?.cancel()
+        permissionExpiryTask?.cancel(); acceptLoop?.cancel()
+        legacyStartTask?.cancel(); legacyEventsTask?.cancel()
+        listenerState = MobileHostListenerState()
+        setSettingsPhase(activeScope == nil ? .idle : .activating)
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+    }
+
+    private func retireGeneration() async {
         let oldControl = controlService
         let oldEndpoint = endpointSupervisor
         let oldRegistry = registry
@@ -249,14 +243,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         controlService = nil; endpointSupervisor = nil; cachedState = nil
         lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
-        setSettingsPhase(.idle)
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
         await oldControl?.stop()
         await oldRelayWatch?.stop()
         await oldRegistry?.closeAll(code: .hostShutdown)
-        await oldLegacy?.stop(revokeOwnBinding: true)
         await oldEndpoint?.deactivate()
-        guard generationToken == token, let scope, isCurrent(token) else { return }
+        await oldLegacy?.stop(revokeOwnBinding: true)
+    }
+
+    private func activate(scope: AuthenticatedTeamScope, token: UUID) {
+        guard isCurrent(token) else { return }
         setSettingsPhase(.activating)
         activationTask = Task { @MainActor [weak self] in
             var failureCount = 0
