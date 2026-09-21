@@ -166,7 +166,8 @@ extension FileExplorerContainerView {
 
     @MainActor
     @objc func contextMenuInsertSearchResultPath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
             paths: searchResultsForContextMenu(row: row).map(\.path),
             intoTerminalFor: window
@@ -175,7 +176,8 @@ extension FileExplorerContainerView {
 
     @MainActor
     @objc func contextMenuInsertSearchResultRelativePath(_ sender: NSMenuItem) {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue else { return }
         FileExplorerTerminalPathInsertion.insert(
             paths: searchResultsForContextMenu(row: row).map(\.relativePath),
             intoTerminalFor: window
