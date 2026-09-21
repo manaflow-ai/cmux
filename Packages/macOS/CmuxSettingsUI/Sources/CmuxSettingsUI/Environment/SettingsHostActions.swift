@@ -263,6 +263,9 @@ public protocol SettingsHostActions: AnyObject {
     /// The remaining setup step, including capture confirmation beyond the TCC grants.
     func computerUseSetupStatus() -> ComputerUseSetupStatus
 
+    /// One runtime-owned enablement, permission, and setup snapshot.
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot
+
     /// Emits coalesced invalidations of the host's cached permission and setup snapshot.
     func computerUseSetupUpdates() -> AsyncStream<Void>
 

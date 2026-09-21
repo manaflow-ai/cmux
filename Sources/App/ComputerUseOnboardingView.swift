@@ -12,7 +12,7 @@ struct ComputerUseOnboardingView: View {
     static let initialStep = ComputerUseOnboardingStep.overview
 
     let runtimeService: ComputerUseRuntimeService
-    @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
+    let presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
     let onPermissionSetupStarted: @MainActor (ComputerUseOnboardingStep) -> Void
     let onExpandedRequested: @MainActor () -> Void
@@ -31,6 +31,8 @@ struct ComputerUseOnboardingView: View {
     @State private var directCaptureVerificationInFlight = false
     @State private var directCaptureVerificationAttempted = false
     @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
+    @State private var setupTask: Task<Void, Never>?
+    @State private var verificationTask: Task<Void, Never>?
 
     init(
         runtimeService: ComputerUseRuntimeService,
@@ -63,6 +65,7 @@ struct ComputerUseOnboardingView: View {
         .onAppear {
             prepareHelperForOnboarding()
         }
+        .onDisappear { setupTask?.cancel(); verificationTask?.cancel(); setupTask = nil; verificationTask = nil }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             guard permissionCheckArmed else { return }
             permissionCheckArmed = false
@@ -399,7 +402,7 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func refreshPermissions() {
-        Task { @MainActor in
+        setupTask?.cancel(); setupTask = Task { @MainActor in
             await refreshPermissionsNow()
         }
     }
@@ -419,7 +422,7 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func prepareHelperForOnboarding() {
-        Task { @MainActor in
+        setupTask?.cancel(); setupTask = Task { @MainActor in
             _ = await runtimeService.ensureStandaloneHelperInstalled()
             refreshHelperPresentation()
             let status = await runtimeService.refreshHelperStatus()
@@ -455,7 +458,7 @@ struct ComputerUseOnboardingView: View {
         permissionSetupInFlight = true
         permissionCheckArmed = true
         onPermissionSetupStarted(permissionStep)
-        Task { @MainActor in
+        setupTask?.cancel(); setupTask = Task { @MainActor in
             defer { permissionSetupInFlight = false }
             _ = await runtimeService.ensureStandaloneHelperInstalled()
             let status = await runtimeService.refreshHelperStatus()
@@ -611,7 +614,8 @@ struct ComputerUseOnboardingView: View {
         // drag tile up made a successful second drag look stuck while the
         // helper recovered and macOS prepared its consent alert.
         onExpandedRequested()
-        Task { @MainActor in
+        verificationTask?.cancel()
+        verificationTask = Task { @MainActor in
             let verification = await runtimeService
                 .verifyDirectScreenCaptureOutcome()
             // Completion is forbidden while this flag is set. Clear the
@@ -636,6 +640,7 @@ struct ComputerUseOnboardingView: View {
                 step = .screenRecording
                 onExpandedRequested()
             }
+            verificationTask = nil
         }
     }
 }
@@ -658,7 +663,7 @@ enum ComputerUsePermissionCompanionLayout {
 @MainActor
 struct ComputerUsePermissionCompanionView: View {
     let permissionStep: ComputerUseOnboardingStep
-    @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
+    let presentationState: ComputerUseOnboardingPresentationState
     let applicationName: String
     let helperAppURL: URL?
     let onBack: @MainActor () -> Void

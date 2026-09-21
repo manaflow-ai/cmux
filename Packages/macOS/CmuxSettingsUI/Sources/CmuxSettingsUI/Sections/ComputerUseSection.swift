@@ -59,7 +59,7 @@ public struct ComputerUseSection: View {
                         ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
                         : setupSnapshot.enabled
                             ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first Computer Use request starts setup automatically.")
+                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first functional Computer Use request starts setup automatically.")
                 ) {
                     Toggle("", isOn: Binding(get: { setupSnapshot.enabled && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()

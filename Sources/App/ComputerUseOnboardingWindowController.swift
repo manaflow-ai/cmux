@@ -1,6 +1,6 @@
 import CmuxComputerUse
 import AppKit
-import Combine
+import Observation
 import SwiftUI
 
 struct ComputerUseOnboardingPermissionSnapshot: Equatable, Sendable {
@@ -10,15 +10,16 @@ struct ComputerUseOnboardingPermissionSnapshot: Equatable, Sendable {
 }
 
 @MainActor
-final class ComputerUseOnboardingPresentationState: ObservableObject {
-    @Published private(set) var returnToOverviewGeneration = 0
-    @Published private(set) var permissionCompanionVisible = false
-    @Published private(set) var permissionCompanionLayoutReady = false
-    @Published private(set) var onboardingComplete = false
+@Observable
+final class ComputerUseOnboardingPresentationState {
+    private(set) var returnToOverviewGeneration = 0
+    private(set) var permissionCompanionVisible = false
+    private(set) var permissionCompanionLayoutReady = false
+    private(set) var onboardingComplete = false
     /// True while the direct-capture probe can raise Tahoe's system consent
     /// alert, so whichever presentation is on screen explains that alert.
-    @Published private(set) var screenCaptureConsentPending = false
-    @Published private(set) var permissionSnapshot:
+    private(set) var screenCaptureConsentPending = false
+    private(set) var permissionSnapshot:
         ComputerUseOnboardingPermissionSnapshot?
 
     func publishPermissionSnapshot(

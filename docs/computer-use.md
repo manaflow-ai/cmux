@@ -95,10 +95,11 @@ tools. Its version-1 completion record is one atomic preferences value scoped
 to the runtime tag and the helper's signing digest. The runtime restores it only
 for an unchanged installed helper, invalidates it before replacement or
 re-provisioning, and rejects stale capture results after disable or replacement.
-The old completion preference migrates only when the installed bundle exactly
-matches the shipped bundle. A corrupt, unknown-version, or mismatched record
-requires setup again. A crash before preferences flush can lose the latest
-completion, requiring verification again; a partial record never authorizes tools.
+The legacy completion preference is presentation history only and never
+authorizes a helper without a fresh, identity-scoped verification. A corrupt,
+unknown-version, or mismatched record requires setup again. A crash before
+preferences flush can lose the latest completion, requiring verification again;
+a partial record never authorizes tools.
 
 `runtime/<tag>/state/` contains authenticated activity snapshots written after
 tool actions, not onboarding records. An empty directory is normal before the

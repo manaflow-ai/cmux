@@ -52,8 +52,7 @@ public final class ComputerUseRuntimeService {
     private var permissionRefreshGeneration = 0
     /// Durable setup evidence shared by Settings, onboarding, and daemon admission.
     public let onboarding: ComputerUseOnboardingStore
-    public private(set) var permissionPhase =
-        ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
+    public var permissionPhase: ComputerUseRuntimePermissionPhase { onboarding.phase }
     private var readinessPublicationTask: Task<Void, Never>?
     private var readinessPublicationGeneration = 0
     public private(set) var acceptsNewLaunches = true
@@ -189,19 +188,17 @@ public final class ComputerUseRuntimeService {
     public func setInitialOnboardingCompletion(_ completed: Bool) {
         guard !desiredEnabled else { return }
         onboarding.setInitialCompletion(completed)
-        permissionPhase = .disabled(onboardingComplete: completed)
     }
 
     /// The onboarding was presented exposed to the host application.
     public func onboardingWasPresented() {
-        onboarding.apply(.onboardingPresented)
         transitionPermissionPhase(.onboardingPresented)
     }
 
     /// The onboarding was completed exposed to the host application.
     public func onboardingWasCompleted() {
         onboarding.markLegacyCompletion()
-        transitionPermissionPhase(.onboardingCompleted)
+        scheduleReadinessPublication()
     }
 
     /// Whether setup evidence is still required before functional tools can run.
@@ -209,13 +206,13 @@ public final class ComputerUseRuntimeService {
 
     /// Whether durable setup completion and both daemon publications are ready.
     public var onboardingIsComplete: Bool {
-        onboarding.completionCommitted && desiredEnabled && permissionPhase.isReady
+        onboarding.completionCommitted && desiredEnabled && onboarding.phase.isReady
     }
 
     /// Whether the helper has returned authoritative permission and readiness
     /// evidence for the Settings snapshot.
     public var setupStatusIsKnown: Bool {
-        permissionStatusIsKnown && permissionPhase != .onboardingRequired
+        permissionStatusIsKnown
     }
 
     /// Claims automatic first-use onboarding for an explicit functional request.
@@ -249,7 +246,7 @@ public final class ComputerUseRuntimeService {
         let newValue = requested && !isDisabledByPolicy()
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
-        permissionPhase = permissionPhase.applying(.setEnabled(newValue))
+        onboarding.apply(.setEnabled(newValue))
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
@@ -880,7 +877,7 @@ public final class ComputerUseRuntimeService {
             NSWorkspace.shared.noteFileSystemChanged(result.path)
         }
         if result != nil, replacesExistingHelper {
-            permissionPhase = permissionPhase.applying(.helperReplaced)
+            onboarding.invalidateHelper()
             cancelReadinessPublication()
             helperBuildReplacedHandler?()
         }
@@ -1137,7 +1134,7 @@ public final class ComputerUseRuntimeService {
         else {
             return false
         }
-        let ready = desiredEnabled && permissionPhase.isReady && onboarding.completionCommitted
+        let ready = desiredEnabled && onboarding.phase.isReady && onboarding.completionCommitted
         guard let response = await Self.sendDaemonRequest(
             [
                 "method": "set_external_permission_ready",
@@ -1161,9 +1158,9 @@ public final class ComputerUseRuntimeService {
     private func transitionPermissionPhase(
         _ event: ComputerUseRuntimePermissionPhase.Event
     ) {
-        let nextPhase = permissionPhase.applying(event)
-        guard nextPhase != permissionPhase else { return }
-        permissionPhase = nextPhase
+        let nextPhase = onboarding.phase.applying(event)
+        guard nextPhase != onboarding.phase else { return }
+        onboarding.apply(event)
         scheduleReadinessPublication()
     }
 

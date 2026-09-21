@@ -5684,7 +5684,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 앱 창 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 첫 번째 기능적 Computer Use 요청에서 설정이 필요하면 설정이 자동으로 열립니다. 설정 > Computer Use에서 설정을 다시 진행할 수 있습니다. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 창 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
+            "value": "## 앱 윈도우 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 첫 번째 기능적 Computer Use 요청에서 설정이 필요하면 설정이 자동으로 열립니다. 설정 > Computer Use에서 설정을 다시 진행할 수 있습니다. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 윈도우 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
           }
         },
         "ja": {
@@ -5696,67 +5696,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Korištenje prozora aplikacija\\n\\nKoristite computer-use alate za izvorne aplikacije ili vizuelne kontrole. cmux pruža ove alate sesijama Claude Code i Codex pokrenutim u cmuxu. Prvi funkcionalni zahtjev za Computer Use automatski otvara postavljanje kada je potrebno. Postavljanje možete nastaviti u Settings > Computer Use. Pročitajte vještinu `cmux-cua` za metode svog agenta: provjerite stanje aplikacije ili prozora, kliknite ili upišite, pa ponovo provjerite."
+            "value": "## Korištenje prozora aplikacija\n\nKoristite computer-use alate za izvorne aplikacije ili vizuelne kontrole. cmux pruža ove alate sesijama Claude Code i Codex pokrenutim u cmuxu. Prvi funkcionalni zahtjev za Computer Use automatski otvara postavljanje kada je potrebno. Postavljanje možete nastaviti u Settings > Computer Use. Pročitajte vještinu `cmux-cua` za metode svog agenta: provjerite stanje aplikacije ili prozora, kliknite ili upišite, pa ponovo provjerite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Brug af programvinduer\\n\\nBrug computer-use-værktøjer til indbyggede programmer eller visuelle kontroller. cmux leverer disse værktøjer til Claude Code- og Codex-sessioner, der startes i cmux. Den første funktionelle Computer Use-anmodning åbner automatisk opsætningen efter behov. Du kan genoptage opsætningen i Settings > Computer Use. Læs færdigheden `cmux-cua` for agentens metoder: se appens eller vinduets tilstand, klik eller skriv, og kontrollér igen."
+            "value": "## Brug af programvinduer\n\nBrug computer-use-værktøjer til indbyggede programmer eller visuelle kontroller. cmux leverer disse værktøjer til Claude Code- og Codex-sessioner, der startes i cmux. Den første funktionelle Computer Use-anmodning åbner automatisk opsætningen efter behov. Du kan genoptage opsætningen i Settings > Computer Use. Læs færdigheden `cmux-cua` for agentens metoder: se appens eller vinduets tilstand, klik eller skriv, og kontrollér igen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usare le finestre delle app\\n\\nUsa gli strumenti computer-use per app native o controlli visivi. cmux fornisce questi strumenti alle sessioni Claude Code e Codex avviate in cmux. La prima richiesta funzionale di Computer Use apre automaticamente la configurazione quando serve. Puoi riprendere la configurazione in Impostazioni > Computer Use. Leggi la skill `cmux-cua` per i metodi del tuo agente: controlla lo stato dell’app o della finestra, fai clic o digita, quindi controlla di nuovo."
+            "value": "## Usare le finestre delle app\n\nUsa gli strumenti computer-use per app native o controlli visivi. cmux fornisce questi strumenti alle sessioni Claude Code e Codex avviate in cmux. La prima richiesta funzionale di Computer Use apre automaticamente la configurazione quando serve. Puoi riprendere la configurazione in Impostazioni > Computer Use. Leggi la skill `cmux-cua` per i metodi del tuo agente: controlla lo stato dell’app o della finestra, fai clic o digita, quindi controlla di nuovo."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "## ប្រើបង្អួចកម្មវិធី\\n\\nប្រើឧបករណ៍ computer-use សម្រាប់កម្មវិធីដើម ឬការគ្រប់គ្រងដែលមើលឃើញ។ cmux ផ្តល់ឧបករណ៍ទាំងនេះដល់សម័យ Claude Code និង Codex ដែលចាប់ផ្តើមក្នុង cmux។ សំណើ Computer Use ដែលដំណើរការដំបូងនឹងបើកការរៀបចំដោយស្វ័យប្រវត្តិនៅពេលចាំបាច់។ អ្នកអាចបន្តការរៀបចំនៅ Settings > Computer Use។ អានជំនាញ `cmux-cua` សម្រាប់វិធីសាស្ត្ររបស់ភ្នាក់ងារ៖ ពិនិត្យស្ថានភាពកម្មវិធី ឬបង្អួច ចុច ឬវាយ បន្ទាប់មកពិនិត្យម្តងទៀត។"
+            "value": "## ប្រើបង្អួចកម្មវិធី\n\nប្រើឧបករណ៍ computer-use សម្រាប់កម្មវិធីដើម ឬការគ្រប់គ្រងដែលមើលឃើញ។ cmux ផ្តល់ឧបករណ៍ទាំងនេះដល់សម័យ Claude Code និង Codex ដែលចាប់ផ្តើមក្នុង cmux។ សំណើ Computer Use ដែលដំណើរការដំបូងនឹងបើកការរៀបចំដោយស្វ័យប្រវត្តិនៅពេលចាំបាច់។ អ្នកអាចបន្តការរៀបចំនៅ Settings > Computer Use។ អានជំនាញ `cmux-cua` សម្រាប់វិធីសាស្ត្ររបស់ភ្នាក់ងារ៖ ពិនិត្យស្ថានភាពកម្មវិធី ឬបង្អួច ចុច ឬវាយ បន្ទាប់មកពិនិត្យម្តងទៀត។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Bruk appvinduer\\n\\nBruk computer-use-verktøy for innebygde apper eller visuelle kontroller. cmux gir disse verktøyene til Claude Code- og Codex-økter som startes i cmux. Den første funksjonelle Computer Use-forespørselen åpner oppsettet automatisk når det trengs. Du kan fortsette oppsettet i Settings > Computer Use. Les `cmux-cua`-ferdigheten for agentens metoder: se app- eller vindustilstand, klikk eller skriv, og kontroller på nytt."
+            "value": "## Bruk appvinduer\n\nBruk computer-use-verktøy for innebygde apper eller visuelle kontroller. cmux gir disse verktøyene til Claude Code- og Codex-økter som startes i cmux. Den første funksjonelle Computer Use-forespørselen åpner oppsettet automatisk når det trengs. Du kan fortsette oppsettet i Settings > Computer Use. Les `cmux-cua`-ferdigheten for agentens metoder: se app- eller vindustilstand, klikk eller skriv, og kontroller på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Obsługa okien aplikacji\\n\\nUżywaj narzędzi computer-use do aplikacji natywnych lub elementów wizualnych. cmux udostępnia te narzędzia sesjom Claude Code i Codex uruchomionym w cmux. Pierwsze funkcjonalne żądanie Computer Use automatycznie otwiera konfigurację, gdy jest potrzebna. Możesz wznowić konfigurację w Settings > Computer Use. Przeczytaj umiejętność `cmux-cua`, aby poznać metody agenta: sprawdź stan aplikacji lub okna, kliknij albo wpisz tekst, a następnie sprawdź ponownie."
+            "value": "## Obsługa okien aplikacji\n\nUżywaj narzędzi computer-use do aplikacji natywnych lub elementów wizualnych. cmux udostępnia te narzędzia sesjom Claude Code i Codex uruchomionym w cmux. Pierwsze funkcjonalne żądanie Computer Use automatycznie otwiera konfigurację, gdy jest potrzebna. Możesz wznowić konfigurację w Settings > Computer Use. Przeczytaj umiejętność `cmux-cua`, aby poznać metody agenta: sprawdź stan aplikacji lub okna, kliknij albo wpisz tekst, a następnie sprawdź ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar janelas de aplicativos\\n\\nUse ferramentas de computer-use para aplicativos nativos ou controles visuais. O cmux fornece essas ferramentas às sessões do Claude Code e do Codex iniciadas no cmux. A primeira solicitação funcional do Computer Use abre a configuração automaticamente quando necessário. Você pode retomar a configuração em Settings > Computer Use. Leia a skill `cmux-cua` para conhecer os métodos do agente: inspecione o estado do aplicativo ou da janela, clique ou digite e inspecione novamente."
+            "value": "## Usar janelas de aplicativos\n\nUse ferramentas de computer-use para aplicativos nativos ou controles visuais. O cmux fornece essas ferramentas às sessões do Claude Code e do Codex iniciadas no cmux. A primeira solicitação funcional do Computer Use abre a configuração automaticamente quando necessário. Você pode retomar a configuração em Settings > Computer Use. Leia a skill `cmux-cua` para conhecer os métodos do agente: inspecione o estado do aplicativo ou da janela, clique ou digite e inspecione novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Работа с окнами приложений\\n\\nИспользуйте инструменты computer-use для нативных приложений или визуальных элементов. cmux предоставляет эти инструменты сеансам Claude Code и Codex, запущенным в cmux. Первый функциональный запрос Computer Use автоматически открывает настройку при необходимости. Продолжить настройку можно в Settings > Computer Use. Прочитайте навык `cmux-cua`, чтобы узнать методы агента: проверьте состояние приложения или окна, нажмите или введите текст, затем проверьте снова."
+            "value": "## Работа с окнами приложений\n\nИспользуйте инструменты computer-use для нативных приложений или визуальных элементов. cmux предоставляет эти инструменты сеансам Claude Code и Codex, запущенным в cmux. Первый функциональный запрос Computer Use автоматически открывает настройку при необходимости. Продолжить настройку можно в Settings > Computer Use. Прочитайте навык `cmux-cua`, чтобы узнать методы агента: проверьте состояние приложения или окна, нажмите или введите текст, затем проверьте снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "## ใช้หน้าต่างแอป\\n\\nใช้เครื่องมือ computer-use กับแอปเนทีฟหรือการควบคุมแบบภาพ cmux ให้เครื่องมือเหล่านี้แก่เซสชัน Claude Code และ Codex ที่เปิดใน cmux คำขอ Computer Use ครั้งแรกที่ใช้งานได้จะเปิดการตั้งค่าโดยอัตโนมัติเมื่อจำเป็น คุณสามารถดำเนินการตั้งค่าต่อใน Settings > Computer Use อ่านสกิล `cmux-cua` เพื่อดูวิธีของเอเจนต์: ตรวจสอบสถานะแอปหรือหน้าต่าง คลิกหรือพิมพ์ แล้วตรวจสอบอีกครั้ง"
+            "value": "## ใช้หน้าต่างแอป\n\nใช้เครื่องมือ computer-use กับแอปเนทีฟหรือการควบคุมแบบภาพ cmux ให้เครื่องมือเหล่านี้แก่เซสชัน Claude Code และ Codex ที่เปิดใน cmux คำขอ Computer Use ครั้งแรกที่ใช้งานได้จะเปิดการตั้งค่าโดยอัตโนมัติเมื่อจำเป็น คุณสามารถดำเนินการตั้งค่าต่อใน Settings > Computer Use อ่านสกิล `cmux-cua` เพื่อดูวิธีของเอเจนต์: ตรวจสอบสถานะแอปหรือหน้าต่าง คลิกหรือพิมพ์ แล้วตรวจสอบอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Uygulama pencerelerini kullanma\\n\\nYerel uygulamalar veya görsel denetimler için computer-use araçlarını kullanın. cmux, bu araçları cmux içinde başlatılan Claude Code ve Codex oturumlarına sağlar. İlk işlevsel Computer Use isteği gerektiğinde kurulumu otomatik olarak açar. Kuruluma Settings > Computer Use bölümünden devam edebilirsiniz. Ajan yöntemleri için `cmux-cua` becerisini okuyun: uygulama veya pencere durumunu inceleyin, tıklayın ya da yazın ve yeniden inceleyin."
+            "value": "## Uygulama pencerelerini kullanma\n\nYerel uygulamalar veya görsel denetimler için computer-use araçlarını kullanın. cmux, bu araçları cmux içinde başlatılan Claude Code ve Codex oturumlarına sağlar. İlk işlevsel Computer Use isteği gerektiğinde kurulumu otomatik olarak açar. Kuruluma Settings > Computer Use bölümünden devam edebilirsiniz. Ajan yöntemleri için `cmux-cua` becerisini okuyun: uygulama veya pencere durumunu inceleyin, tıklayın ya da yazın ve yeniden inceleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Робота з вікнами програм\\n\\nВикористовуйте інструменти computer-use для нативних програм або візуальних елементів. cmux надає ці інструменти сеансам Claude Code і Codex, запущеним у cmux. Перший функціональний запит Computer Use автоматично відкриває налаштування, коли це потрібно. Продовжити налаштування можна в Settings > Computer Use. Прочитайте навичку `cmux-cua`, щоб дізнатися методи агента: перевірте стан програми або вікна, натисніть чи введіть текст, а потім перевірте ще раз."
+            "value": "## Робота з вікнами програм\n\nВикористовуйте інструменти computer-use для нативних програм або візуальних елементів. cmux надає ці інструменти сеансам Claude Code і Codex, запущеним у cmux. Перший функціональний запит Computer Use автоматично відкриває налаштування, коли це потрібно. Продовжити налаштування можна в Settings > Computer Use. Прочитайте навичку `cmux-cua`, щоб дізнатися методи агента: перевірте стан програми або вікна, натисніть чи введіть текст, а потім перевірте ще раз."
           }
         }
       }
@@ -14189,49 +14189,115 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "権限は独立したComputer Useヘルパーに付与されます。ヘルパーを終了して再度開いても、cmuxやターミナルセッションは終了しません。"
+            "value": "権限は独立した Computer Use ヘルパーに付与されます。cmux やターミナルセッションを閉じずに、ヘルパーを終了または再度開くことができます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "权限授予的是独立的 cmux Computer Use 助手 —— cmux 终端本身永远不会获得这些权限。"
+            "value": "权限属于独立的 Computer Use 助手。你可以退出或重新打开它，而无需关闭 cmux 或终端会话。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Berechtigungen gehen an den separaten cmux-Computer-Use-Helfer — das cmux-Terminal selbst erhält sie nie."
+            "value": "Die Berechtigungen gehören zu einem separaten Computer-Use-Helfer. Sie können ihn beenden oder erneut öffnen, ohne cmux oder Ihre Terminalsitzungen zu schließen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les autorisations sont accordées à l’assistant distinct cmux Computer Use — le terminal cmux lui-même ne les reçoit jamais."
+            "value": "Les autorisations appartiennent à un assistant Computer Use distinct. Vous pouvez le quitter ou le rouvrir sans fermer cmux ni vos sessions de terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تذهب الأذونات إلى مساعد استخدام الكمبيوتر المنفصل لـ cmux — بينما لا تتلقاها طرفية cmux نفسها أبداً."
+            "value": "تتبع الأذونات لمساعد Computer Use منفصل. يمكنك إنهاؤه أو فتحه مجددًا دون إغلاق cmux أو جلساتك الطرفية."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los permisos se conceden al asistente independiente cmux Computer Use; la propia terminal de cmux nunca los recibe."
+            "value": "Los permisos pertenecen a un asistente independiente de Computer Use. Puedes cerrarlo o volver a abrirlo sin cerrar cmux ni tus sesiones de terminal."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "權限會授與獨立的 cmux 電腦操作協助程式 — cmux 終端機本身絕不會取得 these 權限。"
+            "value": "權限屬於獨立的 Computer Use 協助程式。您可以結束或重新開啟它，而不必關閉 cmux 或終端機工作階段。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "권한은 별도의 cmux 컴퓨터 사용 도우미로 부여되며, cmux 터미널 자체는 권한을 받지 않습니다."
+            "value": "권한은 별도의 Computer Use 도우미에 부여됩니다. cmux나 터미널 세션을 닫지 않고 도우미를 종료하거나 다시 열 수 있습니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvole pripadaju zasebnom Computer Use pomoćniku. Možete ga zatvoriti ili ponovo otvoriti bez zatvaranja cmuxa ili terminalskih sesija."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelserne tilhører en separat Computer Use-hjælper. Du kan afslutte eller genåbne den uden at lukke cmux eller dine terminalsessioner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le autorizzazioni appartengono a un assistente Computer Use separato. Puoi chiuderlo o riaprirlo senza chiudere cmux o le sessioni del terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិជាកម្មសិទ្ធិរបស់ជំនួយការ Computer Use ដាច់ដោយឡែក។ អ្នកអាចបិទ ឬបើកវាឡើងវិញ ដោយមិនបិទ cmux ឬសម័យស្ថានីយរបស់អ្នក។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsene tilhører en separat Computer Use-hjelper. Du kan avslutte eller åpne den på nytt uten å lukke cmux eller terminaløktene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uprawnienia należą do osobnego asystenta Computer Use. Możesz go zamknąć lub ponownie otworzyć bez zamykania cmux ani sesji terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As permissões pertencem a um auxiliar separado do Computer Use. Você pode encerrá-lo ou reabri-lo sem fechar o cmux ou suas sessões de terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешения принадлежат отдельному помощнику Computer Use. Его можно закрыть или открыть снова, не закрывая cmux или терминальные сеансы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิทธิ์เป็นของตัวช่วย Computer Use แยกต่างหาก คุณสามารถปิดหรือเปิดใหม่ได้โดยไม่ต้องปิด cmux หรือเซสชันเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzinler ayrı bir Computer Use yardımcısına aittir. cmux veya terminal oturumlarınızı kapatmadan yardımcıyı kapatabilir ya da yeniden açabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволи належать окремому помічнику Computer Use. Ви можете закрити або знову відкрити його, не закриваючи cmux чи термінальні сеанси."
           }
         }
       }
@@ -16248,121 +16314,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The first Computer Use request starts setup automatically."
+            "value": "The first functional Computer Use request starts setup automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最初の Computer Use リクエストで設定が自動的に開始されます。"
+            "value": "最初の機能的な Computer Use リクエストで設定が自動的に開始されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "首次 Computer Use 请求会自动开始设置。"
+            "value": "首次功能性 Computer Use 请求会自动开始设置。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Einrichtung startet automatisch bei der ersten Computer Use-Anfrage."
+            "value": "Die Einrichtung startet automatisch bei der ersten funktionalen Computer Use-Anfrage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La configuration démarre automatiquement à la première demande Computer Use."
+            "value": "La configuration démarre automatiquement à la première demande fonctionnelle de Computer Use."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يبدأ الإعداد تلقائيًا عند أول طلب Computer Use."
+            "value": "يبدأ الإعداد تلقائيًا عند أول طلب وظيفي لـ Computer Use."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La configuración comienza automáticamente con la primera solicitud de Computer Use."
+            "value": "La configuración comienza automáticamente con la primera solicitud funcional de Computer Use."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "第一次 Computer Use 要求會自動開始設定。"
+            "value": "第一次功能性 Computer Use 要求會自動開始設定。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "첫 번째 Computer Use 요청 시 설정이 자동으로 시작됩니다."
+            "value": "첫 번째 기능적 Computer Use 요청 시 설정이 자동으로 시작됩니다."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prvi zahtjev za Computer Use automatski pokreće postavljanje."
+            "value": "Prvi funkcionalni zahtjev za Computer Use automatski pokreće postavljanje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den første Computer Use-anmodning starter automatisk opsætningen."
+            "value": "Den første funktionelle Computer Use-anmodning starter automatisk opsætningen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La prima richiesta di Computer Use avvia automaticamente la configurazione."
+            "value": "La prima richiesta funzionale di Computer Use avvia automaticamente la configurazione."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សំណើ Computer Use ដំបូងនឹងចាប់ផ្តើមការរៀបចំដោយស្វ័យប្រវត្តិ។"
+            "value": "សំណើ Computer Use ដែលដំណើរការដំបូងនឹងចាប់ផ្តើមការរៀបចំដោយស្វ័យប្រវត្តិ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den første Computer Use-forespørselen starter oppsettet automatisk."
+            "value": "Den første funksjonelle Computer Use-forespørselen starter oppsettet automatisk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pierwsze żądanie Computer Use automatycznie rozpoczyna konfigurację."
+            "value": "Pierwsze funkcjonalne żądanie Computer Use automatycznie rozpoczyna konfigurację."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A primeira solicitação do Computer Use inicia a configuração automaticamente."
+            "value": "A primeira solicitação funcional do Computer Use inicia a configuração automaticamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Первый запрос Computer Use автоматически запускает настройку."
+            "value": "Первый функциональный запрос Computer Use автоматически запускает настройку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำขอ Computer Use ครั้งแรกจะเริ่มการตั้งค่าโดยอัตโนมัติ"
+            "value": "คำขอ Computer Use ครั้งแรกที่ใช้งานได้จะเริ่มการตั้งค่าโดยอัตโนมัติ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "İlk Computer Use isteği kurulumu otomatik olarak başlatır."
+            "value": "İlk işlevsel Computer Use isteği kurulumu otomatik olarak başlatır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перший запит Computer Use автоматично запускає налаштування."
+            "value": "Перший функціональний запит Computer Use автоматично запускає налаштування."
           }
         }
       }
@@ -532316,6 +532382,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "マシンをピン留め"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakači mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør maskine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទម៉ាស៊ីន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineyi sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити машину"
           }
         }
       }

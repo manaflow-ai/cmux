@@ -2,6 +2,31 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    /// Resolves feed delivery from a live surface first, then the hook's
+    /// authoritative PID/TTY binding. Ambient surface IDs are never promoted.
+    func resolvedFeedDeliveryTarget(
+        workspaceId: String?,
+        surfaceId: String?,
+        agentPid: Int,
+        client: SocketClient,
+        deadline: Date
+    ) -> (workspaceId: String, surfaceId: String)? {
+        if let target = resolvedAttentionDeliveryTarget(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            client: client,
+            deadline: deadline
+        ) {
+            return target
+        }
+        guard let binding = resolveAgentHookProcessBinding(
+            pid: agentPid > 0 ? agentPid : nil,
+            resolution: .controllingTTY,
+            client: client
+        ).binding else { return nil }
+        return (workspaceId: binding.workspaceId, surfaceId: binding.surfaceId)
+    }
+
     func liveAgentControllingTTYBinding(
         pid: Int?,
         client: SocketClient

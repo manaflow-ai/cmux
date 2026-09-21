@@ -26,17 +26,33 @@ public struct ComputerUseOnboardingAdmissionCoordinator {
             await withdraw()
             return result
         }
+        // Close every profile before changing durable state. A retry or crash
+        // therefore starts from a known fail-closed barrier.
+        guard await publishAll() else {
+            await withdraw()
+            return .unavailable
+        }
         guard store.commitVerification(attempt: attempt) else {
             await withdraw()
             return .unavailable
         }
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard await publish(profile) else {
-                await withdraw()
-                return .unavailable
-            }
+        // Both readiness writes are issued together and the transaction does
+        // not complete until both authenticated profiles acknowledge them.
+        guard await publishAll() else {
+            await withdraw()
+            return .unavailable
         }
         return .ready
+    }
+
+    private func publishAll() async -> Bool {
+        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            for profile in ComputerUseDaemonProfile.allCases {
+                group.addTask { await publish(profile) }
+            }
+            for await acknowledged in group where !acknowledged { return false }
+            return true
+        }
     }
 
     public func withdraw() async {

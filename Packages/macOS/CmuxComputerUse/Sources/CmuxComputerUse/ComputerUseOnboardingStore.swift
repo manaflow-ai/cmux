@@ -64,10 +64,6 @@ public final class ComputerUseOnboardingStore {
         if let data = defaults.data(forKey: completionKey),
            let record = try? JSONDecoder().decode(ComputerUseOnboardingCompletion.self, from: data) {
             complete = record.version == 1 && record.scope == scope && record.helperIdentity == identity
-        } else if defaults.object(forKey: completionKey) == nil,
-                  defaults.bool(forKey: Self.legacyCompletionKey) {
-            persistCompletion(for: identity)
-            complete = true
         }
         completionCommitted = complete
         defaults.removeObject(forKey: Self.legacyCompletionKey)
@@ -82,16 +78,17 @@ public final class ComputerUseOnboardingStore {
     /// Seeds the compatibility migration state before the installed helper
     /// identity is available during app bootstrap.
     public func setInitialCompletion(_ complete: Bool) {
-        completionCommitted = complete
-        if complete {
-            phase = .disabled(onboardingComplete: true)
-        }
+        // The legacy boolean predates helper identity and is presentation
+        // history only. It cannot authorize a helper or seed admission.
+        completionCommitted = false
+        phase = .disabled(onboardingComplete: false)
+        if complete { defaults.removeObject(forKey: Self.legacyCompletionKey) }
     }
 
     /// Records completion for the legacy app-owned capture flow.
     public func markLegacyCompletion() {
+        guard let helperIdentity, persistCompletion(for: helperIdentity) else { return }
         completionCommitted = true
-        defaults.set(true, forKey: Self.legacyCompletionKey)
         phase = phase.applying(.onboardingCompleted)
         statusChanged()
     }

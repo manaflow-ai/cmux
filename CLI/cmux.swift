@@ -39305,13 +39305,6 @@ export default CMUXSessionRestore;
             }
         }
 
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
-            return
-        }
-
         let commandEvent = optionValue(commandArgs, name: "--event")
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook JSON
@@ -39563,11 +39556,15 @@ export default CMUXSessionRestore;
         }
         if validatedCodexFeedTarget == nil,
            let activeClient = client ?? makeLifecycleProbeClient(),
-           let target = resolvedAttentionDeliveryTarget(
+           let target = resolvedFeedDeliveryTarget(
                workspaceId: feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
                surfaceId: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"]) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+               agentPid: agentPid,
                client: activeClient,
-               deadline: Date.now.addingTimeInterval(0.75)
+               deadline: Date.now.addingTimeInterval(
+                   Self.feedAttentionSendReserveSeconds
+                       + Self.feedAttentionProbeTimeoutCapSeconds
+               )
            ) { validatedCodexFeedTarget = target }
         guard let validatedCodexFeedTarget else { print("{}"); return }
         var eventDict: [String: Any] = [
