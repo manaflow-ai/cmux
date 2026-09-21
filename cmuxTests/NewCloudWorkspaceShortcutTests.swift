@@ -344,8 +344,8 @@ final class NewCloudWorkspaceShortcutTests {
 #if DEBUG
     @Test func testCommandYRoutesThroughSharedMachineAction() async throws {
         defer { restoreState() }
-        let appDelegate = AppDelegate()
-        setCloudMachinesEnabled(true)
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let appDelegate = windowFixture.appDelegate; setCloudMachinesEnabled(true)
         let presenter = RecordingSheetPresenter()
         installDependencies(on: appDelegate, presenter: presenter)
         KeyboardShortcutSettings.resetShortcut(for: .newCloudWorkspace)
@@ -356,7 +356,7 @@ final class NewCloudWorkspaceShortcutTests {
             location: .zero,
             modifierFlags: [.command],
             timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: NSApp.keyWindow?.windowNumber ?? 0,
+            windowNumber: windowFixture.window.windowNumber,
             context: nil,
             characters: "y",
             charactersIgnoringModifiers: "y",
@@ -489,8 +489,8 @@ final class NewCloudWorkspaceShortcutTests {
 
     @Test func testUnavailableCloudDoesNotCreateLocalWorkspace() throws {
         defer { restoreState() }
-        let app = AppDelegate()
-        let manager = TabManager()
+        let windowFixture = NewCloudWorkspaceShortcutWindowFixture(); defer { windowFixture.cleanup() }
+        let app = windowFixture.appDelegate; let manager = windowFixture.tabManager
         let workspace = try #require(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
