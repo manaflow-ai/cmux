@@ -86,10 +86,13 @@ final class SessionTodoStatePersistenceCoordinator {
         queue.async { [weak self] in
             var saveSucceeded = false
             if var snapshot = snapshotStore.load(fileURL: nil) {
+                var allUpdatesApplied = true
                 for update in updates {
-                    _ = update.apply(to: &snapshot)
+                    allUpdatesApplied = update.apply(to: &snapshot) && allUpdatesApplied
                 }
-                saveSucceeded = snapshotStore.save(snapshot, fileURL: nil)
+                if allUpdatesApplied {
+                    saveSucceeded = snapshotStore.save(snapshot, fileURL: nil)
+                }
             }
             Task { @MainActor [weak self] in
                 self?.finishWrite(saveSucceeded: saveSucceeded)
