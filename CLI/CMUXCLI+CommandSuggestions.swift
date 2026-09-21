@@ -218,6 +218,7 @@ extension CMUXCLI {
         "uninstall-hooks",
         "vault",
         "version",
+        "view",
         "vm",
         "vm-pty-attach",
         "vm-pty-connect",

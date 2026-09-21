@@ -7900,6 +7900,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // File view command
+        case "view":
+            try runViewCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             throw unknownCommandError(command)
         }
@@ -8057,6 +8061,91 @@ struct CMUXCLI {
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
 
         let payload = try client.sendV2(method: "markdown.open", params: params)
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let filePath = (payload["path"] as? String) ?? absolutePath
+            print("OK surface=\(surfaceText) pane=\(paneText) path=\(filePath)")
+        }
+    }
+
+    // MARK: - File View Command
+
+    private func runViewCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        // Parse routing flags. Unlike `markdown`, `view` opens the file into the
+        // target pane (no split), so there is no --direction.
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        let (focusOpt, argsAfterFocus) = parseOption(argsAfterSurface, name: "--focus")
+        args = argsAfterFocus
+
+        let usage = "cmux view open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]"
+
+        // Determine subcommand. Explicit "open" is supported, otherwise treat a
+        // single positional argument as shorthand path.
+        let subArgs: [String]
+        if let first = args.first, first.lowercased() == "open" {
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subArgs = [first]
+        } else {
+            if let first = args.first, first.hasPrefix("-") {
+                throw CLIError(message: "view open: unknown flag '\(first)'. Usage: \(usage)")
+            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+                subArgs = args
+            } else if let first = args.first {
+                throw CLIError(message: "Unknown view subcommand: \(first). Usage: \(usage)")
+            } else {
+                subArgs = []
+            }
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "view open requires a file path. Usage: \(usage)")
+        }
+        let trailingArgs = Array(subArgs.dropFirst())
+        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "view open: unknown flag '\(unknownFlag)'. Usage: \(usage)")
+        }
+        if let extraArg = trailingArgs.first {
+            throw CLIError(message: "view open: unexpected argument '\(extraArg)'. Usage: \(usage)")
+        }
+
+        let absolutePath = resolvePath(rawPath)
+
+        // Build params. `file.open` routes .md to the rendered viewer and every
+        // other file type to the file preview panel.
+        var params: [String: Any] = ["path": absolutePath]
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+        try applyFocusOption(focusOpt, defaultValue: true, to: &params)
+
+        let payload = try client.sendV2(method: "file.open", params: params)
 
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -20312,6 +20401,29 @@ struct CMUXCLI {
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+            """
+        case "view":
+            return """
+            Usage: cmux view open <path> [options]
+                   cmux view <path>       (shorthand for 'open')
+
+            Open any file in a viewer panel. Markdown files (.md, .markdown, .mkd,
+            .mdx) render in the formatted markdown viewer; every other file type
+            opens in the file preview panel. Useful for inspecting a config, an
+            .env, a log, or a text file next to an agent without asking the agent
+            to open it.
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Source surface whose pane receives the file (default: focused surface)
+              --window <id|ref|index>      Target window
+              --focus <true|false>         Focus the opened panel (default: true)
+
+            Examples:
+              cmux view .env
+              cmux view ~/project/config.yaml
+              cmux view open ./notes.txt --workspace 0
+              cmux view open README.md --focus false
             """
         default:
             return nil
