@@ -14,7 +14,10 @@ SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
 SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
 SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?: \(.*?\))?(?:\.\s*)?(?::\s*(.*))?$")
 SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
+SWIFT_SUMMARY = re.compile(r"Test run with \d+ tests?\b.*\b(?:passed|failed)\b")
 RESTART = "Restarting after unexpected exit"
+TEST_TIMEOUT = re.compile(r"Time limit was exceeded:\s*([0-9.]+) seconds")
+BATCH_TIMEOUT = re.compile(r"xcodebuild unit-test batch (\d+/\d+) timeout after (\d+)s")
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
 
 
@@ -34,6 +37,8 @@ def parse_log(text, run_id="unknown", job_id=None):
     current = None
     recent = []
     restarts = []
+    timeouts = []
+    batch_timeouts = []
     known_tests = set()
     unexpected_issue_tests = set()
     for raw in text.splitlines():
@@ -50,6 +55,21 @@ def parse_log(text, run_id="unknown", job_id=None):
             seen.setdefault(current, True)
         if RESTART in line:
             restarts.append({"test": current, "line": line})
+        timeout_match = TEST_TIMEOUT.search(line)
+        if timeout_match:
+            timeouts.append({
+                "test": current,
+                "seconds": float(timeout_match.group(1)),
+                "line": line,
+            })
+        batch_timeout_match = BATCH_TIMEOUT.search(line)
+        if batch_timeout_match:
+            batch_timeouts.append({
+                "batch": batch_timeout_match.group(1),
+                "seconds": int(batch_timeout_match.group(2)),
+                "test": current,
+                "line": line,
+            })
         fm = XCTEST_FAIL.search(line)
         if fm:
             name = _test_name("xctest", fm.group(1), fm.group(2))
@@ -74,7 +94,7 @@ def parse_log(text, run_id="unknown", job_id=None):
             unexpected_issue_tests.add(name)
             if name not in assertions:
                 assertions[name] = _clean(im.group(2) or "") or line
-        sf = SWIFT_FAIL.search(line)
+        sf = None if SWIFT_SUMMARY.search(line) else SWIFT_FAIL.search(line)
         if sf and not KNOWN.search(line):
             name = _clean(sf.group(1)).strip('"')
             seen.setdefault(name, True)
@@ -95,6 +115,8 @@ def parse_log(text, run_id="unknown", job_id=None):
         "tests_failed": set(failed),
         "assertions": assertions,
         "restarts": restarts,
+        "timeouts": timeouts,
+        "batch_timeouts": batch_timeouts,
     }
 
 
@@ -143,6 +165,8 @@ def download_runs(run_ids):
 def summarize(records):
     tests = defaultdict(lambda: {"runs_seen": set(), "runs_failed": set(), "first_assertion": None})
     restarts = []
+    timeouts = []
+    batch_timeouts = []
     for record in records:
         run_id = str(record["run_id"])
         for name in record["tests_seen"]:
@@ -153,6 +177,10 @@ def summarize(records):
                 tests[name]["first_assertion"] = record["assertions"].get(name)
         for event in record["restarts"]:
             restarts.append({"run_id": run_id, "job_id": record.get("job_id"), **event})
+        for event in record.get("timeouts", []):
+            timeouts.append({"run_id": run_id, "job_id": record.get("job_id"), **event})
+        for event in record.get("batch_timeouts", []):
+            batch_timeouts.append({"run_id": run_id, "job_id": record.get("job_id"), **event})
     rows = []
     for name, data in tests.items():
         seen = len(data["runs_seen"])
@@ -161,8 +189,14 @@ def summarize(records):
                      "failure_rate": (failed / seen) if seen else 0.0,
                      "first_assertion": data["first_assertion"]})
     rows.sort(key=lambda row: (-row["failure_rate"], -row["runs_failed"], row["test"]))
-    return {"runs": sorted({str(r["run_id"]) for r in records}), "jobs": len(records),
-            "tests": rows, "restarts": restarts}
+    return {
+        "runs": sorted({str(r["run_id"]) for r in records}),
+        "jobs": len(records),
+        "tests": rows,
+        "restarts": restarts,
+        "timeouts": timeouts,
+        "batch_timeouts": batch_timeouts,
+    }
 
 
 def table(report):
@@ -174,6 +208,15 @@ def table(report):
     lines.append("\nRestarts: {}".format(len(report["restarts"])))
     for event in report["restarts"]:
         lines.append("- {}: {}".format(event["run_id"], event["test"] or "unknown test"))
+    lines.append("\nPer-test timeouts: {}".format(len(report.get("timeouts", []))))
+    for event in report.get("timeouts", []):
+        lines.append("- {}: {} ({}s)".format(
+            event["run_id"], event["test"] or "unknown test", event["seconds"]))
+    lines.append("\nBatch timeouts: {}".format(len(report.get("batch_timeouts", []))))
+    for event in report.get("batch_timeouts", []):
+        lines.append("- {}: batch {} ({}s), last test {}".format(
+            event["run_id"], event["batch"], event["seconds"],
+            event["test"] or "unknown test"))
     return "\n".join(lines)
 
 
