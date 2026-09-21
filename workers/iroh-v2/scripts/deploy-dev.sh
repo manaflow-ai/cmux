@@ -61,7 +61,8 @@ if any(not key or not value for key, value in values.items()):
     raise SystemExit("missing deployment secret")
 pathlib.Path(sys.argv[1]).write_text(json.dumps({key.decode(): value.decode() for key, value in values.items()}))
 ' "$secret_file"
-bunx wrangler deploy --config wrangler.jsonc --env development --name "$name" --secrets-file "$secret_file"
+# shellcheck disable=SC2046
+bunx wrangler deploy --config wrangler.jsonc --env development --name "$name" --secrets-file "$secret_file" $(bash scripts/source-revision-vars.sh)
 
 echo
 echo "Isolated IROH v2 development Worker: https://${name}.${workers_subdomain}.workers.dev"

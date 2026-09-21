@@ -996,6 +996,7 @@ public struct V2Directory: Codable, Equatable, Sendable {
     public let permissionExpiresAt: Int
     public let relayURLs: [String]
     public let revision: Int
+    public let rules: [String]?
     public let teamID: String
 
     public enum CodingKeys: String, CodingKey {
@@ -1006,10 +1007,11 @@ public struct V2Directory: Codable, Equatable, Sendable {
         case permissionExpiresAt = "permissionExpiresAt"
         case relayURLs = "relayURLs"
         case revision = "revision"
+        case rules = "rules"
         case teamID = "teamId"
     }
 
-    public init(devices: [V2DeviceRecord], inboundPeers: [V2InboundPeerPermission]? = nil, issuedAt: Int, nextCursor: String? = nil, permissionExpiresAt: Int, relayURLs: [String], revision: Int, teamID: String) {
+    public init(devices: [V2DeviceRecord], inboundPeers: [V2InboundPeerPermission]? = nil, issuedAt: Int, nextCursor: String? = nil, permissionExpiresAt: Int, relayURLs: [String], revision: Int, rules: [String]? = nil, teamID: String) {
         self.devices = devices
         self.inboundPeers = inboundPeers
         self.issuedAt = issuedAt
@@ -1017,6 +1019,7 @@ public struct V2Directory: Codable, Equatable, Sendable {
         self.permissionExpiresAt = permissionExpiresAt
         self.relayURLs = relayURLs
         self.revision = revision
+        self.rules = rules
         self.teamID = teamID
     }
 }

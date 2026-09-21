@@ -9,6 +9,7 @@ import { OperationError } from "./errors";
 import type { EndpointOwnership } from "./ownership/planetscale";
 import type { RelayIssuer } from "./relay";
 import type { TeamStore } from "./storage/team-store";
+import { CONTROL_PLANE_RULES } from "./rules";
 
 export interface BrokerSession {
   readonly sessionId: string;
@@ -310,6 +311,7 @@ export class TeamBroker {
       directory: {
         teamId: session.identity.teamId, revision, devices, inboundPeers, relayURLs: this.relayURLs(),
         issuedAt: now, permissionExpiresAt: Math.min(session.expiresAt, now + API_TICKET_SECONDS), nextCursor: null as string | null,
+        rules: [...CONTROL_PLANE_RULES],
       },
     };
     let bytes = new TextEncoder().encode(JSON.stringify(response)).byteLength;

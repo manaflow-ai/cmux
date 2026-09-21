@@ -261,6 +261,7 @@ export interface V2Directory {
     permissionExpiresAt: number;
     relayURLs:           string[];
     revision:            number;
+    rules?:              string[];
     teamId:              string;
 }
 

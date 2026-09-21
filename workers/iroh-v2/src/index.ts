@@ -23,6 +23,7 @@ export default {
         charge: async (userId, operation) => { unwrap(await env.USER_USAGE.getByName(objectName(services.environment, services.projectId, userId)).consume(userId, operation)); },
       }) : await routeControl(request, {
         ...services, ticketKeys: services.keys, now: () => Math.floor(Date.now() / 1000),
+        sourceRevision: env.CMUX_SOURCE_REVISION,
         observe: event => observe(ctx, env, { environment: env.ENVIRONMENT, ...event }),
         chargeOpen: async userId => { unwrap(await env.USER_USAGE.getByName(objectName(services.environment, services.projectId, userId)).consume(userId, "control.socket")); },
         dispatchTeam: (teamId, forwarded) => env.TEAM_CONTROL.getByName(objectName(services.environment, services.projectId, teamId)).fetch(forwarded),

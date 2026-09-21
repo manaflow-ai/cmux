@@ -12,7 +12,11 @@ async function probe(scenario: string, options: { missingCurl?: boolean } = {}) 
   try {
     await writeFile(join(directory, "bun"), "#!/bin/sh\nprintf 'bun %s\\n' \"$*\" >> \"$MOCK_CALLS\"\nexit 0\n", { mode: 0o700 });
     await writeFile(join(directory, "python3"), "#!/bin/sh\nexec /usr/bin/python3 \"$@\"\n", { mode: 0o700 });
-    const helperCommands: Array<[string, string]> = [["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"]];
+    const helperCommands: Array<[string, string]> = [
+      ["mktemp", "/usr/bin/mktemp"], ["rm", "/bin/rm"], ["cat", "/bin/cat"],
+      // The deploy publishes the source revision through scripts/source-revision-vars.sh.
+      ["bash", "/bin/bash"], ["git", "/usr/bin/git"],
+    ];
     for (const [command, path] of helperCommands) {
       await writeFile(join(directory, command), `#!/bin/sh\nexec ${path} \"$@\"\n`, { mode: 0o700 });
     }
@@ -111,6 +115,8 @@ test("expected scope failures pass the production configuration check", async ()
   const result = await probe("valid");
   expect(result.exit).toBe(0);
   expect(result.calls).toMatch(/--message cmux-prod-guard-[0-9a-f-]{36}/);
+  // The health route reports this value; the drift check compares it with main.
+  expect(result.calls).toMatch(/deploy --env production .*--var CMUX_SOURCE_REVISION:(?:[0-9a-f]{40}|unknown)/);
 });
 
 test("matching HTTP status with the wrong error code fails without disclosing the response", async () => {

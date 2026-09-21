@@ -183,7 +183,11 @@ if ! check_pending_migration "$probe_dir/previous-version.json"; then
 fi
 
 deployment_marker="cmux-prod-guard-$(python3 -c 'import uuid; print(uuid.uuid4())')"
-wrangler deploy --env production --strict --message "$deployment_marker" --tag "$deployment_marker"
+# The published revision is what GET /v2/health reports and what
+# scripts/check-production-drift.ts compares against main.
+source_revision_vars="$(bash scripts/source-revision-vars.sh)"
+# shellcheck disable=SC2086
+wrangler deploy --env production --strict --message "$deployment_marker" --tag "$deployment_marker" $source_revision_vars
 
 post_result=0
 run_scope_pair post || post_result=$?
@@ -225,3 +229,4 @@ PY_MARKER
 fi
 
 echo "production deployment scope verification passed"
+echo "published $source_revision_vars; confirm with: curl -sS $worker_url/v2/health"

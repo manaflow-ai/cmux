@@ -100,6 +100,8 @@ export const DirectorySchema = z.strictObject({
   issuedAt: timestamp,
   permissionExpiresAt: timestamp,
   nextCursor: identifier.nullable(),
+  /** Rule identifiers the issuing Worker applied (see `rules.ts`). Absent from directories issued before the field existed. */
+  rules: z.array(identifier).max(32).optional(),
 });
 
 /** Browser sessions have no IROH endpoint and never create a device record. */
