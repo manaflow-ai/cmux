@@ -110,7 +110,6 @@ def restore(broker: str, artifact_id: str, run_id: str, repository: str, destina
             if destination.exists():
                 destination.rmdir()  # Never merge a hit into stale/partial products.
             (staging / "products").rename(destination)
-        consumer_receipt.aggregate_hit("r2-aggregate")
         print(f"R2 artifact transport restored GitHub artifact {artifact_id}; product validation still runs.")
         return True
     except (ValueError, TypeError, AttributeError, OSError, subprocess.SubprocessError, zipfile.BadZipFile, RuntimeError) as error:
