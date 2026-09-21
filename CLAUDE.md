@@ -16,7 +16,10 @@ retains read-only Actions permission. Its owned runner must live in the
 workflow-restricted `cmux-persistent-compile` runner group pinned to the
 producer workflow on `refs/heads/main`. The required
 `macOS compile admission` job remains the check/log/artifact owner and
-revalidates the producer before adoption. Release, signing, notarization,
+revalidates the producer before adoption. Glaeda owns native cache/admission
+while CMUX's canonical `cmux.macos.compile-admission@1` profile owns semantic
+pass/fail; the producer refuses candidates where that profile is absent.
+Release, signing, notarization,
 nightly, TestFlight, merge-queue policy, generic agent execution, and every GUI
 or runtime test remain on their existing lanes. The producer receives no
 repository secrets, and hosted compile fallback remains live. A successful dev
