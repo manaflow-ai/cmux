@@ -116,21 +116,17 @@ jobs:
             # suites.
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
-            ci_router_changed=false
-            ci_workflow_changed=false
+            ci_policy_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
                   has_ghosttykit_guard_file=true
                   ;;
-                tests/test_ci_change_areas.py)
-                  ci_router_changed=true
-                  ;;
-                .github/workflows/ci.yml)
-                  ci_workflow_changed=true
+                .github/workflows/ci.yml|.github/ci-areas.yml|tests/test_ci_change_areas.py)
+                  ci_policy_changed=true
                   ;;
                 scripts/ci/*)
-                  ci_router_changed=true
+                  ci_policy_changed=true
                   ghosttykit_guard_only=false
                   ;;
                 *)
@@ -149,32 +145,17 @@ jobs:
               exit 0
             fi
 
-            # This guard lives in workflow YAML, before the PR-editable detector
-            # runs. Router/workflow edits must fail open even if a PR breaks the
-            # detector's own self-change classification.
-            if [ "$ci_router_changed" = true ]; then
-              echo "CI router changed; running all CI areas."
+            # These files own routing policy. Force every area before executing
+            # PR-controlled Python so a candidate cannot weaken its own coverage.
+            if [ "$ci_policy_changed" = true ]; then
+              echo "CI routing policy changed; running all CI areas."
               emit_all_areas
               exit 0
             fi
 
-            # The detector is unchanged here, so it may judge a ci.yml edit: only
-            # an edit confined to Linux jobs skips macOS, and anything it cannot
-            # read runs every area.
-            workflow_base_args=()
-            if [ "$ci_workflow_changed" = true ]; then
-              if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml; then
-                echo "Could not read the base ci.yml; running all CI areas." >&2
-                emit_all_areas
-                exit 0
-              fi
-              workflow_base_args=(--ci-workflow-base /tmp/cmux-ci-base-workflow.yml)
-            fi
-
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
-              --files-from /tmp/cmux-ci-changed-files.txt \
-              ${workflow_base_args[@]+"${workflow_base_args[@]}"}
+              --files-from /tmp/cmux-ci-changed-files.txt
             exit 0
           fi
 
@@ -216,7 +197,7 @@ jobs:
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/ci.yml|scripts/ci/*|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
+                .github/workflows/ci.yml|.github/ci-areas.yml|scripts/ci/*|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
                   for route in linux_guard_tests linux_guard_history linux_guard_cli linux_guard_source ghosttykit_release; do
                     echo "$route=true" >> "$GITHUB_OUTPUT"
                   done

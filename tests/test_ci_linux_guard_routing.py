@@ -43,7 +43,7 @@ def route(paths, event="pull_request", macos="false"):
 class LinuxGuardRoutingTests(unittest.TestCase):
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
-        for changed in ("scripts/ci/detect_linux_guard_changes.py", ".github/workflows/ci.yml"):
+        for changed in ("scripts/ci/detect_linux_guard_changes.py", ".github/workflows/ci.yml", ".github/ci-areas.yml"):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 changed_file = root / "changed.txt"
