@@ -51,7 +51,77 @@ def swift_failure(name: str) -> str:
     )
 
 
+def typed_tests(*nodes):
+    return [{
+        "testNodes": [
+            {
+                "name": "cmuxTests",
+                "nodeType": "Unit test bundle",
+                "result": "Failed",
+                "children": list(nodes),
+            }
+        ]
+    }]
+
+
+def failed_case(identifier: str, name: str):
+    return {
+        "name": name,
+        "nodeIdentifier": identifier,
+        "nodeType": "Test Case",
+        "result": "Failed",
+    }
+
+
 class AppHostFailureRatchetTests(unittest.TestCase):
+    def test_typed_xctest_case_ignores_multiple_assertion_lines(self) -> None:
+        identifier = "xctest:cmuxTests.ExampleTests/testExample"
+        output = (
+            "Test Case '-[cmuxTests.ExampleTests testExample]' started.\n"
+            "/tmp/Test.swift:1: error: -[cmuxTests.ExampleTests testExample] : XCTAssertEqual failed\n"
+            "/tmp/Test.swift:2: error: -[cmuxTests.ExampleTests testExample] : XCTAssertTrue failed\n"
+            "Test Case '-[cmuxTests.ExampleTests testExample]' failed (0.1 seconds).\n"
+            "Executed 7 tests, with 2 failures (0 unexpected)\n"
+        )
+        passed, message = MODULE.evaluate(
+            output,
+            exit_code=65,
+            catalog=catalog((identifier, "xctest")),
+            typed_tests=typed_tests(failed_case("ExampleTests/testExample()", "testExample()")),
+        )
+        self.assertTrue(passed, message)
+        self.assertIn(identifier, message)
+
+    def test_typed_swift_case_matches_recorded_issue(self) -> None:
+        name = "parameterized thing(value: 3)"
+        identifier = f"swift:{name}"
+        passed, message = MODULE.evaluate(
+            swift_failure(f'"{name}"'),
+            exit_code=65,
+            catalog=catalog((identifier, "swift-testing")),
+            typed_tests=typed_tests(failed_case("ModernSuite/parameterized thing(value: 3)", name)),
+        )
+        self.assertTrue(passed, message)
+
+    def test_unattributed_typed_failure_stays_red(self) -> None:
+        identifier = "xctest:cmuxTests.ExampleTests/testKnown"
+        output = xctest_failure(identifier)
+        payload = typed_tests(
+            failed_case("ExampleTests/testKnown()", "testKnown()"),
+            failed_case(
+                "Issues recorded without an associated test or suite",
+                "Issues recorded without an associated test or suite",
+            ),
+        )
+        passed, message = MODULE.evaluate(
+            output,
+            exit_code=65,
+            catalog=catalog((identifier, "xctest")),
+            typed_tests=payload,
+        )
+        self.assertFalse(passed)
+        self.assertIn("no attributable console identifier", message)
+
     def test_known_xctest_failure_is_tolerated(self) -> None:
         identifier = "xctest:cmuxTests.ExampleTests/testExample"
         passed, message = MODULE.evaluate(
