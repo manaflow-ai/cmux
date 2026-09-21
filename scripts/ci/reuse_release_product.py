@@ -292,15 +292,35 @@ def unpack(artifact_zip: Path, staging: Path, digest: str) -> None:
         os.link(source, target)
 
 
-def candidate_artifacts(api, value: dict) -> list[dict]:
-    """List a bounded set of GitHub artifacts with the exact Release key."""
+def candidate_artifacts(api, value: dict, current_run: str) -> list[dict]:
+    """List at most eight exact-key artifacts from two bounded lookup scopes."""
     prefix = PREFIX + app_host_reuse.key(value) + "-"
     found: list[dict] = []
-    for page in range(1, 4):
-        batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
-        found.extend(artifact for artifact in batch if artifact.get("name", "").startswith(prefix))
-        if len(found) >= 8 or len(batch) < 100:
-            break
+    seen_ids: set[int] = set()
+
+    def collect(path_prefix: str) -> None:
+        for page in range(1, 4):
+            batch = api.get(f"{path_prefix}?per_page=100&page={page}")["artifacts"]
+            for artifact in batch:
+                name = artifact.get("name", "")
+                if not isinstance(name, str) or not name.startswith(prefix):
+                    continue
+                artifact_id = artifact.get("id")
+                if isinstance(artifact_id, int):
+                    if artifact_id in seen_ids:
+                        continue
+                    seen_ids.add(artifact_id)
+                found.append(artifact)
+                if len(found) >= 8:
+                    return
+            if len(batch) < 100:
+                return
+
+    # A rerun's earlier artifact can fall out of the repository-wide newest-300
+    # window under heavy CI traffic. Search this run first, then broaden.
+    collect(f"actions/runs/{current_run}/artifacts")
+    if len(found) < 8:
+        collect("actions/artifacts")
     return found[:8]
 
 
@@ -353,7 +373,7 @@ def producer_for(api, artifact: dict, value: dict, current_run: str, current_att
 def restore(api, value: dict, derived: Path, current_run: str, current_attempt: int) -> dict:
     """Restore one exact compatible Release product or return a rebuild reason."""
     started = time.monotonic()
-    artifacts = candidate_artifacts(api, value)
+    artifacts = candidate_artifacts(api, value, current_run)
     if not artifacts:
         return {"hit": False, "outcome": "restore_miss", "reason": "no_exact_artifact", "restore_seconds": time.monotonic() - started}
     last_reason = "candidate_rejected"
