@@ -1136,9 +1136,32 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github' }}
         run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
 
+      - name: Try same-site peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_PRODUCT_ARTIFACT_SCHEMA: ${{ needs.macos-compile-admission.outputs.artifact_schema }}
+          CMUX_PRODUCT_SOURCE_IDENTITY: ${{ needs.macos-compile-admission.outputs.source_identity }}
+          CMUX_PRODUCT_BUILD_IDENTITY: ${{ needs.macos-compile-admission.outputs.build_identity }}
+          CMUX_PRODUCT_PLATFORM_CLASS: ${{ needs.macos-compile-admission.outputs.platform_class }}
+          CMUX_PRODUCT_ARCHITECTURE: ${{ needs.macos-compile-admission.outputs.product_architecture }}
+          CMUX_PRODUCT_SDK_GENERATION: ${{ needs.macos-compile-admission.outputs.sdk_generation }}
+          CMUX_PRODUCT_TOOLCHAIN_GENERATION: ${{ needs.macos-compile-admission.outputs.toolchain_generation }}
+          CMUX_PRODUCT_BUILD_CONFIGURATION: ${{ needs.macos-compile-admission.outputs.build_configuration }}
+          CMUX_PRODUCT_SCHEMA: ${{ needs.macos-compile-admission.outputs.product_schema }}
+        run: python3 scripts/ci/peer_artifact_source.py fetch
+
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1148,7 +1171,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -1185,7 +1208,7 @@ jobs:
           CMUX_PRODUCT_SCHEMA: ${{ needs.macos-compile-admission.outputs.product_schema }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
@@ -3268,9 +3291,32 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github' }}
         run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
 
+      - name: Try same-site peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_PRODUCT_ARTIFACT_SCHEMA: ${{ needs.macos-compile-admission.outputs.artifact_schema }}
+          CMUX_PRODUCT_SOURCE_IDENTITY: ${{ needs.macos-compile-admission.outputs.source_identity }}
+          CMUX_PRODUCT_BUILD_IDENTITY: ${{ needs.macos-compile-admission.outputs.build_identity }}
+          CMUX_PRODUCT_PLATFORM_CLASS: ${{ needs.macos-compile-admission.outputs.platform_class }}
+          CMUX_PRODUCT_ARCHITECTURE: ${{ needs.macos-compile-admission.outputs.product_architecture }}
+          CMUX_PRODUCT_SDK_GENERATION: ${{ needs.macos-compile-admission.outputs.sdk_generation }}
+          CMUX_PRODUCT_TOOLCHAIN_GENERATION: ${{ needs.macos-compile-admission.outputs.toolchain_generation }}
+          CMUX_PRODUCT_BUILD_CONFIGURATION: ${{ needs.macos-compile-admission.outputs.build_configuration }}
+          CMUX_PRODUCT_SCHEMA: ${{ needs.macos-compile-admission.outputs.product_schema }}
+        run: python3 scripts/ci/peer_artifact_source.py fetch
+
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3280,7 +3326,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3318,7 +3364,7 @@ jobs:
           CMUX_PRODUCT_SCHEMA: ${{ needs.macos-compile-admission.outputs.product_schema }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
