@@ -1781,6 +1781,67 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    /// Keep a real Workspace Detail terminal mounted while its foreground Mac
+    /// becomes unavailable. The dock probe and kept screenshot prove that the
+    /// composer still reserves the device's bottom safe area in that state.
+    @MainActor
+    func testDisconnectedTerminalComposerStaysAboveSafeArea() async throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED_TERMINAL": "1",
+        ], launchArguments: [
+            "-dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId",
+            "connections.v2",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8),
+            "Workspace Detail must keep the terminal surface mounted before disconnecting."
+        )
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+        let title = workspaceTitleElement(in: app)
+        let disconnected = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else { return false }
+                let label = element.label
+                let value = element.value as? String ?? ""
+                return label.localizedCaseInsensitiveContains("Unavailable")
+                    || label.localizedCaseInsensitiveContains("Disconnected")
+                    || value.localizedCaseInsensitiveContains("Unavailable")
+                    || value.localizedCaseInsensitiveContains("Disconnected")
+            },
+            object: title
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [disconnected], timeout: 12),
+            .completed,
+            "The Workspace Detail title must report the retained terminal's disconnected Mac."
+        )
+
+        let dock = waitForDock(
+            in: app,
+            timeout: 8,
+            describe: "disconnected terminal composer safe area"
+        ) { probe in
+            guard let bottomSafeArea = Double(probe["bottomSafeArea"] ?? "") else { return false }
+            return bottomSafeArea >= 20
+        }
+        let bottomSafeArea = CGFloat(Double(dock["bottomSafeArea"] ?? "") ?? 0)
+        let windowFrame = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(
+            composerField.frame.maxY,
+            windowFrame.maxY - bottomSafeArea + 1,
+            "The composer must remain above the captured bottom safe area. dock=\(dock)"
+        )
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "disconnected-terminal-composer-safe-area"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     @MainActor
     func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
@@ -8096,7 +8157,10 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp(
+        environment: [String: String] = [:],
+        launchArguments: [String] = []
+    ) -> XCUIApplication {
         var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
@@ -8104,7 +8168,11 @@ final class cmuxUITests: XCTestCase {
         for (key, value) in environment {
             launchEnvironment[key] = value
         }
-        let app = launchApp(mockData: false, environment: launchEnvironment)
+        let app = launchApp(
+            mockData: false,
+            environment: launchEnvironment,
+            launchArguments: launchArguments
+        )
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         return app
     }
