@@ -201,6 +201,7 @@ final class NewCloudWorkspaceShortcutTests {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(!store.newWorkspaceContextMenuIsConfigured)
         let appDelegate = AppDelegate()
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { CloudMachinesFeature.isEnabled })
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: tabManager,
@@ -288,6 +289,7 @@ final class NewCloudWorkspaceShortcutTests {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(store.configurationIssues.isEmpty)
         let appDelegate = AppDelegate()
+        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { CloudMachinesFeature.isEnabled })
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }

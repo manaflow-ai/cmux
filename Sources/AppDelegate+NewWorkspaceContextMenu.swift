@@ -103,8 +103,15 @@ extension AppDelegate {
     static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
         switch action {
         case .newCloudWorkspace, .newCloudMachine, .cloudVM:
-            return CloudMachinesFeature.isEnabled
-                && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
+            guard CloudMachinesFeature.isEnabled else { return false }
+            // Once composition is installed, the coordinator is the shared Cloud
+            // availability authority. Its production closure includes the live
+            // authenticated account and feature policy; the auth fallback keeps
+            // the menu fail-closed during the brief pre-composition window.
+            let appDelegate = AppDelegate.shared
+            return appDelegate?.cloudWorkspaceCoordinator?.isAvailable
+                ?? appDelegate?.cloudWorkspaceOperationController?.isCurrentlyAvailable
+                ?? (appDelegate?.auth?.accountFlow.isAuthenticated == true)
         case .newBrowser, .newAgentChat:
             return BrowserAvailabilitySettings.isEnabled()
         case .newSimulator:
