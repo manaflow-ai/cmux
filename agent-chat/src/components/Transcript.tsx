@@ -2,6 +2,7 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
+import { agentChatText } from "../i18n";
 import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
@@ -266,13 +267,13 @@ export function TurnActions({
                 {actions.fork && !actions.handoff ? (
                   <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
                     {forkPending ? <PinwheelSpinner size={11} /> : null}
-                    <span>Continue in new chat</span>
+                    <span>{agentChatText("continueNewChat")}</span>
                   </button>
                 ) : null}
                 {actions.handoff && onHandoff ? (
                   <button className="turn-menu-item" type="button" disabled={handoffPending} onClick={onHandoff}>
                     {handoffPending ? <PinwheelSpinner size={11} /> : null}
-                    <span>Continue elsewhere</span>
+                    <span>{agentChatText("continueElsewhere")}</span>
                   </button>
                 ) : null}
               </Popover.Popup>
