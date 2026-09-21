@@ -114,8 +114,9 @@ The CMUX checkout must represent the exact source being accepted. The workload r
 ```bash
 CMUX_COMMIT="$(git -C "$CMUX_ROOT" rev-parse 'HEAD^{commit}')"
 CMUX_TREE="$(git -C "$CMUX_ROOT" rev-parse 'HEAD^{tree}')"
-CMUX_RESULT="$(mktemp)"
 CMUX_STATE="$(mktemp -d)"
+chmod 700 "$CMUX_STATE"
+CMUX_RESULT="$CMUX_STATE/result.json"
 
 case "$(uname -s)" in
   Darwin) PROFILE=cmux.macos.dev-check ;;
