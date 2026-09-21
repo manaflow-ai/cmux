@@ -315,6 +315,14 @@ if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation
   exit 1
 fi
 
+if [ "$(grep -Fxc -- '-test-timeouts-enabled' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ] \
+  || [ "$(grep -Fxc -- '-default-test-execution-time-allowance' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ] \
+  || [ "$(grep -Fxc -- '-maximum-test-execution-time-allowance' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/xcodebuild-args.log"
+  echo "FAIL: every app-host launch must carry an explicit per-test execution allowance"
+  exit 1
+fi
+
 if [ "$(grep -Fxc '/ci/node/bin:/usr/bin|/ci/bun' "$TMP_DIR/test-runner-tool-env.log" || true)" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-tool-env.log"
   echo "FAIL: focused test-runner tool paths must reach every app-host launch"
