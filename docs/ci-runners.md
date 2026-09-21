@@ -153,3 +153,8 @@ to Blacksmith cloud, and
 fails CI if a required workflow hardcodes a fleet label. Repository variables
 may point to the isolated `tart-*` pool. Legacy physical runner services remain
 disabled and their GitHub records remain offline for rollback.
+
+## CMUX-owned machine enrollment
+
+Persistent CMUX hardware uses the reviewed onboarding path in [fleet-enrollment.md](fleet-enrollment.md). Enrollment and role acceptance publish machine capability; they do not change GitHub runner registration or repository runner variables. Required CI continues to follow the runner policy above unless a separately reviewed CI RFC changes a specific job.
+
