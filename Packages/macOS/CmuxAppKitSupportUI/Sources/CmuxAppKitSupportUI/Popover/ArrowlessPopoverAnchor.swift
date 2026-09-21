@@ -83,6 +83,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
+        private var closingPopover: NSPopover?
         private var pendingVisibleRootView: AnyView?
         private let group: CmuxPopoverGroup?
         private var groupMemberID: UUID?
@@ -173,14 +174,23 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         func dismiss() {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
-            if group != nil { popover?.animates = false }
-            popover?.performClose(nil)
+            guard let popover else {
+                isPresented = false
+                return
+            }
+            closingPopover = popover
+            if group != nil { popover.animates = false }
+            popover.performClose(nil)
             popover = nil
+            isPresented = false
         }
 
         public func popoverWillClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
-            unregisterFromGroup()
+            guard let closing = notification.object as? NSPopover,
+                  closing === popover || closing === closingPopover else { return }
+            if closing === popover {
+                unregisterFromGroup()
+            }
         }
 
         private func unregisterFromGroup() {
@@ -190,7 +200,12 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverDidClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
+            guard let closing = notification.object as? NSPopover else { return }
+            if closing === closingPopover {
+                closingPopover = nil
+                return
+            }
+            guard closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
