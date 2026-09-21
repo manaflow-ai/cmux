@@ -8,6 +8,9 @@ extension AgentChatTranscriptService {
     ) -> Bool {
         guard var normalizedPrevious = previous else { return true }
         normalizedPrevious.lastActivityAt = current.lastActivityAt
+        // The registry increments version on every accepted mutation. Version
+        // is reconciliation metadata, not a presentation change by itself.
+        normalizedPrevious.version = current.version
         return normalizedPrevious.descriptor != current.descriptor
     }
 

@@ -188,7 +188,7 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
-    func endedSessionPublishesHistoryRefreshNotification() async {
+    func endedSessionAdvancesTypedHistoryRevision() async {
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
             hasEventSubscribers: { false },
@@ -200,18 +200,17 @@ struct ConversationSidebarRegressionTests {
             workspaceId: UUID().uuidString, surfaceId: UUID().uuidString,
             cwd: "/Users/example/project", receivedAt: Date(timeIntervalSince1970: 10)
         ))
+        let before = service.sidebarRevisionSnapshot
 
-        await confirmation("ended session refreshes Vault history") { refreshed in
-            let observer = NotificationCenter.default.addObserver(
-                forName: .agentChatSessionHistoryDidChange, object: service, queue: nil
-            ) { _ in refreshed() }
-            defer { NotificationCenter.default.removeObserver(observer) }
-            service.registry.update(sessionID: sessionID) { $0.state = .ended }
-        }
+        service.registry.update(sessionID: sessionID) { $0.state = .ended }
+
+        let after = service.sidebarRevisionSnapshot
+        #expect(after.liveRevision == before.liveRevision + 1)
+        #expect(after.historyRevision == before.historyRevision + 1)
     }
 
     @Test
-    func recordChangesPublishSidebarRefreshNotification() async {
+    func activityOnlyRecordChangesDoNotRebuildSidebarProjection() async {
         let service = AgentChatTranscriptService(
             registry: AgentChatSessionRegistry(),
             hasEventSubscribers: { false },
@@ -227,22 +226,24 @@ struct ConversationSidebarRegressionTests {
             cwd: "/Users/example/project",
             receivedAt: Date(timeIntervalSince1970: 10)
         ))
+        let before = service.sidebarRevisionSnapshot
 
-        await confirmation("agent chat record update refreshes local projections") { refreshed in
-            let observer = NotificationCenter.default.addObserver(
-                forName: .agentChatSessionRecordsDidChange,
-                object: service,
-                queue: nil
-            ) { _ in
-                refreshed()
-            }
-            defer { NotificationCenter.default.removeObserver(observer) }
-
-            service.registry.update(sessionID: sessionID) {
-                $0.title = "Updated title"
-                $0.lastActivityAt = Date(timeIntervalSince1970: 20)
-            }
+        service.registry.update(sessionID: sessionID) {
+            $0.lastActivityAt = Date(timeIntervalSince1970: 20)
         }
+        #expect(service.sidebarRevisionSnapshot == before)
+
+        var changes = service.sidebarChanges().makeAsyncIterator()
+        #expect(await changes.next() == before)
+
+        service.registry.update(sessionID: sessionID) {
+            $0.title = "Updated title"
+            $0.lastActivityAt = Date(timeIntervalSince1970: 30)
+        }
+        let after = service.sidebarRevisionSnapshot
+        #expect(after.liveRevision == before.liveRevision + 1)
+        #expect(after.historyRevision == before.historyRevision)
+        #expect(await changes.next() == after)
     }
 
     @Test

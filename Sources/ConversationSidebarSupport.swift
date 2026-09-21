@@ -218,37 +218,37 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
-                // Put the initial load under the same cancellation owner as
-                // later invalidations. If a record changes while the initial
-                // directory lookup is suspended, the replacement refresh
-                // cancels it before stale metadata can be published.
+                guard let service = TerminalController.shared.agentChatTranscriptService else {
+                    refreshScheduler.schedule { @MainActor in
+                        await refreshPresentationAgents()
+                    }
+                    return
+                }
+
+                var observed = service.sidebarRevisionSnapshot
                 refreshScheduler.schedule { @MainActor in
                     await refreshPresentationAgents()
                 }
-                for await _ in NotificationCenter.default.notifications(
-                    named: .agentChatSessionRecordsDidChange
-                ) {
+                for await change in service.sidebarChanges() {
                     guard !Task.isCancelled else { return }
-                    // Hook activity can emit several record invalidations per
-                    // turn (pre-tool, post-tool, and transcript updates). A
-                    // cancellable trailing task coalesces the burst while
-                    // guaranteeing that the final state is eventually read.
-                    refreshScheduler.schedule { @MainActor in
-                        revision &+= 1
-                        await refreshPresentationAgents()
+                    if change.liveRevision != observed.liveRevision {
+                        // The service filters activity-only record churn before
+                        // it reaches this projection. Coalesce the remaining
+                        // identity/state/title/binding changes while directory
+                        // presentation metadata is refreshed off the hot path.
+                        refreshScheduler.schedule { @MainActor in
+                            revision &+= 1
+                            await refreshPresentationAgents()
+                        }
                     }
+                    if change.historyRevision != observed.historyRevision {
+                        store.reload()
+                    }
+                    observed = change
                 }
             }
             .onDisappear {
                 refreshScheduler.cancel()
-            }
-            .task {
-                for await _ in NotificationCenter.default.notifications(
-                    named: .agentChatSessionHistoryDidChange
-                ) {
-                    guard !Task.isCancelled else { return }
-                    store.reload()
-                }
             }
     }
 

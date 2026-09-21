@@ -133,6 +133,52 @@ final class AgentChatTranscriptService {
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
+    struct SidebarRevisionSnapshot: Sendable, Equatable {
+        let liveRevision: UInt64
+        let historyRevision: UInt64
+    }
+
+    private var sidebarLiveRevision: UInt64 = 0
+    private var sidebarHistoryRevision: UInt64 = 0
+    private var sidebarChangeObservers: [UUID: AsyncStream<SidebarRevisionSnapshot>.Continuation] = [:]
+
+    var sidebarRevisionSnapshot: SidebarRevisionSnapshot {
+        SidebarRevisionSnapshot(
+            liveRevision: sidebarLiveRevision,
+            historyRevision: sidebarHistoryRevision
+        )
+    }
+
+    /// Typed observation owned by the authoritative session service. The
+    /// newest revision pair subsumes any unread changes, so bursts coalesce
+    /// without losing a history invalidation.
+    func sidebarChanges() -> AsyncStream<SidebarRevisionSnapshot> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            sidebarChangeObservers[id] = continuation
+            continuation.yield(sidebarRevisionSnapshot)
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in self?.sidebarChangeObservers[id] = nil }
+            }
+        }
+    }
+
+    private func publishSidebarChange(liveChanged: Bool, historyChanged: Bool) {
+        guard liveChanged || historyChanged else { return }
+        if liveChanged { sidebarLiveRevision &+= 1 }
+        if historyChanged { sidebarHistoryRevision &+= 1 }
+        let snapshot = sidebarRevisionSnapshot
+        var terminatedIDs: [UUID] = []
+        for (id, continuation) in sidebarChangeObservers {
+            if case .terminated = continuation.yield(snapshot) {
+                terminatedIDs.append(id)
+            }
+        }
+        for id in terminatedIDs {
+            sidebarChangeObservers[id] = nil
+        }
+    }
+
     private struct ProseTurnState {
         let token: AgentChatProseStreamer.TurnToken
         let startedAt: Date
@@ -623,7 +669,6 @@ final class AgentChatTranscriptService {
         return completedAt
     }
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
-        NotificationCenter.default.post(name: .agentChatSessionRecordsDidChange, object: self)
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -634,7 +679,9 @@ final class AgentChatTranscriptService {
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
-        if record.state == .ended, stateChanged || transcriptBecameAvailable { NotificationCenter.default.post(name: .agentChatSessionHistoryDidChange, object: self) }
+        let liveProjectionChanged = Self.descriptorChangedMeaningfully(previous: previous, current: record)
+        let historyChanged = record.state == .ended && (stateChanged || transcriptBecameAvailable)
+        publishSidebarChange(liveChanged: liveProjectionChanged, historyChanged: historyChanged)
         if transcriptBecameAvailable {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
@@ -668,12 +715,12 @@ final class AgentChatTranscriptService {
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
         // descriptor changed beyond the activity timestamp.
-        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
+        if liveProjectionChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
-        NotificationCenter.default.post(name: .agentChatSessionRecordsDidChange, object: self)
+        publishSidebarChange(liveChanged: true, historyChanged: false)
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
@@ -710,6 +757,10 @@ final class AgentChatTranscriptService {
         MainActor.assumeIsolated {
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
+            for continuation in sidebarChangeObservers.values {
+                continuation.finish()
+            }
+            sidebarChangeObservers.removeAll()
         }
     }
 }
