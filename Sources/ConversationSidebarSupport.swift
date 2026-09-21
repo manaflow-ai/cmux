@@ -218,7 +218,13 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task {
-                await refreshPresentationAgents()
+                // Put the initial load under the same cancellation owner as
+                // later invalidations. If a record changes while the initial
+                // directory lookup is suspended, the replacement refresh
+                // cancels it before stale metadata can be published.
+                refreshScheduler.schedule { @MainActor in
+                    await refreshPresentationAgents()
+                }
                 for await _ in NotificationCenter.default.notifications(
                     named: .agentChatSessionRecordsDidChange
                 ) {
