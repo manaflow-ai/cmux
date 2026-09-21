@@ -1,0 +1,105 @@
+name: Mobile terminal package-boundary benchmark
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/zz-mobile-terminal-package-boundary-benchmark.yml"
+      - "Sources/Mobile/MobileTerminalByteTee.swift"
+      - "Packages/macOS/CmuxTerminal/**"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    if: ${{ github.event.pull_request.head.ref == 'codex/mobile-terminal-state-package-boundary' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 45
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+      CMUX_DEV_BACKEND_MODE: local
+      CMUX_RELOAD_NO_GLOBAL_CLI_LINKS: "1"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 2
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Provision GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Benchmark current app-target edit
+        shell: bash
+        run: |
+          set -euo pipefail
+          dd="$GITHUB_WORKSPACE/.bench-dd"
+          spm="$GITHUB_WORKSPACE/.bench-spm"
+          mkdir -p "$spm" benchmark-artifact
+          export CMUX_SOURCE_PACKAGES_DIR="$spm"
+
+          ./scripts/reload.sh \
+            --tag mtboundary \
+            --derived-data "$dd" \
+            --swift-frontend-workaround
+
+          xcode_args=(
+            -project cmux.xcodeproj
+            -scheme cmux
+            -configuration Debug
+            -destination 'platform=macOS'
+            -derivedDataPath "$dd"
+            -clonedSourcePackagesDirPath "$spm"
+            -disableAutomaticPackageResolution
+            -showBuildTimingSummary
+            PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app.debug.mtboundary
+            CMUX_CUA_HELPER_DISPLAY_NAME='cmux Computer Use'
+            CMUX_SIDEBAR_EXTENSION_POINT_ID=com.cmuxterm.app.debug.mtboundary.cmux.sidebar
+            CMUX_SKIP_ZIG_BUILD=1
+            SWIFT_ENABLE_BATCH_MODE=NO
+            DEBUG_INFORMATION_FORMAT=
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+            build
+          )
+
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild "${xcode_args[@]}" \
+            > benchmark-artifact/warm-direct.log 2>&1
+
+          printf '\n// cmux incremental package-boundary benchmark edit\n' \
+            >> Sources/Mobile/MobileTerminalByteTee.swift
+
+          start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          set +e
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild "${xcode_args[@]}" 2>&1 \
+            | python3 -u -c 'import sys,time; s=time.monotonic(); [(sys.stdout.write(f"{time.monotonic()-s:.6f}\t{line}"), sys.stdout.flush()) for line in sys.stdin]' \
+            | tee benchmark-artifact/before.log
+          status=${PIPESTATUS[0]}
+          set -e
+          end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          git checkout -- Sources/Mobile/MobileTerminalByteTee.swift
+          [ "$status" -eq 0 ] || exit "$status"
+
+          total_seconds="$(python3 -c 'import sys; print((int(sys.argv[2])-int(sys.argv[1]))/1e9)' "$start_ns" "$end_ns")"
+          swift_compile_count="$(grep -c $'\tSwiftCompile normal ' benchmark-artifact/before.log || true)"
+          swift_emit_count="$(grep -c $'\tSwiftEmitModule normal ' benchmark-artifact/before.log || true)"
+          {
+            echo "total_seconds=$total_seconds"
+            echo "swift_compile_count=$swift_compile_count"
+            echo "swift_emit_count=$swift_emit_count"
+          } | tee benchmark-artifact/before-metrics.txt
+
+      - name: Upload benchmark
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mobile-terminal-package-boundary-before
+          path: benchmark-artifact/
+          retention-days: 3
+          if-no-files-found: error
