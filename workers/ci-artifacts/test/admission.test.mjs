@@ -23,6 +23,7 @@ async function fixture(t) {
     compatibilityDate: "2026-09-20",
     compatibilityFlags: ["nodejs_compat"],
     durableObjects: { REQUEST_ADMISSION: { className: "RequestAdmission", useSQLite: true } },
+    bindings: { ADMISSION_MINUTE_OVERRIDE: "0" },
   }));
   t.after(() => mf.dispose());
   return mf;
