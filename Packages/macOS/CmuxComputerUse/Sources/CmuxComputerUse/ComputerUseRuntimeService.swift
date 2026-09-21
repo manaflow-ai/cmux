@@ -876,7 +876,7 @@ public final class ComputerUseRuntimeService {
         return result
     }
 
-    private func startIfNeededWithinLifecycle() async {
+    func startIfNeededWithinLifecycle() async {
         guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
