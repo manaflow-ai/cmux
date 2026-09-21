@@ -105,6 +105,20 @@ class LayerRoundTrip(unittest.TestCase):
             stream.write(b"corrupt")
         self.assert_rejected(selected=("app-cli", "runtime", "tests"))
 
+    def test_selected_consumer_subset_rejects_cross_layer_symlink_dependency(self):
+        producer = self.root / "symlink-producer"
+        products = producer / layers.ROOT
+        (products / "Debug").mkdir(parents=True)
+        (products / "Debug/cmux").write_bytes(b"cli")
+        (products / "Debug/input.o").write_bytes(b"diagnostic")
+        (products / "Debug/diagnostic-link").symlink_to("input.o")
+        output = self.root / "symlink-layers"
+        layers.pack(producer, output, IDENTITY)
+        with self.assertRaisesRegex(ValueError, "symlink closure"):
+            layers.restore(output / layers.MANIFEST, self.root / "symlink-restored", IDENTITY,
+                           ("app-cli", "runtime", "tests"))
+        self.assertFalse((self.root / "symlink-restored").exists())
+
     def test_selected_consumer_subset_still_validates_full_canonical_ownership(self):
         self.manifest["layers"][3]["entries"].append(copy.deepcopy(self.manifest["layers"][0]["entries"][0]))
         self.write_manifest(self.manifest)
