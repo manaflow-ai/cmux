@@ -3,15 +3,15 @@ import Foundation
 
 /// Browser creation options shared by main-workspace and Dock split hosts.
 struct BrowserSplitRequest: Sendable {
-    let url: URL?
-    let focus: Bool
-    let preferredProfileID: UUID?
-    let chromeVisibility: BrowserChromeVisibility
-    let transparentBackground: Bool
-    let bypassRemoteProxy: Bool
-    let preloadInBackground: Bool
+    nonisolated let url: URL?
+    nonisolated let focus: Bool
+    nonisolated let preferredProfileID: UUID?
+    nonisolated let chromeVisibility: BrowserChromeVisibility
+    nonisolated let transparentBackground: Bool
+    nonisolated let bypassRemoteProxy: Bool
+    nonisolated let preloadInBackground: Bool
 
-    init(
+    nonisolated init(
         url: URL?,
         focus: Bool,
         preferredProfileID: UUID? = nil,
