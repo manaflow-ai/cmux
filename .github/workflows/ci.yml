@@ -1111,6 +1111,7 @@ jobs:
       - name: Restore compiled app-host test product
         env:
           CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
+          CMUX_R2_RESTORED: ${{ steps.r2-products.outputs.hit }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
         run: scripts/ci/restore-app-host-test-product.sh
 
@@ -3188,6 +3189,7 @@ jobs:
       - name: Restore compiled app-host test product
         env:
           CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
+          CMUX_R2_RESTORED: ${{ steps.r2-products.outputs.hit }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
         run: scripts/ci/restore-app-host-test-product.sh
 
