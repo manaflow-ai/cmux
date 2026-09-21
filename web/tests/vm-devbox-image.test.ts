@@ -266,10 +266,9 @@ describe("devbox image template", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
     const blesh = path.join(directory, "blesh");
     const transientRuntime = path.join(directory, "transient-runtime");
-    const bootRuntime = "/tmp/cmux-blesh-runtime-" + (process.getuid?.() ?? 0);
+    const bootRuntime = path.join(directory, "boot-runtime");
     mkdirSync(blesh);
     mkdirSync(transientRuntime);
-    rmSync(bootRuntime, { recursive: true, force: true });
     writeFileSync(path.join(blesh, "ble.sh"), [
       "BLE_VERSION=fixture",
       "bleopt() { :; }",
@@ -285,6 +284,7 @@ describe("devbox image template", () => {
       bashrc
         .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
         .replaceAll("/etc/cmux", directory)
+        .replaceAll("/tmp/cmux-blesh-runtime-${UID}", bootRuntime)
         .replaceAll("/usr/local/share/blesh", blesh),
     );
     try {

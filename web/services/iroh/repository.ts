@@ -1531,7 +1531,41 @@ async function drainIrohRetention(input: {
   const nowIso = input.now.toISOString();
   const challengeCutoffIso = challengeRetentionCutoff.toISOString();
   const auditCutoffIso = auditRetentionCutoff.toISOString();
-  const operations: readonly RetentionBatchOperation[] = [
+  const operations = buildRetentionOperations(nowIso, challengeCutoffIso, auditCutoffIso);
+  const byCategory: Record<IrohRetentionCategory, number> = {
+    revokedHints: 0,
+    expiredHints: 0,
+    expiredChallenges: 0,
+    consumedChallenges: 0,
+    relayAudits: 0,
+    pairGrantAudits: 0,
+    revokedBindings: 0,
+  };
+  const deadline = Date.now() + maxDurationMs;
+  const { rowsProcessed, batches } = await runRetentionOperations(
+    operations,
+    maxRows,
+    deadline,
+    byCategory,
+  );
+
+  const budgetExhausted = rowsProcessed >= maxRows
+    ? "rows"
+    : Date.now() >= deadline
+      ? "time"
+      : null;
+  const backlog = budgetExhausted === "time"
+    ? true
+    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
+  return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
+}
+
+function buildRetentionOperations(
+  nowIso: string,
+  challengeCutoffIso: string,
+  auditCutoffIso: string,
+): readonly RetentionBatchOperation[] {
+  return [
     {
       category: "revokedHints",
       run: (limit) => runRetentionBatch(async (tx) => await tx.execute(sql`
@@ -1718,32 +1752,6 @@ async function drainIrohRetention(input: {
       `)),
     },
   ];
-  const byCategory: Record<IrohRetentionCategory, number> = {
-    revokedHints: 0,
-    expiredHints: 0,
-    expiredChallenges: 0,
-    consumedChallenges: 0,
-    relayAudits: 0,
-    pairGrantAudits: 0,
-    revokedBindings: 0,
-  };
-  const deadline = Date.now() + maxDurationMs;
-  const { rowsProcessed, batches } = await runRetentionOperations(
-    operations,
-    maxRows,
-    deadline,
-    byCategory,
-  );
-
-  const budgetExhausted = rowsProcessed >= maxRows
-    ? "rows"
-    : Date.now() >= deadline
-      ? "time"
-      : null;
-  const backlog = budgetExhausted === "time"
-    ? true
-    : await irohRetentionBacklogExists(input.now, challengeRetentionCutoff, auditRetentionCutoff);
-  return { rowsProcessed, batches, backlog, budgetExhausted, byCategory };
 }
 
 async function runRetentionOperations(
