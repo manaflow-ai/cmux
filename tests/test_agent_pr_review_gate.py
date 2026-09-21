@@ -1,6 +1,8 @@
 import importlib.util
 import unittest
+from unittest import mock
 import sys
+import urllib.error
 from pathlib import Path
 
 path = Path(__file__).parents[1] / ".github/scripts/agent-pr-review-gate.py"
@@ -81,6 +83,28 @@ class AgentPRReviewGateTests(unittest.TestCase):
         ledger = gate.review_ledger(pr, gate.DEFAULT_REVIEW_BOTS, ("agent-author",))
         self.assertEqual(ledger[0].disposition, "resolved_unverified")
 
+    def test_attention_needed_tracks_unanswered_actionable_findings(self):
+        unanswered = gate.review_ledger(
+            make_pr(threads=[thread()]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertTrue(gate.attention_needed(unanswered))
+
+        answered = gate.review_ledger(
+            make_pr(threads=[thread(reply=True)]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertFalse(gate.attention_needed(answered))
+
+        outdated = gate.review_ledger(
+            make_pr(threads=[thread(outdated=True)]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertFalse(gate.attention_needed(outdated))
+
     def test_unavailable_provider_is_not_an_actionable_thread(self):
         pr = make_pr(
             reviews=[review("coderabbitai")],
@@ -133,6 +157,72 @@ class AgentPRReviewGateTests(unittest.TestCase):
                 os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = previous
         self.assertFalse(passed)
         self.assertTrue(any("coderabbitai" in reason for reason in reasons))
+
+    def test_sync_attention_label_creates_and_adds_missing_label(self):
+        pr = make_pr()
+        pr["number"] = 42
+        items = gate.review_ledger(
+            make_pr(threads=[thread()]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        not_found = urllib.error.HTTPError("https://api.github.test", 404, "missing", {}, None)
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                raise not_found
+            return {}
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.sync_attention_label(pr, items, "review: needs-attention"), "present")
+
+        self.assertEqual(calls[0][:2], ("GET", "labels/review%3A%20needs-attention"))
+        self.assertEqual(calls[1][0:2], ("POST", "labels"))
+        self.assertEqual(calls[2], (
+            "POST",
+            "issues/42/labels",
+            {"labels": ["review: needs-attention"]},
+        ))
+
+    def test_sync_attention_label_tolerates_create_race(self):
+        pr = make_pr()
+        pr["number"] = 42
+        items = gate.review_ledger(
+            make_pr(threads=[thread()]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        not_found = urllib.error.HTTPError("https://api.github.test", 404, "missing", {}, None)
+        exists = urllib.error.HTTPError("https://api.github.test", 422, "exists", {}, None)
+
+        def github_rest(method, path, payload=None):
+            if method == "GET":
+                raise not_found
+            if method == "POST" and path == "labels":
+                raise exists
+            return {}
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.sync_attention_label(pr, items, "review: needs-attention"), "present")
+
+    def test_sync_attention_label_removes_stale_label_and_ignores_missing(self):
+        pr = make_pr()
+        pr["number"] = 42
+        missing = urllib.error.HTTPError("https://api.github.test", 404, "missing", {}, None)
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "DELETE":
+                raise missing
+            return {}
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.sync_attention_label(pr, [], "review: needs-attention"), "absent")
+
+        self.assertEqual(calls[-1][0:2], ("DELETE", "issues/42/labels/review%3A%20needs-attention"))
 
     def test_outdated_and_informational_threads_are_not_obligations(self):
         informational = thread()
