@@ -43,8 +43,15 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         prepare = next(step for step in steps if step.get("name") == "Prepare receipt-test Python")
         self.assertIn("python3 -m venv", prepare["run"])
         self.assertIn("PyYAML==6.0.3", prepare["run"])
-        commands = "\n".join(str(step.get("run", "")) for step in steps)
-        self.assertIn("$CACHE_RECEIPT_PYTHON", commands)
+        execution_runs = [
+            str(step["run"])
+            for step in steps
+            if "tests/test_ci_cache_restore_receipt.py" in str(step.get("run", ""))
+            or "scripts/check-test-determinism.py" in str(step.get("run", ""))
+        ]
+        self.assertEqual(len(execution_runs), 2)
+        for command in execution_runs:
+            self.assertIn("$CACHE_RECEIPT_PYTHON", command)
 
     def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
