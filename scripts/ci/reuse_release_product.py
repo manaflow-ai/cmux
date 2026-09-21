@@ -385,11 +385,11 @@ def restore(api, value: dict, derived: Path, current_run: str, current_attempt: 
                 if destination.exists() or destination.is_symlink():
                     raise ValueError("reuse destination must be empty")
                 destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(app), destination)
                 products_root = derived / "Build/Products"
-                shutil.copy2(staging / Path(RECEIPT_REL), products_root / RECEIPT)
+                receipt_destination = products_root / RECEIPT
+                provenance_destination = products_root / PROVENANCE
                 consumer_revision = app_host_reuse.read("git", "rev-parse", "HEAD")
-                (products_root / PROVENANCE).write_text(json.dumps({
+                provenance = json.dumps({
                     "route": "github_artifact",
                     "run_url": run.get("html_url", ""),
                     "run_id": str(run["id"]),
@@ -397,7 +397,19 @@ def restore(api, value: dict, derived: Path, current_run: str, current_attempt: 
                     "revision": revision,
                     "artifact_id": artifact["id"],
                     "consumer_revision": consumer_revision,
-                }, sort_keys=True, indent=2) + "\n")
+                }, sort_keys=True, indent=2) + "\n"
+                try:
+                    shutil.move(str(app), destination)
+                    shutil.copy2(staging / Path(RECEIPT_REL), receipt_destination)
+                    provenance_destination.write_text(provenance)
+                except Exception:
+                    if destination.is_symlink() or destination.is_file():
+                        destination.unlink(missing_ok=True)
+                    else:
+                        shutil.rmtree(destination, ignore_errors=True)
+                    receipt_destination.unlink(missing_ok=True)
+                    provenance_destination.unlink(missing_ok=True)
+                    raise
                 return {
                     "hit": True,
                     "outcome": "exact_restore",
