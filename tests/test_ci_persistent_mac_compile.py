@@ -295,7 +295,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("      actions: read", admission)
         self.assertIn("      pull-requests: read", admission)
         self.assertIn("--observe-only", admission)
-        self.assertIn("--observe-seconds 60", admission)
+        self.assertIn("--observe-seconds 5", admission)
+        resolve_index = admission.index("- name: Resolve Swift packages")
+        route_index = admission.index("- name: Observe persistent Mac compile candidate")
+        compile_index = admission.index("- name: Compile app-host test product")
+        self.assertLess(resolve_index, route_index)
+        self.assertLess(route_index, compile_index)
 
     def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
