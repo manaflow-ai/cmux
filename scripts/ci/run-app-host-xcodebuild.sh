@@ -12,7 +12,10 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 log_dir="${RUNNER_TEMP:-/tmp}"
-log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
+log_tag="${CMUX_TAG:-untagged}"
+# Keep every invocation distinct. Focused suites run sequentially in one job,
+# and a shared "untagged" stem used to overwrite earlier retry evidence.
+log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-$"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
@@ -231,7 +234,14 @@ validate_app_host_config_paths() {
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
+  metadata_path="${log_stem}-attempt-${attempt}.meta"
   : >"$log_path"
+  {
+    echo "shard=${CMUX_APP_HOST_SHARD:-unknown}"
+    echo "tag=$log_tag"
+    echo "attempt=$attempt"
+    printf 'arg=%q\n' "${app_host_xcodebuild_arguments[@]}"
+  } >"$metadata_path"
   # Recover only this run key's prior attempt. A live foreign key fails the
   # complete preflight without signaling any PID, so one runner service cannot
   # terminate another service's healthy app host.
@@ -279,6 +289,10 @@ while [ "$attempt" -le "$max_attempts" ]; do
     fi
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
+      if ! python3 "$ci_script_dir/classify-app-host-test-output.py"         "$log_path" --retry-safe; then
+        echo "Preserving app-host failure from attempt $attempt; retry blocked after test execution evidence" >&2
+        exit "$status"
+      fi
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       kill_stale_app_host
       attempt=$((attempt + 1))
