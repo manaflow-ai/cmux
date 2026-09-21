@@ -7,7 +7,10 @@ setDefaultTimeout(30_000);
 // One canned health payload per request path; the script only sees an HTTP endpoint.
 const responses = new Map<string, { status: number; body: unknown }>();
 let server: ReturnType<typeof Bun.serve>;
-const head = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { stdout: "pipe" }).stdout).trim();
+// Inherited repository-selection variables must not redirect Git in the test or the checker.
+const GIT_SELECTION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
+const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_SELECTION_VARIABLES.includes(key)));
+const head = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { stdout: "pipe", env: cleanEnvironment }).stdout).trim();
 
 beforeAll(() => {
   server = Bun.serve({
@@ -25,7 +28,7 @@ async function run(path: string, canned: { status: number; body: unknown }) {
   responses.set(path, canned);
   // Asynchronous spawn: the in-process fixture server must keep serving while the script runs.
   const child = Bun.spawn(["bun", join(import.meta.dir, "../scripts/check-production-drift.ts"), "--url", `http://127.0.0.1:${server.port}${path}`, "--base", "HEAD"], {
-    cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe",
+    cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe", env: cleanEnvironment,
   });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { exit, output: stdout + stderr };

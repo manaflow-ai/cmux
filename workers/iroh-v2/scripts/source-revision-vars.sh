@@ -8,6 +8,10 @@
 #   --var CMUX_SOURCE_REVISION:<40-hex sha or unknown>
 set -euo pipefail
 
+# Inherited repository-selection variables could point Git at another
+# repository and publish a revision this tree was not built from.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+
 revision="unknown"
 if command -v git >/dev/null 2>&1 && git rev-parse --verify HEAD >/dev/null 2>&1; then
   revision="$(git rev-parse HEAD)"

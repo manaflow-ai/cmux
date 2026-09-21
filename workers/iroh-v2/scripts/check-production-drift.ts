@@ -27,8 +27,12 @@ function argument(flag: string): string | undefined {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+/** Inherited repository-selection variables must not redirect the ancestry check to another repository. */
+const GIT_SELECTION_VARIABLES = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
+const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_SELECTION_VARIABLES.includes(key)));
+
 function git(...args: string[]): { ok: boolean; output: string } {
-  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe", env: gitEnvironment });
   return { ok: result.exitCode === 0, output: new TextDecoder().decode(result.stdout).trim() };
 }
 

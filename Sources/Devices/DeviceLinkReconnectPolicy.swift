@@ -50,6 +50,9 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
     private(set) var phase: Phase = .idle
     /// The directory's latest verdict, remembered so a wait can re-check it.
     private(set) var isDialable = false
+    /// The directory's latest precondition. It outranks every other retry
+    /// signal: only a later directory event can clear it.
+    private(set) var directoryPrecondition: DeviceLinkFailure?
     private var connectedSince: Date?
     private var shortLivedLosses = 0
     static let stableConnectionInterval: TimeInterval = 30
@@ -62,6 +65,7 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
             shortLivedLosses = 0
         case .directory(let dialable, let precondition):
             isDialable = dialable
+            directoryPrecondition = precondition
             if !dialable {
                 phase = .idle
                 connectedSince = nil
@@ -112,6 +116,12 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
             phase = isDialable ? .connecting(attempt: attempt + 1) : .idle
         case .refreshRequested:
             guard isDialable else { phase = .idle; return phase }
+            if let directoryPrecondition {
+                // A refresh re-reads the directory; it cannot override what
+                // the directory already proved. A live link stays live.
+                if phase != .connected { phase = .blocked(directoryPrecondition) }
+                return phase
+            }
             switch phase {
             case .idle, .waiting, .blocked:
                 shortLivedLosses = 0
