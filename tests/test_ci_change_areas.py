@@ -1565,6 +1565,19 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     )
 
 
+def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
+    app_host = workflow_job_block("app-host-unit-tests")
+
+    assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
+    assert "- name: Collect app-host failure diagnostics" in app_host
+    assert "- name: Upload app-host failure diagnostics" in app_host
+    assert "cmux-app-host-xcodebuild-*.meta" in app_host
+    assert "cmux-app-host-xcresults" in app_host
+    assert ".local/state/cmux/crash" in app_host
+    assert "Library/Logs/DiagnosticReports" in app_host
+    assert "if: ${{ failure() }}" in app_host
+
+
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
