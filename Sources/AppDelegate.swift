@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import CmuxCloudMachines
 import AppKit
 import CmuxAppKitSupportUI
@@ -55,6 +56,8 @@ struct WorkspaceGroupNewWorkspaceTarget {
 final class CmuxDebugWindowsCoordinator {
     private let aboutTitlebarCoordinator: DebugWindowsCoordinator
 #if DEBUG
+    let cloudSidebarDebugSettings = CloudSidebarDebugSettings(defaults: .standard)
+    lazy var cloudSidebarDebugLabController = CloudSidebarDebugLabWindowController(settings: cloudSidebarDebugSettings)
     private lazy var sidebarFooterIconBalanceController =
         SidebarFooterIconBalanceDebugWindowController(decorator: decorator)
 #endif
@@ -549,12 +552,12 @@ final class CmuxMainThreadTurnProfiler {
     }
 }
 #endif
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
     /// Stateless control-socket syscall layer (CmuxControlSocket); composition-root owned.
     nonisolated let socketTransport = SocketTransport()
+    nonisolated let processSnapshotService = CmuxTopProcessSnapshot.makeProcessSnapshotService()
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = CmuxDebugWindowsCoordinator(decorator: self)
@@ -1146,11 +1149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 #endif
-
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] {
         get { mainWindowLifecycleCoordinator.registeredContextsByLookupKey }
         set { mainWindowLifecycleCoordinator.replaceRegisteredContextLookups(newValue) }
     }
+    var saveWorkspaceActionTasks: [UUID: Task<Void, Never>] = [:]
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
     var cloudOperations: CloudOperationRecorder?
@@ -2531,8 +2534,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         tabDragTransferRegistryStorage = tabManager.tabDragTransferRegistry
-        // SwiftUI constructs the initial TabManager before this delegate is
-        // available; adopt its coordinators so every later window shares them.
+        // Adopt the bootstrap manager's coordinators so later windows share them.
         pullRequestProbeService = tabManager.pullRequestProbeService
         self.settingsRuntime = settingsRuntime
         self.notificationStore = notificationStore
@@ -7019,10 +7021,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         return nil
     }
-
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
         guard transitionMainWindowContextToClosing(removed, window: window) else { return nil }
+        saveWorkspaceActionTasks.removeValue(forKey: removed.windowId)?.cancel()
         // A closing window cannot leave a switch transaction holding renderer
         // protection or frame-notification demand after its context is retired.
         removed.tabManager.workspaceSwitchCoordinator.cancel()
@@ -9207,6 +9209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// attach entrypoint, closed-history record, launcher child, or managed
     /// VPN configuration behind.
     func endCloudVMAccess(reason: CloudVMAccessEndReason) {
+        SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.cancelAll()
         CloudVMActionLauncher.shared.cancelAllForAuthTransition()
         let disconnectedDetail: String
         switch reason {
@@ -10218,7 +10221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
-            fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator
+            fileContentChangeCoordinator: self.tabManager?.fileContentChangeCoordinator,
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator?.makeSelectionState()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -15064,25 +15068,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            ) {
             return false
         }
-
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            globalSearchShortcut.hasChord,
            globalSearchShortcutWhenClauseAllows(event: event),
            armConfiguredShortcutChordIfNeeded(event: event, actions: [], shortcuts: [globalSearchShortcut]) {
             return true
         }
-
         if matchesGlobalSearchShortcut {
             toggleGlobalSearchPalette()
             return true
         }
-
         if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
             return true
         }
-
         if handleSavedLayoutShortcut(event) { return true }
 
         if !hasFocusedAddressBarInShortcutContext,
@@ -15097,6 +15097,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if matchConfiguredShortcut(event: event, action: .openSettings) {
             openPreferencesWindow(debugSource: "shortcut.openSettings")
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .openTeamPicker) {
+            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
@@ -15146,7 +15150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudWorkspaceOnDefaultMachineAction(
+            return performNewCloudWorkspaceOnResolvedMachineAction(
                 preferredWindow: mainWindowForShortcutEvent(event),
                 debugSource: "shortcut.cmdShiftY"
             )
@@ -15156,7 +15160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newCloudMachine \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            return performNewCloudWorkspaceAction(event: event, debugSource: "shortcut.cmdY")
+            return performNewCloudMachineAction(event: event, debugSource: "shortcut.cmdY")
         }
 
         // New Window: Cmd+Shift+N
@@ -17622,15 +17626,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .newCloudWorkspace:
-                let didStart = performNewCloudWorkspaceOnDefaultMachineAction(
-                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+                let didStart = performNewCloudWorkspaceOnResolvedMachineAction(
+                    tabManager: context.tabManager, preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.newCloudWorkspace",
                     destination: destination
                 )
                 if didStart { onExecuted?() }
                 return didStart
             case .newCloudMachine:
-                let didStart = performNewCloudWorkspaceAction(
+                let didStart = performNewCloudMachineAction(
                     tabManager: context.tabManager,
                     preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
                     debugSource: "configured.cmux.newCloudMachine",
@@ -18562,7 +18566,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             captureWindowConfigFrame(window, reason: "windowClose")
             persistWindowGeometry(from: window)
         }
-
         if let context {
             if let exactWindow = window ?? context.window {
                 guard unregisterMainWindowContext(for: exactWindow) != nil else {
@@ -18572,6 +18575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // A context can outlive its AppKit window during SwiftUI scene
                 // replacement. Move it through the coordinator's orphan phase
                 // so the same authoritative close path can retire it.
+                saveWorkspaceActionTasks.removeValue(forKey: windowId)?.cancel()
                 guard transitionMainWindowContextToOrphaned(context),
                       let route = recoverableMainWindowRoute(windowId: windowId),
                       route.tabManager === closingTabManager else {

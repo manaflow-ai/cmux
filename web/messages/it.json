@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },
@@ -86,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica la tua e-mail per continuare",
     "emailUnverifiedBody": "Accedi con il metodo usato inizialmente, poi verifica la tua e-mail prima di usare questo metodo di accesso.",
+    "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"
@@ -323,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "panoramica",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Dispositivi mobili"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -368,23 +369,25 @@
         "loading": "Caricamento…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Dispositivi mobili",
+      "description": "Gestisci l’accesso ai computer, telefoni e tablet collegati.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "teamSwitchError": "Impossibile cambiare team. Riprova.",
+      "loading": "Caricamento dei dispositivi…",
+      "empty": "Non ci sono dispositivi registrati per questo team.",
+      "unavailable": "Impossibile caricare i dispositivi. Aggiorna la pagina e riprova.",
+      "retry": "Riprova",
+      "mutationError": "Non è stato possibile completare la modifica del dispositivo.",
+      "revoke": "Revoca accesso",
+      "deviceId": "Dispositivo",
+      "revision": "Revisione",
+      "status": "Stato",
+      "active": "Attivo",
+      "revoked": "Revocato",
+      "relaySettings": "Impostazioni relay",
+      "relaySettingsDescription": "Scegli i server relay usati da questo team. Inserisci un URL per riga.",
+      "saveRelaySettings": "Salva impostazioni relay"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Condividi con il team",
@@ -1340,7 +1343,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato. New Cloud Workspace usa la macchina dell’ultimo spazio di lavoro Cloud selezionato, poi la prima macchina nella barra laterale destra; New Cloud Machine esegue intenzionalmente il provisioning di una macchina.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",

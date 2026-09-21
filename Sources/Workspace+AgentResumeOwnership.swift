@@ -1,4 +1,6 @@
+import CmuxFoundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 extension Workspace {
@@ -25,7 +27,8 @@ extension Workspace {
             panelId: panelId,
             recordedProcess: recordedProcess,
             liveIndex: SharedLiveAgentIndex.shared.index,
-            foregroundProcessID: terminalPanel(for: panelId)?.surface.foregroundProcessID()
+            foregroundProcessID: terminalPanel(for: panelId)?.surface.foregroundProcessID(),
+            foregroundProcessIdentity: { AgentPIDProcessIdentity(pid: $0) }
         )
     }
 

@@ -5261,7 +5261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``hideMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
     /// not whether a stored paired Mac is known.
-    func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+    package func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -15796,9 +15796,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.connectionState == .connected,
                self?.remoteClient != nil {
-                await self?.refreshSecondaryMacWorkspaces(
-                    discoverLivePeers: true
-                )
+                // Reconnection/discovery has its own coalesced, cancellable
+                // owner. An offline saved Mac must not hold the foreground
+                // refresh spinner (or terminal navigation) until a dial timeout.
+                self?.scheduleSecondaryAggregation(discoverLivePeers: true)
             }
         }
         pullToRefreshTask = task

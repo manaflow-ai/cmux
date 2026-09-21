@@ -1,12 +1,33 @@
 import Foundation
 
 extension SurfaceCatalog {
+    /// Reconciles machine-summary workspace names with the accepted daemon graph.
+    /// Resource rows may carry optimistic creation or rename overlays, but the
+    /// authoritative snapshot must expose the last accepted name for identities
+    /// already present in `cloudStates`.
+    private func authoritativeMachineInfo(_ info: SurfaceMachineInfo) -> SurfaceMachineInfo {
+        guard case .cloud = info.id,
+              let state = cloudStates[info.id],
+              let workspaces = info.remoteWorkspaces else { return info }
+        let accepted = Dictionary(uniqueKeysWithValues: state.workspaces.map { workspace in
+            (workspace.id, SurfaceRemoteWorkspace(
+                id: workspace.id,
+                name: workspace.name,
+                index: workspace.index,
+                focused: workspace.focused
+            ))
+        })
+        var adjusted = info
+        adjusted.remoteWorkspaces = workspaces.map { accepted[$0.id] ?? $0 }
+        return adjusted
+    }
+
     /// The provider rows without any deletion or rename intent applied, used to
     /// enumerate destructive operations. Presentation still withholds a stale
     /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(
-            machines: machines.values.sorted {
+            machines: machines.values.map(authoritativeMachineInfo).sorted {
                 if $0.id.isLocal != $1.id.isLocal { return $0.id.isLocal }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             },
@@ -20,9 +41,23 @@ extension SurfaceCatalog {
     /// sidebar/CLI readers, so every entrypoint sees one optimistic tree.
     var snapshot: SurfaceCatalogSnapshot {
         var result = authoritativeSnapshot
+        applyPendingWorkspaceCreations(to: &result)
         applyPendingDeletions(to: &result)
         applyPendingRenames(to: &result)
         return result
+    }
+
+    private func applyPendingWorkspaceCreations(to result: inout SurfaceCatalogSnapshot) {
+        var pending: [SurfaceMachineID: [String: UUID]] = [:]
+        for operation in cloudWorkspaceCreationCoordinator.operations.values {
+            guard let receipt = operation.receipt, let reservation = operation.reservation,
+                  let index = result.machines.firstIndex(where: { $0.id == operation.machine }) else { continue }
+            pending[operation.machine, default: [:]][receipt.workspace.id] = reservation.workspaceID
+            if result.machines[index].remoteWorkspaces?.contains(where: { $0.id == receipt.workspace.id }) != true {
+                result.machines[index].remoteWorkspaces = (result.machines[index].remoteWorkspaces ?? []) + [receipt.workspace]
+            }
+        }
+        result.pendingWorkspaceCreations = pending.isEmpty ? nil : pending
     }
 
     /// Hides workspaces admitted for deletion. Shared browser/display resources

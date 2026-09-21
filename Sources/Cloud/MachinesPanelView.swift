@@ -26,6 +26,9 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
+#if DEBUG
+    @Environment(\.cloudSidebarDebugSettings) private var cloudSidebarDebugSettings
+#endif
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
@@ -33,24 +36,20 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
-        defaultMachineStore: DefaultCloudMachineStore,
         machinePinStore: CloudMachinePinStore? = nil,
         tabManager: TabManager? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore
-        ))
-    }
-
-    init(chromeBackgroundColor: NSColor, machinePinStore: CloudMachinePinStore? = nil, tabManager: TabManager? = nil) {
-        self.init(
-            chromeBackgroundColor: chromeBackgroundColor,
-            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
             machinePinStore: machinePinStore,
-            tabManager: tabManager
-        )
+            localWorkspacesProvider: { [weak tabManager] in
+                guard let tabManager else { return [] }
+                return tabManager.tabs.map {
+                    CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == tabManager.selectedTabId)
+                }
+            }
+        ))
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -82,14 +81,11 @@ struct MachinesPanelView: View {
         }
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
-        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+        .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
-        }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -463,10 +459,19 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
     }
+    private var resolvedTreeStyle: CloudTreeStyle {
+        let base = CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
+#if DEBUG
+        return cloudSidebarDebugSettings?.metrics.resolvedStyle(base) ?? base
+#else
+        return base
+#endif
+    }
+
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
@@ -482,23 +487,20 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
-        }
-        machineActions.setPinned = { [weak viewModel] id, pinned in
-            viewModel?.setMachinePinned(pinned, id: id)
-        }
+        viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                tabManager?.selectedTabId = workspaceID
             },
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
+            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
         )
         return CloudTreeOutlineView(
             machines: viewModel.sidebarMachines,
@@ -509,7 +511,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
+            style: resolvedTreeStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")

@@ -1,3 +1,4 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
@@ -421,6 +422,7 @@ export async function revokeRouteToken(
 }
 
 export async function deleteAccount(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly teamId: string;
   readonly stackUserId?: string;
   readonly accountId: string;
@@ -435,7 +437,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
-        nativeAccess(input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined),
+        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -637,6 +639,7 @@ export async function encryptedCredentialForAccount(
 }
 
 export async function insertAccountWithCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly createdBy?: string;
   readonly visibility?: "private" | "team";
   readonly credential: CodeRouterCredential;
@@ -675,11 +678,13 @@ export async function insertAccountWithCredential(input: {
       .returning({ id: coderouterAccounts.id });
     if (!inserted) return false;
     await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    await grantVmImportedAccount(tx, input.encrypted.teamId, inserted.id, "native", input.access);
     return true;
   });
 }
 
 export async function replaceAccountCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
   readonly expectedRevision: number;
@@ -714,6 +719,7 @@ export async function replaceAccountCredential(input: {
       })
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
+        nativeAccess(input.access),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
         eq(coderouterAccounts.vaultRevision, input.expectedRevision),
       ))
@@ -809,6 +815,7 @@ export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
   providerAccountId: string,
+  access?: CoderouterAccountAccess,
 ): Promise<{ id: string; state: string; vaultRevision: number; visibility: "private" | "team"; createdBy: string | null } | null> {
   const [row] = await cloudDb()
     .select({
@@ -823,6 +830,7 @@ export async function findAccountByProviderIdentity(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.providerAccountId, providerAccountId),
+      nativeAccess(access),
     ))
     .limit(1);
   return row ?? null;
@@ -856,9 +864,9 @@ export async function bindCodexOwnerIdentity(input: {
   return row !== undefined;
 }
 
-export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential, access?: CoderouterAccountAccess): Promise<void> {
   await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
-    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId), nativeAccess(access)));
 }
 
 export type RoutedAccount = {

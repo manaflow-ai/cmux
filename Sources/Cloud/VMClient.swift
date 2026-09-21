@@ -33,8 +33,6 @@ extension URLError.Code {
     }
 }
 
-
-
 func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = trimmedBody.data(using: .utf8),
@@ -553,18 +551,6 @@ struct VMPublicationDomain: Equatable, Sendable {
     }
 }
 
-
-/// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
-/// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
-/// (an unknown reflection path), so the CLI can print the paths that do exist.
-struct VMReflectionResult: Sendable {
-    let statusCode: Int
-    let body: Data
-
-    var object: [String: Any] {
-        ((try? JSONSerialization.jsonObject(with: body, options: [])) as? [String: Any]) ?? [:]
-    }
-}
 
 /// One row of `GET /api/vm/<id>/snapshots`: the provider snapshot id, its display name
 /// when one was given, and the creation time as the ISO-8601 string the server sent.
@@ -2012,7 +1998,6 @@ actor VMClient {
             // safety net when this tail cannot reach the API.
         }
     }
-
     private func revokeCloudAccess(
         deviceID: String,
         accessToken: String?,
@@ -2038,7 +2023,6 @@ actor VMClient {
         } catch {
         }
     }
-
 
     func withOperation<T>(
         _ kind: CloudOperationKind, foreground: Bool,
@@ -2182,7 +2166,6 @@ actor VMClient {
         }
         return traceId
     }
-
     private func performRequest(
         _ method: String,
         path: String,
@@ -2199,19 +2182,21 @@ actor VMClient {
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
+        let requestedTeamID = await auth.resolvedTeamID
         guard isAuthenticated || isRestoringSession else {
             throw VMClientError.notSignedIn
         }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }
-        let teamID = await auth.resolvedTeamID
-
+        let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
@@ -2219,7 +2204,6 @@ actor VMClient {
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }
-
         var req = URLRequest(url: resolved)
         req.httpMethod = method
         if let timeoutSeconds {
@@ -2237,7 +2221,6 @@ actor VMClient {
         for (key, value) in extraHeaders {
             req.setValue(value, forHTTPHeaderField: key)
         }
-
         // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
         // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
         // retry. Waiting out Retry-After here turns a transient throttle into a short pause
@@ -2245,6 +2228,9 @@ actor VMClient {
         var retriesLeft = 2
         while true {
             try Task.checkCancellation()
+            guard await auth.resolvedTeamID == requestedTeamID else {
+                throw VMClientError.notSignedIn
+            }
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
@@ -2321,10 +2307,14 @@ actor VMClient {
                     throw VMClientError.notSignedIn
                 }
             }
+            if let requestedTeamID {
+                guard await auth.resolvedTeamID == requestedTeamID else {
+                    throw VMClientError.notSignedIn
+                }
+            }
             return (data, http)
         }
     }
-
     private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
         struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
         var progress = request
@@ -2725,7 +2715,9 @@ actor MachineUsageClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw MachineUsageClientError.sessionRefreshFailed
         } catch {
             throw MachineUsageClientError.notSignedIn

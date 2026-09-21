@@ -309,11 +309,12 @@ struct RightSidebarToolPanelView: View {
             if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
                 MachinesPanelView(
                     chromeBackgroundColor: resolvedChromeBackgroundColor,
-                    defaultMachineStore: AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore
-                        ?? DefaultCloudMachineStore(defaults: .standard),
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager
                 )
+#if DEBUG
+                .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
+#endif
             }
         case .feed, .dock, .customSidebar:
             EmptyView()

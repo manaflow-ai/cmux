@@ -321,7 +321,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
-        "debug.app.activate",
+        "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -1158,7 +1158,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1501,7 +1501,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1521,7 +1520,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1564,6 +1562,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -1720,9 +1720,22 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                let response = await self.v2SystemTopAsync(ControlRequest(
+                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                ))
+                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                }
+                switch typed {
+                case .ok(let value): return .ok(value.foundationObject)
+                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                }
+            }
         case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemMemory(params: request.params)
+            }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2VaultSessions(params: request.params)
@@ -1927,6 +1940,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "current.list":
+            return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
@@ -2957,6 +2972,10 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.spacing":
+            // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
+            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            return v2Ok(id: id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
@@ -3174,10 +3193,10 @@ class TerminalController {
             "auth.status",
             "auth.sign_in_url",
             "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.sign_out", "auth.team.list", "auth.team.use",
+            "auth.team.create",
             "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
+            "vm.list", "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -3232,7 +3251,7 @@ class TerminalController {
             "vm.tunnel_up",
             "vm.tunnel_down",
             "vm.tunnel_wait",
-            "surface.catalog",
+            "surface.catalog", "current.list",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",
@@ -3652,115 +3671,6 @@ class TerminalController {
 #if DEBUG
 #endif
 
-    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
-        let identifyPayload = v2Identify(params: [:])
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        var windowNodes: [[String: Any]] = []
-
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
-
-            for (windowIndex, summary) in summaries.enumerated() {
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                }
-                windowNodes.append(
-                    v2TopWindowNode(
-                        summary: summary,
-                        index: windowIndex,
-                        workspaceNodes: workspaceNodes
-                    )
-                )
-            }
-        }
-        v2AttachTopApplicationProcess(to: &windowNodes)
-
-        let processSnapshot = await withTaskGroup(
-            of: CmuxTopProcessSnapshot.self,
-            returning: CmuxTopProcessSnapshot.self
-        ) { group in
-            group.addTask(priority: .utility) {
-                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-            }
-            return await group.next()!
-        }
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
-            &annotatedWindows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: annotatedWindows
-        )
-
-        return [
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": NSNull(),
-            "sample": processSnapshot.samplePayload(),
-            "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "memory_diagnostic": memoryDiagnostic,
-            "program_totals": aggregates.programs,
-            "coding_agents": aggregates.codingAgents,
-            "windows": annotatedWindows
-        ]
-    }
-
-    nonisolated func processAggregates(
-        from processSnapshot: CmuxTopProcessSnapshot,
-        totalPIDs: Set<Int>
-    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
-        (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
-    }
-
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: params)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-        }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes
-        )
-
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
-        payload["memory_diagnostic"] = memoryDiagnostic
-        payload["program_totals"] = aggregates.programs
-        payload["coding_agents"] = aggregates.codingAgents
-        payload["windows"] = windowNodes
-        return .ok(payload)
-    }
-
     func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
@@ -3856,7 +3766,7 @@ class TerminalController {
         ])
     }
 
-    private func v2TopWindowNode(
+    func v2TopWindowNode(
         summary: AppDelegate.MainWindowSummary,
         index: Int,
         workspaceNodes: [[String: Any]]
@@ -3875,7 +3785,7 @@ class TerminalController {
         ]
     }
 
-    private func v2TopWorkspaceNode(
+    func v2TopWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
@@ -4160,9 +4070,7 @@ class TerminalController {
         guard let id else { return .null }
         return JSONValue(foundationObject: id)
     }
-    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
-    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
+    /// Bridges async work into a socket response while parking its worker on a semaphore.
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
