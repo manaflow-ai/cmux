@@ -8094,7 +8094,7 @@ mod tests {
         let path = dir.join("mux.json");
         std::fs::write(
             &path,
-            r#"{"machine_provider":{"command":["/opt/tui-cloud/provider.mjs","--fast"]}}"#,
+            r#"{"machine_provider":{"command":["/usr/local/bin/my-machine-provider","--control"]}}"#,
         )
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
@@ -8106,7 +8106,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             config.machine_provider.command,
-            Some(vec!["/opt/tui-cloud/provider.mjs".to_string(), "--fast".to_string()])
+            Some(vec![
+                "/usr/local/bin/my-machine-provider".to_string(),
+                "--control".to_string(),
+            ])
         );
     }
 
