@@ -58,9 +58,19 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             let command = probe.command
+            let submissionTask = Task { @MainActor in
+                await self.client.submitTerminalRawInput(command, surfaceID: surfaceID)
+                try Task.checkCancellation()
+                for try await _ in proof {
+                    try Task.checkCancellation()
+                    return
+                }
+                throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+            }
+            defer { submissionTask.cancel() }
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    try await self.submitAndAwaitProof(proof, command: command, surfaceID: surfaceID)
+                    try await submissionTask.value
                 }
                 group.addTask {
                     try await ContinuousClock().sleep(for: Self.verificationTimeout)
@@ -73,20 +83,6 @@ public final class MobileIrohReleaseGateTerminalSession {
             reset()
             throw error
         }
-    }
-
-    private func submitAndAwaitProof(
-        _ proof: AsyncThrowingStream<Void, any Error>,
-        command: Data,
-        surfaceID: String
-    ) async throws {
-        await client.submitTerminalRawInput(command, surfaceID: surfaceID)
-        try Task.checkCancellation()
-        for try await _ in proof {
-            try Task.checkCancellation()
-            return
-        }
-        throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
     }
 
     private func ensureReader(surfaceID: String) throws {
