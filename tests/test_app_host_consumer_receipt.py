@@ -66,6 +66,14 @@ class ConsumerReceiptTests(unittest.TestCase):
         self.assertEqual(value["route"], "github-aggregate")
         self.assertEqual(value["fallback_reasons"], ["layer-index-unavailable", "r2:disabled"])
 
+    def test_unknown_consumer_records_policy_fallback_instead_of_failing_start(self):
+        r.start("unknown-consumer", layer_index_id="50")
+        value = self.value()
+        self.assertEqual(value["consumer"], "unknown-consumer")
+        self.assertEqual(value["layers_requested"], [])
+        self.assertEqual(value["route"], None)
+        self.assertTrue(value["fallback_reasons"][0].startswith("layer-policy:ValueError:"))
+
     def test_layer_hit_rejects_selection_drift(self):
         r.start("tests-build-and-lag", layer_index_id="50")
         with self.assertRaisesRegex(ValueError, "authorized consumer layers"):
