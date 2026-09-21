@@ -58,17 +58,18 @@ final class BrowserPaneDropTargetView: NSView {
     ) -> Bool {
         guard WindowInputRoutingContext.allowsPaneDropHitTesting(eventType: eventType) else { return false }
         let routingContext = WindowInputRoutingContext(eventType: eventType)
+        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
+        let hasLiveInternalTransfer = hasLiveTabTransfer
+            || (hasFilePreviewTransfer && hasLiveFileDropPayload)
         // Mouse-up belongs to a drop destination only while its native drag
         // registration is live. Pasteboard payloads outlive completed drags.
         if routingContext.eventKind == .pointerUp,
            !hasActiveDropDrag,
-           !hasLiveTabTransfer,
-           !hasLiveFileDropPayload {
+           !hasLiveInternalTransfer {
             return false
         }
 
         let hasFileURL = DragOverlayRoutingPolicy.hasFileURL(pasteboardTypes)
-        let hasFilePreviewTransfer = DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
         // A Finder file URL remains on NSPasteboard.Name.drag after the drag
         // ends. During ordinary hover, require the registered native drag
         // session before letting that stale payload own the hit test.
