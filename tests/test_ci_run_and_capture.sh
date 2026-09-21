@@ -47,4 +47,24 @@ if ! kill -0 "$(cat "$TMP_DIR/child.pid")" 2>/dev/null; then
   exit 1
 fi
 
-echo "PASS: file-backed capture returns when the command exits even with a detached writer"
+# The live stream must contain every byte the command produced before exit,
+# including a final burst that can land between tail polling intervals.
+{
+  for i in $(seq 1 200); do
+    printf 'line-%03d\n' "$i"
+  done
+  printf 'final-marker-without-sleep\n'
+} >"$TMP_DIR/expected.log"
+/bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$TMP_DIR/exact-capture.log" \
+  /bin/cat "$TMP_DIR/expected.log" >"$TMP_DIR/exact-streamed.log" 2>&1
+if ! cmp -s "$TMP_DIR/expected.log" "$TMP_DIR/exact-capture.log"; then
+  echo "FAIL: authoritative capture differs from command output"
+  exit 1
+fi
+if ! cmp -s "$TMP_DIR/expected.log" "$TMP_DIR/exact-streamed.log"; then
+  diff -u "$TMP_DIR/expected.log" "$TMP_DIR/exact-streamed.log" || true
+  echo "FAIL: live stream omitted or duplicated final command output"
+  exit 1
+fi
+
+echo "PASS: file-backed capture returns promptly and drains final output exactly once"
