@@ -393,10 +393,18 @@ struct PostHogAnalyticsPropertiesTests {
         // successful control-plane response establishes that it was removed.
         #expect(flags.remoteValue(for: flag) == false)
         #expect(!flags.isConversationSidebarAvailable)
-        flags.start()
-        await probe.waitUntilCalled()
-        for _ in 0..<1_000 where flags.remoteValue(for: flag) != nil {
-            await Task.yield()
+        await confirmation("remote feature flags applied") { applied in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .cmuxFeatureFlagsDidChange,
+                object: flags,
+                queue: nil
+            ) { _ in
+                applied()
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            flags.start()
+            await probe.waitUntilCalled()
         }
         #expect(flags.remoteValue(for: flag) == nil)
         #expect(flags.isConversationSidebarAvailable)
