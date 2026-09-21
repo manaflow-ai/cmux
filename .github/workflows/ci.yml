@@ -55,6 +55,8 @@ jobs:
       ghosttykit_release: ${{ steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
+      source_tree: ${{ steps.source-identity.outputs.tree }}
+      source_parent1: ${{ steps.source-identity.outputs.parent1 }}
     permissions:
       actions: read
       contents: read
@@ -64,6 +66,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+
+      - name: Record GitHub-selected source identity
+        id: source-identity
+        run: |
+          set -euo pipefail
+          read -r commit parent1 parent2 extra <<EOF
+          $(git rev-list --parents -n1 HEAD)
+          EOF
+          [ "$commit" = "$GITHUB_SHA" ]
+          [ -z "${extra:-}" ]
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          echo "parent1=${parent1:-}" >> "$GITHUB_OUTPUT"
 
       - name: Detect CI change areas
         id: detect
@@ -273,6 +287,56 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+
+      # The PR workflow only publishes immutable request evidence. Dispatch and
+      # cancellation authority live in persistent-macos-router.yml on main.
+      - name: Publish persistent Mac route request
+        id: persistent-route-request
+        if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_TREE: ${{ steps.source-identity.outputs.tree }}
+          SOURCE_PARENT1: ${{ steps.source-identity.outputs.parent1 }}
+        run: |
+          set -euo pipefail
+          request="$RUNNER_TEMP/persistent-mac-route-request.json"
+          REQUEST="$request" python3 - <<'PY'
+          import json
+          import os
+
+          payload = {
+              "schema_version": 1,
+              "request_id": f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}",
+              "pr_number": os.environ["PR_NUMBER"],
+              "source_sha": os.environ["GITHUB_SHA"],
+              "source_tree": os.environ["SOURCE_TREE"],
+              "source_parent1": os.environ["SOURCE_PARENT1"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "head_ref": os.environ["HEAD_REF"],
+              "head_repository": os.environ["HEAD_REPOSITORY"],
+              "author_association": os.environ["AUTHOR_ASSOCIATION"],
+          }
+          with open(os.environ["REQUEST"], "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, sort_keys=True)
+              stream.write("\n")
+          PY
+          echo "path=$request" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload persistent Mac route request
+        if: ${{ steps.persistent-route-request.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: persistent-mac-route-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.persistent-route-request.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
@@ -351,185 +415,14 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
-  web-typecheck:
+  web:
     needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Validate managed relay catalog
-        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
-
-      - name: Typecheck
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/web-typecheck.log"
-          set +e
-          bun run typecheck 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          # The native TypeScript preview compiler can abort on a healthy
-          # runner. Retry that transient compiler crash once, while keeping
-          # real type errors as immediate failures.
-          if [ "$status" -ne 0 ] \
-            && grep -Fq 'Aborted (core dumped)' "$log"; then
-            echo "::warning::native tsgo aborted during web typecheck; retrying once"
-            bun run typecheck
-            exit $?
-          fi
-
-          exit "$status"
-
-      - name: Web tests
-        run: bun run test
-
-      - name: Install browser for instant navigation tests
-        run: bunx playwright install --with-deps chromium
-
-      - name: Instant navigation tests
-        env:
-          # The preceding Typecheck step owns the repository-wide tsgo gate;
-          # avoid launching a second tsgo process inside Playwright's server
-          # command on constrained Linux runners.
-          CMUX_INSTANT_SKIP_TYPECHECK: "1"
-        run: bun run test:instant
-
-  # Checks for in-app React webviews (currently the diff viewer; more cmux React
-  # surfaces will live alongside it).
-  react-apps-check:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Verify generated webviews assets
-        run: ./scripts/build-webviews-app.sh --check
-
-      - name: Verify React Compiler for webviews
-        run: ./scripts/check-webviews-react-compiler.mjs
-
-      - name: Typecheck webviews
-        working-directory: webviews
-        run: bun run typecheck
-
-      - name: Test webviews
-        working-directory: webviews
-        run: bun run test
-
-      - name: Oxlint webviews
-        working-directory: webviews
-        run: bun run lint:ci
-
-      - name: React Doctor
-        working-directory: webviews
-        run: bun run react-doctor:ci
-
-  diff-sidecar-check:
-    needs: [changes, static-preflight]
-    # Generated protocol and streaming benchmarks also cover webview-only diffs.
-    if: ${{ needs.changes.outputs.macos == 'true' || needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install Rust
-        run: ./scripts/install-rust-ci.sh
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install webview dependencies
-        working-directory: webviews
-        run: bun install --frozen-lockfile
-
-      - name: Check Rust sidecar
-        run: |
-          ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
-          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
-          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
-
-      - name: Verify generated protocol types
-        run: ./scripts/generate-diff-sidecar-types.sh --check
-
-      - name: Enforce diff-viewer performance budgets
-        env:
-          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
-        run: ./scripts/benchmark-diff-viewer.sh
-
-  web-db-migrations:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: cmux_test
-          POSTGRES_PASSWORD: cmux
-          POSTGRES_USER: cmux
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cmux -d cmux_test"
-          --health-interval 1s
-          --health-timeout 5s
-          --health-retries 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Re-apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Database behavior tests
-        env:
-          CMUX_DB_TEST: "1"
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bun run test:db:behavior
+    if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.macos != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
+    uses: ./.github/workflows/ci-web.yml
+    with:
+      web: ${{ needs.changes.outputs.web }}
+      macos: ${{ needs.changes.outputs.macos }}
+      agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
   app-host-unit-tests:
     permissions:
@@ -2005,7 +1898,7 @@ jobs:
       - macos-compile-admission
       - app-host-unit-tests
       - swift-package-tests
-      - agent-session-web-resources
+      - web
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -2071,7 +1964,7 @@ jobs:
           # opts out via its own path filter reports "skipped", which is fine; a
           # job that actually ran and failed must block the merge.
           allowed = {"success", "skipped"}
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-package-tests", "web"):
               result = needs[name]["result"]
               if result not in allowed:
                   print(f"{name} did not pass: {result}", file=sys.stderr)
@@ -2082,7 +1975,7 @@ jobs:
           print(f"linux-preflight={preflight['result']}")
           print(f"macos-compile-admission={admission['result']}")
           print(f"app-host unit tests={tests['result']}")
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-package-tests", "web"):
               print(f"{name}={needs[name]['result']}")
           PY
 
@@ -2438,26 +2331,6 @@ jobs:
             echo "::endgroup::"
           done
 
-  agent-session-web-resources:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Build and test Agent Session web resources
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run agent-session-web:build
-          bun run agent-session-web:test
-          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
-
   linux-preflight:
     name: linux-preflight
     needs:
@@ -2465,11 +2338,7 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
-      - web-typecheck
-      - react-apps-check
-      - diff-sidecar-check
-      - web-db-migrations
-      - agent-session-web-resources
+      - web
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -2490,11 +2359,6 @@ jobs:
           )
           allowed_routed = {
               "ghosttykit-release-check",
-              "web-typecheck",
-              "react-apps-check",
-              "diff-sidecar-check",
-              "web-db-migrations",
-              "agent-session-web-resources",
           }
 
           bad = {}
@@ -2525,13 +2389,24 @@ jobs:
           elif not invalid_guard_routes and guard_result not in {"success", "skipped"}:
               bad["guards"] = guard_result
 
+          web_routes = ("web", "macos", "agent_session_web")
+          invalid_web_routes = {
+              route: outputs.get(route)
+              for route in web_routes
+              if outputs.get(route) not in {"true", "false"}
+          }
+          for route, value in sorted(invalid_web_routes.items()):
+              bad[f"web.{route}"] = f"invalid route {route}={value!r}"
+
+          web_result = needs["web"]["result"]
+          if any(outputs.get(route) == "true" for route in web_routes):
+              if web_result != "success":
+                  bad["web"] = f"{web_result} (one or more web routes=true)"
+          elif not invalid_web_routes and web_result not in {"success", "skipped"}:
+              bad["web"] = web_result
+
           routed_outputs = {
               "ghosttykit-release-check": "ghosttykit_release",
-              "web-typecheck": "web",
-              "react-apps-check": "web",
-              "diff-sidecar-check": "macos",
-              "web-db-migrations": "web",
-              "agent-session-web-resources": "agent_session_web",
           }
           for name in sorted(allowed_routed):
               result = needs[name]["result"]
@@ -2559,11 +2434,96 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+  persistent-mac-compile-route:
+    name: Persistent Mac compile route
+    needs:
+      - changes
+      - linux-preflight
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.compile_admitted != 'true' && github.event_name == 'pull_request' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 12
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      use_persistent: ${{ steps.route.outputs.use_persistent }}
+      fallback_reason: ${{ steps.route.outputs.fallback_reason }}
+      producer_run_id: ${{ steps.route.outputs.producer_run_id }}
+      artifact_id: ${{ steps.route.outputs.artifact_id }}
+      queue_to_start_seconds: ${{ steps.route.outputs.queue_to_start_seconds }}
+      producer_allocated_seconds: ${{ steps.route.outputs.producer_allocated_seconds }}
+      route_wall_seconds: ${{ steps.route.outputs.route_wall_seconds }}
+      source_tree: ${{ steps.source.outputs.tree }}
+    steps:
+      - name: Checkout route observer
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Bind the GitHub-selected source
+        id: source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_TREE: ${{ needs.changes.outputs.source_tree }}
+          SOURCE_PARENT1: ${{ needs.changes.outputs.source_parent1 }}
+        run: |
+          set -euo pipefail
+          [ -n "$SOURCE_SHA" ] && [ -n "$SOURCE_TREE" ] && [ -n "$SOURCE_PARENT1" ]
+          {
+            echo "tree=$SOURCE_TREE"
+            echo "parent1=$SOURCE_PARENT1"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Observe persistent compile or use hosted fallback
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
+          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
+          CI_PERSISTENT_MAC_QUEUE_SECONDS: ${{ vars.CI_PERSISTENT_MAC_QUEUE_SECONDS }}
+          CI_PERSISTENT_MAC_EXECUTION_SECONDS: ${{ vars.CI_PERSISTENT_MAC_EXECUTION_SECONDS }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_TREE: ${{ steps.source.outputs.tree }}
+          SOURCE_PARENT1: ${{ steps.source.outputs.parent1 }}
+        run: |
+          set -euo pipefail
+          route_started="$(python3 -c 'import time; print(time.monotonic())')"
+          queue_seconds="${CI_PERSISTENT_MAC_QUEUE_SECONDS:-90}"
+          execution_seconds="${CI_PERSISTENT_MAC_EXECUTION_SECONDS:-480}"
+          python3 scripts/ci/persistent_mac_route.py \
+            --observe-only \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --selector "$CI_PERSISTENT_MAC_COMPILE" \
+            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --head-repository "$HEAD_REPOSITORY" \
+            --head-ref "$HEAD_REF" \
+            --author-association "$AUTHOR_ASSOCIATION" \
+            --head-sha "$HEAD_SHA" \
+            --source-sha "$GITHUB_SHA" \
+            --source-tree "$SOURCE_TREE" \
+            --source-parent1 "$SOURCE_PARENT1" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --queue-seconds "$queue_seconds" \
+            --execution-seconds "$execution_seconds" \
+            --github-output "$GITHUB_OUTPUT"
+          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
+          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
+          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
+
   macos-compile-admission:
     name: macOS compile admission
     needs:
       - changes
       - linux-preflight
+      - persistent-mac-compile-route
     # Spend one macOS slot proving that the app-host test product compiles
     # before starting the six test shards. The shards download this run's
     # build products and run test-without-building, so a compiler failure
@@ -2591,6 +2551,14 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
+      - name: Start compile admission timers
+        run: |
+          now="$(python3 -c 'import time; print(time.monotonic())')"
+          {
+            echo "CMUX_MACOS_ADMISSION_STARTED=$now"
+            echo "CMUX_HOSTED_SOURCE_PREP_STARTED=$now"
+          } >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2648,6 +2616,43 @@ jobs:
           echo "== end network diagnostics ==" >&2
           exit 1
 
+      - name: Record hosted source preparation
+        id: hosted-source-prep
+        run: |
+          now="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$CMUX_HOSTED_SOURCE_PREP_STARTED" "$now")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+
+      - name: Measure hosted queue-to-start
+        id: hosted-queue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import subprocess
+
+          result = subprocess.run(
+              ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/jobs?filter=latest&per_page=100"],
+              check=True, text=True, capture_output=True,
+          )
+          jobs = json.loads(result.stdout).get("jobs", [])
+          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one admission job, found {len(matches)}")
+          job = matches[0]
+          created = datetime.datetime.fromisoformat(job["created_at"].replace("Z", "+00:00"))
+          started = datetime.datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+          seconds = max(0.0, (started - created).total_seconds())
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"seconds={seconds:.3f}\n")
+          print(f"hosted admission queue-to-start: {seconds:.3f}s")
+          PY
+
       - name: Prepare isolated admission DerivedData
         run: |
           set -euo pipefail
@@ -2701,13 +2706,119 @@ jobs:
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Download persistent Mac compile product
+        id: persistent-download
+        if: steps.reuse-products.outputs.hit != 'true' && needs.persistent-mac-compile-route.outputs.use_persistent == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.persistent-mac-compile-route.outputs.artifact_id }}
+          path: ${{ runner.temp }}/persistent-mac-compile
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}
+
+      - name: Revalidate persistent Mac compile product
+        id: persistent-restore
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-download.outcome == 'success'
+        continue-on-error: true
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_SOURCE_TREE: ${{ needs.persistent-mac-compile-route.outputs.source_tree }}
+        run: |
+          set -euo pipefail
+          [ -z "$(git status --porcelain --untracked-files=all)" ] || {
+            echo "hosted validation checkout is dirty" >&2
+            exit 1
+          }
+          [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
+
+          archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
+          [ -n "$archive" ] && [ -f "$archive" ]
+          mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          tar -xzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          metrics="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/persistent-mac-metrics.json"
+          test -f "$metrics"
+
+          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+          METRICS="$metrics" EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          metrics = json.load(open(os.environ["METRICS"]))
+          expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
+          expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
+
+          def output(*argv):
+              return subprocess.check_output(argv, text=True).strip()
+
+          def digest(path):
+              value = hashlib.sha256()
+              with Path(path).open("rb") as stream:
+                  for block in iter(lambda: stream.read(1024 * 1024), b""):
+                      value.update(block)
+              return value.hexdigest()
+
+          source = metrics.get("source", {})
+          if source != {"commit": expected_sha, "tree": expected_tree}:
+              raise SystemExit("persistent producer source identity mismatch")
+          if output("git", "rev-parse", "HEAD") != expected_sha:
+              raise SystemExit("hosted checkout revision mismatch")
+          if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
+              raise SystemExit("hosted checkout tree mismatch")
+          if output("git", "status", "--porcelain", "--untracked-files=all"):
+              raise SystemExit("hosted checkout became dirty during validation")
+
+          lockfile = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          if digest(lockfile) != metrics.get("package_resolved_sha256"):
+              raise SystemExit("Package.resolved identity mismatch")
+          submodules = output("git", "submodule", "status", "--recursive").encode()
+          if hashlib.sha256(submodules).hexdigest() != metrics.get("submodule_identity_sha256"):
+              raise SystemExit("submodule identity mismatch")
+
+          toolchain = metrics.get("toolchain", {})
+          if toolchain.get("xcode") != output("xcodebuild", "-version"):
+              raise SystemExit("Xcode identity mismatch")
+          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
+              raise SystemExit("macOS SDK version mismatch")
+          if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
+              raise SystemExit("macOS SDK build mismatch")
+          if platform.machine() != "arm64":
+              raise SystemExit("persistent product validation requires Apple Silicon")
+
+          classification = metrics.get("classification")
+          if classification not in {"hot", "partially-warm", "cold-reset"}:
+              raise SystemExit("invalid persistent cache classification")
+          glaeda = metrics.get("glaeda", {})
+          for key in ("cache_key", "invocation_identity", "generation"):
+              if not isinstance(glaeda.get(key), str) or not glaeda[key]:
+                  raise SystemExit(f"Glaeda receipt omitted {key}")
+          if not isinstance(glaeda.get("reset_reasons"), list):
+              raise SystemExit("Glaeda reset lineage is invalid")
+          print(
+              f"validated persistent product class={classification} "
+              f"cache_key={glaeda['cache_key']} invocation={glaeda['invocation_identity']}"
+          )
+          PY
+
+          {
+            echo "hit=true"
+            echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
+            echo "metrics=$metrics"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Capture Ghostty revision
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         id: cache-ghosttykit-admission
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -2715,11 +2826,11 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
@@ -2728,19 +2839,24 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
-        if: steps.reuse-products.outputs.hit != 'true'
+        id: hosted-package-readiness
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
           set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
       - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
@@ -2750,7 +2866,7 @@ jobs:
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
@@ -2760,21 +2876,30 @@ jobs:
             xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Compile app-host test product
-        if: steps.reuse-products.outputs.hit != 'true'
+        id: hosted-compile
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
           set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
           scripts/ci/compile-app-host-test-product.sh build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
-      # A reuse hit can carry only the compiled product tree. Eligibility requires
-      # the producer's entire compile-admission job to have succeeded, including
-      # this warning gate, so producer-only build logs are unnecessary to restore.
       - name: Validate Swift warning budget
+        id: warning-validation
         if: steps.reuse-products.outputs.hit != 'true'
-        run: python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
+        run: |
+          set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
+          python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
       - name: Stage compiled package frameworks
         run: |
@@ -2810,6 +2935,9 @@ jobs:
       # Compile-only forks have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
       # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Start product publication timer
+        run: echo "CMUX_PRODUCT_PUBLICATION_STARTED=$(python3 -c 'import time; print(time.monotonic())')" >> "$GITHUB_ENV"
+
       - name: Choose product artifact publication
         id: publish-products
         env:
@@ -2855,6 +2983,135 @@ jobs:
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3
+          compression-level: 0
+
+      - name: Record compile admission metrics
+        id: admission-metrics
+        if: always() && !cancelled()
+        env:
+          ROUTE_USE_PERSISTENT: ${{ needs.persistent-mac-compile-route.outputs.use_persistent }}
+          ROUTE_REASON: ${{ needs.persistent-mac-compile-route.outputs.fallback_reason }}
+          QUEUE_TO_START_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.queue_to_start_seconds }}
+          PRODUCER_ALLOCATED_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.producer_allocated_seconds }}
+          ROUTE_WALL_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.route_wall_seconds }}
+          PERSISTENT_HIT: ${{ steps.persistent-restore.outputs.hit }}
+          PERSISTENT_CLASS: ${{ steps.persistent-restore.outputs.classification }}
+          PERSISTENT_METRICS: ${{ steps.persistent-restore.outputs.metrics }}
+          HOSTED_QUEUE_SECONDS: ${{ steps.hosted-queue.outputs.seconds }}
+          HOSTED_SOURCE_PREP_SECONDS: ${{ steps.hosted-source-prep.outputs.seconds }}
+          HOSTED_PACKAGE_SECONDS: ${{ steps.hosted-package-readiness.outputs.seconds }}
+          HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
+          WARNING_SECONDS: ${{ steps.warning-validation.outputs.seconds }}
+          PRODUCT_PUBLISHED: ${{ steps.publish-products.outputs.publish }}
+          PRODUCT_UPLOAD_OUTCOME: ${{ steps.upload-products.outcome }}
+        run: |
+          set -euo pipefail
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          publication_seconds="$(python3 -c 'import os,sys; start=os.environ.get("CMUX_PRODUCT_PUBLICATION_STARTED"); print("" if not start else round(float(sys.argv[1])-float(start), 6))' "$finished")"
+          admission_seconds="$(python3 -c 'import os,sys; print(round(float(sys.argv[1])-float(os.environ["CMUX_MACOS_ADMISSION_STARTED"]), 6))' "$finished")"
+          metrics="$RUNNER_TEMP/macos-compile-admission-metrics.json"
+
+          FINISHED="$finished" PUBLICATION_SECONDS="$publication_seconds" ADMISSION_SECONDS="$admission_seconds" METRICS="$metrics" python3 - <<'PY'
+          import json
+          import os
+
+          def number(name):
+              raw = os.environ.get(name, "").strip()
+              return float(raw) if raw else None
+
+          persistent = {}
+          persistent_path = os.environ.get("PERSISTENT_METRICS", "").strip()
+          if persistent_path:
+              try:
+                  persistent = json.load(open(persistent_path))
+              except (OSError, ValueError):
+                  persistent = {}
+
+          persistent_hit = os.environ.get("PERSISTENT_HIT") == "true"
+          classification = os.environ.get("PERSISTENT_CLASS") if persistent_hit else "hosted fallback"
+          fallback_reason = ""
+          if not persistent_hit:
+              if os.environ.get("ROUTE_USE_PERSISTENT") == "true":
+                  fallback_reason = "persistent_artifact_validation_failed"
+              else:
+                  fallback_reason = os.environ.get("ROUTE_REASON") or "persistent_route_unused"
+
+          source_preparation = (
+              persistent.get("source_preparation_seconds")
+              if persistent_hit else number("HOSTED_SOURCE_PREP_SECONDS")
+          )
+          package_readiness = (
+              persistent.get("package_readiness_seconds")
+              if persistent_hit else number("HOSTED_PACKAGE_SECONDS")
+          )
+          compile_duration = (
+              persistent.get("compile_duration_seconds")
+              if persistent_hit else number("HOSTED_COMPILE_SECONDS")
+          )
+
+          result = {
+              "schema_version": 1,
+              "classification": classification,
+              "fallback_reason": fallback_reason,
+              "queue_to_start_seconds": (
+                  number("QUEUE_TO_START_SECONDS") if persistent_hit else number("HOSTED_QUEUE_SECONDS")
+              ),
+              "source_preparation_seconds": source_preparation,
+              "package_readiness_seconds": package_readiness,
+              "compile_duration_seconds": compile_duration,
+              "warning_validation_seconds": number("WARNING_SECONDS"),
+              "artifact_publication_seconds": number("PUBLICATION_SECONDS"),
+              "route_wall_seconds": number("ROUTE_WALL_SECONDS"),
+              "required_admission_runner_seconds": number("ADMISSION_SECONDS"),
+              "total_macos_compile_admission_seconds": (
+                  (number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)
+              ),
+              "persistent_runner_allocated_seconds": number("PRODUCER_ALLOCATED_SECONDS"),
+              "hosted_admission_runner_allocated_seconds": number("ADMISSION_SECONDS"),
+              "product_published": os.environ.get("PRODUCT_PUBLISHED") == "true",
+              "product_upload_outcome": os.environ.get("PRODUCT_UPLOAD_OUTCOME", ""),
+              "persistent": persistent,
+          }
+          with open(os.environ["METRICS"], "w") as stream:
+              json.dump(result, stream, sort_keys=True, indent=2)
+              stream.write("\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+
+          echo "path=$metrics" >> "$GITHUB_OUTPUT"
+          METRICS="$metrics" python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          data = json.load(open(os.environ["METRICS"]))
+          print("### macOS compile admission timing")
+          print()
+          for label, key in (
+              ("class", "classification"),
+              ("fallback reason", "fallback_reason"),
+              ("queue to owned runner", "queue_to_start_seconds"),
+              ("source preparation", "source_preparation_seconds"),
+              ("package readiness", "package_readiness_seconds"),
+              ("compile", "compile_duration_seconds"),
+              ("warning validation", "warning_validation_seconds"),
+              ("artifact publication", "artifact_publication_seconds"),
+              ("route/controller wall", "route_wall_seconds"),
+              ("required admission runner", "required_admission_runner_seconds"),
+              ("total admission wall", "total_macos_compile_admission_seconds"),
+              ("persistent runner allocated", "persistent_runner_allocated_seconds"),
+          ):
+              print(f"- {label}: `{data.get(key)}`")
+          PY
+
+      - name: Upload compile admission metrics
+        if: always() && !cancelled() && steps.admission-metrics.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-compile-admission-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.admission-metrics.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
           compression-level: 0
 
       - name: Seed node-local compiled product cache
@@ -3363,16 +3620,12 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
-      - web-typecheck
-      - react-apps-check
-      - diff-sidecar-check
-      - web-db-migrations
+      - web
       - linux-preflight
       - macos-compile-admission
       - app-host-unit-tests
       - tests
       - swift-package-tests
-      - agent-session-web-resources
       - tests-build-and-lag
       - release-build
     if: ${{ always() }}

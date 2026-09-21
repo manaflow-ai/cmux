@@ -46,6 +46,7 @@ def normalize_path(path: str) -> str:
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
+WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 
 
 def is_other_workflow_config(path: str) -> bool:
@@ -163,7 +164,7 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
     macos: set[str] = set()
     everywhere: set[str] = set()
     try:
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH):
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH):
             references = macos_job_test_references(Path(workflow_path).read_text(encoding="utf-8"))
             if references is None:
                 return None
@@ -195,6 +196,8 @@ def is_web_change(path: str) -> bool:
             "Resources/agent-session-react/",
             "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
+            "config/",
+            "workers/",
         )
     ):
         return True
@@ -204,6 +207,12 @@ def is_web_change(path: str) -> bool:
         "package.json",
         "bun.lock",
         "biome.json",
+        ".vercelignore",
+        "vercel.json",
+        "bunfig.toml",
+        ".npmrc",
+        ".github/workflows/web-validation.yml",
+        "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
@@ -295,10 +304,17 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
             release_build = True
             continue
-        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
+        if path == WEB_WORKFLOW_PATH:
+            # A reusable web workflow edit must exercise every job body it owns.
+            web = True
+            agent_session_web = True
             continue
+        # Web validation's own inputs still select its checks in CI, even when
+        # the path is a workflow or guard that is neutral for macOS.
         if is_web_change(path):
             web = True
+        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
+            continue
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path):
