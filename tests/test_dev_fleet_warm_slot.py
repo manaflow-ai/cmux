@@ -197,6 +197,23 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(mismatch["status"], "cold_fallback_required")
         self.assertEqual(mismatch["reason"], "reservation_mismatch")
 
+        missing_generation = self.task(
+            self.base,
+            task_id="reserved",
+            lease_id=selected["lease_id"],
+        )
+        self.assertEqual(missing_generation["status"], "cold_fallback_required")
+        self.assertEqual(missing_generation["reason"], "generation_mismatch")
+
+        wrong_generation = self.task(
+            self.base,
+            task_id="reserved",
+            lease_id=selected["lease_id"],
+            warm_generation_id="wrong-generation",
+        )
+        self.assertEqual(wrong_generation["status"], "cold_fallback_required")
+        self.assertEqual(wrong_generation["reason"], "generation_mismatch")
+
         wrong_release = self.call(
             "release",
             "--machine-state", str(self.state),
