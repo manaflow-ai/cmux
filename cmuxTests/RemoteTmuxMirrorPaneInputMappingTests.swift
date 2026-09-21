@@ -168,7 +168,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         panel.hostedView.setVisibleInUI(true)
         panel.hostedView.setActive(true)
         panel.hostedView.layoutSubtreeIfNeeded()
-        await waitForLiveSurface(panel.surface)
+        try #require(
+            await waitForLiveSurface(panel.surface),
+            "Remote manual-I/O key coverage timed out waiting for a live Ghostty surface"
+        )
         try #require(
             panel.surface.hasLiveSurface,
             "Remote manual-I/O key coverage requires a live Ghostty surface"
@@ -180,8 +183,10 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         return panel.surface
     }
 
-    private func waitForLiveSurface(_ surface: TerminalSurface) async {
-        guard !surface.hasLiveSurface else { return }
+    /// Bounds the runtime-ready callback so a missing Ghostty surface fails this
+    /// regression directly instead of consuming XCTest's 300-second allowance.
+    private func waitForLiveSurface(_ surface: TerminalSurface) async -> Bool {
+        guard !surface.hasLiveSurface else { return true }
         let previousOnRuntimeReady = surface.onRuntimeReady
         defer { surface.onRuntimeReady = previousOnRuntimeReady }
         let readiness = AsyncStream<Void> { continuation in
@@ -191,7 +196,20 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
                 continuation.finish()
             }
         }
-        for await _ in readiness { break }
+        let timeout: Duration = .seconds(30)
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = readiness.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let ready = await group.next() ?? false
+            group.cancelAll()
+            return ready
+        }
     }
 
     private func captureInputCommands(
