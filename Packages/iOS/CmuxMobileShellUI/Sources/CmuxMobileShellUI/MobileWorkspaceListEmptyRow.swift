@@ -130,17 +130,24 @@ struct MobileWorkspaceListEmptyRow: View {
         .onChange(of: isRetrying) { _, _ in onLayoutChange?() }
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
-            retryTask?.cancel()
-            if isRetrying || retryTask != nil,
-               shouldCancelRetryOnDisappear?() ?? true {
+            let hasActiveRetry = isRetrying || retryTask != nil
+            if hasActiveRetry, shouldCancelRetryOnDisappear?() ?? true {
+                retryTask?.cancel()
                 cancelRetry?()
+                retryTimeoutTask?.cancel()
+                retryTask = nil
+                retryAttemptID = nil
+                retryTimeoutTask = nil
+                isRetrying = false
+                retryTimedOut = false
+            } else if !hasActiveRetry {
+                retryTimeoutTask?.cancel()
+                retryTask = nil
+                retryAttemptID = nil
+                retryTimeoutTask = nil
+                isRetrying = false
+                retryTimedOut = false
             }
-            retryTimeoutTask?.cancel()
-            retryTask = nil
-            retryAttemptID = nil
-            retryTimeoutTask = nil
-            isRetrying = false
-            retryTimedOut = false
         }
     }
 }
