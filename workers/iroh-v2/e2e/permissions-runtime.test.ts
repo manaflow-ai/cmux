@@ -95,3 +95,22 @@ test("Mac permissions reject a different account, tag or app namespace", async (
     expect(names(result.inboundPeers.map((p: any) => p.device))).not.toContain("mac-alice-peer");
   }
 });
+
+test("two nightly Macs on one account: the opted-in host admits the discovering Mac and the directory names the rule it applied", async () => {
+  const post = client("nightly-pair");
+  expect((await post("/nightly-pair")).status).toBe(200);
+  const host = (await post("/directory", { device: "nightly-host" })).body.directory;
+  expect(names(host.devices)).toContain("nightly-dialer");
+  const grant = host.inboundPeers.find((p: any) => p.device.descriptor.identity.deviceId === "nightly-dialer");
+  expect(grant).toBeDefined();
+  expect(grant.permissionExpiresAt).toBe(4800);
+  expect(names(host.inboundPeers.map((p: any) => p.device))).not.toContain("mac-alice");
+  // A Mac client that depends on this rule reads it from the directory instead
+  // of assuming the deployed Worker implements it (#13458).
+  expect(host.rules).toContain("cmux.mac-peer-inbound.v1");
+  const dialer = (await post("/directory", { device: "nightly-dialer" })).body.directory;
+  expect(names(dialer.devices)).toContain("nightly-host");
+  // Discovery alone grants nothing inbound from another Mac; the account's phones keep entering as before.
+  expect(names(dialer.inboundPeers.map((p: any) => p.device))).toEqual(["phone-alice"]);
+  expect(dialer.rules).toContain("cmux.mac-peer-inbound.v1");
+});

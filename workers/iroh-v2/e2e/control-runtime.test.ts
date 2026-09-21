@@ -98,6 +98,18 @@ beforeAll(async () => {
 
 afterAll(async () => { await mf?.dispose(); });
 
+test("the unauthenticated health route names the deployed revision and the rules the Worker implements", async () => {
+  const { response, body } = await json("https://iroh.test/v2/health");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(body.schemaId).toBe("health.v1");
+  expect(body.environment).toBe(environment);
+  expect(body.sourceRevision).toMatch(/^(?:[0-9a-f]{7,64}|unknown)$/);
+  expect(body.rules).toContain("cmux.mac-peer-inbound.v1");
+  expect((await mf.dispatchFetch("https://iroh.test/v2/health", { method: "POST" })).status).toBe(405);
+  expect((await mf.dispatchFetch("https://iroh.test/v2/health?x=1")).status).toBe(404);
+});
+
 test("browser dashboard upgrade survives the Worker-to-Durable-Object boundary", async () => {
   const { token } = await issueDashboardTicket({
     authority: { environment, projectId, teamId, userId, verifiedAt: Math.floor(Date.now() / 1000) },
