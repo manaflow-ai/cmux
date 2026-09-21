@@ -125,7 +125,9 @@ struct MobileWorkspaceListEmptyRow: View {
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .onDisappear {
             retryTask?.cancel()
-            cancelRetry?()
+            if isRetrying || retryTask != nil {
+                cancelRetry?()
+            }
             retryTimeoutTask?.cancel()
             retryTask = nil
             retryAttemptID = nil
