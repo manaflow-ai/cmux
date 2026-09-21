@@ -187,7 +187,8 @@ def current_revision(path: Path) -> tuple[bytes, int, int] | None:
 
 def source_for_edit(path: Path, data: dict[str, Any]) -> str:
     if path.exists():
-        return path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8", newline="") as source:
+            return source.read()
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -222,6 +223,35 @@ def exchange_paths(left: Path, right: Path) -> None:
     if result != 0:
         code = ctypes.get_errno()
         raise OSError(code, os.strerror(code), str(right))
+
+
+def restore_recovered_entry_if_candidate_is_live(
+    path: Path,
+    staging: Path,
+    candidate: bytes,
+    recovered: tuple[bytes, int, int],
+) -> bool:
+    """Restore recovered bytes only if the atomic swap actually displaced our candidate."""
+    published_before = current_revision(path)
+    recovery_before = current_revision(staging)
+    if (
+        published_before is None
+        or published_before[0] != candidate
+        or recovery_before != recovered
+    ):
+        return False
+
+    exchange_paths(staging, path)
+    displaced = current_revision(staging)
+    if displaced == published_before:
+        return True
+
+    # A later non-participating editor replaced the candidate immediately before
+    # the recovery swap. The exchange captured that newer entry in staging.
+    # Put it back while the path still contains the recovery entry we just moved.
+    if current_revision(path) == recovery_before and current_revision(staging) == displaced:
+        exchange_paths(staging, path)
+    return False
 
 
 def atomic_write_text(
@@ -271,13 +301,15 @@ def atomic_write_text(
         staging_contains_recovery = True
         recovered = current_revision(tmp_path)
         if recovered != expected_revision:
-            published = current_revision(path)
             if (
-                published is not None
-                and published[0] == candidate
-                and current_revision(tmp_path) == recovered
+                recovered is not None
+                and restore_recovered_entry_if_candidate_is_live(
+                    path,
+                    tmp_path,
+                    candidate,
+                    recovered,
+                )
             ):
-                exchange_paths(tmp_path, path)
                 staging_contains_recovery = False
             raise SystemExit(
                 "error: cmux config changed while preparing the edit; retry"
