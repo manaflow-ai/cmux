@@ -1,7 +1,7 @@
 "use client";
 
 import { useStackApp } from "@hexclave/next";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDashboardTeamScope } from "../dashboard-team-scope";
 import { V2DashboardController, type DashboardDirectory } from "./v2-dashboard-controller";
@@ -43,6 +43,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
   const t = useTranslations("dashboard.mobileDevices");
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [busyDevice, setBusyDevice] = useState<string | null>(null);
   const controllerRef = useRef<V2DashboardController | null>(null);
@@ -68,9 +69,9 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
   const revoke = async (deviceId: string) => {
     const controller = controllerRef.current;
     if (!controller) return;
-    setBusyDevice(deviceId); setError(null);
+    setBusyDevice(deviceId); setRevokeError(null);
     try { await controller.revoke(deviceId); }
-    catch { setError(t("mutationError")); }
+    catch { setRevokeError(deviceId); }
     finally { setBusyDevice(null); }
   };
   const managedDeviceIds = new Set(directory?.managedDeviceIds ?? []);
@@ -85,6 +86,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
           device={device}
           canRevoke={managedDeviceIds.has(device.deviceRecordId)}
           busy={busyDevice === device.deviceRecordId}
+          failed={revokeError === device.deviceRecordId}
           onRevoke={() => void revoke(device.deviceRecordId)}
         />)}
       </div>}
@@ -95,7 +97,10 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
 
 function DeviceSummary({ directory }: { readonly directory: DashboardDirectory }) {
   const t = useTranslations("dashboard.mobileDevices");
-  const activeCount = directory.devices.filter(device => !device.revoked).length;
+  const activeCount = useMemo(
+    () => directory.devices.reduce((count, device) => count + (device.revoked ? 0 : 1), 0),
+    [directory.devices],
+  );
   return <div className="grid gap-px border border-border bg-border sm:grid-cols-3" data-testid="mobile-devices-summary">
     <SummaryMetric label={t("registeredDevices")} value={directory.devices.length.toString()} />
     <SummaryMetric label={t("activeDevices")} value={activeCount.toString()} />
@@ -110,10 +115,11 @@ function SummaryMetric({ label, value }: { readonly label: string; readonly valu
   </div>;
 }
 
-function DeviceCard({ device, canRevoke, busy, onRevoke }: {
+function DeviceCard({ device, canRevoke, busy, failed, onRevoke }: {
   readonly device: DashboardDirectory["devices"][number];
   readonly canRevoke: boolean;
   readonly busy: boolean;
+  readonly failed: boolean;
   readonly onRevoke: () => void;
 }) {
   const t = useTranslations("dashboard.mobileDevices");
@@ -135,7 +141,8 @@ function DeviceCard({ device, canRevoke, busy, onRevoke }: {
       <Fact label={t("deviceId")} value={`…${device.descriptor.identity.deviceId.slice(-8)}`} />
       <Fact label={t("revision")} value={`#${device.revision}`} />
     </dl>
-    {canRevoke ? <div className="mt-4 flex justify-end border-t border-border pt-3">
+    {canRevoke ? <div className="mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-border pt-3">
+      {failed ? <p role="alert" className="text-xs text-red-600 dark:text-red-400">{t("mutationError")}</p> : null}
       <button type="button" className="text-xs text-muted underline decoration-border underline-offset-4 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" disabled={busy || device.revoked} onClick={onRevoke}>{busy ? t("revoking") : t("revoke")}</button>
     </div> : null}
   </section>;
@@ -165,7 +172,7 @@ function EmptyDevices() {
 }
 
 function LoadingState({ label }: { readonly label: string }) {
-  return <div className="space-y-3" aria-label={label}>
+  return <div className="space-y-3" role="status" aria-label={label}>
     <div className="grid gap-px border border-border bg-border sm:grid-cols-3">
       {["one", "two", "three"].map(key => <div key={key} className="h-20 animate-pulse bg-code-bg" />)}
     </div>
@@ -221,17 +228,17 @@ function Fact({ label, value }: { readonly label: string; readonly value: string
 }
 
 function PhoneIcon() {
-  return <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" /><path d="M7 3h2" /><path d="M7.3 12.5h1.4" /></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5" /><path d="M7 3h2" /><path d="M7.3 12.5h1.4" /></svg>;
 }
 
 function MonitorIcon() {
-  return <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.5" y="2" width="13" height="9" rx="1" /><path d="M5.5 14h5M8 11v3" /></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="1.5" y="2" width="13" height="9" rx="1" /><path d="M5.5 14h5M8 11v3" /></svg>;
 }
 
 function DevicesIcon() {
-  return <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="2.5" y="3" width="11" height="8" rx="1" /><path d="M5.5 14.5h5M8 11v3.5M15 6.5h2.5v10H10v-2" /></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="2.5" y="3" width="11" height="8" rx="1" /><path d="M5.5 14.5h5M8 11v3.5M15 6.5h2.5v10H10v-2" /></svg>;
 }
 
 function RelayIcon() {
-  return <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="3" cy="8" r="1.5" /><circle cx="13" cy="4" r="1.5" /><circle cx="13" cy="12" r="1.5" /><path d="m4.4 7.4 7.2-2.8M4.4 8.6l7.2 2.8" /></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.2"><circle cx="3" cy="8" r="1.5" /><circle cx="13" cy="4" r="1.5" /><circle cx="13" cy="12" r="1.5" /><path d="m4.4 7.4 7.2-2.8M4.4 8.6l7.2 2.8" /></svg>;
 }

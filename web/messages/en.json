@@ -629,7 +629,8 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings",
-      "savingRelaySettings": "Saving…"
+      "savingRelaySettings": "Saving…",
+      "eyebrow": "cloud / devices"
     }
   },
   "vault": {

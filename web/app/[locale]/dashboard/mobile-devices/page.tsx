@@ -22,7 +22,7 @@ export default async function MobileDevicesDashboardPage({
           <MobileDevicesIcon />
         </span>
         <div>
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted">cloud / devices</p>
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted">{t("eyebrow")}</p>
           <h1 className="mt-1 text-xl font-medium tracking-tight">{t("title")}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{t("description")}</p>
         </div>
@@ -35,7 +35,7 @@ export default async function MobileDevicesDashboardPage({
 }
 
 function MobileDevicesIcon() {
-  return <svg viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="2.5" y="3" width="11" height="8" rx="1" /><path d="M5.5 14.5h5M8 11v3.5M15 6.5h2.5v10H10v-2" /></svg>;
+  return <svg aria-hidden="true" viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="2.5" y="3" width="11" height="8" rx="1" /><path d="M5.5 14.5h5M8 11v3.5M15 6.5h2.5v10H10v-2" /></svg>;
 }
 
 export async function MobileDevicesSection({ locale }: { readonly locale: string }) {
