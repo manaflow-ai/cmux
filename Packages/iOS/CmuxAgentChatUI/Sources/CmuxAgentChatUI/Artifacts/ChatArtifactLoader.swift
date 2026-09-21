@@ -93,9 +93,8 @@ public struct ChatArtifactLoader: Sendable {
     /// Identity of the immutable event source captured by this loader.
     ///
     /// A changed value means an owning view has adopted a different RPC client
-    /// and must restart source-backed artifact work. Fixture and terminal
-    /// loaders leave this `nil` because they do not participate in the mobile
-    /// client handoff lifecycle.
+    /// and must restart source-backed artifact work. Fixture loaders leave this
+    /// `nil`; mobile shell loaders use the active connection generation.
     public let sourceIdentity: String?
 
     private let statHandler: @Sendable (_ path: String) async throws -> ChatArtifactStat
@@ -238,6 +237,8 @@ public struct ChatArtifactLoader: Sendable {
     ///   - terminalSurfaceID: Terminal surface authorizing visible paths.
     ///   - supportsArtifacts: Whether terminal artifact operations are available.
     ///   - supportsDirectoryBrowsing: Whether terminal directory listing is available.
+    ///   - sourceIdentity: Optional identity for the connection generation that
+    ///     authorized this loader.
     ///   - cache: Thumbnail cache shared by rows and viewers.
     ///   - contentCache: Full-content cache shared by viewer routes.
     ///   - stat: Metadata operation for an absolute host path.
@@ -250,6 +251,7 @@ public struct ChatArtifactLoader: Sendable {
         terminalSurfaceID: String,
         supportsArtifacts: Bool,
         supportsDirectoryBrowsing: Bool = false,
+        sourceIdentity: String? = nil,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -271,6 +273,7 @@ public struct ChatArtifactLoader: Sendable {
             supportsArtifacts: supportsArtifacts,
             supportsDirectoryBrowsing: supportsDirectoryBrowsing,
             scope: .terminal(workspaceID: terminalWorkspaceID, surfaceID: terminalSurfaceID),
+            sourceIdentity: sourceIdentity,
             cache: cache,
             contentCache: contentCache,
             diagnosticLog: diagnosticLog,
@@ -291,6 +294,8 @@ public struct ChatArtifactLoader: Sendable {
     ///   - panelWorkspaceID: Workspace containing the file-backed panel.
     ///   - panelSurfaceID: Panel surface authorizing its displayed file.
     ///   - supportsArtifacts: Whether the connected Mac advertises panel reads.
+    ///   - sourceIdentity: Optional identity for the connection generation that
+    ///     authorized this loader.
     ///   - cache: Thumbnail cache shared by rows and viewers.
     ///   - contentCache: Full-content cache shared by viewer routes.
     ///   - stat: Metadata operation for the panel's file.
@@ -301,6 +306,7 @@ public struct ChatArtifactLoader: Sendable {
         panelWorkspaceID: String,
         panelSurfaceID: String,
         supportsArtifacts: Bool,
+        sourceIdentity: String? = nil,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
         contentCache: ChatArtifactContentCache = .applicationDefault(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -319,6 +325,7 @@ public struct ChatArtifactLoader: Sendable {
             supportsArtifacts: supportsArtifacts,
             supportsDirectoryBrowsing: false,
             scope: .panel(workspaceID: panelWorkspaceID, surfaceID: panelSurfaceID),
+            sourceIdentity: sourceIdentity,
             cache: cache,
             contentCache: contentCache,
             diagnosticLog: diagnosticLog,
@@ -375,6 +382,85 @@ public struct ChatArtifactLoader: Sendable {
         try await fetchHandler(path, progress)
     }
 
+    /// Warms the content cache for one artifact without publishing its bytes.
+    ///
+    /// Prefetch is deliberately best effort. It returns `false` when the
+    /// loader has no cache identity, the file exceeds `maxBytes`, the source
+    /// fails, or the task is cancelled. A successful cache hit also returns
+    /// `true`, so callers can treat a completed prefetch and an already-warm
+    /// entry identically.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute Mac host path.
+    ///   - modifiedAt: Stat modification time used to version cached bytes.
+    ///   - size: Stat byte size used to validate cached bytes.
+    ///   - maxBytes: Largest artifact that may be prefetched.
+    /// - Returns: `true` when the full artifact is cached or was cached.
+    @discardableResult
+    public func prefetch(
+        path: String,
+        modifiedAt: Date?,
+        size: Int64?,
+        maxBytes: Int64 = ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes
+    ) async -> Bool {
+        guard !Task.isCancelled,
+              supportsArtifacts,
+              scope != .unsupported,
+              let modifiedAt,
+              let size,
+              size >= 0,
+              maxBytes >= 0,
+              size <= maxBytes else {
+            return false
+        }
+
+        do {
+            _ = try await stream(
+                path: path,
+                modifiedAt: modifiedAt,
+                size: size,
+                requireCache: true,
+                onChunk: { _ in }
+            )
+            try Task.checkCancellation()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Stats and then warms one artifact when its metadata permits caching.
+    ///
+    /// This overload is useful for gallery rows that have only a host path.
+    /// The stat operation supplies the modification time and size needed to
+    /// version the cache before any bytes are transferred.
+    ///
+    /// - Parameters:
+    ///   - path: Absolute Mac host path.
+    ///   - maxBytes: Largest artifact that may be prefetched.
+    /// - Returns: `true` when the full artifact is cached or was cached.
+    @discardableResult
+    public func prefetch(
+        path: String,
+        maxBytes: Int64 = ChatArtifactTransferPolicy.defaultPolicy.maxPreviewBytes
+    ) async -> Bool {
+        guard !Task.isCancelled, supportsArtifacts, scope != .unsupported else {
+            return false
+        }
+        do {
+            let metadata = try await stat(path: path)
+            guard metadata.exists, !metadata.isDirectory else { return false }
+            return await prefetch(
+                path: path,
+                modifiedAt: metadata.modifiedAt,
+                size: metadata.size,
+                maxBytes: maxBytes
+            )
+        } catch {
+            return false
+        }
+    }
+
     /// Streams artifact chunks without requiring a contiguous whole-file copy.
     ///
     /// - Parameters:
@@ -388,6 +474,22 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64? = nil,
         onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
+        _ = try await stream(
+            path: path,
+            modifiedAt: modifiedAt,
+            size: size,
+            requireCache: false,
+            onChunk: onChunk
+        )
+    }
+
+    private func stream(
+        path: String,
+        modifiedAt: Date?,
+        size: Int64?,
+        requireCache: Bool,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws -> Bool {
         let validation = ChatArtifactStreamValidation(expectedSize: size)
         let validatedReceive: @Sendable (ChatArtifactChunk) async throws -> Void = { chunk in
             try await validation.receive(chunk)
@@ -402,12 +504,13 @@ public struct ChatArtifactLoader: Sendable {
         ), let size else {
             try await streamHandler(path, validatedReceive)
             try await validation.finish()
-            return
+            return false
         }
         let handler = streamHandler
         let wasCacheHit = try await contentCache.stream(
             for: key,
             expectedSize: size,
+            requireCache: requireCache,
             fetch: { receive in
                 try await handler(path, receive)
             },
@@ -417,6 +520,7 @@ public struct ChatArtifactLoader: Sendable {
         if wasCacheHit {
             recordDiagnostic(.artifactCacheHit, count: Int(clamping: size))
         }
+        return true
     }
 
     public func thumbnail(

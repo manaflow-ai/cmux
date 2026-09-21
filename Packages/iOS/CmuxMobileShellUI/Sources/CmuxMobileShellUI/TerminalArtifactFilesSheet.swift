@@ -54,6 +54,8 @@ struct TerminalArtifactFilesSheet: View {
     let source: MobileChatEventSource?
     let refreshSignal: TerminalArtifactGalleryRefreshSignal
     let loader: ChatArtifactLoader
+    let sourceIdentity: String?
+    let contentCache: ChatArtifactContentCache
 
     @State var inViewState: InViewLoadState = .loading
     @State var sessionState: SessionLoadState = .idle
@@ -92,13 +94,17 @@ struct TerminalArtifactFilesSheet: View {
         surfaceID: String,
         source: MobileChatEventSource?,
         refreshSignal: TerminalArtifactGalleryRefreshSignal,
-        loader: ChatArtifactLoader
+        loader: ChatArtifactLoader,
+        sourceIdentity: String? = nil,
+        contentCache: ChatArtifactContentCache = .applicationDefault()
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.source = source
         self.refreshSignal = refreshSignal
         self.loader = loader
+        self.sourceIdentity = sourceIdentity
+        self.contentCache = contentCache
         _lastHandledRefreshSignal = State(initialValue: refreshSignal)
     }
 
@@ -150,7 +156,9 @@ struct TerminalArtifactFilesSheet: View {
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
             sessionLoader = ChatArtifactLoader.unsupported(
-                diagnosticLog: diagnosticLog
+                contentCache: contentCache,
+                diagnosticLog: diagnosticLog,
+                sourceIdentity: sourceIdentity
             )
             await loadInitial()
         }
@@ -202,6 +210,8 @@ struct TerminalArtifactFilesSheet: View {
             sessionLoader = ChatArtifactLoader(
                 source: source,
                 sessionID: resolvedSessionID,
+                sourceIdentity: sourceIdentity,
+                contentCache: contentCache,
                 diagnosticLog: diagnosticLog
             )
             scope = .session

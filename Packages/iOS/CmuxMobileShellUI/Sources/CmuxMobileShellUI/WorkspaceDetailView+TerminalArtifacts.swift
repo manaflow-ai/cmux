@@ -93,7 +93,9 @@ extension WorkspaceDetailView {
                     loader: terminalArtifactLoader(
                         workspaceID: context.workspaceID,
                         surfaceID: context.surfaceID
-                    )
+                    ),
+                    sourceIdentity: store.artifactSourceIdentity,
+                    contentCache: terminalArtifactContentCache
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)

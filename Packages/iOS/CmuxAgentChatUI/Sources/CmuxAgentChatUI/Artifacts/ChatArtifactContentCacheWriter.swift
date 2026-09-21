@@ -50,15 +50,21 @@ actor ChatArtifactContentCacheWriter {
         memoryData?.append(chunk.data)
     }
 
-    func finish() throws -> Data? {
+    func finish(requirePersistence: Bool = false) throws -> Data? {
         try validator.finish()
         guard let fileHandle else {
+            guard !requirePersistence || memoryData != nil else {
+                throw CocoaError(.fileWriteUnknown)
+            }
             return memoryData
         }
         do {
             try fileHandle.close()
         } catch {
             disablePersistence()
+            guard !requirePersistence || memoryData != nil else {
+                throw error
+            }
             return memoryData
         }
         self.fileHandle = nil
@@ -70,6 +76,9 @@ actor ChatArtifactContentCacheWriter {
             try fileManager.moveItem(at: temporaryURL, to: destinationURL)
         } catch {
             try? fileManager.removeItem(at: temporaryURL)
+            guard !requirePersistence || memoryData != nil else {
+                throw error
+            }
         }
         return memoryData
     }

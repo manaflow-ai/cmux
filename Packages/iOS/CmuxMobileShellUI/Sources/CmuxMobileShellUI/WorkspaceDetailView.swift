@@ -137,6 +137,7 @@ struct WorkspaceDetailView: View {
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State var terminalArtifactContentCache = ChatArtifactContentCache.applicationDefault()
     @State var visibleArtifactCount = 0
     /// Shared presentation state for the toolbar, title-menu, and hint entry points.
     @State var isWorkspaceChangesSheetPresented = false
@@ -247,6 +248,9 @@ struct WorkspaceDetailView: View {
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
                 restoreLocalBrowserTabIfRequested()
+            }
+            .task(id: panelArtifactPrefetchIdentity) {
+                await prefetchPanelArtifacts()
             }
             .onChange(of: store.pendingLocalBrowserTabRestoreWorkspaceID) { _, _ in
                 restoreLocalBrowserTabIfRequested()
@@ -813,7 +817,9 @@ struct WorkspaceDetailView: View {
         guard let source = store.makeChatEventSource() else {
             return .unsupported(
                 cache: terminalArtifactThumbnailCache,
-                diagnosticLog: store.diagnosticLog
+                contentCache: terminalArtifactContentCache,
+                diagnosticLog: store.diagnosticLog,
+                sourceIdentity: store.artifactSourceIdentity
             )
         }
         return ChatArtifactLoader(
@@ -821,7 +827,9 @@ struct WorkspaceDetailView: View {
             terminalSurfaceID: surfaceID,
             supportsArtifacts: store.supportsTerminalArtifacts,
             supportsDirectoryBrowsing: store.supportsTerminalArtifactList,
+            sourceIdentity: store.artifactSourceIdentity,
             cache: terminalArtifactThumbnailCache,
+            contentCache: terminalArtifactContentCache,
             diagnosticLog: store.diagnosticLog,
             stat: { path in
                 try await source.terminalArtifactStat(
