@@ -17,6 +17,7 @@ import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
+import { discoverHarnesses } from "./harnesses";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -254,6 +255,11 @@ export interface HarnessRecommendation {
   priority: number;
   triggers: CommandTrigger[];
   reason: string;
+  kind?: "provider" | "workflow";
+  provider?: string;
+  benefit?: string;
+  tags?: string[];
+  evidence?: string;
   installCommand?: string;
 }
 
@@ -276,6 +282,10 @@ export function harnessRecommendations(
         installed,
         priority: installed ? 0 : 1,
         triggers: triggersFor(provider),
+        kind: "provider" as const,
+        provider: provider.id,
+        tags: [],
+        benefit: installed ? "native provider session support" : "use this provider when it is installed",
         reason: installed
           ? "Installed and ready"
           : provider.installCommand
@@ -1885,7 +1895,10 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map(providerInfo),
-        harnesses: harnessRecommendations(),
+        harnesses: [
+          ...harnessRecommendations(),
+          ...discoverHarnesses({ cwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD }),
+        ],
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
         keys: keyConfig,
@@ -2026,7 +2039,12 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
       Promise.resolve(checkCwd(cwd))
-        .then((res) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ...res })))
+        .then((res) => ws.send(JSON.stringify({
+          kind: "cwd-check",
+          cwd,
+          ...res,
+          harnesses: discoverHarnesses({ cwd }),
+        })))
         .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err) })));
       break;
     }

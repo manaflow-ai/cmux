@@ -76,6 +76,20 @@ export type Block =
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
+export interface HarnessRecommendation {
+  id: string;
+  label: string;
+  installed: boolean;
+  priority: number;
+  triggers: string[];
+  reason: string;
+  kind?: "provider" | "workflow";
+  provider?: string;
+  benefit?: string;
+  tags?: string[];
+  evidence?: string;
+  installCommand?: string;
+}
 export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
 export type CtrlJMode = "newline" | "menu";
 
@@ -130,12 +144,13 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   }
 }
 
-interface Hello { providers: Provider[]; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
+interface Hello { providers: Provider[]; harnesses?: HarnessRecommendation[]; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
 
 export interface SessionState {
   ready: boolean;
   connectionEpoch: number;
   providers: Provider[];
+  harnesses: HarnessRecommendation[];
   capabilities: Record<string, ProviderCapabilities>;
   defaultCwd: string;
   ctrlJ: CtrlJMode;
@@ -206,6 +221,7 @@ export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [harnesses, setHarnesses] = useState<HarnessRecommendation[]>([]);
   const [capabilities, setCapabilities] = useState<Record<string, ProviderCapabilities>>({});
   const [defaultCwd, setDefaultCwd] = useState("");
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
@@ -299,6 +315,7 @@ export function useSession(): SessionState {
           case "hello": {
             const h = msg as Hello & { kind: string; capabilities?: Record<string, ProviderCapabilities> };
             setProviders(h.providers);
+            setHarnesses(h.harnesses ?? []);
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
@@ -393,6 +410,7 @@ export function useSession(): SessionState {
             break;
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            if (Array.isArray(msg.harnesses)) setHarnesses(msg.harnesses as HarnessRecommendation[]);
             break;
           case "theme":
             if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
@@ -530,6 +548,7 @@ export function useSession(): SessionState {
     ready,
     connectionEpoch,
     providers,
+    harnesses,
     capabilities,
     defaultCwd,
     ctrlJ,

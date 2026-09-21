@@ -27,6 +27,7 @@ export function Composer() {
     ready,
     connectionEpoch,
     providers,
+    harnesses,
     capabilities,
     defaultCwd,
     providerOptions,
@@ -66,6 +67,10 @@ export function Composer() {
   const options = withLocalValues(baseOptions, startOptions);
   const commandGroups = useMemo(() => withFileTrigger(providerCommands[provider] ?? [], filesByCwd[committedCwd] ?? []), [committedCwd, filesByCwd, provider, providerCommands]);
   const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef, ctrlJ);
+  const workflowHarnesses = useMemo(
+    () => harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2),
+    [harnesses],
+  );
 
   useDefaultCwd(defaultCwd, cwd, setCwd, committedCwd, setCommittedCwd);
   useProviderFallback(providers, provider, setProvider);
@@ -173,6 +178,24 @@ export function Composer() {
           )}
         />
       </div>
+      {workflowHarnesses.length ? (
+        <div className="harness-recommendation" role="status">
+          <div className="harness-recommendation-title">cmux found a harness you already use</div>
+          {workflowHarnesses.map((harness) => (
+            <div className="harness-recommendation-item" key={harness.id}>
+              <div>
+                <strong>{harness.label}</strong>
+                <span>{harness.evidence ? `${harness.evidence} · ` : ""}{harness.benefit ?? harness.reason}</span>
+              </div>
+              {harness.provider && providers.some((p) => p.id === harness.provider && p.installed !== false) ? (
+                <button type="button" onClick={() => changeProvider(harness.provider!)}>
+                  Select {providers.find((p) => p.id === harness.provider)?.label ?? harness.provider}
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {lastError ? <div className="composer-error">{lastError}</div> : null}
       <div id="composer-hint">Enter to start · Shift+Enter for newline · Ctrl+/ for shortcuts</div>
       {helpOpen ? <ShortcutOverlay provider={provider} options={options} running={false} ctrlJ={ctrlJ} onClose={() => setHelpOpen(false)} /> : null}
