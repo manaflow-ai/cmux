@@ -45,12 +45,12 @@ next_steps() {
 
 ==> Configured. Next, build a signed-in + auto-attached dev build:
 
-      scripts/dev-setup.sh --tag <your-initials>
+      scripts/dev-setup.sh --tag <your-initials> --auth-profile personal
 
     That builds the tagged macOS DEBUG app, auto-signs-in as
     ${email}, enables the iOS pairing host, mints an attach
     ticket, and launches the iOS dev build auto-attached to your Mac.
-    Mac-only: scripts/dev-setup.sh --tag <x> --surface mac
+    Mac-only: scripts/dev-setup.sh --tag <x> --surface mac --auth-profile personal
 EOF
 }
 

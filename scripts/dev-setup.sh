@@ -23,7 +23,8 @@
 #   scripts/dev-setup.sh --tag grid --surface mac   # macOS only
 #   scripts/dev-setup.sh --tag grid --surface ios   # iOS only (needs Mac listener up)
 #   scripts/dev-setup.sh --tag grid --no-pair       # build both, skip auto-pair
-#   scripts/dev-setup.sh --tag grid --agent         # sign in as the agent account
+#   scripts/dev-setup.sh --tag grid                 # simulator + Mac use agent account
+#   scripts/dev-setup.sh --tag grid --auth-profile personal  # use personal account
 #
 # Flags:
 #   --tag <t>           required; tags the macOS + iOS dev builds.
@@ -36,8 +37,9 @@
 #   --no-pair           skip enabling the host + minting + auto-pair.
 #   --simulator <name>  iOS simulator name (default "iPhone 17").
 #   --device            target a connected iPhone instead of the simulator.
-#   --agent             use the shared agent account for both Mac and Simulator.
-#                       Physical iPhone dogfood always uses the personal profile.
+#   --auth-profile <name> auth profile: agent or personal. Simulator runs default
+#                       to agent; physical iPhone runs default to personal.
+#   --agent             compatibility alias for --auth-profile agent.
 
 set -euo pipefail
 
@@ -45,7 +47,7 @@ TAG=""
 SURFACE="both"            # mac | ios | both
 PROFILE=""
 NO_PAIR=0
-AGENT=0
+AUTH_PROFILE=""
 SIMULATOR_NAME="iPhone 17"
 IOS_TARGET="simulator"   # simulator | device
 
@@ -59,7 +61,12 @@ while [[ $# -gt 0 ]]; do
     --no-pair) NO_PAIR=1; shift ;;
     --simulator) SIMULATOR_NAME="${2:-}"; shift 2 ;;
     --device) IOS_TARGET="device"; shift ;;
-    --agent) AGENT=1; shift ;;
+    --auth-profile)
+      AUTH_PROFILE="${2:-}"
+      [[ -n "$AUTH_PROFILE" ]] || { echo "error: --auth-profile requires a value" >&2; exit 2; }
+      shift 2
+      ;;
+    --agent) AUTH_PROFILE="agent"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown arg $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -71,8 +78,19 @@ case "$SURFACE" in
   *) echo "error: --surface must be mac|ios|both (got '$SURFACE')" >&2; exit 2 ;;
 esac
 
-if [[ "$AGENT" -eq 1 && "$IOS_TARGET" == "device" ]]; then
-  echo "error: --agent is simulator-only; physical iPhone dogfood always uses the personal profile" >&2
+if [[ -z "$AUTH_PROFILE" ]]; then
+  if [[ "$IOS_TARGET" == "device" ]]; then
+    AUTH_PROFILE="personal"
+  else
+    AUTH_PROFILE="agent"
+  fi
+fi
+case "$AUTH_PROFILE" in
+  personal|agent) ;;
+  *) echo "error: --auth-profile must be personal or agent" >&2; exit 2 ;;
+esac
+if [[ "$IOS_TARGET" == "device" && "$AUTH_PROFILE" != "personal" ]]; then
+  echo "error: agent auth is simulator-only; physical iPhone dogfood always uses the personal profile" >&2
   exit 2
 fi
 
@@ -109,10 +127,8 @@ fi
 # Stack vars are not on it), which would leak the password to every child
 # terminal/CLI the app spawns. Validate in a subshell to surface a clear early
 # error, but keep the password out of dev-setup.sh's environment.
-AUTH_PROFILE="personal"
 AUTH_CREDENTIALS_FILE="$HOME/.secrets/cmuxterm-dev.env"
-if [[ "$AGENT" -eq 1 ]]; then
-  AUTH_PROFILE="agent"
+if [[ "$AUTH_PROFILE" == "agent" ]]; then
   # Let the agent profile search both the current and legacy secret files.
   # Passing cmuxterm-dev.env explicitly would make an older ~/.secrets/cmux.env
   # pair undiscoverable because explicit files are intentionally exclusive.
