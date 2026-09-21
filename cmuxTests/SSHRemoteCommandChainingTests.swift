@@ -67,7 +67,8 @@ struct SSHRemoteCommandChainingTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 64_123,
             shellFeatures: "ssh-env,ssh-terminfo",
-            configuredRemoteCommand: configuredRemoteCommand
+            configuredRemoteCommand: configuredRemoteCommand,
+            protectsFromHangup: true
         )
         let result = processSupport.runProcess(
             executablePath: "/usr/bin/env",
@@ -201,7 +202,7 @@ struct SSHRemoteCommandChainingTests {
     }
 
     @Test
-    func nonPersistentRestorePreservesExplicitRemoteCommandIntent() throws {
+    func nonPersistentRestoreWithoutRelayPreservesExplicitRemoteCommandIntent() throws {
         let cases: [(options: [String], expectedCommandFragment: String?)] = [
             (["RemoteCommand=printf restored-command"], "'RemoteCommand=printf restored-command'"),
             (["RemoteCommand=none"], "RemoteCommand=none"),
@@ -221,7 +222,7 @@ struct SSHRemoteCommandChainingTests {
             )
             let restored = try #require(
                 snapshot.workspaceConfiguration(
-                    localSocketPath: "/tmp/cmux-restored.sock",
+                    localSocketPath: nil,
                     allowPersistentPTYRestore: false
                 )
             )

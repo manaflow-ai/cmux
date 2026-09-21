@@ -19,6 +19,7 @@ ios/Config/AppStoreConnect.local.plist
 .swiftpm/
 .ci-source-packages/
 .ci-reload-derived-data/
+.glaeda/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework

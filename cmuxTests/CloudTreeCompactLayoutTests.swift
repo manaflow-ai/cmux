@@ -27,7 +27,7 @@ struct CloudTreeCompactLayoutTests {
         let template = try #require(fixture.nodes(titles: ["workspace-1"]).first)
         let machine = MachineSnapshot(
             id: fixture.machine.rawValue, provider: "fixture", image: "fixture", isDesktop: false,
-            activity: .ready, createdAt: nil, label: "early-plum-alpaca", isDefault: true
+            activity: .ready, createdAt: nil, label: "early-plum-alpaca"
         )
         let root = CloudTreeNode(id: template.id, kind: .machine(machine, nil), children: template.children)
         fixture.coordinator.apply(nodes: [root])
@@ -151,7 +151,7 @@ struct CloudTreeCompactLayoutTests {
                 "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
         #expect(folderGap <= 6 * scale, "No reserved unread column between caret and folder")
         for row in 0..<outline.numberOfRows {
-            #expect(abs(outline.rect(ofRow: row).height - 24 * scale) <= 0.5)
+            #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }
         try fixture.attachScreenshot(named: "compact-tree-\(Int(width))-\(percent)")
 

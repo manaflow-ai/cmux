@@ -18,7 +18,7 @@ struct CloudTreePendingMachineRowContent: View {
             CloudTreeMachineBand(style: style) {
                 HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     leadingGlyph
-                        .frame(width: scaled(style.iconSlot), alignment: .center)
+                        .frame(width: scaled(max(style.iconSlot, style.iconSize)), alignment: .center)
                     HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                         name
                         status
@@ -31,7 +31,7 @@ struct CloudTreePendingMachineRowContent: View {
         case .twoLine:
             HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 leadingGlyph
-                    .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
+                    .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight), alignment: .center)
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     name
                         .frame(height: scaled(style.machineNameLineHeight))

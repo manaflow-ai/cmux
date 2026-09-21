@@ -1,0 +1,7 @@
+{
+  "sourceCommit": "1e1f137f1535a2e27768b77b654983663a2c89e9",
+  "darwin-arm64": {
+    "url": "https://github.com/manaflow-ai/coderouter-releases/releases/download/dev-cmux13100-1e1f137/coderouter",
+    "sha256": "3cf8dd1a18e9d0d7f740cb143c2faaa792397563861fa659ca8afa4dd99fcd11"
+  }
+}

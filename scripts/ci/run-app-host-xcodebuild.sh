@@ -57,6 +57,15 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Focused app-host suites invoke Node/Bun-backed helpers from the test process.
+# Xcode does not inherit these driver variables, so carry them through the
+# TEST_RUNNER_ channel when the caller supplied them.
+if [ -n "${TEST_RUNNER_PATH:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_PATH=$TEST_RUNNER_PATH")
+fi
+if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
+fi
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""

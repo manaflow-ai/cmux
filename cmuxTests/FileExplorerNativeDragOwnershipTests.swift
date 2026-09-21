@@ -150,6 +150,7 @@ struct FileExplorerNativeDragOwnershipTests {
                 pasteboardWriterForRow: 0
             ) as? FilePreviewDragPasteboardWriter
         )
+        sharedPasteboard.clearContents()
         #expect(sharedPasteboard.writeObjects([secondWriter]))
         let secondSession = SearchResultsDragTestSession(
             sequence: 2,
@@ -169,13 +170,11 @@ struct FileExplorerNativeDragOwnershipTests {
             "Superseded cleanup must not erase the replacement drag's payload."
         )
 
-        let duplicateSession = SearchResultsDragTestSession(
-            sequence: 2,
-            pasteboard: sharedPasteboard
-        )
+        // A duplicate callback repeats the same native session; sequence
+        // numbers may be reused by genuinely distinct AppKit sessions.
         container.tableView(
             container.searchResultsView,
-            draggingSession: duplicateSession,
+            draggingSession: secondSession,
             willBeginAt: .zero,
             forRowIndexes: IndexSet(integer: 0)
         )
@@ -276,7 +275,7 @@ struct FileExplorerNativeDragOwnershipTests {
     }
 
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
-    func pointerBoundaryReclaimsSearchDragAfterDismantle() throws {
+    func pointerBoundaryReclaimsSearchDragAfterDismantle() async throws {
         let searchController = SearchResultsDragTestSearchController()
         let coordinator = FileExplorerPanelView.Coordinator(
             store: FileExplorerStore(),
@@ -343,6 +342,7 @@ struct FileExplorerNativeDragOwnershipTests {
         }
         container = nil
         writer = nil
+        _ = await AppKitTestEventPump().waitUntil { weakContainer == nil }
         #expect(weakContainer == nil)
     }
 

@@ -19,6 +19,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
+    /// Immutable counts supplied by the owning workspace, without a store scan.
+    let terminalWorkPopulation: TerminalWorkContext
     let fontSize: Float32
     let terminalPresentationIsActive: Bool
     /// Whether the mounted surface should grab the keyboard when it attaches to
@@ -58,29 +60,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            store: store,
-            terminalPresentationIsActive: terminalPresentationIsActive,
-            artifactFilesEnabled: artifactFilesEnabled,
-            terminalFolderTapEnabled: terminalFolderTapEnabled,
-            terminalFilesChipEnabled: terminalFilesChipEnabled,
-            showMissingFiles: showMissingFiles,
-            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
-            visibleArtifactCount: visibleArtifactCount,
-            onArtifactFilesRequested: onArtifactFilesRequested,
-            onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
-            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
-        )
-        #if DEBUG
-        coordinator.releaseGateUIProbe = releaseGateUIProbe
-        #endif
-        return coordinator
-    }
-
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
         do {
@@ -116,6 +95,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
         view.diagnosticLog = store.diagnosticLog
+        view.terminalWorkPopulation = terminalWorkPopulation
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
@@ -154,6 +134,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
+        surfaceView.terminalWorkPopulation = terminalWorkPopulation
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
