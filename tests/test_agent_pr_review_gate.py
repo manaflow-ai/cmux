@@ -81,6 +81,28 @@ class AgentPRReviewGateTests(unittest.TestCase):
         ledger = gate.review_ledger(pr, gate.DEFAULT_REVIEW_BOTS, ("agent-author",))
         self.assertEqual(ledger[0].disposition, "resolved_unverified")
 
+    def test_attention_needed_tracks_unanswered_actionable_findings(self):
+        unanswered = gate.review_ledger(
+            make_pr(threads=[thread()]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertTrue(gate.attention_needed(unanswered))
+
+        answered = gate.review_ledger(
+            make_pr(threads=[thread(reply=True)]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertFalse(gate.attention_needed(answered))
+
+        outdated = gate.review_ledger(
+            make_pr(threads=[thread(outdated=True)]),
+            gate.DEFAULT_REVIEW_BOTS,
+            ("agent-author",),
+        )
+        self.assertFalse(gate.attention_needed(outdated))
+
     def test_unavailable_provider_is_not_an_actionable_thread(self):
         pr = make_pr(
             reviews=[review("coderabbitai")],
