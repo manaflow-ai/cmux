@@ -8,15 +8,16 @@ actor CloudFilePreviewCache {
     private let root: URL
     private let maximumEntries: Int
     private var entries: Set<URL> = []
+    private var cleanupTask: Task<Void, Never>?
 
     init(directory: URL = FileManager.default.temporaryDirectory, maximumEntries: Int = 32) {
-        Self.removeStaleDirectories(in: directory)
         let owner = ProcessInfo.processInfo.processIdentifier
         root = directory.appendingPathComponent(
             "cmux-cloud-previews-\(owner)-\(UUID().uuidString)",
             isDirectory: true
         )
         self.maximumEntries = maximumEntries
+        cleanupTask = Task.detached(priority: .utility) { Self.removeStaleDirectories(in: directory) }
     }
 
     private static func removeStaleDirectories(in directory: URL) {
@@ -43,7 +44,9 @@ actor CloudFilePreviewCache {
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
         }
-        guard entries.count < maximumEntries else { throw FileExplorerError.previewCapacity }
+        if provider is CloudVMFileExplorerProvider, entries.count >= maximumEntries {
+            throw FileExplorerError.previewCapacity
+        }
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let filename = (path as NSString).lastPathComponent
         guard !filename.isEmpty, filename != ".", filename != ".." else { throw FileExplorerError.providerUnavailable }
@@ -81,4 +84,6 @@ actor CloudFilePreviewCache {
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         if entries.isEmpty { try? FileManager.default.removeItem(at: root) }
     }
+
+    deinit { cleanupTask?.cancel() }
 }
