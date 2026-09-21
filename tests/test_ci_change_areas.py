@@ -257,6 +257,18 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_macos_admission_control_helpers_run_admission_without_web_or_release() -> None:
+    for path in (
+        "scripts/ci/build_input_fingerprint.py",
+        "scripts/ci/find_admitted_build.py",
+    ):
+        actual = module.classify_files([path])
+        assert actual.macos is True, (path, actual)
+        assert actual.web is False, (path, actual)
+        assert actual.agent_session_web is False, (path, actual)
+        assert actual.release_build is False, (path, actual)
+
+
 def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() -> None:
     for path in (
         "scripts/ci/app_host_test_products.py",
@@ -885,6 +897,8 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
     assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
     for path in (
+        "scripts/ci/build_input_fingerprint.py",
+        "scripts/ci/find_admitted_build.py",
         "scripts/ci/app_host_test_products.py",
         "scripts/ci/product_input_identity.py",
         "scripts/ci/reuse_app_host_products.py",

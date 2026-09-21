@@ -63,6 +63,11 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/web_validation.py",
 })
 
+CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
+    "scripts/ci/build_input_fingerprint.py",
+    "scripts/ci/find_admitted_build.py",
+})
+
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
@@ -85,6 +90,7 @@ def forces_all_areas(path: str) -> bool:
     if (
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
+        and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
         return True
@@ -351,6 +357,12 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             web = True
             agent_session_web = True
             release_build = True
+            continue
+        if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
+            # These helpers decide whether compile admission is required.
+            # Exercise the macOS admission path and its Linux contracts, but
+            # they cannot affect web or Release app bytes.
+            macos = True
             continue
         if path in CI_MACOS_TEST_PRODUCT_INPUTS:
             # These helpers own the reusable Debug/test product and its
