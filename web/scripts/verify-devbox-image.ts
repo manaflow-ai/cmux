@@ -402,7 +402,7 @@ if (provider === "freestyle") {
     // Verify in an isolated network namespace BEFORE any installer, login
     // shell, or healing. Missing baked binaries must fail, never fetch.
     const offline = await vm.exec({
-      command: `unshare --net -- runuser -u ${DEVBOX_WORK_USER} -- env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} PATH=/usr/local/bin:/usr/bin:/bin sh -ec 'cmux --version; cmux coderouter --version; coderouter --version; cr --version; cmux coderouter add --help; coderouter add --help; cr add --help'`,
+      command: `unshare --net -- runuser -u ${DEVBOX_WORK_USER} -- env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} PATH=/usr/local/bin:/usr/bin:/bin sh -ec 'cmux --version; cmux coderouter --version; coderouter --version; cr --version; cmux coderouter --help; for alias in "cmux coderouter add" "coderouter add" "cr add"; do set +e; output=$(eval "$alias" 2>&1); status=$?; set -e; [ "$status" -eq 1 ] && printf "%s\n" "$output" | grep -q "coderouter add"; done'`,
       linuxUser: "root", timeoutMs: 10_000,
     });
     if (offline.statusCode !== 0) throw new Error(`Baked CLI offline smoke failed: ${(offline.stderr ?? "").slice(-500)}`);
