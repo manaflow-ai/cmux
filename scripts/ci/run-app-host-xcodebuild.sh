@@ -53,11 +53,9 @@ app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 # app-host process. The cmux app-host tests share AppKit windows, UserDefaults,
 # socket fixtures, Ghostty configuration, and hook stores, so XCTest's
 # `-parallel-testing-enabled NO` is insufficient. Xcode's Testing runtime
-# provides this runtime width specifically for process-local throttling. A
-# small width preserves room for tests that intentionally launch overlapping
-# async work while avoiding the full-suite global-state fan-out.
+# provides this runtime width specifically for process-local serialization.
 app_host_test_runner_environment+=(
-  "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=4"
+  "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=1"
 )
 # Xcode does not inherit the driver's full environment into the test host.
 # Preserve CI identity so existing CI-specific test deadlines actually apply.
