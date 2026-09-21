@@ -829,6 +829,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// privacy-safe, so the same sink is available in Release builds. `nil` in
     /// hosts that do not wire it; every probe is then a no-op.
     public var diagnosticLog: DiagnosticLog?
+    /// Content-free population snapshot supplied by the mounting shell.
+    public var terminalWorkPopulation: TerminalWorkContext = .init()
 
     private lazy var inputSession = TerminalInputSessionCoordinator(
         focus: { [weak self] owner in
@@ -3012,6 +3014,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public override func layoutSubviews() {
+        let work = bounds.size != lastLayoutGeometrySyncSize
+            ? diagnosticLog?.beginTerminalWork(.layout, context: terminalWorkSnapshot(transition: .resize)) : nil
+        defer { work?.end() }
         super.layoutSubviews()
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
@@ -3299,7 +3304,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         let pushedRowsCounter = localScrollbackRowsPushed
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
         workQueue.async { [weak self] in
+            let work = renderGridContract?.isDelta == false
+                ? phaseLog?.beginTerminalWork(.renderGridReplay, context: phaseContext) : nil
+            defer { work?.end() }
             // Render-grid frames paint absolute rows of the producer's grid.
             // Verify the local grid matches HERE, on the same serial queue as
             // every `set_size`, so no resize can interleave between the check
@@ -4421,9 +4431,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
+        // Ordinary steady-state frames are intentionally uninstrumented.
+        let phaseLog = submission.kind == .verifiedReplay || pendingRenderFrames > 0 ? diagnosticLog : nil
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
         let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
+            let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+            defer { work?.end() }
             switch submission.kind {
             case .ordinary, .localScroll:
                 #if DEBUG
@@ -4482,6 +4497,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                           !self.isDismantled else { return }
                     self.outputQueue.async { [weak self] in
                         guard self != nil else { return }
+                        let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+                        defer { work?.end() }
                         ghostty_surface_render_now_with_token(
                             submission.surface,
                             submission.token
@@ -4974,44 +4991,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
-    nonisolated private static func fitSurfaceToGrid(
-        _ surface: ghostty_surface_t,
-        cols: Int,
-        rows: Int,
-        cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
-
-        ghostty_surface_set_size(surface, requestedW, requestedH)
-        var actual = ghostty_surface_size(surface)
-
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
-        var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
-        while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
-            if Int(actual.columns) < cols {
-                requestedW += 1
-            }
-            if Int(actual.rows) < rows {
-                requestedH += 1
-            }
-            ghostty_surface_set_size(surface, requestedW, requestedH)
-            actual = ghostty_surface_size(surface)
-            steps += 1
-        }
-
-        return (requestedW, requestedH, actual)
-    }
-
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
@@ -5108,8 +5087,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
         let workQueue = outputQueue
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .resize)
 
-        workQueue.async { [weak self] in
+        let queued = phaseLog?.beginTerminalWork(.geometryQueue, context: phaseContext, onMainThread: false)
+        let accepted = workQueue.async { [weak self] in
+            queued?.end()
+            let work = phaseLog?.beginTerminalWork(.resizePublication, context: phaseContext)
+            defer { work?.end() }
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
@@ -5194,6 +5179,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 completion?(true)
             }
         }
+        if !accepted { queued?.end(); completion?(false) } // Rejection never retains or executes the closure.
     }
 
     /// Apply an off-main geometry pass on the main actor: only UIKit layer /

@@ -1354,7 +1354,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Void, Never>?
+    // Internal so the workspace-list recovery owner can cancel the same
+    // coalesced task that backs pull-to-refresh and the empty-state Retry.
+    var pullToRefreshTask: Task<Void, Never>?
+    /// Stable Mac identity for the task occupying ``pullToRefreshTask``.
+    /// Empty-state rows use this to cancel a departing Mac's recovery without
+    /// touching a newer retry started for the newly selected Mac.
+    var pullToRefreshOwnerID: String?
+    var pullToRefreshOwnerInstanceTag: String?
+    var pullToRefreshRecoveryGeneration: UUID?
+    /// Stable Mac identity for the connection-recovery waiter currently owned
+    /// by the workspace-list Retry action.
+    var workspaceListRecoveryOwnerID: String?
+    var workspaceListRecoveryOwnerInstanceTag: String?
+    var workspaceListRecoveryConnectionGeneration: UUID?
+    var workspaceListRecoveryConnectionAttemptID: UUID?
+    var workspaceListRecoveryWaitingForConnectionAttempt = false
+    var workspaceListRecoveryPreparedGeneration: UUID?
+    var workspaceListRecoveryActive = false
+    var workspaceListRecoveryGeneration = UUID()
+    /// Generation of the task currently occupying ``pullToRefreshTask``.
+    /// Cancelled attempts advance it before detaching their handle so a late
+    /// completion cannot clear or mutate a newer retry.
+    var pullToRefreshGeneration = UUID()
     /// Foreground post-mutation list refreshes, coalesced separately from
     /// pull-to-refresh so batched row actions do not fan out legacy list RPCs.
     private var foregroundWorkspaceMutationRefreshTask: Task<Void, Never>?
@@ -1965,6 +1987,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.pullToRefreshOwnerID = nil
+        self.pullToRefreshOwnerInstanceTag = nil
+        self.pullToRefreshRecoveryGeneration = nil
+        self.workspaceListRecoveryOwnerID = nil
+        self.workspaceListRecoveryOwnerInstanceTag = nil
+        self.workspaceListRecoveryConnectionGeneration = nil
+        self.workspaceListRecoveryConnectionAttemptID = nil
+        self.workspaceListRecoveryWaitingForConnectionAttempt = false
+        self.workspaceListRecoveryPreparedGeneration = nil
+        self.workspaceListRecoveryActive = false
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
         self.foregroundWorkspaceMutationRefreshGeneration = UUID()
@@ -11471,6 +11503,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshOperationID = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        pullToRefreshOwnerID = nil
+        pullToRefreshOwnerInstanceTag = nil
+        pullToRefreshRecoveryGeneration = nil
+        workspaceListRecoveryOwnerID = nil
+        workspaceListRecoveryOwnerInstanceTag = nil
+        workspaceListRecoveryConnectionGeneration = nil
+        workspaceListRecoveryConnectionAttemptID = nil
+        workspaceListRecoveryWaitingForConnectionAttempt = false
+        workspaceListRecoveryPreparedGeneration = nil
+        workspaceListRecoveryActive = false
+        workspaceListRecoveryGeneration = UUID()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryDebounceTask = nil
         workspaceChangesSummaryDebounceTaskID = nil
@@ -15788,13 +15831,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await inFlight.value
             return
         }
+        let generation = UUID()
+        let ownerID = connectedMacDeviceID
+        let ownerInstanceTag = connectedMacInstanceTag
+        let recoveryGeneration = workspaceListRecoveryActive
+            ? workspaceListRecoveryGeneration
+            : nil
+        pullToRefreshGeneration = generation
         let task = Task { @MainActor [weak self] in
-            defer { self?.pullToRefreshTask = nil }
+            defer {
+                if let self, self.pullToRefreshGeneration == generation {
+                    self.pullToRefreshTask = nil
+                    self.pullToRefreshOwnerID = nil
+                    self.pullToRefreshOwnerInstanceTag = nil
+                    self.pullToRefreshRecoveryGeneration = nil
+                }
+            }
+            guard !Task.isCancelled else { return }
             await self?.reloadWorkspaceListFromMac()
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if self?.connectionState == .connected,
+            if !Task.isCancelled,
+               self?.pullToRefreshGeneration == generation,
+               self?.connectionState == .connected,
                self?.remoteClient != nil {
                 // Reconnection/discovery has its own coalesced, cancellable
                 // owner. An offline saved Mac must not hold the foreground
@@ -15803,6 +15863,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         pullToRefreshTask = task
+        pullToRefreshOwnerID = ownerID
+        pullToRefreshOwnerInstanceTag = ownerInstanceTag
+        pullToRefreshRecoveryGeneration = recoveryGeneration
         await task.value
     }
 
