@@ -115,9 +115,9 @@ async function fixture(t, options = {}) {
   return { mf, state };
 }
 
-test("six immediate consumers share one import while the overall CI run is active", async (t) => {
+test("all seven immediate consumers share one import while the overall CI run is active", async (t) => {
   const { mf, state } = await fixture(t);
-  const responses = await Promise.all(Array.from({ length: 6 }, () => mf.dispatchFetch(`https://broker.example${path}`)));
+  const responses = await Promise.all(Array.from({ length: 7 }, () => mf.dispatchFetch(`https://broker.example${path}`)));
   for (const response of responses) {
     assert.equal(response.status, 200);
     assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
