@@ -320,6 +320,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(largeCleanup.stderr.contains("listing was incomplete"), largeCleanup.stderr)
     }
 
+    /// Verifies clear-session SessionStart returns the structured acknowledgement,
+    /// clears only the current pane, and marks the workspace as running.
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
