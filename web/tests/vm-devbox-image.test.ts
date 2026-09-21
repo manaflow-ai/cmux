@@ -271,7 +271,7 @@ describe("devbox image template", () => {
     mkdirSync(transientRuntime);
     writeFileSync(path.join(blesh, "ble.sh"), [
       "BLE_VERSION=fixture",
-      "bleopt() { :; }",
+      "bleopt() { mkdir -p \"$XDG_RUNTIME_DIR/blesh\"; printf ok > \"$XDG_RUNTIME_DIR/blesh/live\"; }",
       "ble-face() { :; }",
       "ble-bind() { :; }",
       "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
@@ -288,7 +288,7 @@ describe("devbox image template", () => {
         .replaceAll("/usr/local/share/blesh", blesh),
     );
     try {
-      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
         encoding: "utf8",
         env: {
           NODE_ENV: "test",
