@@ -1,5 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
+restore_started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+report_restore_measurement() {
+  local status="$?"
+  set +e
+  CMUX_RESTORE_STATUS="$status" CMUX_RESTORE_STARTED_NS="$restore_started_ns" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import time
+
+started = int(os.environ.get("CMUX_RESTORE_STARTED_NS", "0") or 0)
+elapsed = max(0, round((time.monotonic_ns() - started) / 1_000_000_000, 3)) if started else None
+archive = Path(os.environ.get("RUNNER_TEMP", "")) / "app-host-products/app-host-products.tar.gz"
+record = {
+    "run_id": os.environ.get("GITHUB_RUN_ID"),
+    "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+    "job": os.environ.get("GITHUB_JOB"),
+    "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
+    "runner_name": os.environ.get("RUNNER_NAME"),
+    "route": os.environ.get("CMUX_ARTIFACT_TRANSPORT_ROUTE") or "unknown",
+    "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "unknown",
+    "outcome": "success" if os.environ.get("CMUX_RESTORE_STATUS") == "0" else "failure",
+    "elapsed_seconds": elapsed,
+    "archive_bytes": archive.stat().st_size if archive.is_file() else None,
+}
+print("CMUX_TEST_PRODUCT_RESTORE " + json.dumps(record, sort_keys=True))
+summary = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary:
+    with open(summary, "a") as handle:
+        handle.write("### Compiled test product restore\n\n\`\`\`json\n")
+        handle.write(json.dumps(record, indent=2, sort_keys=True))
+        handle.write("\n\`\`\`\n")
+PY
+  set -e
+  return "$status"
+}
+trap report_restore_measurement EXIT
 archive="$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
 tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
