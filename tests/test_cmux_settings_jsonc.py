@@ -275,6 +275,28 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             self.assertIn("intermediate key 'app' is not an object", result.stderr)
             self.assertEqual(config.read_text(encoding="utf-8"), source)
 
+    def test_project_scope_uses_target_location_not_process_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            other = root / "other"
+            project.mkdir()
+            other.mkdir()
+            config = project / "cmux.json"
+            config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
+
+            with mock.patch.object(helper.Path, "cwd", return_value=other):
+                self.assertEqual(helper.semantic_scope_for(config), "project")
+
+    def test_explicit_scope_still_overrides_target_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            config.write_text("{}\n", encoding="utf-8")
+            self.assertEqual(
+                helper.semantic_scope_for(config, explicit_scope="global"),
+                "global",
+            )
+
     def test_atomic_commit_refuses_stale_external_revision(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
