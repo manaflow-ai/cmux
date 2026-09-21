@@ -23,6 +23,42 @@ def run(*args, env):
     subprocess.run(args, cwd=ROOT, env=env, check=True)
 
 
+def create_framework(stage: Path, identifier: str, library: Path, header: Path) -> Path:
+    """Create a versioned Apple framework accepted by macOS bundle validation."""
+    framework = stage / identifier / 'CmuxV3NativeFFI.framework'
+    version = framework / 'Versions' / 'A'
+    headers_dir = version / 'Headers'
+    modules_dir = version / 'Modules'
+    resources_dir = version / 'Resources'
+    headers_dir.mkdir(parents=True)
+    modules_dir.mkdir()
+    resources_dir.mkdir()
+    shutil.copy2(header, headers_dir / 'CmuxV3NativeFFI.h')
+    (modules_dir / 'module.modulemap').write_text(
+        'framework module CmuxV3NativeFFI {\n'
+        '  umbrella header "CmuxV3NativeFFI.h"\n'
+        '  export *\n'
+        '  module * { export * }\n'
+        '}\n'
+    )
+    (resources_dir / 'Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleDevelopmentRegion': 'en',
+        'CFBundleExecutable': 'CmuxV3NativeFFI',
+        'CFBundleIdentifier': 'dev.cmux.CmuxV3NativeFFI',
+        'CFBundleInfoDictionaryVersion': '6.0',
+        'CFBundleName': 'CmuxV3NativeFFI',
+        'CFBundlePackageType': 'FMWK',
+        'CFBundleShortVersionString': '1.0',
+        'CFBundleVersion': '1',
+    }))
+    shutil.copy2(library, version / 'CmuxV3NativeFFI')
+    (framework / 'Versions' / 'Current').symlink_to('A')
+    for name in ('Headers', 'Modules', 'Resources', 'CmuxV3NativeFFI'):
+        (framework / name).symlink_to(f'Versions/Current/{name}')
+    (framework / 'Info.plist').symlink_to('Versions/Current/Resources/Info.plist')
+    return framework
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--package', type=Path, required=True)
@@ -87,30 +123,7 @@ def main():
         output = stage/'CmuxV3NativeFFI.xcframework'
         frameworks = []
         for identifier, library in libraries:
-            framework = stage/identifier/'CmuxV3NativeFFI.framework'
-            headers_dir = framework/'Headers'
-            modules_dir = framework/'Modules'
-            headers_dir.mkdir(parents=True)
-            modules_dir.mkdir()
-            shutil.copy2(headers/'CmuxV3NativeFFI.h', headers_dir/'CmuxV3NativeFFI.h')
-            (modules_dir/'module.modulemap').write_text(
-                'framework module CmuxV3NativeFFI {\n'
-                '  umbrella header "CmuxV3NativeFFI.h"\n'
-                '  export *\n'
-                '  module * { export * }\n'
-                '}\n'
-            )
-            (framework/'Info.plist').write_bytes(plistlib.dumps({
-                'CFBundleDevelopmentRegion': 'en',
-                'CFBundleExecutable': 'CmuxV3NativeFFI',
-                'CFBundleIdentifier': 'dev.cmux.CmuxV3NativeFFI',
-                'CFBundleInfoDictionaryVersion': '6.0',
-                'CFBundleName': 'CmuxV3NativeFFI',
-                'CFBundlePackageType': 'FMWK',
-                'CFBundleShortVersionString': '1.0',
-                'CFBundleVersion': '1',
-            }))
-            shutil.copy2(library, framework/'CmuxV3NativeFFI')
+            framework = create_framework(stage, identifier, library, headers/'CmuxV3NativeFFI.h')
             install_name_tool = subprocess.check_output(
                 ['xcrun', '--find', 'install_name_tool'], text=True
             ).strip()
@@ -118,7 +131,7 @@ def main():
                 install_name_tool,
                 '-id',
                 '@rpath/CmuxV3NativeFFI.framework/CmuxV3NativeFFI',
-                str(framework/'CmuxV3NativeFFI'),
+                str(framework/'Versions'/'A'/'CmuxV3NativeFFI'),
                 env=env,
             )
             frameworks.append(framework)
