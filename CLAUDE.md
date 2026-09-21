@@ -53,6 +53,24 @@ active workspaces, or other agents' builds to make space. Retain the terminal
 receipt's timing, cache, disk, cleanup, and artifact evidence. A cached artifact
 replay is not a changed-source warm compilation benchmark.
 
+### Shared-machine execution ownership
+
+The controller job/reservation and the host's physical execution lease are
+separate identities. `cmux-ci`, GitHub Actions, direct agents, and operator
+commands may share one CMUX-owned machine while keeping their own caller and
+workflow state.
+
+When a controller has already reserved a machine, the execution adapter
+validates that reservation and binds its local lease to the same ownership
+evidence. A target-machine choice without reservation still goes through fresh
+host admission. Native build lanes, project locks, publisher slots, and resident
+workspaces must have one local owner before execution starts.
+
+A busy/idle guess, runner process, SSH session, or process-name check never
+grants or releases that ownership. Keep using the existing controller job ID for
+retries, and preserve its receipts; host refusal or pressure should flow back to
+the caller instead of being bypassed through direct execution.
+
 ### Fleet allocation transition
 
 The macfleet skill is retired. Do not load, invoke, reinstall, or follow it.
