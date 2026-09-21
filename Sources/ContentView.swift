@@ -15285,7 +15285,7 @@ struct SidebarFooterButtons: View {
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     /// Owns the discovery popover so it persists after ⌘ is released.
     @State private var isShortcutPopoverPresented = false
-
+    @State private var footerPopoverGroup = CmuxPopoverGroup()
     private var presentationMode: WorkspacePresentationModeSettings.Mode {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode)
     }
@@ -15299,13 +15299,13 @@ struct SidebarFooterButtons: View {
             if shows(.account) || shows(.mobileConnect) || shows(.help) {
                 HStack(spacing: 0) {
                     if shows(.account), CmuxFeatureFlags.shared.isSidebarAccountButtonEnabled {
-                        SidebarAccountMenuButton()
+                        SidebarAccountMenuButton(popoverGroup: footerPopoverGroup)
                     }
                     if shows(.mobileConnect), CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
                         SidebarMobileConnectButton()
                     }
                     if shows(.help) {
-                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+                        SidebarHelpMenuButton(onSendFeedback: onSendFeedback, popoverGroup: footerPopoverGroup)
                     }
                 }
             }
@@ -15376,7 +15376,7 @@ private struct SidebarHelpMenuButton: View {
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
-
+    let popoverGroup: CmuxPopoverGroup
     @State private var isPopoverPresented = false
 
     private var iconSize: CGFloat {
@@ -15403,7 +15403,7 @@ private struct SidebarHelpMenuButton: View {
 
     var body: some View {
         Button {
-            isPopoverPresented.toggle()
+            let shouldPresent = !isPopoverPresented; popoverGroup.dismissAll(); isPopoverPresented = shouldPresent
         } label: {
             SidebarFooterHelpIcon(pointSize: iconSize, weight: iconWeight)
                 .frame(width: buttonSize, height: buttonSize, alignment: .center)
@@ -15413,7 +15413,7 @@ private struct SidebarHelpMenuButton: View {
         .background(ArrowlessPopoverAnchor(
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
-            detachedGap: 4
+            detachedGap: 4, presentationAnimation: .enabled, group: popoverGroup
         ) {
             helpPopover
         })

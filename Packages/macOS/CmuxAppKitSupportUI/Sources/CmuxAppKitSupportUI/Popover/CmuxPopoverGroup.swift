@@ -79,6 +79,9 @@ public final class CmuxPopoverGroup {
         containsPointer: ((Int?, CGPoint) -> Bool)? = nil,
         close: @escaping () -> Void
     ) {
+        if parent == nil, !members.isEmpty {
+            dismissAll()
+        }
         members.append(Member(
             id: id,
             parent: parent,

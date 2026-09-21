@@ -17,7 +17,7 @@ struct SidebarAccountMenuButton: View {
     private let buttonSize = SidebarFooterButtonMetrics.buttonSize
     @State private var isPopoverPresented = false
     @State private var isShowingTeamPicker = false
-    @State private var popoverGroup = CmuxPopoverGroup()
+    let popoverGroup: CmuxPopoverGroup
 #if DEBUG
     @AppStorage(SidebarFooterProfileIconDebugSettings.sizeKey)
     private var debugIconSize = SidebarFooterProfileIconDebugSettings.defaultSize
@@ -71,7 +71,7 @@ struct SidebarAccountMenuButton: View {
         )
         Button {
             if isSignedIn {
-                isPopoverPresented.toggle()
+                let shouldPresent = !isPopoverPresented; popoverGroup.dismissAll(); isPopoverPresented = shouldPresent
             } else {
                 _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
                     tabManager: tabManager,
@@ -110,7 +110,7 @@ struct SidebarAccountMenuButton: View {
         .task {
             for await _ in NotificationCenter.default.notifications(named: .cmuxTeamPickerShortcutRequested) {
                 guard !Task.isCancelled else { return }
-                isPopoverPresented = true
+                popoverGroup.dismissAll(); isPopoverPresented = true
             }
         }
         .onChange(of: isPopoverPresented) { _, presented in
