@@ -2364,8 +2364,8 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
-        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
-        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "root": "cmux の設定。グローバルな cmux.json では、アプリ設定、ショートカット、アクション、カスタムコマンド、通知フック、ワークスペースのレイアウトを設定できます。プロジェクトローカルの .cmux/cmux.json または cmux.json では、アクション、コマンド、通知フック、UI アクションの割り当て、Agent Chat の上書き、Vault エージェント、ワークスペースグループの上書き、ワークスペースの起動とボタンを設定できます。",
+        "rightSidebar": "cmux.json に保持される、従来の右サイドバー設定および拡張機能が所有する右サイドバー設定。",
         "computerUse": {
           "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
           "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
