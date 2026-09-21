@@ -3,75 +3,6 @@ import Bonsplit
 import CmuxTerminal
 import Foundation
 
-struct TerminalPortalReconciliationReasons: OptionSet {
-    let rawValue: UInt8
-
-    static let bindingRequired = Self(rawValue: 1 << 0)
-    static let flushPendingManualSizeReport = Self(rawValue: 1 << 1)
-}
-
-/// Owns the boundary between SwiftUI/AppKit callbacks and terminal portal mutations.
-///
-/// `NSViewRepresentable.updateNSView`, `NSView.layout`, and move-to-window callbacks
-/// can run while SwiftUI or AppKit is already resolving the hosting hierarchy. Portal
-/// binding reparents and resizes the real terminal view, so doing it from those
-/// callbacks can synchronously re-enter `NSHostingView` layout on macOS 15.
-///
-/// Each representable coordinator owns one scheduler. Repeated callbacks retain the
-/// latest reconciliation closure while accumulating required work, then flush after
-/// the originating framework callback has returned.
-@MainActor
-final class TerminalPortalReconciliationScheduler {
-    private enum Phase { case idle, scheduled, applying }
-    private var pendingReasons: TerminalPortalReconciliationReasons = []
-    private var pendingReconciliation: (@MainActor (TerminalPortalReconciliationReasons) -> Void)?
-    private var phase = Phase.idle
-
-    func stage(
-        reasons: TerminalPortalReconciliationReasons = [],
-        reconciliation: @escaping @MainActor (TerminalPortalReconciliationReasons) -> Void
-    ) {
-        pendingReasons.formUnion(reasons)
-        pendingReconciliation = reconciliation
-        scheduleFlushIfNeeded()
-    }
-
-    func cancel() {
-        pendingReasons = []
-        pendingReconciliation = nil
-    }
-
-    private func scheduleFlushIfNeeded() {
-        guard phase == .idle else { return }
-        phase = .scheduled
-        RunLoop.main.perform(inModes: [.common]) { [weak self] in
-            // RunLoop guarantees main-thread delivery, but Foundation does not
-            // annotate this callback with MainActor.
-            MainActor.assumeIsolated {
-                self?.flushPendingReconciliation()
-            }
-        }
-    }
-
-    /// Flushes the staged reconciliation at a caller-owned safe boundary.
-    func flushPendingReconciliation() {
-        // AppKit can drain a nested run loop while the current reconciliation
-        // lays out or reparents views. That delivery must leave pending work
-        // with this owner until the active geometry pass has unwound.
-        guard phase != .applying else { return }
-        let reasons = pendingReasons
-        let reconciliation = pendingReconciliation
-        pendingReasons = []
-        pendingReconciliation = nil
-        phase = .applying
-        defer {
-            phase = .idle
-            if pendingReconciliation != nil { scheduleFlushIfNeeded() }
-        }
-        reconciliation?(reasons)
-    }
-}
-
 /// Immutable representable input consumed when the queued portal turn runs.
 /// Mutable visibility/active values remain on the coordinator so coalesced
 /// callbacks always apply the newest state.
@@ -105,13 +36,14 @@ extension GhosttyTerminalView {
         reason: String
     ) {
         coordinator.portalReconciliationScheduler.stage(reasons: reasons) {
-            [weak host, weak hostedView, weak coordinator, weak terminalSurface] reasons in
+            [weak host, weak hostedView, weak coordinator, weak terminalSurface] request in
+            let reasons = request.reasons
             guard let host, let hostedView, let coordinator, let terminalSurface else { return }
             guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
             guard coordinator.hostedView === hostedView else { return }
             let work = TerminalGeometryDiagnostics().begin(
                 .geometryPublication, workspaceID: terminalSurface.tabId,
-                transition: reasons.contains(.bindingRequired) ? .reveal : .unknown
+                transition: request.transition
             )
             defer { work.end() }
 

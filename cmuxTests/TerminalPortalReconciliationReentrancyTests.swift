@@ -19,7 +19,7 @@ struct TerminalPortalReconciliationReentrancyTests {
                 Issue.record("Superseded geometry must not be applied")
             }
             scheduler.stage(reasons: .flushPendingManualSizeReport) { reasons in
-                deliveredReasons = reasons
+                deliveredReasons = reasons.reasons
                 events.append("latest")
             }
             // AppKit can drain the run loop while applying a portal update.
