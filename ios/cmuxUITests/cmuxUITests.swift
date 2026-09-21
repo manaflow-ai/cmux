@@ -11739,6 +11739,48 @@ final class IOSSetupRecoveryUITests: XCTestCase {
     }
 
     @MainActor
+    func testEmptyWorkspaceRetrySurvivesIntermediateUpdate() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "0",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "unavailable",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH": "1",
+        ]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        defer { app.terminate() }
+        let retry = app.buttons["MobileWorkspaceEmptyRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        for attempt in 1...2 {
+            retry.tap()
+            let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
+            XCTAssertTrue(finish.waitForExistence(timeout: 5))
+            XCTAssertFalse(retry.isEnabled)
+            // Emit an empty-list update before the pending refresh completes.
+            app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(attempt * 2 - 1)"
+            ].waitForExistence(timeout: 5))
+            XCTAssertFalse(retry.isEnabled)
+            XCTAssertTrue(finish.exists)
+            capture("retry-\(attempt)-pending-after-list-update", in: app)
+            finish.tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(attempt * 2)"
+            ].waitForExistence(timeout: 5))
+            let enabled = NSPredicate { _, _ in retry.isEnabled }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: enabled, object: nil
+            )], timeout: 5), .completed)
+            capture("retry-\(attempt)-completed-after-list-update", in: app)
+        }
+        record("retry-lifecycle-result", "Retry stayed disabled across an intermediate empty-list update, completed after an explicit fixture signal, and accepted a second retry. No timing delay is used by this fixture.")
+    }
+
+    @MainActor
     func testEmptyWorkspaceRetryAndSetupGuide() {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -11759,10 +11801,6 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         capture("empty-workspaces-before-actions", in: app)
         for generation in 1...2 {
             retry.tap()
-            let disabled = NSPredicate { _, _ in !retry.isEnabled }
-            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-                predicate: disabled, object: nil
-            )], timeout: 2), .completed)
             XCTAssertTrue(app.descendants(matching: .any)[
                 "MobileWorkspaceListRefreshGeneration-\(generation)"
             ].waitForExistence(timeout: 5))

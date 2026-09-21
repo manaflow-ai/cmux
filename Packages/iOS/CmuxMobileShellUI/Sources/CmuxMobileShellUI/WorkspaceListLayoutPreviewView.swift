@@ -30,6 +30,26 @@ private final class WorkspaceListLayoutPreviewModel {
     var workspaces: [MobileWorkspacePreview]
     var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
+    var refreshIsWaiting = false
+    @ObservationIgnored private var refreshCompletion: AsyncStream<Void>.Continuation?
+
+    func waitForRefreshReleaseIfNeeded() async {
+        guard ProcessInfo.processInfo.environment[
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH"
+        ] == "1" else { return }
+        let (stream, completion) = AsyncStream<Void>.makeStream()
+        refreshCompletion = completion
+        refreshIsWaiting = true
+        defer {
+            refreshIsWaiting = false
+            refreshCompletion = nil
+        }
+        for await _ in stream { break }
+    }
+
+    func finishRefresh() {
+        refreshCompletion?.finish()
+    }
 
     /// Creates a preview model with an optional continuous update feed.
     init(
@@ -659,6 +679,8 @@ public struct WorkspaceListLayoutPreviewView: View {
             createWorkspaceGroup: reorderEnabled ? {} : nil,
             macSelection: $macSelection,
             refresh: {
+                await model.waitForRefreshReleaseIfNeeded()
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     performPreviewRefresh()
                 }
@@ -830,6 +852,18 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
+                if model.refreshIsWaiting {
+                    Button {
+                        model.finishRefresh()
+                    } label: {
+                        Rectangle()
+                            .fill(Color.primary.opacity(0.01))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .offset(x: 60)
+                    .accessibilityIdentifier("MobileWorkspaceListPreviewFinishRefresh")
+                }
                 Color.clear
                     .frame(width: 1, height: 1)
                     .offset(x: 2)
