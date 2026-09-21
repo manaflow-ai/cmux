@@ -11,7 +11,7 @@ import {
   renderDevboxGuestTools,
 } from "../scripts/devbox-guest-tools";
 import { DEVBOX_SOURCE_SCHEMA, devboxSourceDigest, devboxSourceManifest, readDevboxDockerfile } from "../scripts/devbox-image-common";
-import { GUEST_BROWSER_FILES, GUEST_BROWSER_VERSION, GUEST_BROWSER_VERSION_PATH, guestBrowserReadyCommand } from "../services/vms/guestBrowser";
+import { GUEST_BROWSER_FILES, GUEST_BROWSER_VERSION, GUEST_BROWSER_VERSION_PATH, guestBrowserInstallCommand, guestBrowserReadyCommand } from "../services/vms/guestBrowser";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliShimReadyCommand } from "../services/vms/guestCli";
 import distribution from "../services/vms/guestCliDistribution.json";
 import {
@@ -163,6 +163,46 @@ describe("baked guest cmux tools (issue #13070)", () => {
       expect(ready().status).not.toBe(0);
       expect(install().status).toBe(0);
       expect(ready().status).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("the opener gate holds on a devbox without zsh, exactly where the installer leaves it", () => {
+    // Rehearsed 2026-09-21 on the md default (sh-0b6a5ee6…): the image has
+    // no zsh, so the gate's `grep /etc/zsh/zshenv` failed on every machine.
+    // The installer appends its source line only to rc files that exist, yet
+    // the gate demanded the line in /etc/zsh/zshenv: it could never pass,
+    // the driver re-installed the openers on every attach and exec, and the
+    // bake could not prove them. The gate mirrors the installer: an absent
+    // rc file is nothing to do; a present one must carry the line.
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-opener-gate-"));
+    try {
+      const bin = path.join(root, "bin");
+      mkdirSync(bin);
+      mkdirSync(path.join(root, "etc"), { recursive: true });
+      writeFileSync(path.join(root, "etc/bash.bashrc"), "# system bashrc\n");
+      const tool = (name: string, script: string) => writeFileSync(path.join(bin, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+      tool("getent", "exit 0");
+      tool("runuser", 'shift 3; exec "$@"');
+      tool("xdg-mime", 'printf "cmux-browser.desktop\\n"');
+      if (spawnSync("which", ["sha256sum"]).status !== 0) tool("sha256sum", 'exec shasum -a 256 "$@"');
+      const confine = (text: string) => text.replaceAll("/usr/local/", `${root}/usr/local/`).replaceAll("/etc/", `${root}/etc/`);
+      const run = (command: string) => spawnSync("sh", ["-c", confine(command)], {
+        encoding: "utf8",
+        env: { NODE_ENV: "test", PATH: `${bin}:${process.env.PATH}`, HOME: root },
+      });
+      expect(run(guestBrowserInstallCommand())).toMatchObject({ status: 0, stderr: "" });
+      expect(existsSync(path.join(root, "etc/zsh/zshenv"))).toBe(false);
+      expect(run(guestBrowserReadyCommand)).toMatchObject({ status: 0, stderr: "" });
+      // zsh installed later: its rc file exists without the line, so the
+      // gate asks for the install, which appends it, and holds again.
+      mkdirSync(path.join(root, "etc/zsh"));
+      writeFileSync(path.join(root, "etc/zsh/zshenv"), "# zshenv\n");
+      expect(run(guestBrowserReadyCommand).status).not.toBe(0);
+      expect(run(guestBrowserInstallCommand()).status).toBe(0);
+      expect(readFileSync(path.join(root, "etc/zsh/zshenv"), "utf8")).toContain("cmux-browser.sh");
+      expect(run(guestBrowserReadyCommand)).toMatchObject({ status: 0, stderr: "" });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
