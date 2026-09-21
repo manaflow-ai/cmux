@@ -44,6 +44,35 @@ final class VMResourceStatsStore {
         return task
     }
 
+    /// Await one consumer's shared read without letting cancellation cancel the
+    /// request or leave this consumer suspended until the request's timeout.
+    func readValue(
+        machineID: String,
+        fetch: @escaping @Sendable () async throws -> VMStats
+    ) async throws -> VMStats {
+        try await Self.awaitValue(read(machineID: machineID, fetch: fetch))
+    }
+
+    private nonisolated static func awaitValue(_ task: Task<VMStats, Error>) async throws -> VMStats {
+        let stream = AsyncThrowingStream<VMStats, Error> { continuation in
+            let waiter = Task {
+                do {
+                    continuation.yield(try await task.value)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            // AsyncThrowingStream wakes a cancelled consumer immediately. The
+            // waiter may remain suspended on the shared task, but cancelling it
+            // here never cancels that shared task and lets it finish normally.
+            continuation.onTermination = { _ in waiter.cancel() }
+        }
+        var iterator = stream.makeAsyncIterator()
+        guard let value = try await iterator.next() else { throw CancellationError() }
+        return value
+    }
+
     func beginRead(machineID: String) -> Request {
         var entry = entry(for: machineID)
         entry.readSequence &+= 1

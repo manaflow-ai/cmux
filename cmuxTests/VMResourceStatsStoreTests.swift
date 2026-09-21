@@ -238,6 +238,32 @@ struct VMResourceStatsStoreTests {
         #expect(try await next.value == fresh)
     }
 
+    @Test func cancelledConsumerStopsWaitingWithoutCancellingSharedFetch() async throws {
+        let store = VMResourceStatsStore(now: { self.time })
+        let gate = AsyncStream<VMStats>.makeStream()
+        let reading = stats(memory: 8192, disk: 32768)
+        let shared = store.read(machineID: "vm") {
+            var iterator = gate.stream.makeAsyncIterator()
+            return await iterator.next()!
+        }
+        let consumer = Task {
+            try await store.readValue(machineID: "vm") {
+                Issue.record("A cancelled consumer started a duplicate fetch")
+                return reading
+            }
+        }
+        consumer.cancel()
+        do {
+            _ = try await consumer.value
+            Issue.record("The cancelled consumer should stop waiting immediately")
+        } catch is CancellationError {
+            // Expected: the shared request remains owned by the store.
+        }
+        #expect(!shared.isCancelled)
+        gate.continuation.yield(reading)
+        #expect(try await shared.value == reading)
+    }
+
     @Test func differentMachinesFetchIndependently() async throws {
         let store = VMResourceStatsStore(now: { self.time })
         let firstReading = stats(memory: 8192, disk: 32768)

@@ -4,11 +4,10 @@ extension VMClient {
     /// All callers share revisioned resource state, including CLI and sidebar reads.
     func stats(id: String) async throws -> VMStats {
         try Task.checkCancellation()
-        let task = await resourceStats.read(machineID: id) {
+        let stats = try await resourceStats.readValue(machineID: id) {
             try await self.fetchStats(id: id)
         }
         // A disappearing consumer must not cancel another panel's shared read.
-        let stats = try await task.value
         try Task.checkCancellation()
         return stats
     }
