@@ -404,42 +404,42 @@ extension AppDelegate {
                     windowId: windowId,
                     token: taskToken
                 )
-                guard shouldRetryWhenWorkerCompletes,
-                      let self else { return }
-                if self.mainWindowLifecycleCoordinator
-                    .isWindowlessRecoveryResumeIndexesWorkerRunning() {
-                    self.mainWindowLifecycleCoordinator
-                        .markWindowlessRouteFreezeRetryNeeded(windowId: windowId)
-                } else {
-                    guard let route = self.mainWindowLifecycleCoordinator
+                if shouldRetryWhenWorkerCompletes, let self {
+                    if self.mainWindowLifecycleCoordinator
+                        .isWindowlessRecoveryResumeIndexesWorkerRunning() {
+                        self.mainWindowLifecycleCoordinator
+                            .markWindowlessRouteFreezeRetryNeeded(windowId: windowId)
+                    } else if let route = self.mainWindowLifecycleCoordinator
                         .orphanedRoute(windowId: windowId),
-                          route.window == nil,
-                          route.frozenWindowSnapshot == nil else { return }
-                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                              route.window == nil,
+                              route.frozenWindowSnapshot == nil {
+                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                    }
                 }
             }
-            guard !Task.isCancelled else { return }
-            guard let route,
-                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
+            guard !Task.isCancelled,
+                  let self,
+                  let route,
+                  self.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
                   ) === route,
                   route.window == nil,
-                  self?.windowForMainWindowId(windowId) == nil else {
+                  self.windowForMainWindowId(windowId) == nil else {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard self?.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
+            guard self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
                 windowId: windowId,
-                availablePersistenceSlots: self?.availableWindowlessPersistenceSlots() ?? 0
+                availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
             ) == true else {
-                self?.retireWindowlessRecoverableMainWindowRoute(route)
+                self.retireWindowlessRecoverableMainWindowRoute(route)
                 return
             }
             defer {
-                self?.mainWindowLifecycleCoordinator
+                self.mainWindowLifecycleCoordinator
                     .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
             }
-            guard let ttyDeviceBindings = self?.mainWindowLifecycleCoordinator
+            guard let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
                 .windowlessRecoveryTTYDeviceBindings(
                     allBindingsProvider: { [weak self] in
                         self?.currentSurfaceTTYDeviceBindings() ?? [:]
@@ -448,19 +448,19 @@ extension AppDelegate {
                 ) else {
                 return
             }
-            let lifecycleCoordinator = self?.mainWindowLifecycleCoordinator
-            let resumeIndexes = await self?.mainWindowLifecycleCoordinator
+            let lifecycleCoordinator = self.mainWindowLifecycleCoordinator
+            let resumeIndexes = await self.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
                     await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
                         ttyDeviceBindings: bindings,
-                        onWorkerCreated: { [weak self, weak lifecycleCoordinator] worker in
+                        onWorkerCreated: { [weak appDelegate = self, weak lifecycleCoordinator] worker in
                             lifecycleCoordinator?
                                 .retainWindowlessRecoveryResumeIndexesWorker(
                                     worker,
-                                    onCompleted: { [weak self, weak lifecycleCoordinator] _ in
-                                        guard let self,
+                                    onCompleted: { [weak appDelegate, weak lifecycleCoordinator] _ in
+                                        guard let appDelegate,
                                               let lifecycleCoordinator else { return }
                                         for retryWindowId in lifecycleCoordinator
                                             .consumeWindowlessRouteFreezeRetries() {
@@ -471,7 +471,7 @@ extension AppDelegate {
                                             route.frozenWindowSnapshot == nil else {
                                                 continue
                                             }
-                                            self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                                            appDelegate.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
                                         }
                                     }
                                 )
@@ -479,11 +479,11 @@ extension AppDelegate {
                     )
                 }
             guard !Task.isCancelled,
-                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                  self.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
                   ) === route,
                   route.window == nil,
-                  self?.windowForMainWindowId(windowId) == nil else {
+                  self.windowForMainWindowId(windowId) == nil else {
                 return
             }
             // Windowless teardown is irreversible. A timeout or incomplete
@@ -496,7 +496,7 @@ extension AppDelegate {
             let restorableAgentIndex = resumeIndexes.restorableAgentIndex
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes.surfaceResumeBindingIndex
-            self?.freezeWindowlessRecoverableMainWindowRoute(
+            self.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex.isEmpty == false
