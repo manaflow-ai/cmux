@@ -392,14 +392,15 @@ def visible_lease(
 
 
 def annotate_lease(layout: Layout, **fields: Any) -> None:
-    """Add durable native-run identity to the visible slot lease."""
+    """Durably bind native-run identity to the visible lease before exec."""
     try:
         lease = read_json(layout.lease)
-    except (OSError, ValueError, json.JSONDecodeError):
-        return
-    if lease:
-        lease.update(fields)
-        atomic_json(layout.lease, lease)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise RuntimeError("lease_unreadable_during_native_launch") from error
+    if not lease:
+        raise RuntimeError("lease_missing_during_native_launch")
+    lease.update(fields)
+    atomic_json(layout.lease, lease)
 
 
 def open_preempt_channel(layout: Layout) -> int:
@@ -1277,10 +1278,15 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                 backup_group = backup_lease.get("native_process_group")
                 if backup_run and backup_run != args.run_id:
                     return {"status": "blocked", "reason": "run_id_mismatch", "expected_run_id": backup_run}
+                if not backup_run or not isinstance(backup_group, int) or backup_group <= 0:
+                    return {
+                        "status": "blocked",
+                        "reason": "unreadable_inflight_without_durable_child_identity",
+                    }
                 inflight = {
                     "schema_version": SCHEMA,
-                    "run_id": args.run_id,
-                    "process_group": backup_group if isinstance(backup_group, int) else None,
+                    "run_id": backup_run,
+                    "process_group": backup_group,
                     "launch_guard": backup_lease.get("native_launch_guard", "pipe_v1"),
                     "unreadable": True,
                 }

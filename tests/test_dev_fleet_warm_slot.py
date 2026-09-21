@@ -448,10 +448,38 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(recovered["status"], "recovered")
         self.assertTrue(recovered["cold_lineage_required"])
 
-    def test_unreadable_inflight_recovers_to_cold_lineage(self):
+    def test_unreadable_inflight_without_backup_fails_closed(self):
         self.warm(self.base)
         slot = self.state / "slots/slot"
         (slot / "inflight.json").write_text("{")
+        recovered = self.call(
+            "recover",
+            "--machine-state", str(self.state),
+            "--slot", "slot",
+            "--run-id", "repair-unreadable",
+        )
+        self.assertEqual(recovered["status"], "blocked")
+        self.assertEqual(
+            recovered["reason"],
+            "unreadable_inflight_without_durable_child_identity",
+        )
+        self.assertTrue((slot / "inflight.json").exists())
+
+    def test_unreadable_inflight_with_durable_backup_recovers_cold(self):
+        self.warm(self.base)
+        slot = self.state / "slots/slot"
+        (slot / "inflight.json").write_text("{")
+        (slot / "lease.json").write_text(json.dumps({
+            "schema_version": 1,
+            "lease_id": "native-backup",
+            "kind": "warmer",
+            "owner": "dead-warmer",
+            "pid": 2147483647,
+            "target_commit": self.base,
+            "native_run_id": "repair-unreadable",
+            "native_process_group": 2147483647,
+            "native_launch_guard": "pipe_v1",
+        }))
         recovered = self.call(
             "recover",
             "--machine-state", str(self.state),
