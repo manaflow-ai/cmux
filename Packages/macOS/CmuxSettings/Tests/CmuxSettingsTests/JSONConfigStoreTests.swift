@@ -69,6 +69,54 @@ struct JSONConfigStoreTests {
         #expect(try String(contentsOf: fileURL, encoding: .utf8).contains("keep documentation"))
     }
 
+    @Test func refusesWriteWhileAnotherProcessOwnsWriterLock() async throws {
+        let (store, fileURL, _) = makeStore()
+        let directory = fileURL.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data(#"{"app":{"appearance":"dark"}}"#.utf8).write(to: fileURL)
+
+        let readyURL = directory.appendingPathComponent("writer-lock-ready")
+        let script = """
+        import fcntl, os, pathlib, sys, time
+        fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        pathlib.Path(sys.argv[2]).write_text("ready")
+        time.sleep(30)
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [
+            "-c",
+            script,
+            fileURL.path + ".cmux-write.lock",
+            readyURL.path,
+        ]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        for _ in 0..<200 {
+            if FileManager.default.fileExists(atPath: readyURL.path) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(FileManager.default.fileExists(atPath: readyURL.path))
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        do {
+            try await store.set("light", for: key)
+            Issue.record("store write entered while another process held the writer lock")
+        } catch JSONConfigWriteConflict.busy {
+            // Expected: no stale read-edit-replace can begin outside the lock.
+        } catch {
+            Issue.record("unexpected writer-lock error: \(error)")
+        }
+        #expect(try String(contentsOf: fileURL, encoding: .utf8).contains(#""dark""#))
+    }
+
     @Test func readsDefaultWhenFileMissing() async {
         let (store, _, _) = makeStore()
         let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
