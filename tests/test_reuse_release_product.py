@@ -63,7 +63,10 @@ class ReleaseProductReuseTests(unittest.TestCase):
         self.producer = self.root / "producer"
         self.consumer = self.root / "consumer"
         self.contract = {
+            # Model a PR checkout: the built synthetic merge tree differs from
+            # the branch head revision reported by workflow_run.head_sha.
             "tree": "c" * 40,
+            "source_revision": "a" * 40,
             "xcode": "Xcode 26.3",
             "sdk": "26C123",
             "release_architectures": "arm64 x86_64",
@@ -136,7 +139,9 @@ class ReleaseProductReuseTests(unittest.TestCase):
         self.assertEqual(provenance["artifact_id"], 42)
 
     def test_source_mismatch_forces_rebuild(self):
-        self.assert_rebuild_for_contract_change(lambda value: value.__setitem__("tree", "9" * 40))
+        self.assert_rebuild_for_contract_change(
+            lambda value: value.__setitem__("source_revision", "9" * 40)
+        )
 
     def test_xcode_or_sdk_mismatch_forces_rebuild(self):
         for field in ("xcode", "sdk"):
