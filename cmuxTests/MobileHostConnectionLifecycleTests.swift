@@ -1,3 +1,4 @@
+import AppKit
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxMobileRPC
@@ -126,8 +127,24 @@ extension MobileHostAuthorizationTests {
     }
 
     @Test func testNewestUsableIrohConnectionSupersedesOlderOverlap() async throws {
+        // Readiness requires a nonempty workspace list. Own that workspace
+        // instead of depending on windows left behind by an earlier test.
+        let workspaceFixture = TerminalPortalTestWorkspace()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        workspaceFixture.bind(to: window)
+        defer {
+            workspaceFixture.tearDown()
+            window.close()
+        }
         let service = MobileHostService.shared
         service.debugResetMobileLifecycleStateForTesting()
+        defer { service.debugResetMobileLifecycleStateForTesting() }
         let registry = MobileHostConnectionRegistry.shared
         for connection in registry.removeAll() {
             await connection.close(reason: "test setup")
@@ -143,6 +160,7 @@ extension MobileHostAuthorizationTests {
                 isCurrent: { true }
             )
         }
+        defer { firstTask.cancel() }
         await waitForMobileHostConnectionCount(1)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first"))
         _ = await first.waitForSentBufferCount(1)
@@ -154,6 +172,7 @@ extension MobileHostAuthorizationTests {
                 isCurrent: { true }
             )
         }
+        defer { secondTask.cancel() }
         await waitForMobileHostConnectionCount(2)
         try await first.enqueue(Self.mobileHostStatusFrame(id: "first-delayed"))
         _ = await first.waitForSentBufferCount(2)
@@ -166,13 +185,24 @@ extension MobileHostAuthorizationTests {
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostWorkspaceListFrame(id: "second-workspaces"))
-        _ = await second.waitForSentBufferCount(2)
+        let workspaceResponses = await second.waitForSentBufferCount(2)
+        let workspaceResponse = try #require(workspaceResponses.last)
+        var workspaceResponseBuffer = workspaceResponse
+        let workspaceResponseFrames = try MobileSyncFrameCodec.decodeFrames(from: &workspaceResponseBuffer)
+        let workspaceResponseFrame = try #require(workspaceResponseFrames.first)
+        let workspaceResponseObject = try #require(
+            JSONSerialization.jsonObject(with: workspaceResponseFrame) as? [String: Any]
+        )
+        let workspaceResponsePayload = try #require(workspaceResponseObject["result"] as? [String: Any])
+        let listedWorkspaces = try #require(workspaceResponsePayload["workspaces"] as? [[String: Any]])
+        try #require(listedWorkspaces.contains { $0["id"] as? String == workspaceFixture.id.uuidString })
         #expect(registry.count == 2)
         #expect(await first.observedCloseCount() == 0)
 
         try await second.enqueue(Self.mobileHostTerminalSubscribeFrame(id: "second-events"))
         _ = await second.waitForSentBufferCount(3)
         await waitForMobileHostConnectionCount(1)
+        try #require(registry.count == 1)
         await first.waitForCloseCount(1)
 
         #expect(registry.count == 1)
@@ -186,7 +216,6 @@ extension MobileHostAuthorizationTests {
         for connection in registry.removeAll() {
             await connection.close(reason: "test cleanup")
         }
-        service.debugResetMobileLifecycleStateForTesting()
     }
 
     @Test func testMobileHostTransportStaysOpenWhenIdleAfterAdmission() async throws {
@@ -316,6 +345,9 @@ extension MobileHostAuthorizationTests {
         await transport.enqueue(try Self.mobileHostTerminalSubscribeFrame(id: "subscribe"))
         _ = await transport.waitForSentBufferCount(3)
 
+        // Readiness is recorded after the response write; a send-count waiter
+        // may resume before that actor continuation publishes the event.
+        await waitForRetainedUsableSessionEvent()
         let readyEvents = Self.retainedUsableSessionEvents()
         #expect(readyEvents.count == 1)
         let payload = readyEvents.first?["payload"] as? [String: Any]
@@ -463,6 +495,15 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    private func waitForRetainedUsableSessionEvent() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if !Self.retainedUsableSessionEvents().isEmpty { return }
+            await Task.yield()
+        }
+    }
+
     private func waitForMobileHostConnectionCount(_ expected: Int) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
@@ -592,6 +633,11 @@ extension MobileHostAuthorizationTests {
                 return nil
             },
             onAuthorizedRequest: { request in
+                guard request.id as? String == "first" else { return }
+                // Ensure the second request has entered authorization before
+                // closing, otherwise task scheduling can close the actor before
+                // the second authorization publishes its start signal.
+                try? await secondAuthorizeStarted.wait()
                 await requestRecorder.record(request)
                 await sessionBox.close(reason: "test close after first batched frame")
                 firstRecorded.fulfill()

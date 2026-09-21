@@ -109,7 +109,8 @@ final class SurfaceCatalog {
         // A pending rename is visible in the snapshot the moment it is admitted
         // and gone the moment it fails; local pane and workspace titles keep
         // their own provenance rules and follow the accepted graph.
-        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] _ in
+        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] machine in
+            self?.reconcileDeviceNames(on: machine)
             self?.notifyChange()
         }
     }
@@ -292,6 +293,7 @@ final class SurfaceCatalog {
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
         updateCloudDirectoryMetadata(on: machine)
+        reconcileDeviceNames(on: machine)
         notifyChange()
         return true
     }
@@ -1319,8 +1321,10 @@ final class SurfaceCatalog {
             do { try validateOwnership(of: [record.resource], at: .workspace(id: workspaceID, placement: .tab)) }
             catch { return }
         }
+        var wokenMachines = Set<SurfaceMachineID>()
         for record in records {
             if resources[record.resource] != nil {
+                wokenMachines.insert(record.resource.machine)
                 pendingRestoredProjections.remove(panelID: record.panelID)
                 insertSupersedingLocalPlaceholder(SurfaceProjection(
                     resource: record.resource,
@@ -1336,6 +1340,11 @@ final class SurfaceCatalog {
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         notifyChange()
+        // A resource that was already published gets no later publish to
+        // materialize the placeholder, so its provider is asked directly.
+        for machine in wokenMachines {
+            providers[machine]?.projectionsRestored()
+        }
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {

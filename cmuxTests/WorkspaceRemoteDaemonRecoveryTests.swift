@@ -98,16 +98,19 @@ struct WorkspaceRemoteDaemonRecoveryTests {
             target: target
         )
 
-        // The reconnect supervisor has started a new attempt; the old error
-        // is still the sidebar's latest detail while the proxy comes up.
+        #expect(workspace.statusEntries["remote.error"] != nil)
+        #expect(workspace.logEntries.contains { $0.source == "remote-daemon" })
+
+        // A retry owns the old error immediately, before either daemon or
+        // proxy readiness arrives.
         workspace.applyRemoteConnectionStateUpdate(
             .reconnecting,
             detail: "Reconnecting to \(target) (retry 1)",
             target: target
         )
 
-        #expect(workspace.statusEntries["remote.error"] != nil)
-        #expect(workspace.logEntries.contains { $0.source == "remote-daemon" })
+        #expect(workspace.statusEntries["remote.error"] == nil)
+        #expect(!workspace.logEntries.contains { $0.source == "remote-daemon" })
 
         // The daemon is healthy again, but the proxy/connection presentation
         // has not published `.connected` yet.
