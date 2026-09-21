@@ -20,15 +20,20 @@ import {
 import { reportCoderouterFailure } from "./observability";
 
 const API_KEY_USAGE_COLUMNS = ["api_key_id", "completions", ...USAGE_COLUMNS] as const;
+const MAX_KEY_IDS_PER_QUERY = 500;
 
-const API_KEY_USAGE_SQL = `SELECT
+function apiKeyUsageSql(keyCount: number): string {
+  const keyPlaceholders = Array.from({ length: keyCount }, (_, index) => `{key_id_${index}:String}`).join(", ");
+  return `SELECT
   api_key_id,
   count() AS completions,${USAGE_SUMS_SQL}
 FROM {db}.usage_events
 WHERE team_id = {team_id:String}
   AND api_key_id IS NOT NULL
+  AND api_key_id IN (${keyPlaceholders})
   AND ${DAY_WINDOW_SQL}
 GROUP BY api_key_id`;
+}
 
 export type CoderouterApiKeyUsage = UsageTotals & {
   readonly completions: number;
@@ -65,9 +70,11 @@ export async function loadCoderouterApiKeyUsage(
   dependencies: ApiKeyMetricsDependencies = defaultDependencies,
 ): Promise<CoderouterApiKeyUsageResult> {
   if (keyIds.length === 0) return { kind: "ready", byKey: {} };
+  if (keyIds.length > MAX_KEY_IDS_PER_QUERY) return { kind: "unavailable" };
+  const keyIdParams = Object.fromEntries(keyIds.map((keyId, index) => [`key_id_${index}`, keyId]));
   const result = await query<unknown>(
-    API_KEY_USAGE_SQL,
-    { team_id: authorizedTeamId, ...dayWindowParams(dependencies.now()) },
+    apiKeyUsageSql(keyIds.length),
+    { team_id: authorizedTeamId, ...dayWindowParams(dependencies.now()), ...keyIdParams },
     dependencies.clickhouse,
   );
   if (!result.ok) {
@@ -109,5 +116,5 @@ function nonNegativeInteger(value: unknown): number | null {
 }
 
 export const __test = {
-  API_KEY_USAGE_SQL,
+  apiKeyUsageSql,
 };

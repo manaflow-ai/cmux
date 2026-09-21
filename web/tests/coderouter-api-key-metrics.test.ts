@@ -26,6 +26,7 @@ describe("CodeRouter API-key usage", () => {
       const body = String((init as RequestInit | undefined)?.body);
       expect(body).toContain("FROM coderouter_dev.usage_events");
       expect(body).toContain("api_key_id IS NOT NULL");
+      expect(body).toContain("api_key_id IN ({key_id_0:String})");
       expect(body).toContain("GROUP BY api_key_id");
       expect(body).not.toContain("team-authorized");
       return jsonEachRow([

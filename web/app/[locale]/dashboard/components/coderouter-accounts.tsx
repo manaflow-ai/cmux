@@ -289,6 +289,7 @@ function CoderouterApiKeysSection({
 
   const visibleKeys = keysTeamId === teamId ? keys : null;
   const visibleIssued = issuedTeamId === teamId ? issued : null;
+  const teamSwitching = keysTeamId !== teamId;
 
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -340,8 +341,8 @@ function CoderouterApiKeysSection({
         </div>
       ) : null}
 
-      {loading && !visibleKeys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
-      {loadError ? (
+      {(loading || teamSwitching) && !visibleKeys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {loadError && !teamSwitching ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
           <span>{t("apiKeysLoadError")}</span>
           <button type="button" className={buttonClass} onClick={() => void load()} disabled={loading}>{t("apiKeysRetry")}</button>
