@@ -14,10 +14,11 @@ the original build products. `CMUX_APP_HOST_LAYER_NORMALIZE` reports the extra
 normalization elapsed time and outcome. Layer packaging has no default-run cost.
 
 [`app-host-product-layers.md`](app-host-product-layers.md) owns the inner manifest
-and local assembly contract. Every current consumer restores **all four** layers
-(`app-cli`, `runtime`, `tests`, `diagnostics`). Embedded test bundles may be sealed
-into their host app, so selective profiles require separate dependency and
-signature closure evidence.
+and local assembly contract. [`app-host-layer-consumers.md`](app-host-layer-consumers.md)
+records the current read inventory. The versioned policy in
+`scripts/ci/app-host-layer-consumers.json` authorizes every current consumer to
+restore `app-cli`, `runtime` and `tests`; `diagnostics` remains declared by the
+canonical manifest/index and stays available to future consumers.
 
 ## Provider identity and fallback
 
@@ -43,9 +44,11 @@ index artifact's entire ZIP is capped at 8 MiB, and each JSON file is also cappe
 at 8 MiB uncompressed. A combined index/manifest ZIP above that cap falls back,
 even if each JSON separately satisfies its cap. Each layer is capped at 8 GiB.
 
-Missing, expired, malformed, corrupted or wrong-origin layers leave the existing
-aggregate destination untouched and emit `hit=false`. Local assembly publishes
-only to an absent task-owned sibling using the canonical no-replace assembler.
+Missing, expired, malformed, corrupted or wrong-origin **required** layers leave
+the existing aggregate destination untouched and emit `hit=false`. Unselected
+layer artifacts are never fetched, while the full index/manifest still validate
+their canonical identity and ownership metadata. Local assembly publishes only
+to an absent task-owned sibling using the canonical no-replace assembler.
 Only a successful verified assembly updates the consumer's DerivedData path.
 The ordinary restore step still validates real producer warning-log bytes and
 the warning budget, stages package frameworks, and performs product provenance
@@ -57,21 +60,29 @@ checks fails validation; it does not turn into an artifact fallback or bypass.
 `CMUX_APP_HOST_LAYER_TRANSFER` records each index/layer attempt, including failed
 attempts: exact artifact ID, producer run and attempt, layer name, expected ZIP
 and inner bytes, received bytes, elapsed seconds and result.
-`CMUX_APP_HOST_LAYER_ASSEMBLY` records the all-layer assembly time and outcome.
-These are whole operations, not isolated wire throughput measurements.
+`CMUX_APP_HOST_LAYER_ASSEMBLY` records selected-layer assembly time and outcome.
+`CMUX_APP_HOST_CONSUMER_RECEIPT` consolidates the consumer identity, layers
+requested/restored, requested/transferred bytes, transfer duration,
+restore/assembly duration, fallback reason, final route and overall job runner
+time. These are whole operations, not isolated wire throughput measurements.
 
-The existing flat download action and R2 broker keep their contracts. A verified
-layered hit skips both flat transports. A layer miss first tries the flat R2
-artifact transport, then GitHub if R2 is unavailable; all three routes enter the
-same restore step and retain their inner validation. Retention stays
-three days; this change deletes no artifacts and makes no same-digest origin
-substitutions. Reusing individual layers across producers is future work because
-it must preserve exact producer identity and the signed product tree contract.
+The existing flat download action and R2 broker keep their aggregate contracts.
+A verified selective-layer hit skips both flat transports. A required-layer miss
+first tries the flat R2 artifact transport, then GitHub if R2 is unavailable;
+all three routes enter the same restore step and retain their inner validation.
+R2 does not interpret consumer layer policy; this keeps transport and selection
+independent and leaves room for a future R2 layer delivery route that supplies
+the same pinned canonical artifacts. Retention stays three days; this change
+deletes no artifacts and makes no same-digest origin substitutions. Reusing
+individual layers across producers is future work because it must preserve exact
+producer identity and the signed product tree contract.
 
 Run the cheap contract checks with:
 
 ```sh
 python3 tests/test_app_host_layer_transport.py
+python3 tests/test_app_host_layer_consumers.py
+python3 tests/test_app_host_consumer_receipt.py
 python3 tests/test_ci_layered_product_wiring.py
 python3 tests/test_ci_product_publication.py
 ```
