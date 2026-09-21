@@ -1568,10 +1568,10 @@ jobs:
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test-without-building
 
-      - name: Run Cloud notification dismiss parity regression
+      - name: Run Cloud notification dismiss parity and layout regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
+          # Focused gate for notification state (#13000) and placement (#13366).
           # The tolerant full-suite step accepts ordinary Swift Testing
           # failures, so keep the one-read-state contract between the local
           # store, the left sidebar, and the Cloud tree on a non-tolerant
@@ -1583,6 +1583,9 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/CloudNotificationDismissParityTests \
+            -only-testing:cmuxTests/CloudSidebarAttentionLayoutTests \
+            -only-testing:cmuxTests/CloudSidebarPinGeometryTests \
+            -only-testing:cmuxTests/CloudTreeCompactLayoutTests \
             test-without-building
 
       - name: Run agent restore admission regression

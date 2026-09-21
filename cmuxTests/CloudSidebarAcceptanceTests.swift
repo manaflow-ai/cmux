@@ -36,8 +36,9 @@ struct CloudSidebarAcceptanceTests {
         }
         let attention = CloudSidebarAttentionLayoutTests()
         for width in [140.0, 300.0] {
-            for kind in ["workspace", "terminal"] { try attention.attentionPrecedesIcon(width: width, kind: kind) }
+            for kind in ["workspace", "terminal"] { try attention.attentionPlacement(width: width, kind: kind) }
         }
+        for width in [220.0, 380.0] { try attention.outlineAttentionTransitions(width: width) }
         try attention.collapsedFolderAttention()
         try attention.collapsedFolderIsInvalidatedByDescendantReadChanges()
     }
