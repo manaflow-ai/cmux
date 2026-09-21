@@ -27,6 +27,7 @@ jobs:
       instant: ${{ steps.scope.outputs.instant }}
       production_build: ${{ steps.scope.outputs.production_build }}
       react_apps: ${{ steps.scope.outputs.react_apps }}
+      unit_tests: ${{ steps.scope.outputs.unit_tests }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -117,7 +118,8 @@ jobs:
         run: bun run vercel-build
 
   web-tests:
-    if: ${{ inputs.web == 'true' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' }}
     name: Web tests (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -368,7 +370,7 @@ jobs:
                   print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
                   sys.exit(1)
               subareas = scope.get("outputs", {})
-              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps"):
+              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "unit_tests"):
                   if subareas.get(name) not in {"true", "false"}:
                       print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
                       sys.exit(1)
@@ -379,13 +381,14 @@ jobs:
                   "instant": "false",
                   "production_build": "false",
                   "react_apps": "false",
+                  "unit_tests": "false",
               }
 
           required = {
               "web-subarea-scope": scope_required,
               "web-typecheck": inputs["web"] == "true",
               "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
-              "web-tests": inputs["web"] == "true",
+              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
               "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
