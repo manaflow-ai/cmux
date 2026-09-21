@@ -1005,6 +1005,16 @@ def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
     assert "retrying once" in block
 
 
+def test_ci_instant_navigation_owns_typecheck_once() -> None:
+    config = (ROOT / "web/playwright.instant.config.ts").read_text()
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+    web_validation = (ROOT / ".github/workflows/web-validation.yml").read_text()
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
+    assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
+    assert 'CMUX_INSTANT_SKIP_TYPECHECK: "1"' in workflow
+    assert 'CMUX_INSTANT_SKIP_TYPECHECK: "1"' in web_validation
+
+
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
     block = workflow_job_block("macos-compile-admission")
     early = block.index("      - name: Run early CLI binary smoke checks")
