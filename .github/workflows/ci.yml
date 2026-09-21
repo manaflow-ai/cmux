@@ -315,6 +315,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test Computer Use drag regression harness
+        run: python3 tests/test_cmux_cua_drag_cursor_harness.py
+
       - name: Test macOS localization catalog tooling
         run: |
           python3 tests/test_localization_catalog.py
