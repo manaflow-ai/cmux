@@ -95,6 +95,38 @@ struct ChatArtifactContentCacheTests {
         #expect(await source.fetchCount(for: "artifact") == 1)
     }
 
+    @Test("a viewer joining an active prefetch reuses its source transfer")
+    func concurrentStreamsShareOneFetch() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = ChatArtifactContentCache(directory: directory, maxMemoryBytes: 0)
+        let source = BlockingContentSource(data: Data("shared bytes".utf8))
+
+        let first = Task {
+            try await cache.stream(
+                for: "shared",
+                expectedSize: 12,
+                fetch: { receive in try await source.fetch(receive: receive) },
+                receive: { _ in }
+            )
+        }
+        await source.waitUntilEntered()
+
+        let second = Task {
+            try await cache.stream(
+                for: "shared",
+                expectedSize: 12,
+                fetch: { receive in try await source.fetch(receive: receive) },
+                receive: { _ in }
+            )
+        }
+        await source.release()
+
+        _ = try await first.value
+        _ = try await second.value
+        #expect(await source.fetchCount() == 1)
+    }
+
     @Test("unsupported loader scopes never share cached bytes")
     func unsupportedScopeBypassesCache() async throws {
         let directory = temporaryDirectory()
@@ -141,5 +173,51 @@ struct ChatArtifactContentCacheTests {
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-content-cache-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+private actor BlockingContentSource {
+    private let data: Data
+    private var calls = 0
+    private var enteredContinuation: CheckedContinuation<Void, Never>?
+    private var isReleased = false
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    func fetch(
+        receive: @Sendable (ChatArtifactChunk) async throws -> Void
+    ) async throws {
+        calls += 1
+        await withCheckedContinuation { continuation in
+            if isReleased {
+                continuation.resume()
+            } else {
+                enteredContinuation = continuation
+            }
+        }
+        try await receive(ChatArtifactChunk(
+            data: data,
+            offset: 0,
+            totalSize: Int64(data.count),
+            eof: true
+        ))
+    }
+
+    func waitUntilEntered() async {
+        while enteredContinuation == nil {
+            await Task.yield()
+        }
+    }
+
+    func release() {
+        isReleased = true
+        enteredContinuation?.resume()
+        enteredContinuation = nil
+    }
+
+    func fetchCount() -> Int {
+        calls
     }
 }

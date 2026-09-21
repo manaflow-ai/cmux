@@ -84,6 +84,12 @@ struct ChatArtifactViewerPager: View {
             .onChange(of: swipeOrder) { _, newOrder in
                 model.update(swipeOrder: newOrder)
             }
+            // Warm the adjacent gallery files while the current page is open.
+            // The task is selection-scoped, so a fast swipe cancels stale
+            // work and starts with the new page's closest neighbors.
+            .task(id: model.selectedPath) {
+                await prefetchAdjacentArtifacts()
+            }
     }
 
     @ViewBuilder
@@ -103,6 +109,29 @@ struct ChatArtifactViewerPager: View {
         viewer(snapshot: model.toolbarSnapshot)
             .id(model.toolbarSnapshot.path)
         #endif
+    }
+
+    private func prefetchAdjacentArtifacts() async {
+        guard loader.supportsArtifacts else { return }
+        let policy = ChatArtifactTransferPolicy.defaultPolicy
+        let neighbors = swipeOrder.pageWindow(around: model.selectedPath)
+            .filter { $0.path != model.selectedPath }
+        for item in neighbors {
+            guard !Task.isCancelled else { return }
+            if let modifiedAt = item.modifiedAt, let size = item.size {
+                _ = await loader.prefetch(
+                    path: item.path,
+                    modifiedAt: modifiedAt,
+                    size: size,
+                    maxBytes: policy.maxPreviewBytes
+                )
+            } else {
+                _ = await loader.prefetch(
+                    path: item.path,
+                    maxBytes: policy.maxPreviewBytes
+                )
+            }
+        }
     }
 
     #if os(iOS)

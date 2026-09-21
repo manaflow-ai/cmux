@@ -203,6 +203,139 @@ struct ChatArtifactLoaderTests {
             try await loader.list(path: "/tmp")
         }
     }
+
+    @Test func prefetchWarmsContentCacheForAViewerLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prefetch-cache-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = Data("prefetched bytes".utf8)
+        let source = CountingContentSource(values: ["artifact": data])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .chat(sessionID: "session-1"),
+            contentCache: ChatArtifactContentCache(directory: directory),
+            stream: { _, receive in
+                try await source.fetch(key: "artifact", receive: receive)
+            }
+        )
+        let modifiedAt = Date(timeIntervalSince1970: 100)
+
+        #expect(await loader.prefetch(
+            path: "/tmp/artifact.txt",
+            modifiedAt: modifiedAt,
+            size: Int64(data.count),
+            maxBytes: 1_024
+        ))
+        let replayed = try await streamedBytes(
+            from: loader,
+            path: "/tmp/artifact.txt",
+            size: Int64(data.count),
+            modifiedAt: modifiedAt
+        )
+
+        #expect(replayed == data)
+        #expect(await source.fetchCount(for: "artifact") == 1)
+    }
+
+    @Test func prefetchSkipsFilesOverTheCallerBudget() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prefetch-budget-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = Data("too large".utf8)
+        let source = CountingContentSource(values: ["artifact": data])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .chat(sessionID: "session-1"),
+            contentCache: ChatArtifactContentCache(directory: directory),
+            stream: { _, receive in
+                try await source.fetch(key: "artifact", receive: receive)
+            }
+        )
+
+        #expect(!(await loader.prefetch(
+            path: "/tmp/artifact.txt",
+            modifiedAt: Date(timeIntervalSince1970: 100),
+            size: Int64(data.count),
+            maxBytes: Int64(data.count - 1)
+        )))
+        #expect(await source.fetchCount(for: "artifact") == 0)
+    }
+
+    @Test func prefetchFailsWhenTheCacheCannotCreateAWriter() async throws {
+        let cachePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prefetch-cache-file-\(UUID().uuidString)")
+        #expect(FileManager.default.createFile(atPath: cachePath.path, contents: Data()))
+        defer { try? FileManager.default.removeItem(at: cachePath) }
+        let data = Data("uncacheable bytes".utf8)
+        let source = CountingContentSource(values: ["artifact": data])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .chat(sessionID: "session-1"),
+            contentCache: ChatArtifactContentCache(directory: cachePath),
+            stream: { _, receive in
+                try await source.fetch(key: "artifact", receive: receive)
+            }
+        )
+
+        #expect(!(await loader.prefetch(
+            path: "/tmp/artifact.txt",
+            modifiedAt: Date(timeIntervalSince1970: 100),
+            size: Int64(data.count),
+            maxBytes: 1_024
+        )))
+        #expect(await source.fetchCount(for: "artifact") == 0)
+    }
+
+    @Test func pathOnlyPrefetchStatsBeforeWarmingTheCache() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-prefetch-path-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let data = Data("path-only prefetch".utf8)
+        let statCalls = ArtifactStreamCallCounter()
+        let source = CountingContentSource(values: ["artifact": data])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .chat(sessionID: "session-1"),
+            contentCache: ChatArtifactContentCache(directory: directory),
+            stat: { _ in
+                await statCalls.recordCall()
+                return ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: Int64(data.count),
+                    modifiedAt: Date(timeIntervalSince1970: 200),
+                    kind: .text,
+                    mimeType: "text/plain"
+                )
+            },
+            stream: { _, receive in
+                try await source.fetch(key: "artifact", receive: receive)
+            }
+        )
+
+        #expect(await loader.prefetch(path: "/tmp/artifact.txt", maxBytes: 1_024))
+        #expect(await statCalls.callCount() == 1)
+        #expect(await source.fetchCount(for: "artifact") == 1)
+    }
+
+    @Test func prefetchWithoutCacheMetadataDoesNotTransferBytes() async throws {
+        let source = CountingContentSource(values: ["artifact": Data("bytes".utf8)])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            scope: .chat(sessionID: "session-1"),
+            stream: { _, receive in
+                try await source.fetch(key: "artifact", receive: receive)
+            }
+        )
+
+        #expect(!(await loader.prefetch(
+            path: "/tmp/artifact.txt",
+            modifiedAt: nil,
+            size: 5,
+            maxBytes: 1_024
+        )))
+        #expect(await source.fetchCount(for: "artifact") == 0)
+    }
 }
 
 private func makeContentLoader(
@@ -228,12 +361,14 @@ private func makeContentLoader(
 
 private func streamedBytes(
     from loader: ChatArtifactLoader,
-    size: Int64
+    path: String = "/tmp/image.txt",
+    size: Int64,
+    modifiedAt: Date = Date(timeIntervalSince1970: 1)
 ) async throws -> Data {
     let accumulator = DataAccumulator()
     try await loader.stream(
-        path: "/tmp/image.txt",
-        modifiedAt: Date(timeIntervalSince1970: 1),
+        path: path,
+        modifiedAt: modifiedAt,
         size: size,
         onChunk: { chunk in await accumulator.append(chunk.data) }
     )

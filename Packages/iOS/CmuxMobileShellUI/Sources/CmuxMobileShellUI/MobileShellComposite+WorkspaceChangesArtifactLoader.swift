@@ -31,6 +31,7 @@ extension MobileShellComposite {
         return ChatArtifactLoader(
             supportsArtifacts: true,
             supportsDirectoryBrowsing: false,
+            sourceIdentity: artifactSourceIdentity,
             scope: .workspaceChanges(
                 workspaceID: workspaceID,
                 revision: revision.rawValue,

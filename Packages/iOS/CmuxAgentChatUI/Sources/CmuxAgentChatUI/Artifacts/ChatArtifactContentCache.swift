@@ -9,6 +9,11 @@ public actor ChatArtifactContentCache {
     private let maxMemoryBytes: Int
     private let fileManager = FileManager()
     private let memoryCache = NSCache<NSString, NSData>()
+    /// One source transfer per cache key. A background prefetch and a viewer
+    /// can start together when a user taps a tab while it is warming; the
+    /// viewer waits for that transfer and replays the completed file instead
+    /// of opening a second Mac stream.
+    private var inFlight: [String: Task<Data?, any Error>] = [:]
 
     /// Creates a content cache rooted at an injected directory.
     ///
@@ -68,10 +73,13 @@ public actor ChatArtifactContentCache {
     /// Replays a cache hit or writes a fetched stream through atomically.
     ///
     /// - Returns: `true` when no source fetch was needed.
+    /// - Parameter requireCache: Fails instead of falling back to a direct
+    ///   source transfer when the cache writer cannot be created.
     func stream(
         for key: String,
         expectedSize: Int64,
         accessedAt: Date = Date(),
+        requireCache: Bool = false,
         fetch: @escaping @Sendable (
             _ receive: @Sendable (ChatArtifactChunk) async throws -> Void
         ) async throws -> Void,
@@ -96,6 +104,19 @@ public actor ChatArtifactContentCache {
             return true
         }
 
+        if let pending = inFlight[key] {
+            _ = try await pending.value
+            guard try await replayDiskEntry(
+                for: key,
+                expectedSize: expectedSize,
+                accessedAt: accessedAt,
+                receive: receive
+            ) else {
+                throw ChatArtifactError.localStorageUnavailable
+            }
+            return true
+        }
+
         let writer: ChatArtifactContentCacheWriter
         do {
             writer = try ChatArtifactContentCacheWriter(
@@ -105,24 +126,37 @@ public actor ChatArtifactContentCache {
                 retainsMemoryCopy: expectedSize <= Int64(maxMemoryBytes)
             )
         } catch {
+            if requireCache {
+                throw error
+            }
             try await fetch(receive)
             return false
         }
-        do {
+        let task = Task<Data?, any Error> {
             try await fetch { chunk in
                 try Task.checkCancellation()
                 try await writer.append(chunk)
                 try await receive(chunk)
             }
             try Task.checkCancellation()
-            let data = try await writer.finish()
+            return try await writer.finish(requirePersistence: requireCache)
+        }
+        inFlight[key] = task
+        do {
+            // The first caller owns the source callback. Do not cancel the
+            // shared task from a later viewer cancellation: a background
+            // prefetch may be the remaining owner and should finish warming
+            // the cache for the next tab.
+            let data = try await task.value
             if let data, maxMemoryBytes > 0 {
                 memoryCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
             }
             try? touch(fileURL(for: key), at: accessedAt)
             try? enforceDiskBudget()
+            inFlight[key] = nil
             return false
         } catch {
+            inFlight[key] = nil
             await writer.discard()
             throw error
         }
