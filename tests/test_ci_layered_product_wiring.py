@@ -95,12 +95,12 @@ class LayeredWorkflowTests(unittest.TestCase):
         policy = consumers.load_policy()
         app_host = self.workflow["jobs"]["app-host-unit-tests"]
         shards = app_host["strategy"]["matrix"]["shard"]
-        expected = {f"app-host-unit-tests/{shard}" for shard in shards} | {"tests-build-and-lag"}
+        expected = {f"app-host-unit-tests-shard-{shard}" for shard in shards} | {"tests-build-and-lag"}
         self.assertEqual(set(policy["consumers"]), expected)
-        self.assertEqual(app_host["env"]["CMUX_APP_HOST_CONSUMER"], "app-host-unit-tests/${{ matrix.shard }}")
+        self.assertEqual(app_host["env"]["CMUX_APP_HOST_CONSUMER"], "app-host-unit-tests-shard-${{ matrix.shard }}")
         self.assertEqual(self.workflow["jobs"]["tests-build-and-lag"]["env"]["CMUX_APP_HOST_CONSUMER"], "tests-build-and-lag")
         for shard in shards:
-            self.assertEqual(consumers.required_layers(f"app-host-unit-tests/{shard}", policy),
+            self.assertEqual(consumers.required_layers(f"app-host-unit-tests-shard-{shard}", policy),
                              ("app-cli", "runtime", "tests"))
         self.assertEqual(consumers.required_layers("tests-build-and-lag", policy),
                          ("app-cli", "runtime", "tests"))
@@ -108,7 +108,7 @@ class LayeredWorkflowTests(unittest.TestCase):
                     "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD", "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD"):
             shard = int(app_host["env"][key])
             self.assertIn(shard, shards)
-            self.assertIn(f"app-host-unit-tests/{shard}", policy["consumers"])
+            self.assertIn(f"app-host-unit-tests-shard-{shard}", policy["consumers"])
 
     def test_both_consumers_keep_flat_fallback_and_common_restore_validation(self):
         for name in ("app-host-unit-tests", "tests-build-and-lag"):

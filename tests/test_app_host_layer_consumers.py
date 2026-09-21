@@ -17,7 +17,7 @@ spec.loader.exec_module(c)
 class ConsumerPolicyTests(unittest.TestCase):
     def test_current_consumers_are_explicit_and_select_canonical_runtime_closure(self):
         policy = c.load_policy()
-        expected = {f"app-host-unit-tests/{shard}" for shard in range(1, 7)} | {"tests-build-and-lag"}
+        expected = {f"app-host-unit-tests-shard-{shard}" for shard in range(1, 7)} | {"tests-build-and-lag"}
         self.assertEqual((policy["schema"], policy["version"]), (c.SCHEMA, 1))
         self.assertEqual(set(policy["consumers"]), expected)
         for name in expected:

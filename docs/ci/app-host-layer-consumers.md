@@ -13,12 +13,12 @@ unknown identities and layer names.
 
 | Consumer | Compiled product reads | Required canonical layers |
 | --- | --- | --- |
-| `app-host-unit-tests/1` | Broad `cmux-unit` xctestrun; host app and embedded test bundle; global-search focused XCTest gate | `app-cli`, `runtime`, `tests` |
-| `app-host-unit-tests/2` | Broad `cmux-unit` xctestrun and host app | `app-cli`, `runtime`, `tests` |
-| `app-host-unit-tests/3` | Broad `cmux-unit` xctestrun and host app | `app-cli`, `runtime`, `tests` |
-| `app-host-unit-tests/4` | Broad `cmux-unit` xctestrun; host app; compiled `cmux` CLI for focused CLI regressions | `app-cli`, `runtime`, `tests` |
-| `app-host-unit-tests/5` | Broad `cmux-unit` xctestrun; host app; focused regression-B XCTest gates; compiled `cmux` CLI for terminal-creation coverage | `app-cli`, `runtime`, `tests` |
-| `app-host-unit-tests/6` | Broad `cmux-unit` xctestrun; host app; focused XCTest gates and bundled-command coverage | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-1` | Broad `cmux-unit` xctestrun; host app and embedded test bundle; global-search focused XCTest gate | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-2` | Broad `cmux-unit` xctestrun and host app | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-3` | Broad `cmux-unit` xctestrun and host app | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-4` | Broad `cmux-unit` xctestrun; host app; compiled `cmux` CLI for focused CLI regressions | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-5` | Broad `cmux-unit` xctestrun; host app; focused regression-B XCTest gates; compiled `cmux` CLI for terminal-creation coverage | `app-cli`, `runtime`, `tests` |
+| `app-host-unit-tests-shard-6` | Broad `cmux-unit` xctestrun; host app; focused XCTest gates and bundled-command coverage | `app-cli`, `runtime`, `tests` |
 | `tests-build-and-lag` | `cmux` UI xctestrun, host app executable/resources, display regressions and runtime lag checks | `app-cli`, `runtime`, `tests` |
 
 The shard-6 Ghostty split-theme check builds its own CmuxTerminalCore product.

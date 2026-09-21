@@ -937,7 +937,7 @@ jobs:
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
-      CMUX_APP_HOST_CONSUMER: app-host-unit-tests/${{ matrix.shard }}
+      CMUX_APP_HOST_CONSUMER: app-host-unit-tests-shard-${{ matrix.shard }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"

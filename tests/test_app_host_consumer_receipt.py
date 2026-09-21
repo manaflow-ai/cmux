@@ -36,7 +36,7 @@ class ConsumerReceiptTests(unittest.TestCase):
 
     def test_layer_hit_records_selected_bytes_durations_and_runner_time(self):
         with mock.patch.object(r.time, "monotonic_ns", return_value=11_000_000_000):
-            r.start("app-host-unit-tests/3", layer_index_id="50")
+            r.start("app-host-unit-tests-shard-3", layer_index_id="50")
             r.add_transfer("github-layers", 10, 10, 0.2)
             r.add_transfer("github-layers", 20, 18, 0.3)
             r.layer_hit(("app-cli", "runtime", "tests"), 0.4)
@@ -53,7 +53,7 @@ class ConsumerReceiptTests(unittest.TestCase):
         self.assertEqual(value["route"], "github-layers")
         self.assertIsNone(value["fallback_reason"])
         self.assertIn("CMUX_APP_HOST_CONSUMER_RECEIPT ", output.getvalue())
-        self.assertIn('"consumer": "app-host-unit-tests/3"', self.summary.read_text())
+        self.assertIn('"consumer": "app-host-unit-tests-shard-3"', self.summary.read_text())
 
     def test_aggregate_fallback_preserves_requested_selection_and_records_reason(self):
         r.start("tests-build-and-lag", layer_index_id="")

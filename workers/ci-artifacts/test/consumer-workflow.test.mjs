@@ -84,7 +84,7 @@ else:
         const result = spawnSync("bash", ["-e", "-c", layered.run], { cwd: root, encoding: "utf8", env: {
           ...process.env, PATH: `${bin}:${process.env.PATH}`, DEVELOPER_DIR: "/fixture/Xcode",
           CMUX_DERIVED_DATA_PATH: path.join(temporary, "derived"),
-          CMUX_APP_HOST_CONSUMER: jobName === "app-host-unit-tests" ? "app-host-unit-tests/1" : "tests-build-and-lag",
+          CMUX_APP_HOST_CONSUMER: jobName === "app-host-unit-tests" ? "app-host-unit-tests-shard-1" : "tests-build-and-lag",
           GITHUB_OUTPUT: output, GITHUB_ENV: path.join(temporary, "env"),
           GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1", GITHUB_REPOSITORY: "manaflow-ai/cmux",
           ...Object.fromEntries(Object.entries(layered.env).map(([key, value]) => [key, render(value, values)])),
