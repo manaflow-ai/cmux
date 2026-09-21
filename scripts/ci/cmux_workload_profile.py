@@ -328,17 +328,38 @@ def source_identity(expected_commit: str | None, expected_tree: str | None) -> d
         "status",
         "--porcelain=v1",
         "--untracked-files=all",
-        "--ignore-submodules=none",
+        "--ignore-submodules=dirty",
     )
     if untracked:
         raise ProfileError("checkout has non-ignored source changes")
     submodules = git_text("submodule", "status", "--recursive")
     for line in submodules.splitlines():
-        # '-' is an unmaterialized gitlink and cannot influence a profile that
-        # never opens it. '+' or a merge-conflict marker means materialized
-        # submodule bytes differ from the frozen superproject tree.
-        if line and line[0] in {"+", "U"}:
-            raise ProfileError("checkout submodule identity differs from the frozen source")
+        if not line:
+            continue
+        marker = line[0]
+        # '-' is an unmaterialized gitlink and cannot contribute worktree bytes.
+        # '+' and 'U' mean the checked-out gitlink identity already differs from
+        # the frozen superproject tree.
+        if marker in {"+", "U"}:
+            raise ProfileError(
+                "checkout submodule identity differs from the frozen source"
+            )
+        if marker == "-":
+            continue
+        if len(line) < 43 or line[41] != " ":
+            raise ProfileError("checkout submodule status is malformed")
+        submodule_path = line[42:].split(" (", 1)[0]
+        if not submodule_path or Path(submodule_path).is_absolute() or ".." in Path(submodule_path).parts:
+            raise ProfileError("checkout submodule path is invalid")
+        dirty_submodule = git_text(
+            "-C",
+            submodule_path,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        )
+        if dirty_submodule:
+            raise ProfileError("checkout submodule worktree differs from the frozen source")
     return {"repository": "manaflow-ai/cmux", "commit": commit, "tree": tree}
 
 
