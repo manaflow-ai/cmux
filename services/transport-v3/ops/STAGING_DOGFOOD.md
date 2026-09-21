@@ -34,6 +34,13 @@ reconnect, sign-out, and all six lanes. A simulator build is not evidence of
 physical-device behavior, NAT traversal, suspended-app recovery, or relay
 handover.
 
+For a v3-enabled iOS build, set the app's existing configuration keys
+`CMUX_V3_CONTROL_ORIGIN` and `CMUX_V3_AUTHORITY_KEYS`, plus
+`CMUX_V3_AUDIENCE` and `CMUX_V3_RELAY_ADDRESSES`. The Mac host uses the same
+control origin and audience through its staged `CMUX_V3_HOST=1` path. Keep the
+authority public-key set and relay multiaddrs in build configuration, never the
+signing seed or relay feed bearer.
+
 The controller build fleet currently exposes validated `cmux` and `chromium`
 recipes only. Its historical `ios-simulator` jobs are not a supported current
 submission contract, so do not submit an iOS job by guessing a recipe or worker.

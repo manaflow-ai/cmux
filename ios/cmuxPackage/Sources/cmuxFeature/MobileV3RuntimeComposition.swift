@@ -120,7 +120,8 @@ public actor MobileV3RuntimeComposition {
         guard let factory else { throw Error.notSignedIn }
         return MobileV3TerminalLane(
             transport: try factory.makeLaneTransport(for: request, kind: 3, resource: "terminal:\(surfaceID)"),
-            cursor: Optional<UInt64>.none
+            cursor: Optional<UInt64>.none,
+            permitsInput: true
         )
     }
 

@@ -27,6 +27,13 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
     private var endpoint: NativeEndpoint?
     private var grants: CmxV3HTTPGrantProvider?
     private let eventLanes = MobileHostV3EventLaneRegistry()
+    private let laneRegistry = MobileHostV3LaneRegistry()
+    private let artifactTransfers = MobileHostIrohArtifactTransferRegistry()
+    private let laneJournal = IrxJournal(subsystem: "dev.cmux", category: "mobile-host-v3-lanes")
+
+    /// Shared with control RPC artifact issuance. Ownership is still checked
+    /// against the admitted v3 peer when the lane is claimed.
+    var artifactTransferRegistry: MobileHostIrohArtifactTransferRegistry { artifactTransfers }
     private var scope: AuthenticatedTeamScope?
     private var desiredScope: AuthenticatedTeamScope?
     private var generation = UUID()
@@ -74,7 +81,10 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         endpoint?.close()
         endpoint = nil
         grants = nil
-        Task { await eventLanes.removeAll() }
+        Task {
+            await eventLanes.removeAll()
+            await laneRegistry.removeAll()
+        }
         scope = nil
         listenerState = MobileHostListenerState()
         MobileHostPublicStatusCache.updateV3(peerID: nil)
@@ -266,32 +276,63 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
                     )
                     continue
                 }
-                guard accepted.lane.kind == 0 else {
-                    // Terminal, artifact and simulator handlers are migrated
-                    // separately. Rejecting them here is fail-closed.
+                if accepted.lane.kind == 0 {
+                    let transport = V3ByteTransport(stream: accepted.stream)
+                    let peer = CmxV3AdmittedPeer(peerID: accepted.peerId)
+                    let eventWriter = MobileHostV3EventWriter(peerID: accepted.peerId, registry: eventLanes)
+                    Task {
+                        _ = await MobileHostService.acceptTransport(
+                            transport,
+                            authorization: .v3Admission(peer),
+                            hostDeviceID: deviceID.uuidString,
+                            artifactTransfers: self.artifactTransfers,
+                            independentEventWriter: eventWriter,
+                            isCurrent: { [weak self] in
+                                guard let self else { return false }
+                                return await MainActor.run {
+                                    self.generation == token && self.scope != nil && self.isNetworkingAllowed
+                                }
+                            }
+                        )
+                    }
+                    continue
+                }
+                let laneKind: MobileHostV3LaneRegistry.Kind?
+                switch accepted.lane.kind {
+                case 2, 3: laneKind = .terminal
+                case 4: laneKind = .artifact
+                case 5: laneKind = .simulator
+                default: laneKind = nil
+                }
+                guard let laneKind, let laneID = await laneRegistry.reserve(peerID: accepted.peerId, kind: laneKind) else {
                     accepted.stream.close()
                     continue
                 }
                 let transport = V3ByteTransport(stream: accepted.stream)
                 let peer = CmxV3AdmittedPeer(peerID: accepted.peerId)
-                let eventWriter = MobileHostV3EventWriter(
-                    peerID: accepted.peerId,
-                    registry: eventLanes
-                )
-                Task {
-                    _ = await MobileHostService.acceptTransport(
-                        transport,
-                        authorization: .v3Admission(peer),
-                        hostDeviceID: deviceID.uuidString,
-                        independentEventWriter: eventWriter,
-                        isCurrent: { [weak self] in
-                            guard let self else { return false }
-                            return await MainActor.run {
-                                self.generation == token && self.scope != nil && self.isNetworkingAllowed
-                            }
-                        }
-                    )
+                let lane = accepted.lane
+                Task { [weak self] in
+                    defer { Task { await self?.laneRegistry.release(peerID: accepted.peerId, kind: laneKind, id: laneID) } }
+                    let stream = MobileHostV3ByteStream.make(stream: accepted.stream)
+                    switch lane.kind {
+                    case 2:
+                        await MobileHostIrxTerminalLaneServer.serveOutputOnly(
+                            resourceID: lane.resource ?? "", cursor: lane.cursor, stream: stream, journal: self?.laneJournal ?? IrxJournal(subsystem: "dev.cmux", category: "mobile-host-v3-lanes"))
+                    case 3:
+                        await MobileHostIrxTerminalLaneServer.serveInputOnly(
+                            resourceID: lane.resource ?? "", stream: stream, journal: self?.laneJournal ?? IrxJournal(subsystem: "dev.cmux", category: "mobile-host-v3-lanes"))
+                    case 4:
+                        guard let resource = try? CmxIrohResourceID(lane.resource ?? "") else { accepted.stream.close(); return }
+                        let handler = MobileHostIrohArtifactLaneHandler(registry: self?.artifactTransfers ?? MobileHostIrohArtifactTransferRegistry())
+                        guard await handler.handleArtifactLane(resourceID: resource, offset: lane.cursor ?? 0, stream: stream, owner: .v3(peerID: peer.peerID)) else { accepted.stream.close() }
+                    case 5:
+                        guard await MobileSimulatorStreamV2Coordinator.shared.handleAdmittedLane(resourceID: lane.resource ?? "", stream: stream) else { accepted.stream.close() }
+                    default:
+                        accepted.stream.close()
+                    }
+                    await transport.close()
                 }
+                continue
             } catch NativeError.Cancelled, NativeError.Closed {
                 return
             } catch {

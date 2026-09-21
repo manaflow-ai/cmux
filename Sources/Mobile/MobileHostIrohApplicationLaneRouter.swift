@@ -73,6 +73,12 @@ enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
     case unavailable
 }
 
+/// Authorization domains remain distinct even when they share file streaming.
+enum MobileHostArtifactTransferOwner: Equatable, Sendable {
+    case iroh(CmxIrohAdmittedPeer)
+    case v3(peerID: String)
+}
+
 /// Runtime-scoped, peer-bound capabilities minted only after control-RPC authorization.
 actor MobileHostIrohArtifactTransferRegistry {
     enum Error: Swift.Error, Equatable {
@@ -117,7 +123,7 @@ actor MobileHostIrohArtifactTransferRegistry {
     }
 
     private struct Entry: Sendable {
-        let peer: CmxIrohAdmittedPeer
+        let owner: MobileHostArtifactTransferOwner
         let canonicalPath: String
         let identity: MobileHostIrohArtifactFileIdentity
         let expiresAt: Date
@@ -156,6 +162,13 @@ actor MobileHostIrohArtifactTransferRegistry {
         canonicalPath: String,
         peer: CmxIrohAdmittedPeer
     ) throws -> ChatArtifactLaneDescriptor {
+        try issue(canonicalPath: canonicalPath, owner: .iroh(peer))
+    }
+
+    func issue(
+        canonicalPath: String,
+        owner: MobileHostArtifactTransferOwner
+    ) throws -> ChatArtifactLaneDescriptor {
         let currentTime = now()
         pruneExpired(at: currentTime)
         guard entries.count < Self.maximumEntryCount else {
@@ -171,7 +184,7 @@ actor MobileHostIrohArtifactTransferRegistry {
         guard entries[capability] == nil else { throw Error.capacityExceeded }
         let expiresAt = currentTime.addingTimeInterval(timeToLive)
         entries[capability] = Entry(
-            peer: peer,
+            owner: owner,
             canonicalPath: resolvedPath,
             identity: identity,
             expiresAt: expiresAt,
@@ -190,13 +203,21 @@ actor MobileHostIrohArtifactTransferRegistry {
         offset: UInt64,
         peer: CmxIrohAdmittedPeer
     ) throws -> Lease {
+        try claim(resourceID: resourceID, offset: offset, owner: .iroh(peer))
+    }
+
+    func claim(
+        resourceID: CmxIrohResourceID,
+        offset: UInt64,
+        owner: MobileHostArtifactTransferOwner
+    ) throws -> Lease {
         let currentTime = now()
         guard var entry = entries[resourceID] else { throw Error.unknownResource }
         guard entry.expiresAt > currentTime else {
             entries[resourceID] = nil
             throw Error.expired
         }
-        guard entry.peer == peer else { throw Error.peerMismatch }
+        guard entry.owner == owner else { throw Error.peerMismatch }
         guard offset <= UInt64(entry.identity.size) else { throw Error.invalidOffset }
         guard entry.activeLeaseID == nil else { throw Error.alreadyInUse }
         guard entry.remainingClaims > 0 else { throw Error.resumeLimitExceeded }
@@ -396,12 +417,21 @@ struct MobileHostIrohArtifactLaneHandler: MobileHostIrohArtifactLaneHandling {
         stream: CmxIrohBidirectionalStream,
         peer: CmxIrohAdmittedPeer
     ) async -> Bool {
+        await handleArtifactLane(resourceID: resourceID, offset: offset, stream: stream, owner: .iroh(peer))
+    }
+
+    func handleArtifactLane(
+        resourceID: CmxIrohResourceID,
+        offset: UInt64,
+        stream: CmxIrohBidirectionalStream,
+        owner: MobileHostArtifactTransferOwner
+    ) async -> Bool {
         let lease: MobileHostIrohArtifactTransferRegistry.Lease
         do {
             lease = try await registry.claim(
                 resourceID: resourceID,
                 offset: offset,
-                peer: peer
+                owner: owner
             )
         } catch {
             return false

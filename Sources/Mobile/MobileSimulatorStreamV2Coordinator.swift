@@ -40,6 +40,15 @@ final class MobileSimulatorStreamV2Coordinator {
         stream: CmxIrohBidirectionalStream,
         peer: CmxIrohAdmittedPeer
     ) async -> Bool {
+        await handleAdmittedLane(resourceID: resourceID.value, stream: stream)
+    }
+
+    /// Transport admission and resource authorization belong to the caller.
+    /// No Iroh identity is required by the simulator session business logic.
+    nonisolated func handleAdmittedLane(
+        resourceID: String,
+        stream: CmxIrohBidirectionalStream
+    ) async -> Bool {
         guard let panelID = Self.panelID(from: resourceID) else { return false }
         // Below terminal PTY bytes (0), above bulk artifacts (-10): video
         // never delays typing and always beats file transfers.
@@ -72,11 +81,12 @@ final class MobileSimulatorStreamV2Coordinator {
     }
 
     nonisolated static func panelID(from resourceID: CmxIrohResourceID) -> UUID? {
-        let value = resourceID.value
-        let raw =
-            value.hasPrefix("simstream:")
-            ? String(value.dropFirst("simstream:".count))
-            : value
+        panelID(from: resourceID.value)
+    }
+
+    nonisolated static func panelID(from value: String) -> UUID? {
+        let prefix = value.hasPrefix("simulator:") ? "simulator:" : "simstream:"
+        let raw = value.hasPrefix(prefix) ? String(value.dropFirst(prefix.count)) : value
         return UUID(uuidString: raw)
     }
 }

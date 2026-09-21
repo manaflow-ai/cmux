@@ -58,6 +58,22 @@ enum MobileHostIrxTerminalLaneServer {
         journal.record("host-terminal", "lane-closed", ["surface": surfaceID.uuidString])
     }
 
+    /// A read grant can only observe PTY output. Client bytes are never
+    /// dispatched to the terminal input handler on this entry point.
+    static func serveOutputOnly(
+        resourceID: String,
+        cursor: UInt64?,
+        stream: CmxIrohBidirectionalStream,
+        journal: IrxJournal
+    ) async {
+        guard let surfaceID = terminalSurfaceID(resourceID) else {
+            await reject(stream, errorCode: ErrorCode.unsupportedResource)
+            return
+        }
+        await stream.receiveStream.stop(errorCode: 0)
+        await sendOutput(surfaceID: surfaceID, cursor: cursor, stream: stream, journal: journal)
+    }
+
     /// Serves render-grid input without opening a second byte-output stream.
     /// The empty replay envelope establishes readiness and the input half then
     /// stays open for fire-and-forget length-prefixed frames.
