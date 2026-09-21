@@ -35,15 +35,15 @@ export function guestCliDistributionPruneCommand(
   libexec = LIBEXEC,
   bin = BIN,
 ): string {
-  const settings = Buffer.from(JSON.stringify({ manifest, libexec, bin })).toString("base64");
-  const script = `import base64, json, pathlib, shutil
+  const settings = Buffer.from(JSON.stringify({ manifest })).toString("base64");
+  const script = `import base64, json, pathlib, shutil, sys
 config = json.loads(base64.b64decode('${settings}'))
-root = pathlib.Path(config['libexec'])
+root = pathlib.Path(sys.argv[1])
 release = root / ('cmux-cloud-' + config['manifest']['archiveSha256'])
 if not root.is_dir():
     raise SystemExit(0)
 active = set()
-for path in (root / 'cmux-coderouter', pathlib.Path(config['bin']) / 'cmux', pathlib.Path(config['bin']) / 'coderouter', pathlib.Path(config['bin']) / 'cr'):
+for path in (root / 'cmux-coderouter', pathlib.Path(sys.argv[2]) / 'cmux', pathlib.Path(sys.argv[2]) / 'coderouter', pathlib.Path(sys.argv[2]) / 'cr'):
     try:
         if path.is_symlink():
             active.add(path.resolve().parent)
@@ -60,7 +60,8 @@ for obsolete in releases[2:]:
     if obsolete.resolve() not in active:
         shutil.rmtree(obsolete, ignore_errors=True)
 `;
-  return `python3 -c '${script.replace(/'/g, `'\\''`)}'`;
+  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+  return `python3 -c '${script.replace(/'/g, `'\\''`)}' ${quote(libexec)} ${quote(bin)}`;
 }
 
 /** Generate the same installer for create, attach healing, and local fixtures. */
@@ -71,11 +72,11 @@ export function guestCliDistributionCommand(
   bin = BIN,
   prune = true,
 ): string {
-  const settings = Buffer.from(JSON.stringify({ verify, manifest, libexec, bin, prune })).toString("base64");
-  const script = `import base64, hashlib, io, json, os, pathlib, shutil, tarfile, tempfile, urllib.request
+  const settings = Buffer.from(JSON.stringify({ verify, manifest, prune })).toString("base64");
+  const script = `import base64, hashlib, io, json, os, pathlib, shutil, sys, tarfile, tempfile, urllib.request
 config = json.loads(base64.b64decode('${settings}'))
 manifest = config['manifest']
-libexec, bindir = pathlib.Path(config['libexec']), pathlib.Path(config['bin'])
+libexec, bindir = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 release = libexec / ('cmux-cloud-' + manifest['archiveSha256'])
 names = {'cmux-cloud-cli', 'coderouter'}
 if set(manifest['binaries']) != names:
@@ -145,5 +146,6 @@ if config['prune']:
         if obsolete.resolve() not in active:
             shutil.rmtree(obsolete, ignore_errors=True)
 `;
-  return `python3 -c '${script.replace(/'/g, `'\\''`)}'`;
+  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+  return `python3 -c '${script.replace(/'/g, `'\\''`)}' ${quote(libexec)} ${quote(bin)}`;
 }
