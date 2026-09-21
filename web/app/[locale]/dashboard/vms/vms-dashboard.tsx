@@ -90,7 +90,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
           return <article key={vm.id} className="border-b border-border py-4 last:border-b-0" data-vm-id={vm.id} data-vm-catalog-id={vm.id}>
             <div className="flex items-center gap-2">
               <CloudIcon />
-              <h3 className="font-medium">{vm.slug || vm.displayName || t("vmLabel", { id: `…${vm.id.slice(-8)}` })}</h3>
+              <h3 className="font-medium">{vm.displayName || vm.slug || t("vmLabel", { id: `…${vm.id.slice(-8)}` })}</h3>
               <span className="text-xs text-muted">{vm.status}</span>
             </div>
             <div className="mt-3 space-y-3 pl-5">
