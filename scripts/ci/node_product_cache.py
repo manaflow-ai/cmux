@@ -155,6 +155,57 @@ def _canonical_contract_key(contract: dict) -> str:
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
 
 
+def _distribution_identity(contract: dict, repository: str) -> dict:
+    architecture = contract.get("architecture")
+    if architecture not in {"arm64", "x86_64"}:
+        raise ValueError("unsupported app-host product architecture")
+    source_identity = _canonical_contract_key({
+        "repository": repository,
+        "tree": contract.get("tree"),
+    })
+    toolchain_generation = _canonical_contract_key({
+        "xcode": contract.get("xcode"),
+        "tools": contract.get("tools"),
+    })
+    sdk_generation = _canonical_contract_key({
+        "sdk": contract.get("sdk"),
+        "os": contract.get("os"),
+    })
+    build_configuration = _canonical_contract_key({
+        "configuration": "debug",
+        "environment": contract.get("environment"),
+    })
+    product_schema = _canonical_contract_key({
+        "name": "cmux-app-host-test-products",
+        "version": 1,
+        "schemes": ["cmux", "cmux-numeric-locale", "cmux-unit"],
+    })
+    artifact_schema = _canonical_contract_key({
+        "name": "cmux-app-host-products",
+        "version": 1,
+        "archive": "tar-gz",
+        "layout": "Build/Products",
+    })
+    build_identity = _canonical_contract_key({
+        "architecture": architecture,
+        "sdk_generation": sdk_generation,
+        "toolchain_generation": toolchain_generation,
+        "build_configuration": build_configuration,
+        "product_schema": product_schema,
+    })
+    return {
+        "artifact_schema": artifact_schema,
+        "source_identity": source_identity,
+        "build_identity": build_identity,
+        "platform_class": "macos",
+        "architecture": architecture,
+        "sdk_generation": sdk_generation,
+        "toolchain_generation": toolchain_generation,
+        "build_configuration": build_configuration,
+        "product_schema": product_schema,
+    }
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -410,6 +461,8 @@ def _validate_entry_by_key_locked(store: Store, key: str) -> tuple[dict, Path] |
 
 def peer_availability(store: Store, key: str) -> dict | None:
     """Return bounded exact-object availability without paths or cache listings."""
+    if not _HEX64.fullmatch(key):
+        return None
     try:
         with store.lock(key):
             validated = _validate_entry_by_key_locked(store, key)
@@ -432,6 +485,8 @@ def peer_availability(store: Store, key: str) -> dict | None:
 
 def acquire_peer_transfer(store: Store, key: str) -> dict | None:
     """Acquire one in-use lease before exposing an exact immutable object to a peer."""
+    if not _HEX64.fullmatch(key):
+        return None
     try:
         with store.lock(key):
             validated = _validate_entry_by_key_locked(store, key)
@@ -709,11 +764,27 @@ def _verify_archive(archive: Path, identity: Identity) -> int:
         raise ValueError("compiled product archive digest mismatch")
     reuse, product = _read_receipts(archive)
     contract = reuse.get("contract")
+    if not isinstance(contract, dict):
+        raise ValueError("compiled product receipt identity mismatch")
+    expected_distribution = _distribution_identity(contract, identity.repository)
+    observed_distribution = {
+        "artifact_schema": identity.artifact_schema,
+        "source_identity": identity.source_identity,
+        "build_identity": identity.build_identity,
+        "platform_class": identity.platform_class,
+        "architecture": identity.architecture,
+        "sdk_generation": identity.sdk_generation,
+        "toolchain_generation": identity.toolchain_generation,
+        "build_configuration": identity.build_configuration,
+        "product_schema": identity.product_schema,
+    }
     if (
-        not isinstance(contract, dict)
-        or _canonical_contract_key(contract) != identity.product_contract
+        _canonical_contract_key(contract) != identity.product_contract
+        or expected_distribution != observed_distribution
         or reuse.get("revision") != identity.source_revision
         or product.get("revision") != identity.source_revision
+        or str(reuse.get("run_id")) != str(identity.producer_run_id)
+        or str(reuse.get("run_attempt")) != str(identity.producer_run_attempt)
     ):
         raise ValueError("compiled product receipt identity mismatch")
     return size
