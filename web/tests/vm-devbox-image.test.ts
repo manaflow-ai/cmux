@@ -271,7 +271,8 @@ describe("devbox image template", () => {
     mkdirSync(transientRuntime);
     writeFileSync(path.join(blesh, "ble.sh"), [
       "BLE_VERSION=fixture",
-      "bleopt() { mkdir -p \"$XDG_RUNTIME_DIR/blesh\"; printf ok > \"$XDG_RUNTIME_DIR/blesh/live\"; }",
+      "BLE_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\"",
+      "bleopt() { mkdir -p \"$BLE_RUNTIME_DIR/blesh\"; printf ok > \"$BLE_RUNTIME_DIR/blesh/live\"; }",
       "ble-face() { :; }",
       "ble-bind() { :; }",
       "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
