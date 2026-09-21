@@ -1,6 +1,6 @@
 import CoreFoundation
 import CryptoKit
-import Foundation
+public import Foundation
 
 public struct CmuxGlaedaExecutionRequest: Equatable, Sendable {
     public let externalRequestRef: String
