@@ -1159,20 +1159,22 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # The bulk app-host classifier tolerates ordinary assertion failures.
-          # Window placement regressions must fail the shard directly.
+          # Window placement regressions must fail the shard directly while
+          # reusing the compile-admission product.
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
           scripts/ci/run-in-console-session.sh \
             scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
             -only-testing:cmuxTests/MainWindowZoomPlacementTests \
-            -parallel-testing-enabled NO \
             CMUX_SKIP_ZIG_BUILD=1 \
-            test
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 60 \
+            test-without-building 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/MainWindowZoomPlacementTests
 
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

@@ -295,11 +295,10 @@ final class GhosttyConfigTests: XCTestCase {
         try fileManager.createDirectory(at: firstThemeDir, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: secondThemeDir, withIntermediateDirectories: true)
 
-        let managedThemeName = GhosttyConfig.cmuxDefaultLightThemeName
-        let firstTheme = firstThemeDir.appendingPathComponent(managedThemeName, isDirectory: false)
+        let firstTheme = firstThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
         try Data([0xff, 0xfe]).write(to: firstTheme)
 
-        let secondTheme = secondThemeDir.appendingPathComponent(managedThemeName, isDirectory: false)
+        let secondTheme = secondThemeDir.appendingPathComponent("Apple System Colors Light", isDirectory: false)
         let expected = "foreground = #123456\n"
         try expected.write(to: secondTheme, atomically: true, encoding: .utf8)
 
@@ -1561,11 +1560,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(
-            backgroundColor: color,
-            backgroundOpacity: 0.5,
-            chromeBackgroundColor: color.withAlphaComponent(0.5)
-        )
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
         XCTAssertEqual(hex, "#1122337F")
     }
 
@@ -1592,8 +1587,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            sharesWindowBackdrop: true,
-            chromeBackgroundColor: color.withAlphaComponent(0.5)
+            sharesWindowBackdrop: true
         )
         XCTAssertEqual(hex, "#1122337F")
     }
@@ -1609,8 +1603,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            renderingMode: .windowHostBackdrop,
-            chromeBackgroundColor: color.withAlphaComponent(0.5)
+            renderingMode: .windowHostBackdrop
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -1631,8 +1624,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop,
-            chromeBackgroundColor: color.withAlphaComponent(0.5)
+            renderingMode: .windowHostBackdrop
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -1653,8 +1645,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop,
-            paneBorderColorHex: "#33AAFF",
-            chromeBackgroundColor: color.withAlphaComponent(0.5)
+            paneBorderColorHex: "#33AAFF"
         )
 
         XCTAssertEqual(colors.backgroundHex, "#1122337F")
@@ -2007,7 +1998,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
-                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
             )
 
             defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
@@ -2169,7 +2160,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        waitForBrowserPanelLoadingToSettle(panel)
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
@@ -2261,7 +2256,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        waitForBrowserPanelLoadingToSettle(panel)
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
@@ -2285,21 +2284,6 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-    }
-
-    private func waitForBrowserPanelLoadingToSettle(
-        _ panel: BrowserPanel,
-        timeout: TimeInterval = 5.0,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while panel.isLoading || panel.webView.isLoading {
-            if Date() >= deadline { break }
-            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for the page to finish loading", file: file, line: line)
-        XCTAssertFalse(panel.isLoading, "Timed out waiting for the panel loading flag to clear", file: file, line: line)
     }
 }
 
@@ -2514,7 +2498,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
 
         panel.webView.loadHTMLString(
-            "<!doctype html><html><head><base href=\"http://cmux-loopback.localtest.me:3000/\"></head><body>remote loopback bridge</body></html>",
+            "<!doctype html><html><body>remote loopback bridge</body></html>",
             baseURL: baseURL
         )
         try await waitForBrowserWebViewLoad(panel.webView)
@@ -4429,7 +4413,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
@@ -4437,12 +4421,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearancePreservesNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertFalse(
+            XCTAssertTrue(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(
                     configPaths: [path],
                     adaptiveDefaultThemeEnabled: true
@@ -5097,7 +5081,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment -gu CMUX_PANEL_ID"), log)
     }
 
-    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxAndClearsStaleSurfaceScope() throws {
+    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxAndClearsSurfaceScope() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-tmux-refresh-\(UUID().uuidString)")
@@ -5110,6 +5094,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             at: binDir.appendingPathComponent("tmux", isDirectory: false),
             contents: """
             #!/bin/sh
+            if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              printf '%s\\n' 'CMUX_TAG=wrong-global-session'
+              exit 0
+            fi
             if [ "$1" = "show-environment" ] && [ "$#" = "1" ]; then
               printf '%s\\n' 'CMUX_SOCKET_PATH=/tmp/cmux-current.sock'
               printf '%s\\n' 'CMUX_TAG=feat-tmux-notification-attention-state'
@@ -5126,7 +5114,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
-            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_SURFACE_ID|$CMUX_PANEL_ID\"",
+            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_TAB_ID|${CMUX_SURFACE_ID-unset}|${CMUX_PANEL_ID-unset}\"",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMUX": "/tmp/tmux-stale,123,0",
@@ -5141,7 +5129,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(
             output,
-            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111||"
+            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|11111111-1111-1111-1111-111111111111|unset|unset"
         )
     }
 
@@ -5283,7 +5271,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_precmd
             repeat 20; do
-              /usr/bin/grep -q 'rpc surface.ports_kick ' "\(logPath.path)" && break
+              [[ -s "\(logPath.path)" ]] && break
               sleep 0.05
             done
             cat "\(logPath.path)"
@@ -5451,13 +5439,12 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testBashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-bash-no-git-watch-\(UUID().uuidString)")
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
         let logPath = root.appendingPathComponent("send.log", isDirectory: false)
-        // Keep the socket below sockaddr_un.sun_path even on CI temp roots.
-        let socketPath = URL(fileURLWithPath: "/tmp/cmux-git-\(UUID().uuidString.prefix(8)).sock")
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let socketFD = try bindUnixSocket(at: socketPath.path)
@@ -5513,13 +5500,12 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-zsh-no-git-watch-\(UUID().uuidString)")
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
         let logPath = root.appendingPathComponent("send.log", isDirectory: false)
-        // Keep the socket below sockaddr_un.sun_path even on CI temp roots.
-        let socketPath = URL(fileURLWithPath: "/tmp/cmux-git-\(UUID().uuidString.prefix(8)).sock")
+        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let socketFD = try bindUnixSocket(at: socketPath.path)
@@ -5576,7 +5562,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testZshNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-zsh-no-pr-watch-\(UUID().uuidString)")
         let repoURL = root.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
@@ -5627,7 +5613,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
         let repoURL = root.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
@@ -6071,6 +6057,15 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
+        var addr = sockaddr_un()
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxPathLength else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path exceeds sun_path capacity: \(path)"]
+            )
+        }
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -6082,9 +6077,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)

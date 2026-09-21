@@ -61,9 +61,9 @@ actor IrxRelayCredentialInstaller {
         installed.removeAll()
     }
 
-    /// Waits for the currently scheduled installation loop to finish.
-    func waitForCurrentWork() async {
-        if let task { await task.value }
+    /// Waits for the current installation pass, including its retries, to finish.
+    func waitUntilSettled() async {
+        await task?.value
     }
 
     private func run(id: UUID) async {

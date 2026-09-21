@@ -20,7 +20,7 @@ struct PresentedSurfaceFixture {
     let window: NSWindow
     let runtimeSurface: UnsafeMutableRawPointer
 
-    init(windowVisibleAtCreation: Bool = true, installRendererCallbacks: Bool = true) {
+    init(windowVisibleAtCreation: Bool = true) {
         registry = TerminalSurfaceRegistry()
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -75,12 +75,11 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
-        if installRendererCallbacks {
-            surface.installRendererCallbacksForTesting(on: runtimeSurface)
-        }
+        _ = makeRendererCallbackContextForTesting(on: surface)
         surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
-        if installRendererCallbacks, windowVisibleAtCreation {
+        if surface.rendererPresentationState.inFlightToken != nil {
             acknowledgePendingPresentation()
         }
     }

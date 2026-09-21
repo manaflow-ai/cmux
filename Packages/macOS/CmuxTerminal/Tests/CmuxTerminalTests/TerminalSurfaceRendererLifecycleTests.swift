@@ -28,7 +28,7 @@ import Testing
 
     private func failProbe(on surface: TerminalSurface) {
         #expect(cmux_test_ghostty_renderer_fail(
-            surface.surface,
+            surface.runtimeSurfacePointer,
             Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
         ))
     }
