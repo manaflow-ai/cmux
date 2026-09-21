@@ -57,9 +57,15 @@ struct JSONConfigAtomicPublisher: Sendable {
         do {
             recovered = try Data(contentsOf: staging)
         } catch {
-            // The swap already installed our candidate. Restore the prior entry
-            // when possible before surfacing the validation failure.
-            if (try? exchange(staging, target)) != nil {
+            // The swap already installed our candidate, but a non-participating
+            // editor can still replace the live path. Reverse the exchange only
+            // if both entries still contain the bytes this publisher installed
+            // and expected to recover.
+            let currentPublished = try? Data(contentsOf: target)
+            let currentRecovery = try? Data(contentsOf: staging)
+            if currentPublished == data,
+               currentRecovery == expected,
+               (try? exchange(staging, target)) != nil {
                 stagingContainsRecovery = false
             }
             throw error
