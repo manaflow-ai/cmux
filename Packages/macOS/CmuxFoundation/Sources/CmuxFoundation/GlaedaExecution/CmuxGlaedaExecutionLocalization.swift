@@ -50,29 +50,25 @@ public struct CmuxGlaedaExecutionLocalization {
                 "glaeda.cli.error.terminalEvidenceMissing",
                 defaultValue: "The Glaeda terminal result is missing workload evidence."
             )
-        case .invalidJSON(let label):
-            format(
+        case .invalidJSON:
+            string(
                 "glaeda.cli.error.invalidJSON",
-                defaultValue: "The %@ document is invalid JSON.",
-                label
+                defaultValue: "The Glaeda input document is invalid JSON."
             )
-        case .objectRequired(let label):
-            format(
+        case .objectRequired:
+            string(
                 "glaeda.cli.error.objectRequired",
-                defaultValue: "The %@ document must be a JSON object.",
-                label
+                defaultValue: "The Glaeda input document must be a JSON object."
             )
-        case .noncanonicalJSON(let label):
-            format(
+        case .noncanonicalJSON:
+            string(
                 "glaeda.cli.error.noncanonicalJSON",
-                defaultValue: "The %@ document must use canonical JSON.",
-                label
+                defaultValue: "The Glaeda input document must use canonical JSON."
             )
-        case .documentTooLarge(let label):
-            format(
+        case .documentTooLarge:
+            string(
                 "glaeda.cli.error.documentTooLarge",
-                defaultValue: "The %@ document exceeds the size limit.",
-                label
+                defaultValue: "The Glaeda input document exceeds the size limit."
             )
         case .encodingFailed:
             string(
