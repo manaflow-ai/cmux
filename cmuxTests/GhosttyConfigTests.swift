@@ -1552,107 +1552,184 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+    /// `#112233`, the terminal theme color every case starts from.
+    private let themeColor = NSColor(
+        srgbRed: 17.0 / 255.0,
+        green: 34.0 / 255.0,
+        blue: 51.0 / 255.0,
+        alpha: 1.0
+    )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+    /// `#445566`, standing in for the chrome color the app resolves through
+    /// `Workspace.resolvedTerminalChromeBackgroundColor`. Passing it through
+    /// the `chromeBackgroundColor` seam keeps the expectations independent of
+    /// the test host's ambient `NSColor.windowBackgroundColor`.
+    private let resolvedChromeColor = NSColor(
+        srgbRed: 68.0 / 255.0,
+        green: 85.0 / 255.0,
+        blue: 102.0 / 255.0,
+        alpha: 1.0
+    )
+
+    func testBonsplitChromeHexCompositesTranslucentThemeOverWindowBase() {
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5)
+
+        // Chrome carries the rendered backdrop: the theme composited over the
+        // window base, with no alpha channel. The window root backdrop owns
+        // translucency, so an `#RRGGBBAA` hex would apply the opacity twice
+        // and Bonsplit would derive its tab glyphs from a color nobody sees.
+        XCTAssertEqual(hex.count, 7, "translucent themes must not leak alpha into chrome hex: \(hex)")
+        XCTAssertNotEqual(hex, "#112233")
+        XCTAssertEqual(
+            hex,
+            WindowAppearanceSnapshot.compositedTerminalColor(
+                backgroundColor: themeColor,
+                opacity: 0.5
+            ).hexString()
+        )
+        assertHex(hex, isBlendOf: themeColor, opacity: 0.5, over: .windowBackgroundColor)
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
-    func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
+    func testBonsplitChromeHexKeepsCompositedBackdropWhenSharingWindowBackdrop() {
         let hex = Workspace.bonsplitChromeHex(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+
+        XCTAssertEqual(hex.count, 7)
+        XCTAssertEqual(
+            hex,
+            Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5),
+            "sharing the window backdrop must not change the semantic chrome color"
+        )
+    }
+
+    func testBonsplitChromeHexPrefersResolvedChromeBackgroundColor() {
+        XCTAssertEqual(
+            Workspace.bonsplitChromeHex(
+                backgroundColor: themeColor,
+                backgroundOpacity: 0.5,
+                chromeBackgroundColor: resolvedChromeColor
+            ),
+            "#445566"
+        )
+        // Only the ambient compositing path flattens alpha. A caller that
+        // hands over a translucent chrome color keeps its alpha in the hex.
+        XCTAssertEqual(
+            Workspace.bonsplitChromeHex(
+                backgroundColor: themeColor,
+                backgroundOpacity: 0.5,
+                chromeBackgroundColor: resolvedChromeColor.withAlphaComponent(0.5)
+            ),
+            "#4455667F"
+        )
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: themeColor,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+        XCTAssertEqual(colors.backgroundHex, "#445566")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#445566")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#445566")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+
+        // Without a pre-resolved chrome color the surfaces fall back to the
+        // same ambient compositing as `bonsplitChromeHex`.
+        let ambient = Workspace.bonsplitChromeColors(
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
         )
-
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
-        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(
+            ambient.backgroundHex,
+            Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5)
+        )
+        XCTAssertEqual(ambient.tabBarBackgroundHex, ambient.backgroundHex)
+        XCTAssertEqual(ambient.splitButtonBackdropHex, ambient.backgroundHex)
+        XCTAssertEqual(ambient.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
         let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#445566")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
         let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop,
-            paneBorderColorHex: "#33AAFF"
+            paneBorderColorHex: "#33AAFF",
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#445566")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#445566")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#445566")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#33AAFF")
+    }
+
+    /// Checks an opaque `#RRGGBB` hex against an independent blend of `theme`
+    /// over `base`, so the composited contract is verified by arithmetic and
+    /// not only by the resolver under test. `hexString()` truncates channels
+    /// to whole bytes, so one byte of slack is allowed.
+    private func assertHex(
+        _ hex: String,
+        isBlendOf theme: NSColor,
+        opacity: CGFloat,
+        over base: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard hex.count == 7, let packed = UInt32(hex.dropFirst(), radix: 16),
+              let theme = theme.usingColorSpace(.sRGB),
+              let base = base.usingColorSpace(.sRGB) else {
+            XCTFail("expected an opaque #RRGGBB chrome hex, got \(hex)", file: file, line: line)
+            return
+        }
+        let actual: [CGFloat] = [
+            CGFloat((packed >> 16) & 0xFF),
+            CGFloat((packed >> 8) & 0xFF),
+            CGFloat(packed & 0xFF)
+        ]
+        let channels: [(KeyPath<NSColor, CGFloat>, String)] = [
+            (\.redComponent, "red"),
+            (\.greenComponent, "green"),
+            (\.blueComponent, "blue")
+        ]
+        for (index, (channel, name)) in channels.enumerated() {
+            let expected = (theme[keyPath: channel] * opacity + base[keyPath: channel] * (1 - opacity)) * 255
+            XCTAssertEqual(
+                actual[index],
+                expected,
+                accuracy: 1.01,
+                "\(name) channel of \(hex) is not the theme blended over the window base",
+                file: file,
+                line: line
+            )
+        }
     }
 }
 
