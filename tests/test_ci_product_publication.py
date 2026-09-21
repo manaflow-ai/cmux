@@ -15,6 +15,10 @@ def condition(expression, *, full_suite, publish="true"):
     """Evaluate the small boolean subset used by these actual workflow gates."""
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
+    expression = expression.replace("inputs.full_suite", repr(full_suite))\
+        .replace("inputs.compile_admitted", repr("false"))\
+        .replace("inputs.macos", repr("true"))\
+        .replace("inputs.release_build", repr("true"))
     def value(match):
         name = match.group(0)
         if name.endswith(".result"):
@@ -35,7 +39,7 @@ def condition(expression, *, full_suite, publish="true"):
 class ProductPublicationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
     def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
@@ -43,7 +47,7 @@ class ProductPublicationTests(unittest.TestCase):
         if step is None:
             return "true"  # The previous workflow always packaged and uploaded.
         self.assertEqual(step["env"], {
-            "PRODUCT_FULL_SUITE": "${{ needs.changes.outputs.full_suite }}",
+            "PRODUCT_FULL_SUITE": "${{ inputs.full_suite }}",
             "PRODUCT_EVENT": "${{ github.event_name }}",
             "PRODUCT_HEAD_REPOSITORY": "${{ github.event.pull_request.head.repo.full_name }}",
             "PRODUCT_REPOSITORY": "${{ github.repository }}",
