@@ -10,7 +10,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     @Binding public var isPresented: Bool
     public let preferredEdge: NSRectEdge
     public let detachedGap: CGFloat
-    public let presentationAnimation: CmuxPopoverPresentationAnimation
+    private let presentationAnimation: CmuxPopoverPresentationAnimation
     private let group: CmuxPopoverGroup?
     @ViewBuilder public let content: () -> PopoverContent
 
@@ -195,7 +195,6 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverWillClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             unregisterFromGroup()
         }
 
@@ -206,7 +205,6 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverDidClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
@@ -217,7 +215,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         private func makePopover() -> NSPopover {
             let popover = NSPopover()
             popover.behavior = group == nil ? .semitransient : .applicationDefined
-            popover.animates = false
+            popover.animates = group == nil
             popover.setValue(true, forKeyPath: "shouldHideAnchor")
             popover.contentViewController = hostingController
             popover.delegate = self
