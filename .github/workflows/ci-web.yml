@@ -59,6 +59,39 @@ jobs:
 
           exit "$status"
 
+  web-production-build:
+    if: ${{ inputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Vercel production build
+        env:
+          RESEND_API_KEY: re_ci_build
+          CMUX_FEEDBACK_FROM_EMAIL: ci@example.test
+          STACK_SECRET_SERVER_KEY: ci-build-only
+          NEXT_PUBLIC_STACK_PROJECT_ID: 00000000-0000-4000-8000-000000000000
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ci-build-only
+          DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          CMUX_ANALYTICS_TEST_MODE: "1"
+        run: bun run vercel-build
+
   web-tests:
     if: ${{ inputs.web == 'true' }}
     name: Web tests (${{ matrix.shard }})
@@ -269,6 +302,7 @@ jobs:
     name: Web status
     needs:
       - web-typecheck
+      - web-production-build
       - web-tests
       - web-instant-navigation
       - react-apps-check
@@ -298,6 +332,7 @@ jobs:
 
           required = {
               "web-typecheck": inputs["web"] == "true",
+              "web-production-build": inputs["web"] == "true",
               "web-tests": inputs["web"] == "true",
               "web-instant-navigation": inputs["web"] == "true",
               "react-apps-check": inputs["web"] == "true",

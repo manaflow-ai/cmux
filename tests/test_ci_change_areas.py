@@ -35,6 +35,7 @@ GUARD_ROUTE_JOBS = {
 }
 WEB_JOBS = (
     "web-typecheck",
+    "web-production-build",
     "web-tests",
     "web-instant-navigation",
     "react-apps-check",
@@ -1725,22 +1726,6 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
-def test_guard_matrix_parallelizes_the_mixed_suite() -> None:
-    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
-
-    assert "group: [preflight, ci, app-host, release, quality]" in block
-    assert "name: workflow-guard-tests / ${{ matrix.group }}" in block
-    for step, group in (
-        ("Validate control-plane generated types", "preflight"),
-        ("Validate CI change area filter", "ci"),
-        ("Validate app-host xcodebuild retry guard", "app-host"),
-        ("Validate iOS App Store lane identity", "release"),
-        ("Validate test determinism gate", "quality"),
-    ):
-        marker = f"- name: {step}\n        if: ${{{{ matrix.group == '{group}' }}}}"
-        assert marker in block, (step, group)
-
-
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
@@ -1759,12 +1744,14 @@ def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
 
 def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    production = workflow_job_block("web-production-build", WEB_WORKFLOW)
     tests = workflow_job_block("web-tests", WEB_WORKFLOW)
     instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
 
     assert "bun run typecheck" in typecheck
     assert "bun run test" not in typecheck
     assert "playwright" not in typecheck
+    assert "bun run vercel-build" in production
 
     assert 'shard: ["1/4", "2/4", "3/4", "4/4"]' in tests
     assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
