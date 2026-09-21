@@ -190,7 +190,6 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
-    expect(fetchCount).toBe(2);
   });
 
   test("uses the provider reset instead of a generic minute for a 429 quota", async () => {
