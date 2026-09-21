@@ -308,6 +308,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("state_class=compiler-warm", self.semantic_entrypoint)
         self.assertIn("cmux_workload_profile.py", self.semantic_entrypoint)
         self.assertIn("#13411", self.semantic_entrypoint)
+        self.assertTrue(SEMANTIC_ENTRYPOINT.stat().st_mode & 0o111)
 
         self.assertIn("--expected-commit", self.driver)
         self.assertIn("--expected-tree", self.driver)
