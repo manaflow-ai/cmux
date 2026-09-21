@@ -744,8 +744,7 @@ struct MachinesChromeIconButton: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    Image(systemName: symbolName)
-                        .font(.system(size: 11, weight: .medium))
+                    CmuxSystemSymbolImage(magnified: symbolName, pointSize: 11, weight: .medium, tint: isHovered ? .primary : .secondary)
                 }
             }
             .frame(width: 22, height: 20)

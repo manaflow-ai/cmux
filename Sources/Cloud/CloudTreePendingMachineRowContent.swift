@@ -53,9 +53,12 @@ struct CloudTreePendingMachineRowContent: View {
             ProgressView()
                 .controlSize(.mini)
         } else {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .cmuxFont(size: style.iconSize, weight: .medium)
-                .foregroundStyle(.orange)
+            CmuxSystemSymbolImage(
+                magnified: "exclamationmark.triangle.fill",
+                pointSize: style.iconSize,
+                weight: .medium,
+                tint: .orange
+            )
         }
     }
 
