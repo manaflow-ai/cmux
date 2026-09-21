@@ -51,8 +51,7 @@
     "memoryUnavailable": {
       "message": "Этот размер машины недоступен. Выберите до {max} ГиБ.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go включает две сохранённые ВМ, в том числе работающую.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -62,7 +61,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go поддерживает 2 vCPU, 4 GiB ОЗУ и 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Если мы нашли аккаунт, проверьте электронную почту, чтобы узнать дальнейшие действия"
   },
@@ -1354,7 +1354,7 @@
       "plusButtonScreenshotAlt": "Меню правого клика кнопки плюс в cmux показывает Worktree Agents, New Terminal и New Browser",
       "plusButtonScreenshotCaption": "Меню правого клика следует порядку из ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Пользовательские действия кнопки плюс",
-      "newWorkspaceButtonDesc": "Используйте <action>ui.newWorkspace.action</action>, чтобы переопределить действие кнопки плюс. Используйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (или alias <rightClick>rightClick</rightClick>), чтобы задать упорядоченное меню правого клика. Пункты меню могут быть ID действий, объектами действий или <separator>{ \"type\": \"separator\" }</separator>. Если не задано, меню содержит cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) с текущими сочетаниями клавиш. Облачные пункты отображаются только при включённой функции Cloud Machines.",
+      "newWorkspaceButtonDesc": "Используйте <action>ui.newWorkspace.action</action>, чтобы переопределить действие кнопки плюс. Используйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (или alias <rightClick>rightClick</rightClick>), чтобы задать упорядоченное меню правого клика. Пункты меню могут быть ID действий, объектами действий или <separator>{ \"type\": \"separator\" }</separator>. Если не задано, меню содержит cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) с текущими сочетаниями клавиш. Облачные пункты отображаются только при включённой функции Cloud Machines. New Cloud Workspace использует машину последнего выбранного рабочего пространства Cloud, затем первую машину на правой боковой панели; New Cloud Machine намеренно создаёт машину.",
       "newWorkspaceWorktreeNote": "В этом примере обычный клик по плюсу запускает действие <action>worktree-agents</action>. Команда рабочей области из <commands>commands</commands> использует видимый терминал настройки, чтобы сначала создать Git <worktree>worktree</worktree>. Codex и Claude запускаются одновременно, ждут файл состояния для этой рабочей области, затем переходят в созданный каталог перед exec.",
       "simpleCommands": "Простые команды",
       "simpleCommandsDesc": "Простая команда выполняет команду shell в текущем сфокусированном терминале:",

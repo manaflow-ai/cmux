@@ -51,8 +51,7 @@
     "memoryUnavailable": {
       "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -62,7 +61,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },
@@ -1354,7 +1354,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato. New Cloud Workspace usa la macchina dell’ultimo spazio di lavoro Cloud selezionato, poi la prima macchina nella barra laterale destra; New Cloud Machine esegue intenzionalmente il provisioning di una macchina.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",

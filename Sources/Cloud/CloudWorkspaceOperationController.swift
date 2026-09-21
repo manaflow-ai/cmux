@@ -25,11 +25,12 @@ final class CloudWorkspaceOperationController {
         availabilityObservers = [
             RightSidebarBetaFeatureSettings.didChangeNotification,
             .cmuxFeatureFlagsDidChange,
-            .cmuxCloudVMAccessDidEnd
+            .cmuxCloudVMAccessDidEnd,
+            .cmuxCloudTeamScopeDidChange
         ].map { name in
             notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard self?.isAvailable() != true else { return }
+                    guard name == .cmuxCloudVMAccessDidEnd || name == .cmuxCloudTeamScopeDidChange || self?.isAvailable() != true else { return }
                     self?.cancelAll()
                 }
             }
