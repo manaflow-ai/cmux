@@ -1069,6 +1069,7 @@ jobs:
       - name: Restore opt-in layered app-host test product
         id: restore-layers
         if: needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -3126,6 +3127,7 @@ jobs:
       - name: Restore opt-in layered app-host test product
         id: restore-layers
         if: needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
