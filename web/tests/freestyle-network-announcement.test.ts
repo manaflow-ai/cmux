@@ -79,7 +79,7 @@ describe("Freestyle private network readiness", () => {
     });
 
     const allocation = operation === "create"
-      ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
+      ? provider.create({ image: "sh-fixture", guestCliBaked: true, network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
     if (hasAddresses) {
       await allocation;
@@ -117,7 +117,7 @@ describe("Freestyle private network readiness", () => {
       resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
-    const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
+    const handle = await provider.create({ image: "sh-fixture", guestCliBaked: true, network: { id: "vpc-fixture" } });
     events.push("published");
     expect(handle.providerVmId).toBe(data.id);
     expect(events).toEqual(["allocated", "published"]);

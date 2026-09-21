@@ -1002,6 +1002,11 @@ export class FreestyleProvider implements VMProvider {
               // daemon comes up on is the one that was sold.
               await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span, data.resources);
             }
+            if (!options.guestCliBaked) {
+              // Compatibility for pre-CLI snapshots. Promoted snapshots set
+              // guestCliBaked and take the zero-install fast path.
+              await this.installGuestCli(vm, vmId, options.promptIdentity);
+            }
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1382,6 +1387,7 @@ export class FreestyleProvider implements VMProvider {
           });
           try {
             if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
+            if (!options?.guestCliBaked) await this.installGuestCli(vm, vmId);
           } catch (err) {
             await vm.delete().catch(cleanupErr => {
               console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);

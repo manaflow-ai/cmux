@@ -693,6 +693,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        guestCliBaked: input.guestCliBaked,
         // The display label is reserved with the row before provider work starts.
         // Passing it here makes the first guest prompt correct and removes the
         // blocking post-create rename on current backends.
@@ -821,6 +822,7 @@ export function openBaseVm(input: {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
+  readonly guestCliBaked?: boolean;
   readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
@@ -858,6 +860,7 @@ export function resetBaseVm(input: {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
+  readonly guestCliBaked?: boolean;
   readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly reason?: string | null;
@@ -900,6 +903,7 @@ function finishBaseCreate(
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
+    readonly guestCliBaked?: boolean;
     readonly imageSize?: CreateOptions["imageSize"];
     readonly runtimeBudgetSeconds?: number;
     readonly baseName?: string;
@@ -3944,7 +3948,7 @@ function reserveCreateCredit(
     readonly billingPlanId: string;
     readonly provider: ProviderId;
     readonly image: string;
-    readonly imageVersion?: string | null;
+  readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
   },
@@ -4025,7 +4029,7 @@ function recordCreateRequestedEvents(
     readonly billingPlanId: string;
     readonly provider: ProviderId;
     readonly image: string;
-    readonly imageVersion?: string | null;
+  readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
   },

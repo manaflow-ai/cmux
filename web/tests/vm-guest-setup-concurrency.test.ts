@@ -35,8 +35,8 @@ test.each(["create", "restore"])("%s uses the baked CLI even when guest setup is
   f.vm.exec = async () => { throw new Error("startup must not execute installers or probes"); };
   const network = { id: "vpc-fixture" };
   const handle = operation === "create"
-    ? await f.provider.create({ image: "sh-fixture", network })
-    : await f.provider.restore("sh-fixture", { network });
+    ? await f.provider.create({ image: "sh-fixture", guestCliBaked: true, network })
+    : await f.provider.restore("sh-fixture", { guestCliBaked: true, network });
   expect(handle.providerVmId).toBe("vm-fixture");
   expect(f.deleted).toEqual([]);
 });

@@ -176,6 +176,7 @@ describe("Freestyle platform contract", () => {
     createResponse(sizeless, sizelessGets, sizelessResizes);
     await providerWith(sizeless).create({
       image: "sh-image",
+      guestCliBaked: true,
       network: { id: "vpc-test-1" },
       memoryMb: 20480,
     } as never);
@@ -188,6 +189,7 @@ describe("Freestyle platform contract", () => {
     createResponse(sized, sizedGets, sizedResizes);
     await providerWith(sized).create({
       image: "sh-image",
+      guestCliBaked: true,
       network: { id: "vpc-test-1" },
       memoryMb: 20480,
       imageSize: { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },
@@ -429,7 +431,7 @@ describe("Freestyle platform contract", () => {
 describe("FreestyleProvider create with edge rules", () => {
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", guestCliBaked: true });
 
     expect(fake.creates[0]).toMatchObject({
       // Cloud machines keep their durable box available until the user
@@ -443,6 +445,7 @@ describe("FreestyleProvider create with edge rules", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
+      guestCliBaked: true,
       edgeRules: [EDGE_RULE],
     });
     expect(handle.providerVmId).toBe(VM_ID);
@@ -468,6 +471,7 @@ describe("FreestyleProvider create with edge rules", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
+      guestCliBaked: true,
       edgeRules: [EDGE_RULE],
       network: { id: "vpc_1" },
     });
@@ -491,7 +495,7 @@ describe("FreestyleProvider create with edge rules", () => {
 
   test("omits the tls block and the probe when no rules are given", async () => {
     const fake = fakeFreestyle({ probeExit: 1 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", guestCliBaked: true });
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.execs).toEqual([]);
@@ -500,7 +504,7 @@ describe("FreestyleProvider create with edge rules", () => {
 
   test("restore passes the rule inline and relies on the baked guest CLI", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
-    const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
+    const restored = await providerWith(ok).restore("snap-1", { guestCliBaked: true, edgeRules: [EDGE_RULE] });
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
@@ -974,7 +978,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
 describe("Go provider runtime ceiling", () => {
   test("sets a lifetime cap at create so traffic cannot restart an exhausted VM", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
-    await providerWith(fake).create({ image: "snapshot-small", runtimeBudgetSeconds: 144000,
+    await providerWith(fake).create({ image: "snapshot-small", guestCliBaked: true, runtimeBudgetSeconds: 144000,
       imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } });
     expect(fake.creates[0]).toMatchObject({ maxRunTotalSeconds: 144000, automaticRestart: false });
   });

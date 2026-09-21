@@ -102,6 +102,7 @@ export async function runBaseRoute(input: {
     provider,
     image: imageSelection.image,
     imageVersion: imageSelection.imageVersion,
+    guestCliBaked: imageSelection.manifestEntry?.guestCliSha256 !== undefined,
     imageSize: imageSelection.size,
     baseName: parsed.body.name,
     modelPlane: vmModelPlaneGatewayFor({

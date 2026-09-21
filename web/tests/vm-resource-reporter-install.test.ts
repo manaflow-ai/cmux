@@ -26,7 +26,7 @@ describe("advisory resource reporter installation", () => {
   test.each(["create", "restore"])("%s needs no reporter setup", async operation => {
     const { provider, deleted, commands } = fixture();
     const network = { id: "vpc-resource-test" };
-    const handle = operation === "create" ? await provider.create({ image: "sh-test", network }) : await provider.restore("sh-test", { network });
+    const handle = operation === "create" ? await provider.create({ image: "sh-test", guestCliBaked: true, network }) : await provider.restore("sh-test", { guestCliBaked: true, network });
     expect(handle.providerVmId).toBe("vm-resource-reporter-test");
     expect(commands).toEqual([]);
     expect(deleted).toEqual([]);
