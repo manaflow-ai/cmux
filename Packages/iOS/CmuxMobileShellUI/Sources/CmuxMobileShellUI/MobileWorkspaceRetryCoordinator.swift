@@ -36,6 +36,18 @@ actor MobileWorkspaceRetryCoordinator {
         cancel(id)
     }
 
+    /// Releases every task owned by this row when it leaves the hierarchy.
+    /// Cancellation-ignoring transports remain responsible for their own
+    /// teardown, but no task is retained by the retry coordinator afterward.
+    func cancelAll() {
+        activeAttempt?.task.cancel()
+        for task in abandonedAttempts.values {
+            task.cancel()
+        }
+        activeAttempt = nil
+        abandonedAttempts.removeAll()
+    }
+
     private func finish(_ id: UUID) {
         if activeAttempt?.id == id {
             activeAttempt = nil

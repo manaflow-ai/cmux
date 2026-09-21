@@ -121,6 +121,7 @@ struct MobileWorkspaceListEmptyRow: View {
             isRetrying = false
             Task {
                 await retryCoordinator.cancelActive(attemptID)
+                await retryCoordinator.cancelAll()
             }
         }
     }
