@@ -46,6 +46,29 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
+      - name: Validate CMUX workload profile contract
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workload_profiles.py
+
+      - name: Run canonical CMUX CI guard profile
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          set -euo pipefail
+          state_root="$RUNNER_TEMP/cmux-ci-guard-profile"
+          result_path="$state_root/result.json"
+          rm -rf "$state_root"
+          if python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard \
+            --generation 1 \
+            --state-class cold \
+            --state-root "$state_root" \
+            --result "$result_path"; then
+            status=0
+          else
+            status=$?
+          fi
+          [[ ! -f "$result_path" ]] || cat "$result_path"
+          exit "$status"
+
       - name: Validate tagged reload works without the shared dev backend
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_local_backend_mode.sh

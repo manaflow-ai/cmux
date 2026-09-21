@@ -443,6 +443,26 @@ def test_workflow_routes_macos_job_edit_to_every_area() -> None:
     assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
 
 
+def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
+    indirect = frozenset({"tests/test_guard_profile_owned.py"})
+
+    linux_workflow = (
+        "name: Guards\njobs:\n  guard:\n"
+        "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+        "    steps:\n"
+        "      - run: python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard\n"
+    )
+    references = module.macos_job_test_references(linux_workflow, indirect)
+    assert module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
+
+    macos_workflow = linux_workflow.replace(
+        "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+        "${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}",
+    )
+    references = module.macos_job_test_references(macos_workflow, indirect)
+    assert not module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
+
+
 def test_macos_test_references_fail_open_without_ci_workflow() -> None:
     assert module.macos_job_test_references("jobs:\n") is None
     assert module.macos_job_test_references("not a workflow") is None

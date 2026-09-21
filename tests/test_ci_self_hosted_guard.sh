@@ -1112,7 +1112,7 @@ check_no_self_hosted_fleet_runners() {
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
@@ -1128,7 +1128,9 @@ check_no_self_hosted_fleet_runners() {
   for probe in 'runs-on: macfleet' '- tart-canary' '- tart-dual' '- tart-small' '- tart-macos-26' '- tart-ios' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
-               'runs-on: [self-hosted, macOS, ARM64]'; do
+               'runs-on: [self-hosted, macOS, ARM64]' \
+               '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
+               '      group: cmux-persistent-compile'; do
     if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
@@ -1192,7 +1194,8 @@ check_no_self_hosted_fleet_runners() {
     content="${line#*:*:}"
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
     if [[ "$line" == "$PERSISTENT_COMPILE_FILE:"* ]] && \
-       [[ "$content" == '    runs-on: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; then
+       { [[ "$content" == '      group: cmux-persistent-compile' ]] || \
+         [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
       continue
     fi
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
@@ -1209,7 +1212,7 @@ check_no_self_hosted_fleet_runners() {
       continue
     fi
     hits+="$line"$'\n'
-  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
+  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
@@ -1346,18 +1349,23 @@ check_persistent_compile_router() {
     exit 1
   fi
 
-  local pr_route_block pr_route_permissions expected_pr_permissions observer_step
-  pr_route_block="$(awk '
-    /^  persistent-mac-compile-route:$/ { in_job=1; print; next }
-    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
-    in_job { print }
-  ' "$CI_FILE")"
-  if [ -z "$pr_route_block" ]; then
-    echo "FAIL: PR CI persistent-mac-compile-route job is missing"
+  local admission_block admission_permissions expected_admission_permissions observer_step
+  if grep -Fq '^  persistent-mac-compile-route:' "$CI_FILE"; then
+    echo "FAIL: required CI must not serialize macOS admission behind a standalone persistent route job"
     exit 1
   fi
 
-  pr_route_permissions="$(printf '%s\n' "$pr_route_block" | awk '
+  admission_block="$(awk '
+    /^  macos-compile-admission:$/ { in_job=1; print; next }
+    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' "$CI_FILE")"
+  if [ -z "$admission_block" ]; then
+    echo "FAIL: macOS compile admission job is missing"
+    exit 1
+  fi
+
+  admission_permissions="$(printf '%s\n' "$admission_block" | awk '
     /^    permissions:$/ { in_permissions=1; next }
     in_permissions && /^      [A-Za-z0-9_-]+:/ {
       line=$0
@@ -1367,32 +1375,41 @@ check_persistent_compile_router() {
     }
     in_permissions { exit }
   ')"
-  expected_pr_permissions=$'actions: read\ncontents: read\npull-requests: read'
-  if [ "$pr_route_permissions" != "$expected_pr_permissions" ]; then
-    echo "FAIL: PR persistent route permissions must be exactly Actions read, contents read, and pull-requests read"
-    printf 'permissions=%s\n' "$pr_route_permissions"
+  expected_admission_permissions=$'contents: read\nactions: read\npull-requests: read'
+  if [ "$admission_permissions" != "$expected_admission_permissions" ]; then
+    echo "FAIL: macOS admission permissions must be contents read, Actions read, and pull-requests read"
+    printf 'permissions=%s\n' "$admission_permissions"
     exit 1
   fi
-  if printf '%s\n' "$pr_route_block" | grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write'; then
-    echo "FAIL: PR persistent route must not receive write authority"
+  if printf '%s\n' "$admission_block" | grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write'; then
+    echo "FAIL: PR-side persistent observation must not receive Actions write authority"
+    exit 1
+  fi
+  if printf '%s\n' "$admission_block" | grep -Fq -- '- persistent-mac-compile-route'; then
+    echo "FAIL: macOS admission must not depend on a persistent route job"
     exit 1
   fi
 
-  observer_step="$(printf '%s\n' "$pr_route_block" | awk '
-    /^      - name: Observe persistent compile or use hosted fallback$/ { in_step=1; print; next }
+  observer_step="$(printf '%s\n' "$admission_block" | awk '
+    /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
     in_step && /^      - name:/ { exit }
     in_step { print }
   ')"
   if [ -z "$observer_step" ]; then
-    echo "FAIL: PR persistent route observer step is missing"
+    echo "FAIL: macOS admission ready-only persistent observer step is missing"
     exit 1
   fi
-  if [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --observe-only \')" -ne 1 ]; then
-    echo "FAIL: PR persistent route observer must invoke persistent_mac_route.py exactly once with --observe-only"
+  if [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --observe-only \')" -ne 1 ] || \
+     [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --ready-only \')" -ne 1 ]; then
+    echo "FAIL: hosted admission must invoke the persistent route helper exactly once in observe-only ready-only mode"
     exit 1
   fi
   if [ "$(printf '%s\n' "$observer_step" | grep -Fc 'scripts/ci/persistent_mac_route.py')" -ne 1 ]; then
-    echo "FAIL: PR persistent route observer must contain exactly one route-helper invocation"
+    echo "FAIL: hosted admission observer must contain exactly one route-helper invocation"
+    exit 1
+  fi
+  if printf '%s\n' "$observer_step" | grep -Eq -- '--(queue|execution)-seconds'; then
+    echo "FAIL: ready-only hosted observation must not carry wait budgets"
     exit 1
   fi
 
