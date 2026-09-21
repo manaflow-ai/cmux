@@ -45,7 +45,7 @@ async function loadKeys(fetcher: typeof fetch, signal?: AbortSignal): Promise<Ke
     if (jwk.kty !== "RSA" || jwk.use !== "sig" || jwk.alg !== "RS256" || typeof jwk.kid !== "string") continue;
     const imported = await crypto.subtle.importKey(
       "jwk",
-      jwk as JsonWebKey,
+      jwk as unknown as JsonWebKey,
       { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
       false,
       ["verify"],
