@@ -1781,6 +1781,65 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    /// Keep a real Workspace Detail terminal mounted while its mock Mac drops
+    /// offline. The dock probe and kept screenshot prove that the composer
+    /// still reserves the device's bottom safe area in the disconnected state.
+    @MainActor
+    func testDisconnectedTerminalComposerStaysAboveSafeArea() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8),
+            "Workspace Detail must keep the terminal surface mounted before disconnecting."
+        )
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+
+        server.stop()
+        let title = workspaceTitleElement(in: app)
+        let disconnected = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else { return false }
+                let label = element.label
+                let value = element.value as? String ?? ""
+                return label.localizedCaseInsensitiveContains("Unavailable")
+                    || label.localizedCaseInsensitiveContains("Disconnected")
+                    || value.localizedCaseInsensitiveContains("Unavailable")
+                    || value.localizedCaseInsensitiveContains("Disconnected")
+            },
+            object: title
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [disconnected], timeout: 12),
+            .completed,
+            "The Workspace Detail title must report the retained terminal's disconnected Mac."
+        )
+
+        let dock = waitForDock(
+            in: app,
+            timeout: 8,
+            describe: "disconnected terminal composer safe area"
+        ) { probe in
+            guard let bottomSafeArea = Double(probe["bottomSafeArea"] ?? "") else { return false }
+            return bottomSafeArea >= 20
+        }
+        let bottomSafeArea = CGFloat(Double(dock["bottomSafeArea"] ?? "") ?? 0)
+        let windowFrame = app.windows.firstMatch.frame
+        XCTAssertLessThanOrEqual(
+            composerField.frame.maxY,
+            windowFrame.maxY - bottomSafeArea + 1,
+            "The composer must remain above the captured bottom safe area. dock=\(dock)"
+        )
+
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "disconnected-terminal-composer-safe-area"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     @MainActor
     func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
