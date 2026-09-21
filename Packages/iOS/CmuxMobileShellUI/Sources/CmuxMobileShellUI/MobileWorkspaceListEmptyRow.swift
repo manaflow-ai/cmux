@@ -4,12 +4,8 @@ import SwiftUI
 
 struct MobileWorkspaceListEmptyRow: View {
     let retry: (@Sendable () async -> Void)?
-    @State private var retryCoordinator = MobileWorkspaceRetryCoordinator()
     @State private var isRetrying = false
-    @State private var retryCompletionTask: Task<Void, Never>?
-    @State private var retryDeadlineTask: Task<Void, Never>?
-    @State private var retryAttemptID: UUID?
-    @State private var retryFailure: String?
+    @State private var retryTask: Task<Void, Never>?
 
     var body: some View {
         ContentUnavailableView {
@@ -26,47 +22,13 @@ struct MobileWorkspaceListEmptyRow: View {
             if let retry {
                 Button {
                     guard !isRetrying else { return }
-                    retryFailure = nil
                     isRetrying = true
-                    Task { @MainActor in
-                        let started = await retryCoordinator.start(retry)
-                        guard let started else {
-                            isRetrying = false
-                            retryFailure = L10n.string(
-                                "mobile.workspaces.empty.retryInProgress",
-                                defaultValue: "A refresh is still finishing. Try again in a moment."
-                            )
-                            return
-                        }
-                        retryAttemptID = started.id
-                        retryCompletionTask = Task { @MainActor in
-                            await started.task.value
-                            guard retryAttemptID == started.id else { return }
-                            retryDeadlineTask?.cancel()
-                            retryDeadlineTask = nil
-                            retryCompletionTask = nil
-                            retryAttemptID = nil
+                    retryTask = Task { @MainActor in
+                        defer {
+                            retryTask = nil
                             isRetrying = false
                         }
-                        retryDeadlineTask = Task { @MainActor in
-                            do {
-                                try await ContinuousClock().sleep(for: .seconds(15))
-                            } catch {
-                                return
-                            }
-                            guard retryAttemptID == started.id else { return }
-                            await retryCoordinator.cancel(started.id)
-                            guard retryAttemptID == started.id else { return }
-                            retryCompletionTask?.cancel()
-                            retryCompletionTask = nil
-                            retryDeadlineTask = nil
-                            retryAttemptID = nil
-                            isRetrying = false
-                            retryFailure = L10n.string(
-                                "mobile.workspaces.empty.retryFailed",
-                                defaultValue: "Couldn’t refresh. Try again."
-                            )
-                        }
+                        await retry()
                     }
                 } label: {
                     Label {
@@ -84,13 +46,6 @@ struct MobileWorkspaceListEmptyRow: View {
                 .controlSize(.regular)
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
-            }
-            if let retryFailure {
-                Text(retryFailure)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryError")
             }
             Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
                 Label(
@@ -112,17 +67,9 @@ struct MobileWorkspaceListEmptyRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .onDisappear {
-            retryCompletionTask?.cancel()
-            retryDeadlineTask?.cancel()
-            retryCompletionTask = nil
-            retryDeadlineTask = nil
-            let attemptID = retryAttemptID
-            retryAttemptID = nil
+            retryTask?.cancel()
+            retryTask = nil
             isRetrying = false
-            Task {
-                await retryCoordinator.cancelActive(attemptID)
-                await retryCoordinator.cancelAll()
-            }
         }
     }
 }
