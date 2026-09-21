@@ -368,12 +368,13 @@ def main() -> int:
             if bot.strip()
         )
         actors = configured_reply_actors(pr)
+        triage_items = obligations(pr, bots, actors)
         passed, reasons, items = evaluate(pr, required_bots=bots, reply_actors=actors)
         if "--sync-label" in sys.argv[1:]:
             label_name = os.environ.get("REVIEW_ATTENTION_LABEL", "review: needs-attention").strip()
             if label_name:
                 try:
-                    label_state = sync_attention_label(pr, items, label_name)
+                    label_state = sync_attention_label(pr, triage_items, label_name)
                     print(f"agent-pr-review-label: {label_name} {label_state}")
                 except Exception:
                     # Labeling is a triage aid. A transient write failure must not
