@@ -1104,6 +1104,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace"),
+        try rpcHostStatusFrame(renderGrid: false, macDeviceID: ticket.macDeviceID),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
@@ -1112,9 +1113,10 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    let connected = await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let requests = try await responses.sentRequests()
+    try #require(connected, Comment(rawValue: "Connection failed: \(store.connectionError ?? "unknown"); methods: \(requests.compactMap(\.method))"))
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
     #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")

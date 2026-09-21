@@ -7,6 +7,7 @@ final class CloudWorkspaceCreationOperation {
     let provider: any SurfaceProvider
     let host: CloudWorkspaceCreationHost?
     let allowsActionRetry: Bool
+    var validateOperation: @MainActor () throws -> Void
     let terminalRequest = CloudTerminalCreationRequest()
     var receipt: SurfaceWorkspaceCreationReceipt?
     var reservation: CloudTerminalPaneReservation?
@@ -16,11 +17,22 @@ final class CloudWorkspaceCreationOperation {
     var isRunning = false
     var failure: Error?
     var retryTask: Task<Void, Never>?
+    /// Remote resources created by this operation are cleaned up on cancellation.
+    /// Failed live panes retain them for their explicit retry action.
+    var ownsRemoteWorkspace = false
+    var ownsRemoteTerminal = false
+    var remoteCleanupStarted = false
 
-    init(provider: any SurfaceProvider, host: CloudWorkspaceCreationHost?, allowsActionRetry: Bool) {
+    init(
+        provider: any SurfaceProvider,
+        host: CloudWorkspaceCreationHost?,
+        allowsActionRetry: Bool,
+        validateOperation: @escaping @MainActor () throws -> Void
+    ) {
         self.provider = provider
         self.host = host
         self.allowsActionRetry = allowsActionRetry
+        self.validateOperation = validateOperation
     }
 
     var machine: SurfaceMachineID { provider.machine }
