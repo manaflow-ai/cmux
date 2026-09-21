@@ -569,8 +569,6 @@ class WorkloadProfileTests(unittest.TestCase):
                 ),
                 mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
                 mock.patch.object(profile, "wait_child_unreaped", return_value=0),
-                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
-                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
                 mock.patch.object(profile, "runtime_inputs", return_value=[]),
                 mock.patch.object(
                     profile,
