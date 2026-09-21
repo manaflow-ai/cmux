@@ -319,7 +319,7 @@ extension CMUXCLI {
         if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
             infoParams["client_capabilities"] = capabilities
         }
-        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 30)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }

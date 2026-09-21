@@ -387,7 +387,16 @@
       "revoked": "تم إلغاؤه",
       "relaySettings": "إعدادات الترحيل",
       "relaySettingsDescription": "اختر خوادم الترحيل التي يستخدمها هذا الفريق. أدخل عنوان URL واحدًا في كل سطر.",
-      "saveRelaySettings": "حفظ إعدادات الترحيل"
+      "saveRelaySettings": "حفظ إعدادات الترحيل",
+      "eyebrow": "السحابة / الأجهزة",
+      "scopeActive": "عرض هذا الفريق",
+      "emptyTitle": "لا توجد أجهزة متصلة بعد",
+      "emptyDescription": "عند إقران جهاز cmux بهذا الفريق، سيظهر هنا مع منصته وإصداره وعناصر التحكم في الوصول.",
+      "revoking": "جارٍ إلغاء الوصول…",
+      "registeredDevices": "الأجهزة المسجلة",
+      "activeDevices": "الأجهزة النشطة",
+      "directoryRevision": "مراجعة الدليل",
+      "savingRelaySettings": "جارٍ الحفظ…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "مشاركة مع الفريق",

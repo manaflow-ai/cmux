@@ -621,7 +621,16 @@
       "revoked": "取り消し済み",
       "relaySettings": "リレー設定",
       "relaySettingsDescription": "このチームで使用するリレーサーバーを選択します。1 行に 1 つ URL を入力してください。",
-      "saveRelaySettings": "リレー設定を保存"
+      "saveRelaySettings": "リレー設定を保存",
+      "eyebrow": "クラウド / デバイス",
+      "scopeActive": "このチームを表示中",
+      "emptyTitle": "接続済みのデバイスはまだありません",
+      "emptyDescription": "cmuxデバイスをこのチームとペアリングすると、プラットフォーム、バージョン、アクセス管理がここに表示されます。",
+      "revoking": "取り消し中…",
+      "registeredDevices": "登録済みデバイス",
+      "activeDevices": "有効なデバイス",
+      "directoryRevision": "一覧のリビジョン",
+      "savingRelaySettings": "保存中…"
     }
   },
   "vault": {

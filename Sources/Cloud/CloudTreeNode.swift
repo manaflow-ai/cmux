@@ -850,7 +850,7 @@ enum CloudTreeNodeBuilder {
         // Cloud machines only: the local Mac has no private-network address to
         // begin with, so it never reaches here with one.
         guard machine.isLocal == false else { return nil }
-        return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
+        return CmuxInternalHostnames().directPortURL(privateAddress: address, port: port)
     }
 
     static func cloudChildren(

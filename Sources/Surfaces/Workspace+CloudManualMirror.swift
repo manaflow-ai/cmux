@@ -67,7 +67,9 @@ extension Workspace {
               !workspace.isRetiredFromOwningTabManager else {
             throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
         }
+        let loading = try CloudMachineLoadingReservation.current?.loadingPanel(at: destination, machineID: attachment?.machineID)
         guard let panel = workspace.makeRemoteTmuxPanePanel(
+            id: loading?.id ?? UUID(),
             onInput: onInput,
             keyNameResolver: keyNameResolver
         ) else {
@@ -80,6 +82,10 @@ extension Workspace {
             onFocus: onFocus,
             attachment: attachment
         )
+        if let loading {
+            try workspace.adoptCloudMachineLoadingPanel(loading, terminal: panel, focus: focus)
+            return (workspace.id, panel.id, panel.surface)
+        }
         let panelID = try workspace.insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
         return (workspace.id, panelID, panel.surface)
     }

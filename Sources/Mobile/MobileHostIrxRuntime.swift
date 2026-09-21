@@ -849,7 +849,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             return
         }
         guard
-            let (peer, control, sessionID) = await IrxAdmission.performServer(
+            let (peer, control, sessionID) = await IrxAdmission().performServer(
                 connection: irx,
                 judgment: judgment,
                 journal: journal

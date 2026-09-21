@@ -387,7 +387,16 @@
       "revoked": "已撤销",
       "relaySettings": "中继设置",
       "relaySettingsDescription": "选择此团队使用的中继服务器。每行输入一个 URL。",
-      "saveRelaySettings": "保存中继设置"
+      "saveRelaySettings": "保存中继设置",
+      "eyebrow": "云端 / 设备",
+      "scopeActive": "正在显示此团队",
+      "emptyTitle": "尚无已连接的设备",
+      "emptyDescription": "cmux 设备与此团队配对后，其平台、版本和访问控制将显示在这里。",
+      "revoking": "正在撤销…",
+      "registeredDevices": "已注册设备",
+      "activeDevices": "有效设备",
+      "directoryRevision": "设备列表修订号",
+      "savingRelaySettings": "正在保存…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "与团队共享",

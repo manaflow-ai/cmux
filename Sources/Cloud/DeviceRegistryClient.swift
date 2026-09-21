@@ -315,10 +315,10 @@ final class DeviceRegistryClient {
                     return true
                 } else {
                     if http.statusCode == 429 {
-                        let seconds = CmxRetryAfterPolicy.seconds(
+                        let seconds = CmxRetryAfterPolicy().seconds(
                             from: http,
-                            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                         await retryAfterGate.extend(by: seconds)
                     }
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
