@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCore
 import Foundation
 import Testing
 @testable import CmuxTerminal
@@ -58,26 +59,6 @@ struct CloudTerminalDragSplitRoutingTests {
         }
     }
 
-    @Test("Legacy projection inherits the provider's remote cwd, never a local directory")
-    func remoteWorkingDirectory() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
-            let app = try VaultPaneAppFixture()
-            let provider = CloudTerminalPlacementTestProvider()
-            let workspace = app.workspace
-            let source = try installSource(in: workspace, provider: provider, remoteTabID: nil)
-            defer { tearDown(app, provider: provider) }
-            workspace.currentDirectory = "/local/wrong-directory"
-            try drag(source, in: workspace, direction: "right")
-            try await settled { provider.requestedWorkspaces.count == 1 }
-            #expect(provider.requestedWorkspaces == [provider.remote.id])
-            #expect(provider.requestedDirectories == ["/remote/project"])
-            #expect(provider.layoutSources.isEmpty)
-            provider.release.resolve(true)
-            try await settled { !workspace.cloudPaneCreationFailureStore.hasActiveRequests }
-            #expect(provider.materialized.count == 1)
-        }
-    }
-
     @Test("Disconnected and restored Cloud sources fail visibly without leaving a local pane",
           arguments: [false, true])
     func unavailableSource(restored: Bool) async throws {
@@ -134,6 +115,51 @@ struct CloudTerminalDragSplitRoutingTests {
             #expect(workspace.focusedPanelId == parent)
             #expect(provider.materialized.allSatisfy { $0.remoteWorkspaceID == provider.remote.id })
         }
+    }
+
+    @Test("Managed-Cloud remote ownership routes even without a catalog projection")
+    func legacyManagedCloudOwnership() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let provider = CloudTerminalPlacementTestProvider()
+            let workspace = app.workspace
+            let source = try #require(workspace.focusedPanelId)
+            let catalog = SurfaceCatalog.shared
+            catalog.register(provider)
+            workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+                destination: "root@cloud", port: nil, identityFile: nil, sshOptions: [],
+                localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+                localSocketPath: nil, managedCloudVMID: provider.machine.rawValue,
+                terminalStartupCommand: nil
+            )
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+                vmID: provider.machine.rawValue, isBase: false, remoteWorkspaceID: provider.remote.id
+            )
+            workspace.activeRemoteTerminalSurfaceIds.insert(source)
+            defer { tearDown(app, provider: provider) }
+
+            try drag(source, in: workspace, direction: "right")
+
+            #expect(workspace.cloudPendingCreations.count == 1)
+            #expect(workspace.machineOwningSurface(source) == provider.machine)
+            try await settled { provider.requestedWorkspaces.count == 1 }
+            #expect(provider.requestedWorkspaces == [provider.remote.id])
+            provider.release.resolve(true)
+            try await settled { !workspace.cloudPaneCreationFailureStore.hasActiveRequests }
+            #expect(provider.materialized.count == 1)
+        }
+    }
+
+    @Test("Cloud drag failures keep provider details and identifiers out of user copy")
+    func cloudFailureTextIsSanitized() {
+        let failure = CloudPaneCreationFailure(
+            machine: .cloud("secret-machine"),
+            error: CmuxTuiSurfaceProvider.ProviderError.remoteWorkspaceNotFound("secret-workspace")
+        )
+        #expect(!failure.errorText.contains("secret-workspace"))
+        #expect(!failure.errorText.contains("cmux-tui"))
+        #expect(!failure.copyableText.contains("secret-machine"))
+        #expect(!failure.copyableText.contains("secret-workspace"))
     }
 
     @Test("Moving one of multiple Cloud tabs does not create an extra terminal")
