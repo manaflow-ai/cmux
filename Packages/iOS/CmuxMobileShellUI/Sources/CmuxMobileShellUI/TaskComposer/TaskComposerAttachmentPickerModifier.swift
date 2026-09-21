@@ -19,7 +19,9 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
                 isPresented: $isPhotoPickerPresented,
                 selection: $photoSelection,
                 maxSelectionCount: max(remainingCount, 1),
-                matching: .images
+                // Leave the filter unset so the Photos picker can return any
+                // library asset, including videos and newer media types.
+                matching: nil
             )
             .fileImporter(
                 isPresented: $isFileImporterPresented,
