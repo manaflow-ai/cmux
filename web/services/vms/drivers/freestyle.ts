@@ -18,6 +18,7 @@ import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import { installFreestyleGuestCli, type FreestyleClientFactory } from "./freestyleGuestCli";
+import { rollbackFreestyleCreate } from "./providerCreateCleanup";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
@@ -1026,9 +1027,10 @@ export class FreestyleProvider implements VMProvider {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
+            const rollback = await Effect.runPromise(Effect.either(
+              rollbackFreestyleCreate(this.deps.client, vmId, err),
+            ));
+            if (rollback._tag === "Left") throw rollback.left;
             throw err;
           }
           return {

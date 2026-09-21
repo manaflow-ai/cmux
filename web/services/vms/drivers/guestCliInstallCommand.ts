@@ -268,6 +268,19 @@ except Exception as error:
             shutil.rmtree(backup_root)
         except Exception as backup_error:
             rollback_error = backup_error
+    # A distribution release created by this failed transaction is immutable
+    # cache state, not a previous generation. Remove only empty unreferenced
+    # release directories after restoring all snapshotted files; never recurse
+    # into a non-empty directory or touch an alias target.
+    try:
+        for directory in sorted(directory_paths, key=len, reverse=True):
+            if not os.path.basename(directory).startswith("cmux-cloud-"):
+                continue
+            if before_directories.get(directory, False) or not os.path.isdir(directory) or os.path.islink(directory):
+                continue
+            os.rmdir(directory)
+    except OSError:
+        pass
     detail = {
         "stage": stage,
         "error": type(error).__name__,
