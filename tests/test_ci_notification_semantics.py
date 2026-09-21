@@ -23,7 +23,7 @@ SUITES = [
 
 
 def step_script(job, name):
-    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
     return next(s["run"] for s in workflow["jobs"][job]["steps"] if s.get("name") == name)
 
 

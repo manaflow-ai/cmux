@@ -47,6 +47,7 @@ def normalize_path(path: str) -> str:
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
+MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 
 
 def is_other_workflow_config(path: str) -> bool:
@@ -205,7 +206,7 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
         )
         if not indirect_guard_references:
             return None
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH):
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH):
             references = macos_job_test_references(
                 Path(workflow_path).read_text(encoding="utf-8"),
                 indirect_guard_references,
@@ -356,6 +357,12 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             # admission/restore contract. Exercise macOS admission/consumption,
             # but they cannot affect the web deployment or Release app bytes.
             macos = True
+            continue
+        if path == MACOS_WORKFLOW_PATH:
+            # A reusable macOS workflow edit must exercise every hosted Mac job
+            # body it owns, including the Release check.
+            macos = True
+            release_build = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.
