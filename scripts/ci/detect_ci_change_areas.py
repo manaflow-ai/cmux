@@ -62,6 +62,15 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/web_validation.py",
 })
 
+CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/product_input_identity.py",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/reuse_app_host_products.py",
+    "scripts/ci/sanitize-xcode-source-packages-cache.py",
+})
+
 
 def forces_all_areas(path: str) -> bool:
     # Unknown direct CI implementation files remain fail-open. Narrow only
@@ -72,7 +81,11 @@ def forces_all_areas(path: str) -> bool:
         and path.endswith(".py")
         and "/" not in path[len("scripts/ci/") :]
     )
-    if direct_ci_python and path not in CI_CONTROL_PLANE_ONLY:
+    if (
+        direct_ci_python
+        and path not in CI_CONTROL_PLANE_ONLY
+        and path not in CI_MACOS_TEST_PRODUCT_INPUTS
+    ):
         return True
     return path in {
         CI_WORKFLOW_PATH,
@@ -337,6 +350,12 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             web = True
             agent_session_web = True
             release_build = True
+            continue
+        if path in CI_MACOS_TEST_PRODUCT_INPUTS:
+            # These helpers own the reusable Debug/test product and its
+            # admission/restore contract. Exercise macOS admission/consumption,
+            # but they cannot affect the web deployment or Release app bytes.
+            macos = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.
