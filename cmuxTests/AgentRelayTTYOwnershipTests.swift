@@ -9,6 +9,7 @@ import Testing
 @testable import cmux
 #endif
 extension AgentNotificationRegressionTests {
+    @Test("Relay provenance does not cross remote hosts sharing a port")
     func relayTTYProvenanceDoesNotCrossRemoteHostsSharingPort() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
@@ -226,8 +227,7 @@ extension AgentNotificationRegressionTests {
     @Test("The relay stamps its owner onto TTY reports")
     func relayTTYReportProvenanceOverridesSpoofedWorkspace() throws {
         let authenticatedWorkspaceID = UUID()
-        let spoofedWorkspaceID = UUID()
-        let request: [String: Any] = [
+        let spoofedWorkspaceID = UUID(); let request: [String: Any] = [
             "id": "relay-tty-report",
             "method": "surface.report_tty",
             "params": [
