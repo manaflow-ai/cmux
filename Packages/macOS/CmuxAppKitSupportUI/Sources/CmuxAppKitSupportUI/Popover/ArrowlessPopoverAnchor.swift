@@ -101,7 +101,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         ///
         /// Root popovers retain the native transition; nested popovers open immediately
         /// so the grouped hover path does not animate an independent child window.
-        static func shouldAnimatePresentation(reduceMotion: Bool, isSubmenu: Bool) -> Bool {
+        func shouldAnimatePresentation(reduceMotion: Bool, isSubmenu: Bool) -> Bool {
             !reduceMotion && !isSubmenu
         }
 
@@ -204,7 +204,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             // Grouping owns dismissal, not the root menu's native opening transition.
             // Hover submenus still open immediately, and Reduce Motion always wins.
             let isSubmenu = anchorView.flatMap { group?.parentID(for: $0) } != nil
-            popover.animates = Coordinator.shouldAnimatePresentation(
+            popover.animates = shouldAnimatePresentation(
                 reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
                 isSubmenu: isSubmenu
             )

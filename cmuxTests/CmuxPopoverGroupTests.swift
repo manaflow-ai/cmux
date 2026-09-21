@@ -6,20 +6,29 @@ import Testing
 @Suite
 struct CmuxPopoverGroupTests {
     @Test func groupedRootUsesNativeOpeningAnimation() {
-        #expect(ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: .constant(true), group: CmuxPopoverGroup()
+        )
+        #expect(coordinator.shouldAnimatePresentation(
             reduceMotion: false, isSubmenu: false
         ))
     }
 
     @Test func groupedSubmenuRemainsImmediate() {
-        #expect(!ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: .constant(true), group: CmuxPopoverGroup()
+        )
+        #expect(!coordinator.shouldAnimatePresentation(
             reduceMotion: false, isSubmenu: true
         ))
     }
 
     @Test(arguments: [false, true])
     func reduceMotionDisablesOpeningAnimationForRootAndSubmenu(isSubmenu: Bool) {
-        #expect(!ArrowlessPopoverAnchor<EmptyView>.Coordinator.shouldAnimatePresentation(
+        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: .constant(true), group: CmuxPopoverGroup()
+        )
+        #expect(!coordinator.shouldAnimatePresentation(
             reduceMotion: true, isSubmenu: isSubmenu
         ))
     }
