@@ -9,9 +9,11 @@ on:
       - scripts/ci/restore-r2-artifact.py
       - scripts/ci/node_product_cache.py
       - scripts/ci/peer_artifact_source.py
+      - scripts/ci/reuse_app_host_products.py
       - scripts/ci/restore-app-host-test-product.sh
       - tests/test_node_product_cache.py
       - tests/test_peer_artifact_source.py
+      - tests/test_reuse_app_host_products.py
       - scripts/ci/verify-r2-canary.py
       - scripts/ci/r2-canary-cloudflare.py
       - tests/test_ci_r2_canary.py
@@ -54,6 +56,7 @@ jobs:
         run: |
           python3 tests/test_node_product_cache.py
           python3 tests/test_peer_artifact_source.py
+          python3 tests/test_reuse_app_host_products.py
           python3 tests/test_ci_r2_artifact.py
           python3 tests/test_ci_r2_canary.py
       - name: Install local Worker test tools
