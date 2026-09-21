@@ -177,6 +177,7 @@ extension FileExplorerStore {
                     self.setRootPath(homePath)
                 }
             } catch {
+                guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self, weak provider] in
                     guard let self,
                           let provider,

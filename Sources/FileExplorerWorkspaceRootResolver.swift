@@ -114,7 +114,7 @@ struct FileExplorerWorkspaceRootResolver {
               catalog.machines[.cloud(vmID)]?.linkState == .connected,
               catalog.cloudStateObservations[.cloud(vmID)]?.freshness == .current else { return nil }
         if let concrete = provider as? CmuxTuiSurfaceProvider,
-           concrete.isFeatureSuspended || concrete.fileAccessTeamScope != team { return nil }
+           concrete.isFeatureSuspended || concrete.fileAccessTeamScope != team || !concrete.capabilities.exec { return nil }
         guard catalog.projectionMachines(forWorkspace: workspace.id).allSatisfy({
             $0.isLocal || $0 == .cloud(vmID)
         }) else { return nil }

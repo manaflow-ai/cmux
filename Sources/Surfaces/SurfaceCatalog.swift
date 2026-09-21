@@ -1208,7 +1208,7 @@ final class SurfaceCatalog {
     }
 
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
-        let movedPending = pendingRestoredProjections.move(panelID: panelID, to: workspaceID)
+        let pendingBefore = pendingRestoredProjections.projection(forPanel: panelID); let movedPending = pendingRestoredProjections.move(panelID: panelID, to: workspaceID); if movedPending, let oldWorkspace = pendingBefore?.workspaceID, oldWorkspace != workspaceID { reconcileCloudWorkspaceBinding(localWorkspaceID: oldWorkspace) }
         if movedPending { cloudProjectionIndexDirty = true }
         let moved = projections.filter { $0.panelID == panelID && $0.workspaceID != workspaceID }
         guard !moved.isEmpty || movedPending else { return }
@@ -1222,9 +1222,7 @@ final class SurfaceCatalog {
         for projection in projections where projection.panelID == panelID {
             cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         }
-        for projection in moved {
-            notifyChange(for: projection.resource.machine)
-        }
+        for projection in moved { notifyChange(for: projection.resource.machine) }; if movedPending, let machine = pendingBefore?.resource.machine { notifyChange(for: machine) }
     }
 
     /// Applies one accepted graph's coordinate changes in O(changed projections).
