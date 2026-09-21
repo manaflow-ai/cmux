@@ -15,6 +15,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 ROUTE = ROOT / "scripts/ci/persistent_mac_route.py"
 CI = ROOT / ".github/workflows/ci.yml"
+MACOS_CI = ROOT / ".github/workflows/ci-macos.yml"
 PRODUCER = ROOT / ".github/workflows/persistent-macos-compile.yml"
 ROUTER = ROOT / ".github/workflows/persistent-macos-router.yml"
 PROFILE = ROOT / "glaeda.apple.json"
@@ -218,6 +219,7 @@ class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ci = CI.read_text()
+        cls.macos_ci = MACOS_CI.read_text()
         cls.producer = PRODUCER.read_text()
         cls.router = ROUTER.read_text()
         cls.driver = DRIVER.read_text()
@@ -250,7 +252,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
         self.assertNotIn("actions: write", self.ci)
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
         self.assertNotIn("  persistent-mac-compile-route:", self.ci)
@@ -261,14 +263,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("--queue-seconds \"$queue_seconds\"", admission.split("Observe persistent Mac compile candidate", 1)[1].split("Download persistent Mac compile product", 1)[0])
 
     def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
         self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", admission)
         self.assertIn("persistent-mac-route-request-", self.ci)
         self.assertIn("source_identity_valid: ${{ steps.source-identity.outputs.valid }}", self.ci)
         self.assertIn("steps.source-identity.outputs.valid == 'true'", self.ci)
-        self.assertIn("needs.changes.outputs.source_identity_valid == 'true'", admission)
+        self.assertIn("inputs.source_identity_valid == 'true'", admission)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
@@ -278,7 +280,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("run-id: ${{ steps.persistent-route.outputs.producer_run_id }}", admission)
 
     def test_admission_total_does_not_double_count_route_observation(self):
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
         self.assertIn(
@@ -291,7 +293,7 @@ class WorkflowContractTests(unittest.TestCase):
         )
 
     def test_persistent_product_revalidation_retains_admission_checks(self):
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
         self.assertIn("persistent producer source identity mismatch", admission)
