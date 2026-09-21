@@ -98,16 +98,14 @@ struct ControlClientSourceLifecycleTests {
 
         let registrations = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         defer { registrations.continuation.finish() }
-        let writer = ControlClientAsyncWriter(socket: pair.writer, makeWritableSource: { descriptor in
-            let source = DispatchSource.makeWriteSource(
-                fileDescriptor: descriptor,
-                queue: .global(qos: .utility)
-            )
-            source.setRegistrationHandler {
-                registrations.continuation.yield(())
-            }
-            return source
-        })
+        let writer = ControlClientAsyncWriter(socket: pair.writer)
+        let source = DispatchSource.makeWriteSource(
+            fileDescriptor: pair.writer,
+            queue: .global(qos: .utility)
+        )
+        source.setRegistrationHandler {
+            registrations.continuation.yield(())
+        }
         // Exercise combined connection teardown: a pending read, generation
         // revocation, and a backpressured write all share the accepted socket.
         let signal = SocketAuthorizationRevocationSignal()
@@ -118,12 +116,14 @@ struct ControlClientSourceLifecycleTests {
         )
         let reading = Task { await reader.nextLine { true } }
         let pending = Task {
-            await writer.writeAll(Data([0x58]))
+            // Call the same runtime operation used by writeAll after EAGAIN.
+            // Source observation stays in the test target; no factory hook.
+            await writer.waitForWritable(source: source)
         }
         var registration = registrations.stream.makeAsyncIterator()
-        let registered = await registration.next()
+        let registered: Void? = await registration.next()
         // This event comes from libdispatch after activation, not from a yield
-        // count or elapsed time. An early-cancel-only writer cannot satisfy it.
+        // count or elapsed time. The runtime wait must activate this source.
         pending.cancel()
         signal.revoke()
         #expect(await pending.value == false)

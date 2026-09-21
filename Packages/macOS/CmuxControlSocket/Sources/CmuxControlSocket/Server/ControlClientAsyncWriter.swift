@@ -12,7 +12,6 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
     }
 
     private let socket: Int32
-    private let makeWritableSource: @Sendable (Int32) -> any DispatchSourceWrite
     /// One-shot writable sources must finish cancellation before the owner
     /// closes the shared socket descriptor.
     private let sourceCancellationBarrier = DispatchSourceCancellationBarrier()
@@ -20,24 +19,8 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
     /// Creates a writer over a non-blocking descriptor.
     ///
     /// - Parameter socket: A borrowed descriptor retained by the connection owner.
-    public convenience init(socket: Int32) {
-        self.init(socket: socket, makeWritableSource: { descriptor in
-            DispatchSource.makeWriteSource(
-                fileDescriptor: descriptor,
-                queue: DispatchQueue.global(qos: .utility)
-            )
-        })
-    }
-
-    /// Injects the OS event-source factory independently of response framing.
-    /// The factory must return an inactive source for the supplied descriptor;
-    /// the writer installs event/cancel handlers and owns activation/cancellation.
-    init(
-        socket: Int32,
-        makeWritableSource: @escaping @Sendable (Int32) -> any DispatchSourceWrite
-    ) {
+    public init(socket: Int32) {
         self.socket = socket
-        self.makeWritableSource = makeWritableSource
         _ = Self.makeNonBlocking(socket)
     }
 
@@ -60,7 +43,11 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
             }
             if written < 0, errno == EINTR { continue }
             if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-                guard await waitForWritable() else { return false }
+                let source = DispatchSource.makeWriteSource(
+                    fileDescriptor: socket,
+                    queue: DispatchQueue.global(qos: .utility)
+                )
+                guard await waitForWritable(source: source) else { return false }
                 continue
             }
             return false
@@ -85,11 +72,12 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
     }
 
     /// Joins cancellation of a one-shot source on readiness or task cancellation.
-    private func waitForWritable() async -> Bool {
+    /// - Parameter source: The inactive source for this socket; activation and
+    ///   cancellation belong to this operation.
+    func waitForWritable(source writeSource: any DispatchSourceWrite) async -> Bool {
         let stream = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let streamContinuation = stream.continuation
         let sourceBox = SourceBox()
-        let writeSource = makeWritableSource(socket)
         sourceCancellationBarrier.register()
         writeSource.setEventHandler { [streamContinuation, sourceBox] in
             streamContinuation.yield(())
