@@ -2030,6 +2030,12 @@ class TerminalController {
         guard submission != .rejected else { return }
     }
 
+    /// Owns the accepted socket until the command loop and source teardown finish.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
@@ -2038,14 +2044,51 @@ class TerminalController {
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
     ) async {
-        // Shut down before close so a DispatchSource callback racing
-        // cancellation observes EOF rather than a recycled descriptor number.
-        defer {
-            shutdown(socket, SHUT_RDWR)
-            close(socket)
-        }
         let pid = peerPid ?? transport.peerProcessID(of: socket)
         let peerHasSameUID = transport.peerHasSameUID(socket)
+        let lineReader = ControlClientAsyncLineReader(
+            socket: socket,
+            initialLimits: initialReadLimits,
+            authorizationRevocationSignal: authorizationRevocationSignal
+        )
+        let writer = ControlClientAsyncWriter(socket: socket)
+
+        await handleClientLoop(
+            socket: socket,
+            pid: pid,
+            peerHasSameUID: peerHasSameUID,
+            authorizationGeneration: authorizationGeneration,
+            authorizationRevocationSignal: authorizationRevocationSignal,
+            initialSlotHeld: initialSlotHeld,
+            lineReader: lineReader,
+            writer: writer
+        )
+
+        // Dispatch source cancellation is asynchronous. Await every borrowed
+        // socket source before shutting down and closing the descriptor.
+        await lineReader.cancelAndWait()
+        await writer.cancelAndWait()
+        shutdown(socket, SHUT_RDWR)
+        close(socket)
+    }
+
+    /// Runs the admitted command loop while retaining ownership of its async
+    /// socket readers and writer until the caller joins source cancellation.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated func handleClientLoop(
+        socket: Int32,
+        pid: pid_t?,
+        peerHasSameUID: Bool,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
+        initialSlotHeld: Bool,
+        lineReader: ControlClientAsyncLineReader,
+        writer: ControlClientAsyncWriter
+    ) async {
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         var holdsPreauthorizationSlot = initialSlotHeld
         defer {
@@ -2054,17 +2097,7 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
-        let lineReader = ControlClientAsyncLineReader(
-            socket: socket,
-            initialLimits: initialReadLimits,
-            authorizationRevocationSignal: authorizationRevocationSignal
-        )
-        let writer = ControlClientAsyncWriter(socket: socket)
         let rateLimiter = ControlClientRateLimiter()
-        defer {
-            lineReader.cancel()
-            writer.cancel()
-        }
         while let line = await lineReader.nextLine(shouldContinueReading: {
             self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
