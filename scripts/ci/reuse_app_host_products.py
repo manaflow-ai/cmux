@@ -56,12 +56,63 @@ def contract():
             "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
             "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
             "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion")},
-        "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
     }
 
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def distribution_identity(value):
+    """Derive transport-independent source/build/compatibility identity from the product contract."""
+    architecture = value["architecture"]
+    if architecture not in {"arm64", "x86_64"}:
+        raise ValueError("unsupported app-host product architecture")
+    source_identity = key({
+        "repository": os.environ.get("GITHUB_REPOSITORY", ""),
+        "tree": value["tree"],
+    })
+    toolchain_generation = key({
+        "xcode": value["xcode"],
+        "tools": value["tools"],
+    })
+    sdk_generation = key({
+        "sdk": value["sdk"],
+        "os": value["os"],
+    })
+    build_configuration = key({
+        "configuration": "debug",
+        "environment": value["environment"],
+    })
+    product_schema = key({
+        "name": "cmux-app-host-test-products",
+        "version": 1,
+        "schemes": sorted(products.SCHEMES),
+    })
+    artifact_schema = key({
+        "name": "cmux-app-host-products",
+        "version": 1,
+        "archive": "tar-gz",
+        "layout": "Build/Products",
+    })
+    build_identity = key({
+        "architecture": architecture,
+        "sdk_generation": sdk_generation,
+        "toolchain_generation": toolchain_generation,
+        "build_configuration": build_configuration,
+        "product_schema": product_schema,
+    })
+    return {
+        "artifact_schema": artifact_schema,
+        "source_identity": source_identity,
+        "build_identity": build_identity,
+        "platform_class": "macos",
+        "architecture": architecture,
+        "sdk_generation": sdk_generation,
+        "toolchain_generation": toolchain_generation,
+        "build_configuration": build_configuration,
+        "product_schema": product_schema,
+    }
 
 
 class GitHub:
@@ -292,6 +343,9 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             fingerprint = key(value) if value is not None else "unavailable-" + os.environ["GITHUB_RUN_ID"]
             out.write(f"key={fingerprint}\n")
+            if value is not None:
+                for name, item in distribution_identity(value).items():
+                    out.write(f"{name}={item}\n")
     elif mode == "seal":
         if value is None:
             return
