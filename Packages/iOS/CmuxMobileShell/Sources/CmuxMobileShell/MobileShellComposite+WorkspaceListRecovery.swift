@@ -208,6 +208,8 @@ extension MobileShellComposite {
     /// tasks that can outlive that waiter.
     public func cancelWorkspaceListRecovery() {
         pullToRefreshTask?.cancel()
+        pullToRefreshTask = nil
+        pullToRefreshGeneration = UUID()
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         connectionRecoveryAttemptDeadlineTask = nil

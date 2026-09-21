@@ -1357,6 +1357,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // Internal so the workspace-list recovery owner can cancel the same
     // coalesced task that backs pull-to-refresh and the empty-state Retry.
     var pullToRefreshTask: Task<Void, Never>?
+    /// Generation of the task currently occupying ``pullToRefreshTask``.
+    /// Cancelled attempts advance it before detaching their handle so a late
+    /// completion cannot clear or mutate a newer retry.
+    var pullToRefreshGeneration = UUID()
     /// Foreground post-mutation list refreshes, coalesced separately from
     /// pull-to-refresh so batched row actions do not fan out legacy list RPCs.
     private var foregroundWorkspaceMutationRefreshTask: Task<Void, Never>?
@@ -15776,10 +15780,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // promotion/demotion can leave a live connection without one.
         backfillMissingCaffeineStatuses()
         guard connectionState == .connected, remoteClient != nil else { return }
-        while let inFlight = pullToRefreshTask {
+        if let inFlight = pullToRefreshTask {
             await inFlight.value
-            if Task.isCancelled { return }
-            if !inFlight.isCancelled { return }
+            return
         }
         await reloadWorkspaceListFromMac()
     }
@@ -15787,19 +15790,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
         guard connectionState == .connected, remoteClient != nil else { return }
-        while let inFlight = pullToRefreshTask {
+        if let inFlight = pullToRefreshTask {
             await inFlight.value
-            if Task.isCancelled { return }
-            if !inFlight.isCancelled { return }
+            return
         }
+        let generation = UUID()
+        pullToRefreshGeneration = generation
         let task = Task { @MainActor [weak self] in
-            defer { self?.pullToRefreshTask = nil }
+            defer {
+                guard let self, self.pullToRefreshGeneration == generation else { return }
+                self.pullToRefreshTask = nil
+            }
+            guard !Task.isCancelled else { return }
             await self?.reloadWorkspaceListFromMac()
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if self?.connectionState == .connected,
-               self?.remoteClient != nil {
+            guard !Task.isCancelled,
+                  self?.pullToRefreshGeneration == generation,
+                  self?.connectionState == .connected,
+                  self?.remoteClient != nil {
                 // Reconnection/discovery has its own coalesced, cancellable
                 // owner. An offline saved Mac must not hold the foreground
                 // refresh spinner (or terminal navigation) until a dial timeout.
