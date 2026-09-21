@@ -218,6 +218,27 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
+    func paginatedHistoryExtendsCachedProviderOptions() {
+        let custom = SessionAgent.registered(RegisteredSessionAgent(
+            id: "paginated-custom", name: "Paginated Custom"
+        ))
+        let page = [
+            sessionEntry(id: "older-custom", title: "older", modified: 10, agent: custom),
+            sessionEntry(id: "older-codex", title: "older codex", modified: 9, agent: .codex),
+        ]
+        let cached = projection.mergingProviderAgents(page, into: ["claude": .claude])
+        let options = projection.providerFilterOptions(
+            agents: Array(cached.values),
+            preferredOrder: [.claude, .codex],
+            selectedProviderID: nil
+        )
+
+        #expect(Set(cached.keys) == ["claude", "codex", "paginated-custom"])
+        #expect(options.map(\.rawValue) == ["claude", "codex", "paginated-custom"])
+        #expect(options.last == custom)
+    }
+
+    @Test
     func historySectionRemainsReachableWhenInitialHistoryIsAllOpen() {
         let open = sessionEntry(id: "open", title: "open", modified: 20)
         let visible = projection.visibleHistoryEntries(
