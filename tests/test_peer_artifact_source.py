@@ -32,9 +32,13 @@ class PeerArtifactSourceTests(unittest.TestCase):
             "tree": "tree-a",
             "xcode": "Xcode 26",
             "sdk": "26A",
+            "os": "25A",
             "architecture": "arm64",
+            "tools": {"rustc": "1", "cargo": "1"},
+            "environment": {"A": "B"},
         }
         self.product_key = cache._canonical_contract_key(self.contract)
+        self.distribution = cache._distribution_identity(self.contract, "manaflow-ai/cmux")
         self.archive = self.root / cache.ARCHIVE_NAME
         self._write_archive(self.archive)
         self.identity = cache.Identity(
@@ -46,15 +50,15 @@ class PeerArtifactSourceTests(unittest.TestCase):
             source_revision="a" * 40,
             producer_run_id=456,
             producer_run_attempt=1,
-            artifact_schema="1" * 64,
-            source_identity="2" * 64,
-            build_identity="3" * 64,
-            platform_class="macos",
-            architecture="arm64",
-            sdk_generation="4" * 64,
-            toolchain_generation="5" * 64,
-            build_configuration="6" * 64,
-            product_schema="7" * 64,
+            artifact_schema=self.distribution["artifact_schema"],
+            source_identity=self.distribution["source_identity"],
+            build_identity=self.distribution["build_identity"],
+            platform_class=self.distribution["platform_class"],
+            architecture=self.distribution["architecture"],
+            sdk_generation=self.distribution["sdk_generation"],
+            toolchain_generation=self.distribution["toolchain_generation"],
+            build_configuration=self.distribution["build_configuration"],
+            product_schema=self.distribution["product_schema"],
         )
         self.token = "peer-token-" + "x" * 48
         self._publish()
