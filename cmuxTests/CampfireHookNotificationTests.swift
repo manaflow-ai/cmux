@@ -73,10 +73,12 @@ struct CampfireHookNotificationTests {
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var commands: [String] = []
+        private let notificationPipeline = AgentHookTestNotificationPipeline()
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
+            commands.append(contentsOf: notificationPipeline.effects(for: command))
             lock.unlock()
         }
 

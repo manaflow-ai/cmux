@@ -307,6 +307,11 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// One bounded terminal operation trace phase. `a` is the operation, `b`
     /// is the phase, and `traceID` is the cross-process opaque identifier.
     case terminalTrace = 80
+
+    /// A terminal phase began; `terminalWork` carries its typed metadata.
+    case terminalWorkStarted = 81
+    /// The phase returned; `ms` is elapsed time, not a PTY acknowledgement.
+    case terminalWorkFinished = 82
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

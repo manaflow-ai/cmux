@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import ObjectiveC
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -387,7 +388,10 @@ final class WindowTerminalHostView: NSView {
     private func splitDividerRegions() -> [DividerRegion] {
         guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
-        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        if let regions = cachedSplitDividerRegions,
+           cachedSplitDividerRootSubviewIds == rootSubviewIds,
+           splitDividerCacheInvalidator.structureIsCurrent(),
+           PortalSplitDividerRegion.allLive(regions) { return regions }
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds
@@ -661,8 +665,7 @@ final class WindowTerminalPortal: NSObject {
     /// evaluation site — when the AppKit sidebar branch mounts. The portal
     /// consumes a plain bool so the feature-flag lint's one-file rule holds.
     static var usesCoalescedAnchorFailsafe = false
-    /// Deferred redraws keyed by hosted view; drain after the current layout turn.
-    private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
+    private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: (reason: String, transition: TerminalWorkContext.Transition)] = [:]
     private var lastDeferredSurfaceRefreshFrames: [ObjectIdentifier: NSRect] = [:]
     private var hasDeferredSurfaceRefreshScheduled = false
     private var hasExternalGeometrySyncScheduled = false
@@ -1487,7 +1490,7 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    /// Hide a portal entry for permanent workspace unmounts without detaching it.
+    /// Removes an inactive terminal's view tree from the window while retaining its binding and PTY.
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else {
             clearPresentationNotificationState(for: hostedId)
@@ -1500,6 +1503,9 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
         entry.hostedView?.isHidden = true
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
 #if DEBUG
         cmuxDebugLog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
 #endif
@@ -1795,9 +1801,9 @@ final class WindowTerminalPortal: NSObject {
                 // sidebar drag tick), a synchronous display here wedges in
                 // Metal. Defer to the next main-queue turn.
                 if syncLayout {
-                    hostedView.refreshSurfaceNow(reason: reason)
+                    hostedView.refreshSurfaceNow(reason: reason, transition: hostedView.terminalWorkTransition)
                 } else {
-                    deferSurfaceRefresh(forHostedId: hostedId, reason: reason + ".deferred")
+                    deferSurfaceRefresh(forHostedId: hostedId, reason: reason + ".deferred", transition: hostedView.terminalWorkTransition)
                 }
             }
         }
@@ -1832,14 +1838,14 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
+    private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String, transition: TerminalWorkContext.Transition) {
         guard let entry = entriesByHostedId[hostedId], let hostedView = entry.hostedView else { return }
         let frame = hostedView.frame
         guard lastDeferredSurfaceRefreshFrames[hostedId].map({ !Self.rectApproximatelyEqual($0, frame) }) ?? true else {
-            return
+            if transition != .unknown { pendingDeferredSurfaceRefreshes[hostedId] = (reason, transition) }; return
         }
         lastDeferredSurfaceRefreshFrames[hostedId] = frame
-        pendingDeferredSurfaceRefreshes[hostedId] = reason
+        pendingDeferredSurfaceRefreshes[hostedId] = (reason, transition)
         guard !hasDeferredSurfaceRefreshScheduled else { return }
         hasDeferredSurfaceRefreshScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -1853,7 +1859,7 @@ final class WindowTerminalPortal: NSObject {
                       entry.visibleInUI,
                       let hostedView = entry.hostedView,
                       !hostedView.isHidden else { continue }
-                hostedView.refreshSurfaceNow(reason: pendingReason)
+                hostedView.refreshSurfaceNow(reason: pendingReason.reason, transition: pendingReason.transition)
             }
         }
     }
@@ -2229,9 +2235,9 @@ final class WindowTerminalPortal: NSObject {
                 // on Metal inside a live-resize transaction.
                 if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isWindowLiveResizeActive {
                     if syncLayout {
-                        hostedView.refreshSurfaceNow(reason: "portal.frameChange")
+                        hostedView.refreshSurfaceNow(reason: "portal.frameChange", transition: hostedView.terminalWorkTransition)
                     } else {
-                        deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.frameChange.deferred")
+                        deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.frameChange.deferred", transition: hostedView.terminalWorkTransition)
                     }
                 }
                 // A frame the user is watching move (drag tick) publishes now;
@@ -2280,9 +2286,9 @@ final class WindowTerminalPortal: NSObject {
             // a reveal cannot skip its redraw outright — the surface would
             // sit blank until later churn — so defer it one main-queue turn.
             if syncLayout, !isWindowLiveResizeActive {
-                hostedView.refreshSurfaceNow(reason: "portal.reveal")
+                hostedView.refreshSurfaceNow(reason: "portal.reveal", transition: hostedView.terminalWorkTransition == .unknown ? .reveal : hostedView.terminalWorkTransition)
             } else {
-                deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")
+                deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred", transition: hostedView.terminalWorkTransition == .unknown ? .reveal : hostedView.terminalWorkTransition)
             }
         }
 

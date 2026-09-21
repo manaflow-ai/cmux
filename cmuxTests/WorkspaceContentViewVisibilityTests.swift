@@ -250,6 +250,8 @@ final class WorkspaceContentViewVisibilityTests {
             defer: false
         )
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()

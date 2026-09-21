@@ -3,8 +3,10 @@ import Foundation
 extension CloudTreeNode.Kind {
     /// Readings describe a machine without representing a selectable pane.
     var isSelectable: Bool {
-        if case .resource = self { return false }
-        return true
+        switch self {
+        case .resource, .devicesEmpty: return false
+        default: return true
+        }
     }
 
     /// New resources and terminal sections start closed; all other groups

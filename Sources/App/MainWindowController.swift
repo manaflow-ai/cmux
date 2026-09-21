@@ -31,6 +31,18 @@ final class MainWindowController: ReleasingWindowController {
         handleFrameRestorationCheckpoint("didDeminiaturize", notification: notification)
     }
 
+    /// Clears zoom intent when AppKit starts moving the window. A click passed
+    /// to performDrag(with:) can finish without ever producing this callback.
+    func windowWillMove(_ notification: Notification) {
+        handleUserPlacement(notification)
+    }
+
+    /// Includes native Window-menu and green-button tiling, whose animations
+    /// emit live-resize callbacks without passing through setFrame(_:display:).
+    func windowWillStartLiveResize(_ notification: Notification) {
+        handleUserPlacement(notification)
+    }
+
     /// Forwards a completed AppKit move callback for the managed window.
     func windowDidMove(_ notification: Notification) {
         handleGeometryChange(notification)
@@ -102,5 +114,14 @@ final class MainWindowController: ReleasingWindowController {
             return
         }
         onGeometryChanged?(changedWindow)
+    }
+
+    /// Applies user placement only to the window owned by this controller.
+    private func handleUserPlacement(_ notification: Notification) {
+        guard let placedWindow = notification.object as? CmuxMainWindow,
+              placedWindow === window else {
+            return
+        }
+        placedWindow.recordUserPlacement()
     }
 }

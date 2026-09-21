@@ -5,7 +5,10 @@ extension CMUXCLI {
     func resolvedUserSSHControlOptions(for options: SSHCommandOptions) -> [String]? {
         guard let output = resolvedSSHConfigurationOutput(for: options) else { return nil }
         return SSHConnectionSharingOptions()
-            .userConfiguredControlOptions(fromSSHConfigOutput: output)
+            .userConfiguredControlOptions(
+                fromSSHConfigOutput: output,
+                explicitOptions: options.sshOptions
+            )
     }
 
     func resolvedCmuxControlPathOptions(for options: SSHCommandOptions) -> [String] {

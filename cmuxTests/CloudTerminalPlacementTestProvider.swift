@@ -14,6 +14,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
     let release = CloudLinkFirstValue<Bool>()
     private(set) var requestedWorkspaces: [String?] = []
+    private(set) var requestedDirectories: [String?] = []
     private(set) var materialized: [SurfaceProjection] = []
     private(set) var layoutSources: [(tabID: String, direction: SurfaceSplitDirection?)] = []
     var returnedWorkspaceID: String?
@@ -47,12 +48,15 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         )
     }
 
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? { resource.detail }
+
     func refresh() async {}
     func projectionDidEnd(_ projection: SurfaceProjection) {}
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let key = "created-\(requestedWorkspaces.count)"
         requestedWorkspaces.append(remoteWorkspaceID)
+        requestedDirectories.append(cwd)
         _ = await release.result
         try Task.checkCancellation()
         var workspace = remote

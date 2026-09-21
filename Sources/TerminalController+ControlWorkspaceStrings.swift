@@ -31,6 +31,14 @@ extension TerminalController {
             reorderManyTabManagerUnavailable: String(
                 localized: "socket.workspace.reorderMany.tabManagerUnavailable",
                 defaultValue: "TabManager not available"
+            ),
+            tabManagerUnavailable: String(
+                localized: "socket.workspace.list.tabManagerUnavailable",
+                defaultValue: "TabManager not available"
+            ),
+            relayOwnerUnavailable: String(
+                localized: "socket.workspace.list.relayOwnerUnavailable",
+                defaultValue: "Relay owner workspace is not active"
             )
         )
     }

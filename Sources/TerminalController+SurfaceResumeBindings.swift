@@ -111,6 +111,9 @@ extension TerminalController {
                 }
             }
         }
+        guard remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: surfaceID) else {
+            return nil
+        }
         return .dock(tabManager: location.tabManager, dock: dock, surfaceID: surfaceID)
     }
 
@@ -427,7 +430,30 @@ extension TerminalController {
             )
         )
     }
-
+    /// Returns the binding that owns agent-resume semantics for a surface.
+    /// Dock terminals keep this managed binding separately from a transient
+    /// process/tmux binding that may currently be effective for ``get``.
+    func controlSurfaceManagedAgentResumeBinding(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let target = resolveSurfaceResumeTarget(
+                  routing: routing,
+                  explicitTargetID: explicitTargetID,
+                  hasResolvedWindowID: hasResolvedWindowID,
+                  fallbackTabManager: tabManager
+              ) else {
+            return nil
+        }
+        switch target {
+        case .workspace:
+            return target.binding?.isAgentHookBinding == true ? target.binding : nil
+        case .dock(_, let dock, let surfaceID):
+            return dock.managedAgentResumeBinding(panelId: surfaceID)
+        }
+    }
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
@@ -466,7 +492,6 @@ extension TerminalController {
         return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
     }
 }
-
 private extension ControlSurfaceResumeTarget {
     func windowID(using controller: TerminalController) -> UUID? {
         switch self {

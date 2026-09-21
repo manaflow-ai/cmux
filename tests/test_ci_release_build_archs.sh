@@ -5,7 +5,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RESOLVER="$ROOT_DIR/scripts/ci/release-build-archs.sh"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 expect() {
@@ -32,18 +31,6 @@ for bad in "x86_64" "arm64 x86_64" "ARM64" "arm64;rm -rf /"; do
     exit 1
   fi
 done
-
-if ! awk '
-  /^  release-build:/ { in_job=1; next }
-  in_job && /^  [a-zA-Z0-9_-]+:/ { in_job=0 }
-  in_job && /scripts\/ci\/release-build-archs\.sh/ { saw_resolver=1 }
-  in_job && /ARCHS="\$RELEASE_ARCHS"/ { saw_build=1 }
-  in_job && /ARCHS="arm64/ { saw_literal=1 }
-  END { exit !(saw_resolver && saw_build && !saw_literal) }
-' "$CI_FILE"; then
-  echo "FAIL: release-build must take its architectures from scripts/ci/release-build-archs.sh"
-  exit 1
-fi
 
 # Slice verification is exact: an arm64 check must reject a universal binary,
 # or a change that brings the Intel compile back would pass unnoticed.
@@ -82,19 +69,11 @@ if verify "arm64"; then
   exit 1
 fi
 
-if ! awk '
-  /^  release-build:/ { in_job=1; next }
-  in_job && /^  [a-zA-Z0-9_-]+:/ { in_job=0 }
-  in_job && /verify-binary-archs\.sh "\$RELEASE_ARCHS" "\$APP_BINARY" "\$CLI_BINARY" "\$CMUX_CUA_BINARY"/ { saw=1 }
-  END { exit !saw }
-' "$CI_FILE"; then
-  echo "FAIL: release-build must check the built binaries against the exact resolved architectures"
-  exit 1
-fi
-
 if grep -n -E 'CI_RELEASE_BUILD_ARCHS|release-build-archs\.sh|release_archs' "$NIGHTLY_FILE"; then
   echo "FAIL: nightly builds what ships and must stay universal unconditionally"
   exit 1
 fi
+
+python3 "$ROOT_DIR/tests/test_ci_release_helper_archs.py"
 
 echo "PASS: the CI Release check defaults to universal, arm64 is opt-in, and nightly cannot be narrowed"

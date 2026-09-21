@@ -396,8 +396,26 @@ extension AppDelegate {
     ) {
         let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
         let windowId = route.windowId
+        let routeIdentity = ObjectIdentifier(route)
         let taskToken = UUID()
-        let task = Task { @MainActor [weak self, weak route] in
+        let onWorkerCreated: @MainActor @Sendable (Task<ProcessDetectedResumeIndexes, Never>) -> Void = {
+            [weak self, weak lifecycleCoordinator = mainWindowLifecycleCoordinator] worker in
+            lifecycleCoordinator?.retainWindowlessRecoveryResumeIndexesWorker(
+                worker,
+                onCompleted: { [weak self, weak lifecycleCoordinator] _ in
+                    guard let self, let lifecycleCoordinator else { return }
+                    for retryWindowId in lifecycleCoordinator.consumeWindowlessRouteFreezeRetries() {
+                        guard let route = lifecycleCoordinator.orphanedRoute(windowId: retryWindowId),
+                              route.window == nil,
+                              route.frozenWindowSnapshot == nil else {
+                            continue
+                        }
+                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                    }
+                }
+            )
+        }
+        let task = Task { @MainActor [weak self] in
             var shouldRetryWhenWorkerCompletes = false
             defer {
                 let workerIsRunning = self?.mainWindowLifecycleCoordinator
@@ -407,81 +425,65 @@ extension AppDelegate {
                     token: taskToken,
                     retryWhenWorkerCompletes: shouldRetryWhenWorkerCompletes && workerIsRunning
                 )
-                if shouldRetryWhenWorkerCompletes, let self {
-                    if !workerIsRunning,
-                       let route = self.mainWindowLifecycleCoordinator
-                        .orphanedRoute(windowId: windowId),
-                              route.window == nil,
-                              route.frozenWindowSnapshot == nil {
-                        self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
-                    }
+                if shouldRetryWhenWorkerCompletes, !workerIsRunning,
+                   let self,
+                   let currentRoute = self.mainWindowLifecycleCoordinator.orphanedRoute(windowId: windowId),
+                   ObjectIdentifier(currentRoute) == routeIdentity,
+                   currentRoute.window == nil,
+                   currentRoute.frozenWindowSnapshot == nil {
+                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(currentRoute)
                 }
             }
-            guard !Task.isCancelled,
-                  let self,
-                  let route,
-                  self.mainWindowLifecycleCoordinator.orphanedRoute(
-                      windowId: windowId
-                  ) === route,
-                  route.window == nil,
-                  self.windowForMainWindowId(windowId) == nil else {
+            guard !Task.isCancelled else { return }
+            guard self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ).map({
+                ObjectIdentifier($0) == routeIdentity && $0.window == nil
+            }) == true,
+                  self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard self.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
+            guard self?.mainWindowLifecycleCoordinator.shouldFreezeWindowlessRoute(
                 windowId: windowId,
-                availablePersistenceSlots: self.availableWindowlessPersistenceSlots()
+                availablePersistenceSlots: self?.availableWindowlessPersistenceSlots() ?? 0
             ) == true else {
-                self.retireWindowlessRecoverableMainWindowRoute(route)
+                if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                    windowId: windowId
+                ), ObjectIdentifier(currentRoute) == routeIdentity {
+                    self?.retireWindowlessRecoverableMainWindowRoute(currentRoute)
+                }
                 return
             }
             defer {
-                self.mainWindowLifecycleCoordinator
+                self?.mainWindowLifecycleCoordinator
                     .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
             }
-            let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
+            guard let ttyDeviceBindings = self?.mainWindowLifecycleCoordinator
                 .windowlessRecoveryTTYDeviceBindings(
                     allBindingsProvider: { [weak self] in
                         self?.currentSurfaceTTYDeviceBindings() ?? [:]
                     },
                     routeBindings: routeTTYDeviceBindings
+                ) else {
+                return
+            }
+            let lifecycleCoordinator = self?.mainWindowLifecycleCoordinator
+            let resumeIndexes = await lifecycleCoordinator?.loadWindowlessRecoveryResumeIndexes(
+                ttyDeviceBindings: ttyDeviceBindings
+            ) { bindings in
+                await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
+                    ttyDeviceBindings: bindings,
+                    onWorkerCreated: onWorkerCreated
                 )
-            let lifecycleCoordinator = self.mainWindowLifecycleCoordinator
-            let resumeIndexes = await self.mainWindowLifecycleCoordinator
-                .loadWindowlessRecoveryResumeIndexes(
-                    ttyDeviceBindings: ttyDeviceBindings
-                ) { bindings in
-                    await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
-                        ttyDeviceBindings: bindings,
-                        onWorkerCreated: { [weak appDelegate = self, weak lifecycleCoordinator] worker in
-                            lifecycleCoordinator?
-                                .retainWindowlessRecoveryResumeIndexesWorker(
-                                    worker,
-                                    onCompleted: { [weak appDelegate, weak lifecycleCoordinator] _ in
-                                        guard let appDelegate,
-                                              let lifecycleCoordinator else { return }
-                                        for retryWindowId in lifecycleCoordinator
-                                            .consumeWindowlessRouteFreezeRetries() {
-                                            guard let route = lifecycleCoordinator.orphanedRoute(
-                                                windowId: retryWindowId
-                                            ),
-                                            route.window == nil,
-                                            route.frozenWindowSnapshot == nil else {
-                                                continue
-                                            }
-                                            appDelegate.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
-                                        }
-                                    }
-                                )
-                        }
-                    )
-                }
+            }
             guard !Task.isCancelled,
-                  self.mainWindowLifecycleCoordinator.orphanedRoute(
+                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
-                  ) === route,
-                  route.window == nil,
-                  self.windowForMainWindowId(windowId) == nil else {
+                  ).map({
+                      ObjectIdentifier($0) == routeIdentity && $0.window == nil
+                  }) == true,
+                  self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
             // Windowless teardown is irreversible. A timeout or incomplete
@@ -492,16 +494,19 @@ extension AppDelegate {
                 shouldRetryWhenWorkerCompletes = true
                 return
             }
-            let restorableAgentIndex = resumeIndexes.restorableAgentIndex
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes.surfaceResumeBindingIndex
-            self.freezeWindowlessRecoverableMainWindowRoute(
-                route,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex.isEmpty == false
-                    ? detectedSurfaceResumeBindingIndex
-                    : nil
-            )
+            if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ), ObjectIdentifier(currentRoute) == routeIdentity {
+                self?.freezeWindowlessRecoverableMainWindowRoute(
+                    currentRoute,
+                    restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                    surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex.isEmpty == false
+                        ? detectedSurfaceResumeBindingIndex
+                        : nil
+                )
+            }
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
             task,
@@ -854,8 +859,12 @@ extension AppDelegate {
         guard mainWindowLifecycleCoordinator.teardownRoute(windowId: route.windowId) === route else {
             return
         }
-        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
+        // Drop the route before resolving current workspace owners. That lookup
+        // walks the recoverable routes, and a windowless route whose manager is
+        // already finalized would otherwise re-enter this retirement for the
+        // same route without bound (a stack overflow in the app host).
         mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
+        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
         let manager = route.tabManager
         manager?.clearRecoverableMainWindowRouteOwnerRegistration(for: route)
         route.markForTeardown()
