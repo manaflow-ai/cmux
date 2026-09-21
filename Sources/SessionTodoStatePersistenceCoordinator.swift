@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 /// Coalesces rapid todo edits into one pending snapshot per workspace and
