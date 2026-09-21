@@ -43,7 +43,7 @@ extension ControlCommandCoordinator {
     /// the payload embeds, minted inside the hop in the payload's literal
     /// order (per-row workspace refs, then the window ref).
     private enum WorkspaceListHopOutcome: Sendable {
-        case tabManagerUnavailable
+        case tabManagerUnavailable(message: String)
         case relayOwnerUnavailable(message: String)
         case relayWorkspace(id: UUID, title: String)
         case resolved(
@@ -76,19 +76,20 @@ extension ControlCommandCoordinator {
             return true
         }()
         guard let context else {
-            return !relayOwnerMarkerPresent
-                ? .err(code: "unavailable", message: "TabManager not available", data: nil)
-                : .err(
+            if relayOwnerMarkerPresent {
+                return .err(
                     code: "remote_relay_workspace_denied",
                     message: "Relay owner workspace is not active",
                     data: nil
                 )
+            }
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let outcome: WorkspaceListHopOutcome = context.controlResolveOnMain { seam in
             let routing = self.routingSelectors(params)
             switch seam.controlWorkspaceList(routing: routing) {
             case .tabManagerUnavailable:
-                return .tabManagerUnavailable
+                return .tabManagerUnavailable(message: seam.controlWorkspaceStrings().tabManagerUnavailable)
             case .relayOwnerUnavailable:
                 return .relayOwnerUnavailable(message: seam.controlWorkspaceStrings().relayOwnerUnavailable)
             case .relayWorkspace(let id, let title):
@@ -104,8 +105,8 @@ extension ControlCommandCoordinator {
             }
         }
         switch outcome {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        case .tabManagerUnavailable(let message):
+            return .err(code: "unavailable", message: message, data: nil)
         case .relayOwnerUnavailable(let message):
             return .err(
                 code: "remote_relay_workspace_denied",
