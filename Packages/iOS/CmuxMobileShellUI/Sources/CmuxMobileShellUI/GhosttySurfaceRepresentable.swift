@@ -252,7 +252,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         static let outputConsumerRecoveryPresentationRetryInterval: Duration =
             .milliseconds(250)
         private static let outputStartViewportTimeout: Duration = .seconds(1)
-        private static let maximumOutputStartViewportTimeouts = 3
+        // The viewport RPC owns retry cadence. This is only a hard mount-start
+        // deadline, long enough for the bounded relay backoff (0.5s/2s/5s)
+        // plus transport deadlines to run without a parallel one-second
+        // re-arm loop.
+        private static let maximumOutputStartViewportTimeouts = 15
         /// The first viewport report gates the initial stream registration so
         /// the Mac is never asked to replay before the surface has a valid
         /// grid. A consumer restart on the same mounted surface may reuse that
@@ -905,13 +909,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard !outputStartReady else { return true }
 
                 outputStartViewportTimeouts += 1
-                surfaceView?.retryViewportReport()
-                surfaceView?.requestViewportReportForMount(
-                    invalidatingPendingReports: false
-                )
                 MobileDebugLog.anchormux(
-                    "terminal.output.start_viewport_timeout surface=\(surfaceID) "
-                        + "attempt=\(outputStartViewportTimeouts)/\(Self.maximumOutputStartViewportTimeouts)"
+                    "terminal.output.start_viewport_wait surface=\(surfaceID) "
+                        + "elapsed_s=\(outputStartViewportTimeouts) "
+                        + "hard_limit_s=\(Self.maximumOutputStartViewportTimeouts)"
                 )
                 guard outputStartViewportTimeouts < Self.maximumOutputStartViewportTimeouts else {
                     outputConsumerRestartBlocked = true
@@ -1186,13 +1187,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
                 outputConsumerRecoveryAlertPending = outputConsumerRestartBlocked
-                stopMountedTasks()
+                stopMountedTasks(releaseViewport: true)
             }
         }
 
         func detach() {
             outputConsumerRecoveryAlertPending = false
-            stopMountedTasks()
+            stopMountedTasks(releaseViewport: true)
             surfaceView = nil
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
