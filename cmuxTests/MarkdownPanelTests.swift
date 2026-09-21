@@ -1447,130 +1447,130 @@ final class MarkdownPanelTests: XCTestCase {
         }
 
         XCTAssertTrue(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("http://example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://user:pass@example.com/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://example.com:8443/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://localhost/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://127.0.0.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://10.0.0.2/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://172.16.0.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://192.168.1.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://169.254.169.254/latest/meta-data")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fe80::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fec0::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[fc00::1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isPotentiallySafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isPotentiallySafeRemoteImageURL(
                 try url("https://[::127.0.0.1]/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://2130706433/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://0x7f000001/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://127.1/image.png")
             )
         )
         XCTAssertFalse(
-            MarkdownRemoteImageSecurity.isSafeRemoteImageURL(
+            MarkdownRemoteImageSecurity().isSafeRemoteImageURL(
                 try url("https://10.1/image.png")
             )
         )
-        let pinnedTargets = MarkdownRemoteImageSecurity.pinnedFetchTargets(
+        let pinnedTargets = MarkdownRemoteImageSecurity().pinnedFetchTargets(
             for: try url("https://1.1.1.1/image.png")
         )
         XCTAssertEqual(pinnedTargets.count, 1)
         XCTAssertEqual(pinnedTargets.first?.serverName, "1.1.1.1")
         let approvedHost = try XCTUnwrap(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://images.example.com/pixel.png")
             )
         )
         XCTAssertEqual(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://images.example.com/redirected.png")
             ),
             approvedHost
         )
         XCTAssertNotEqual(
-            MarkdownRemoteImageSecurity.remoteImageConsentHost(
+            MarkdownRemoteImageSecurity().remoteImageConsentHost(
                 for: try url("https://cdn.example.com/redirected.png")
             ),
             approvedHost
         )
-        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/png"), "image/png")
-        XCTAssertEqual(MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml"), "image/svg+xml")
+        XCTAssertEqual(MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/png"), "image/png")
+        XCTAssertEqual(MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/svg+xml"), "image/svg+xml")
         XCTAssertEqual(
-            MarkdownRemoteImageSecurity.canonicalImageMIMEType("image/svg+xml;charset=utf-8"),
+            MarkdownRemoteImageSecurity().canonicalImageMIMEType("image/svg+xml;charset=utf-8"),
             "image/svg+xml"
         )
         let ipv6RequestBytes = try XCTUnwrap(
-            MarkdownRemoteImageSecurity.requestBytes(
+            MarkdownRemoteImageSecurity().requestBytes(
                 for: try url("https://[2606:4700:4700::1111]/image.png"),
                 host: "2606:4700:4700::1111"
             )
@@ -1588,20 +1588,20 @@ final class MarkdownPanelTests: XCTestCase {
 
     func testMarkdownRemoteImageChunkedDecoderRejectsOversizedChunks() {
         XCTAssertEqual(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("3\r\nabc\r\n0\r\n\r\n".utf8),
                 maximumBytes: 8
             ),
             Data("abc".utf8)
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("9\r\nabcdefghi\r\n0\r\n\r\n".utf8),
                 maximumBytes: 8
             )
         )
         XCTAssertNil(
-            MarkdownHTTPChunkedBodyDecoder.decode(
+            MarkdownHTTPChunkedBodyDecoder().decode(
                 Data("7fffffffffffffff\r\n".utf8),
                 maximumBytes: 8
             )

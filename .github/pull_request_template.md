@@ -1,3 +1,5 @@
+<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+
 ## Summary
 
 - What changed?
