@@ -72,15 +72,6 @@ final class MachinesPanelViewModel: ObservableObject {
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
     var adoptedOperationIDs: [String: UUID] { createCoordinator.adoptedOperationIDs }
 
-    func setDefaultMachine(id: String) {
-        guard machines.contains(where: { $0.id == id }) else { return }
-        defaultMachineStore?.machineID = id
-        machines = machines.map { machine in
-            var next = machine
-            next.isDefault = machine.id == id
-            return next
-        }
-    }
     let createCoordinator: MachineCreateCoordinator
     /// How the view model reads local workspaces; injectable for tests.
     var localWorkspacesProvider: @MainActor () -> [CloudTreeLocalWorkspace] = {
@@ -133,7 +124,6 @@ final class MachinesPanelViewModel: ObservableObject {
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
 
-    let defaultMachineStore: DefaultCloudMachineStore?
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
@@ -141,15 +131,15 @@ final class MachinesPanelViewModel: ObservableObject {
 
     init(
         createCoordinator: MachineCreateCoordinator? = nil,
-        defaultMachineStore: DefaultCloudMachineStore? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
         resourceStats: VMResourceStatsStore? = nil,
-        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot }
+        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot },
+        localWorkspacesProvider: (@MainActor () -> [CloudTreeLocalWorkspace])? = nil
     ) {
         self.resourceStats = resourceStats ?? VMClient.shared?.resourceStats
-        self.defaultMachineStore = defaultMachineStore
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
+        if let localWorkspacesProvider { self.localWorkspacesProvider = localWorkspacesProvider }
         // Resolve the main-actor-isolated default here, not in a default argument.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
@@ -516,16 +506,16 @@ final class MachinesPanelViewModel: ObservableObject {
         scoped.resources.removeAll { !allowed.contains($0.machine) }
         scoped.projections.removeAll { !allowed.contains($0.resource.machine) }
         scoped.pendingWorkspaceDeletions = scoped.pendingWorkspaceDeletions?.filter { allowed.contains($0.key) }
+        scoped.pendingWorkspaceCreations = scoped.pendingWorkspaceCreations?.filter { allowed.contains($0.key) }
         return scoped
     }
 
     private func performRefresh() async {
+        defer { isLoading = false }
         guard CloudMachinesFeature.isEnabled else {
-            isLoading = false
             return
         }
         guard let client = VMClient.shared else {
-            isLoading = false
             return
         }
         let generation = refreshGeneration
@@ -546,15 +536,6 @@ final class MachinesPanelViewModel: ObservableObject {
                 )
             }
             snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
-            let defaultMachineID = defaultMachineStore?.resolveMachineID(
-                from: snapshots.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.isDesktop) },
-                isComplete: true
-            )
-            snapshots = snapshots.map { snapshot in
-                var next = snapshot
-                next.isDefault = snapshot.id == defaultMachineID
-                return next
-            }
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
@@ -592,7 +573,6 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        isLoading = false
         hasLoadedOnce = true
     }
 }

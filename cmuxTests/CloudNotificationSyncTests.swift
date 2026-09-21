@@ -484,4 +484,5 @@ struct CloudNotificationSyncTests {
         // No key was ever sent with two different id sets.
         #expect(effects.acked.values.allSatisfy { Set($0).count == $0.count })
     }
+
 }
