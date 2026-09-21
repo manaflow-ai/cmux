@@ -166,6 +166,11 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
+      - name: Validate pipe-safe CI capture
+        run: |
+          bash tests/test_ci_run_and_capture.sh
+          python3 tests/test_ci_app_host_pipe_capture.py
+
       - name: Validate focused test launcher
         run: python3 tests/test_run_e2e.py
 
