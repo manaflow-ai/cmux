@@ -491,8 +491,9 @@ jobs:
 
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}
-    # The lockfile policy diffs against the merge base, so this is the only
-    # guard job that fetches history.
+    # The lockfile policy compares the candidate with the exact base parent of
+    # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
+    # parent; the policy does not need the rest of repository history.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -501,8 +502,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Bind package policy to synthetic merge base
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$CHECKED_OUT_SHA" ]
+          base="$(git rev-parse HEAD^1)"
+          git cat-file -e "$base^{commit}"
+          echo "PACKAGE_RESOLVED_POLICY_BASE_REF=$base" >> "$GITHUB_ENV"
+          echo "Package policy base: $base"
 
       - name: Set up Python 3.9
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
