@@ -55,8 +55,8 @@
  * supervisor binds the identity to the platform instance id (see the boot
  * script) and every machine created from the snapshot starts its own daemon,
  * with a fresh identity, within one supervisor tick of resume. The driver
- * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
- * readiness exec at create; it writes the model-plane env file and returns.
+ * (web/services/vms/drivers/freestyle.ts) runs no install, start, or readiness
+ * exec at create. The model-plane env and CLI are already baked.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
  * because the driver routes attaches to a private VPC address by default and
  * to the stable public IPv6 for legacy public-network machines. The daemon
@@ -81,10 +81,12 @@
  * exec/fs API runs on them.
  */
 import { Freestyle } from "freestyle";
-import { Buffer } from "node:buffer";
+
 import { fileURLToPath } from "node:url";
 import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
-import { guestCliInstallCommand } from "../services/vms/guestCli";
+import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliReadyCommand } from "../services/vms/guestCli";
+import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
+import { guestResourceReporterInstallCommand } from "../services/vms/guestResourceReporter";
 import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
 import guestCliDistribution from "../services/vms/guestCliDistribution.json";
 import {
@@ -107,6 +109,7 @@ import {
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
+  guestCliSourceDigest,
   devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
   devboxGhosttyVersion,
@@ -480,15 +483,15 @@ try {
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
   );
 
-  // The Cloud facade and POSIX guest shim are part of the image contract,
-  // alongside the daemon. Create should resume into a usable machine without
-  // downloading an archive or writing the adapter on the request path. The
-  // driver keeps the same command as an attach-time drift repair for older or
-  // damaged images.
-  await step(
-    "guest-cli-install",
-    `${guestCliInstallCommand()} && ${guestCliDistributionCommand(true)} && printf '%s' '${Buffer.from(JSON.stringify(guestCliDistribution)).toString("base64")}' | base64 -d > /etc/cmux/cloud-cli-pin && test -s /etc/cmux/cloud-cli-pin && test -x /usr/local/libexec/cmux-cloud-adapter && test -x /usr/local/libexec/cmux-coderouter && test -L /usr/local/bin/cmux && test -L /usr/local/bin/coderouter && test -L /usr/local/bin/cr && echo guest-cli-baked`,
-  );
+  // Upload the generated adapter as a file: it exceeds Linux's single-argv
+  // limit when base64-embedded into an exec command. Bake every shared byte so
+  // a clone's first CLI invocation never downloads or installs anything.
+  await step("guest-cli-dirs", "mkdir -p /usr/local/libexec");
+  await vm.fs.writeFile(GUEST_CMUX_SHIM_PATH, GUEST_CMUX_SHIM, { mode: 0o755 });
+  await step("guest-cli-install", `${guestBrowserInstallCommand()} && ${guestCliDistributionCommand()}`);
+  await vm.fs.writeFile("/etc/cmux/cloud-cli-pin", JSON.stringify(guestCliDistribution), { mode: 0o644 });
+  await step("guest-cli-check", guestCliReadyCommand());
+  await step("resource-reporter", guestResourceReporterInstallCommand());
 
   // The install above also wrote the work user's Claude Code and Codex hooks
   // (cmux-tui agent hook install), so a Stop, permission request, or question
@@ -664,11 +667,12 @@ emitBakeResult({
       metadata,
       withDesktop
         ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} plus checksum-pinned Cloud facade and guest CLI, identity bound to the instance id, no create-time bootstrap.`
-        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.0.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} plus checksum-pinned Cloud facade and guest CLI, identity bound to the instance id, no create-time bootstrap.`,
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} plus checksum-pinned Cloud facade and guest CLI, identity bound to the instance id, no create-time bootstrap.`,
       withDesktop ? "desktop" : "base",
     ),
     cmuxTuiCommit: cmuxTuiSource.commit,
     cmuxTuiSha256: cmuxTuiSource.sha256,
+    guestCliSha256: guestCliSourceDigest(),
   },
   next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
 });

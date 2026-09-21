@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { guestMessageShell } from "./guestCliMessages";
 
-/** Installed on create/heal, independently of the immutable devbox snapshot. */
+/** Baked into the devbox snapshot; the repair path restores missing integration. */
 export const GUEST_BROWSER_OPENER_PATH = "/usr/local/bin/cmux-open-url";
 
 export const GUEST_BROWSER_OPENER = `#!/bin/sh

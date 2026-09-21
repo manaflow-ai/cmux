@@ -10,7 +10,7 @@ import {
   type SnapshotData,
 } from "freestyle";
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
@@ -53,8 +53,8 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { guestCliDistributionCommand } from "../guestCliDistribution";
-import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
-import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
+import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliReadyCommand } from "../guestCli";
+import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -1002,9 +1002,6 @@ export class FreestyleProvider implements VMProvider {
               // daemon comes up on is the one that was sold.
               await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span, data.resources);
             }
-            // The baked supervisor is already bringing the daemon up; the only
-            // per-machine input it needs is the model-plane env file.
-
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1370,7 +1367,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const networkId = options?.network?.id;
-          const { vmId, data } = await fs.vms.create({
+          const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -1383,6 +1380,14 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
           });
+          try {
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
+          } catch (err) {
+            await vm.delete().catch(cleanupErr => {
+              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
+            });
+            throw err;
+          }
           // The snapshot carries the daemon, Cloud facade, guest shim, and a
           // model-plane file with placeholders only. Creation must remain a
           // fast resume path; attach-time healing verifies and repairs drift.
@@ -1639,7 +1644,7 @@ export class FreestyleProvider implements VMProvider {
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string, installGuestCli = true): Promise<void> {
     // Keep the shim present even when the baked daemon is already healthy.
-    if (installGuestCli) await this.installGuestCli(vm, vmId);
+    if (installGuestCli) await this.ensureGuestCli(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) {
       await this.ensureAgentHooks(vm, vmId);
@@ -1704,8 +1709,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   private async ensureGuestCli(vm: Vm, vmId: string, installReporter = true): Promise<void> {
-    const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && ${guestCliDistributionCommand(true)}`);
+    const current = await this.execResult(vm, guestCliReadyCommand());
     if (current?.exitCode === 0) {
       await this.execResult(vm, guestBrowserMimeReconcileCommand);
       return;

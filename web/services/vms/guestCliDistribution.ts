@@ -12,7 +12,7 @@ export type GuestCliDistribution = {
   binaries: Record<string, string>;
 };
 
-/** Generate the same installer for create, attach healing, and local fixtures. */
+/** Generate the same installer for image baking, drift repair, and local fixtures. */
 export function guestCliDistributionCommand(
   verify = false,
   manifest: GuestCliDistribution = distribution,

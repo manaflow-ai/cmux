@@ -24,8 +24,7 @@
 import { Freestyle } from "freestyle";
 import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
-import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
-import { GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
+import { guestCliReadyCommand } from "../services/vms/guestCli";
 import guestCliDistribution from "../services/vms/guestCliDistribution.json";
 import path from "node:path";
 import {
@@ -33,7 +32,6 @@ import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
   cmuxTuiHooksReadyCommand,
-  cmuxTuiLayoutSelector,
   cmuxTuiRunCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
@@ -108,7 +106,7 @@ const CHECKS: readonly string[] = [
   ...FILE_PIN_CHECKS,
   // The Cloud facade and guest shim are baked so a newly resumed VM does not
   // spend its critical startup path downloading or writing the CLI.
-  `${guestCliDistributionCommand(true)} && python3 -c 'import json; d=json.load(open("/etc/cmux/cloud-cli-pin")); assert d["archiveSha256"] == "${guestCliDistribution.archiveSha256}"' && test -x ${GUEST_CMUX_SHIM_PATH} && test -x /usr/local/libexec/cmux-coderouter && test -L /usr/local/bin/cmux && test -L /usr/local/bin/coderouter && test -L /usr/local/bin/cr && echo guest-cli-baked`,
+  `${guestCliReadyCommand()} && python3 -c 'import json; d=json.load(open("/etc/cmux/cloud-cli-pin")); assert d["archiveSha256"] == "${guestCliDistribution.archiveSha256}"' && echo guest-cli-baked`,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
   // history lands on first interactive shell.
   "test -f /usr/local/share/blesh/ble.sh && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && echo bashrc-chain-ok",
@@ -400,7 +398,17 @@ if (provider === "freestyle") {
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
+    const createdMs = Date.now() - t0;
+    // Verify in an isolated network namespace BEFORE any installer, login
+    // shell, or healing. Missing baked binaries must fail, never fetch.
+    const offline = await vm.exec({
+      command: `unshare --net -- runuser -u ${DEVBOX_WORK_USER} -- env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} PATH=/usr/local/bin:/usr/bin:/bin sh -ec 'cmux --version; cmux coderouter --version; coderouter --version; cr --version; cmux coderouter add --help; coderouter add --help; cr add --help'`,
+      linuxUser: "root", timeoutMs: 10_000,
+    });
+    if (offline.statusCode !== 0) throw new Error(`Baked CLI offline smoke failed: ${(offline.stderr ?? "").slice(-500)}`);
+    const cliReadyMs = Date.now() - t0;
     const daemonMs = await waitForBakedDaemon("freestyle", exec);
+    console.log(`STARTUP_TIMING ${JSON.stringify({ vmId, image, createMs: createdMs, createToOfflineCliMs: cliReadyMs, createToDaemonMs: Date.now() - t0 })}`);
     console.log(`baked daemon answered ${daemonMs} ms after the first probe (${Date.now() - t0} ms after create)`);
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);

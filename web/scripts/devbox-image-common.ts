@@ -20,8 +20,9 @@ import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRunCommand, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
+import { DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
+import { guestCliReadyCommand } from "../services/vms/guestCli";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -463,6 +464,11 @@ export function devboxSourceManifest(
   };
 }
 
+/** Generated CLI/browser bytes and the binary distribution are snapshot inputs. */
+export function guestCliSourceDigest(): string {
+  return createHash("sha256").update(guestCliReadyCommand()).digest("hex");
+}
+
 export function devboxSourceDigest(
   layers: DevboxImageKind,
   dockerfile = readDevboxDockerfile(),
@@ -824,6 +830,8 @@ export type DevboxManifestEntry = {
   /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
+  /** Digest of the baked guest adapter, browser integration, and binary distribution. */
+  guestCliSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
   /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see manifestEntryEpoch). */
@@ -852,8 +860,7 @@ export function manifestEntrySkeleton(
     imageId,
     envVar,
     ...(kind ? { kind } : {}),
-    // The session daemon is cmux-tui, installed at create time from the pinned
-    // artifacts manifest; no cmuxd-remote build is baked.
+    // The session daemon is the baked cmux-tui; no cmuxd-remote build is used.
     cmuxdRemoteCommit: "none-cmux-tui",
     repoCommit: metadata.repoCommit,
     epoch: metadata.epoch,
@@ -1373,6 +1380,9 @@ export function devboxSourceDriftProblems(
   const digests = new Map<string, string>();
   for (const entry of manifest.images) {
     if (entry.provider !== provider || !entry.defaultForKind) continue;
+    if (entry.guestCliSha256 && entry.guestCliSha256 !== guestCliSourceDigest()) {
+      problems.push(`${entry.version}: guest CLI sources changed; bake and promote the new CLI before release`);
+    }
     const bakedEpoch = manifestEntryEpoch(entry);
     if (bakedEpoch !== epoch) {
       problems.push(`${entry.version}: baked at devbox epoch ${bakedEpoch ?? "(unknown)"}, the Dockerfile is at ${epoch}; promote a new bake or revert the sources with the manifest`);
