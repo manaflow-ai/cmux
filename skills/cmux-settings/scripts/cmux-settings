@@ -38,6 +38,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -152,10 +153,15 @@ def mutation_lock(configured: Path):
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
             raise SystemExit("error: refusing unsafe cmux config writer lock")
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise SystemExit("error: another cmux config write is in progress; retry")
+        deadline = time.monotonic() + 2.0
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise SystemExit("error: another cmux config write is in progress; retry")
+                time.sleep(0.01)
         if resolved_write_path(configured) != target:
             raise SystemExit("error: cmux config target changed while preparing the edit; retry")
         yield target
@@ -179,7 +185,15 @@ def source_for_edit(path: Path, data: dict[str, Any]) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
-def atomic_write_text(path: Path, text: str) -> None:
+_UNCONDITIONAL_REVISION = object()
+
+
+def atomic_write_text(
+    path: Path,
+    text: str,
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
@@ -187,6 +201,11 @@ def atomic_write_text(path: Path, text: str) -> None:
         tmp.write(text)
         tmp_path = Path(tmp.name)
     try:
+        # Keep the source comparison adjacent to publication: temp-file
+        # creation can take time, and supported external editors do not
+        # participate in the cmux sidecar lock.
+        if expected_revision is not _UNCONDITIONAL_REVISION and current_revision(path) != expected_revision:
+            raise SystemExit("error: cmux config changed while preparing the edit; retry")
         os.replace(tmp_path, path)
     finally:
         if tmp_path.exists():
@@ -379,9 +398,9 @@ def cmd_set(args: argparse.Namespace) -> int:
         except (JSONCEditError, json.JSONDecodeError) as error:
             raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
 
-        if resolved_write_path(configured_path) != path or current_revision(path) != original:
-            raise SystemExit("error: cmux config changed while preparing the edit; retry")
-        atomic_write_text(path, updated)
+        if resolved_write_path(configured_path) != path:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        atomic_write_text(path, updated, expected_revision=original)
     print(f"set: {args.key} = {json.dumps(value)}")
     return 0
 
@@ -403,9 +422,9 @@ def cmd_unset(args: argparse.Namespace) -> int:
         except (JSONCEditError, json.JSONDecodeError) as error:
             raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
 
-        if resolved_write_path(configured_path) != path or current_revision(path) != original:
-            raise SystemExit("error: cmux config changed while preparing the edit; retry")
-        atomic_write_text(path, updated)
+        if resolved_write_path(configured_path) != path:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        atomic_write_text(path, updated, expected_revision=original)
     print(f"unset: {args.key}")
     return 0
 
