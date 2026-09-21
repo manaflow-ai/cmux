@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -165,7 +166,7 @@ class ReleaseProductReuseTests(unittest.TestCase):
 
         def lstat_with_different_link_mode(path):
             metadata = original_lstat(path)
-            if path.is_symlink():
+            if stat.S_ISLNK(metadata.st_mode):
                 metadata = mock.Mock(st_mode=(metadata.st_mode & ~0o777) | 0o700)
             return metadata
 
