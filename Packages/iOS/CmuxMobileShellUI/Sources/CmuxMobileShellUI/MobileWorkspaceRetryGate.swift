@@ -1,36 +1,41 @@
 #if os(iOS)
+import Foundation
+
 /// Serializes empty-state recovery operations. A timed-out UI wait can release
 /// its button without allowing a cancellation-ignoring refresh to overlap the
 /// next attempt.
 actor MobileWorkspaceRetryGate {
-    private var active: Task<Void, Never>?
-    private var activeID: UUID?
+    private var isRunning = false
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     func run(_ operation: @escaping @Sendable () async -> Void) async {
-        while true {
+        let waiterID = UUID()
+        while isRunning {
             guard !Task.isCancelled else { return }
-            if let active {
-                await active.value
-                guard !Task.isCancelled else { return }
-                continue
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    if !isRunning || Task.isCancelled {
+                        continuation.resume()
+                    } else {
+                        waiters[waiterID] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancelWaiter(waiterID) }
             }
-
-            let operationID = UUID()
-            let task = Task { [self] in
-                await operation()
-                await finish(operationID)
-            }
-            activeID = operationID
-            active = task
-            await task.value
-            return
+        }
+        guard !Task.isCancelled else { return }
+        isRunning = true
+        await operation()
+        isRunning = false
+        if let next = waiters.first {
+            waiters.removeValue(forKey: next.key)
+            next.value.resume()
         }
     }
 
-    private func finish(_ operationID: UUID) {
-        guard activeID == operationID else { return }
-        active = nil
-        activeID = nil
+    private func cancelWaiter(_ waiterID: UUID) {
+        waiters.removeValue(forKey: waiterID)?.resume()
     }
 }
 #endif
