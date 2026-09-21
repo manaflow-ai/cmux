@@ -1710,10 +1710,10 @@ def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
 
 
 def test_full_suite_runs_still_require_the_suite() -> None:
-    assert run_tests_gate(tests_gate_needs("true", app_host="success")).returncode == 0
-    assert run_tests_gate(tests_gate_needs("true", app_host="skipped")).returncode == 1
-    # A missing output means the suite step did not report, which must not relax the gate.
-    assert run_tests_gate(tests_gate_needs(None, app_host="skipped")).returncode == 1
+    assert run_tests_gate(tests_gate_needs("true", macos_result="success")).returncode == 0
+    assert run_tests_gate(tests_gate_needs("true", macos_result="skipped")).returncode == 1
+    # A missing route output must never relax the aggregate platform gate.
+    assert run_tests_gate(tests_gate_needs(None, macos_result="skipped")).returncode == 1
 
 
 def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> None:
