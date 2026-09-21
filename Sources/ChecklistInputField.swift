@@ -55,6 +55,12 @@ struct ChecklistInputField: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onCommit = onCommit
         context.coordinator.onCancel = onCancel
+        // The live checklist model updates on every keystroke. While AppKit
+        // owns the field editor, leave its text and selection untouched; the
+        // editor is the source of truth until commit or cancellation.
+        if nsView.currentEditor() == nil, nsView.stringValue != initialText {
+            nsView.stringValue = initialText
+        }
         nsView.font = .systemFont(ofSize: fontSize)
         nsView.textColor = textColor
         nsView.caretColor = textColor

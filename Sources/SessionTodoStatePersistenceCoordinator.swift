@@ -63,7 +63,9 @@ final class SessionTodoStatePersistenceCoordinator {
             writeTimer = nil
         }
         guard !writeInFlight, !pending.isEmpty, writeTimer == nil, !terminalFailure else { return }
-        let delay = requestedDelay ?? .milliseconds(100)
+        // Keep the live model responsive while giving normal typing pauses
+        // enough room to collapse into one full-session snapshot write.
+        let delay = requestedDelay ?? .milliseconds(500)
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
