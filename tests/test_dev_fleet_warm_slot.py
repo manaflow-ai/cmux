@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "dev-fleet-warm-slot.py"
@@ -541,6 +542,64 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(warm_result["status"], "yielded", msg=stderr)
         record = json.loads((self.state / "slots/slot/slot.json").read_text())
         self.assertTrue(record["generation"]["quarantined"])
+
+    def test_forced_kill_still_requires_observed_process_group_settlement(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.slot.mkdir(parents=True, exist_ok=True)
+        layout.logs.mkdir(parents=True, exist_ok=True)
+        read_fd, write_fd = os.pipe()
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import signal,time;"
+                "signal.signal(signal.SIGTERM, lambda *_: None);"
+                "print('SwiftCompile forced-kill', flush=True);"
+                "time.sleep(30)"
+            ),
+        ]
+
+        def request_preempt():
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                try:
+                    inflight = json.loads(layout.inflight.read_text())
+                except (FileNotFoundError, json.JSONDecodeError):
+                    time.sleep(0.01)
+                    continue
+                if inflight.get("process_group"):
+                    os.write(write_fd, b"1")
+                    return
+                time.sleep(0.01)
+            self.fail("native launch never published process-group identity")
+
+        thread = __import__("threading").Thread(target=request_preempt)
+        thread.start()
+        try:
+            with (
+                warm_slot.visible_lease(layout, "warmer", "fixture", self.base),
+                mock.patch.object(warm_slot, "TERM_GRACE_SECONDS", 0.01),
+                mock.patch.object(warm_slot, "group_alive", return_value=True),
+            ):
+                result = warm_slot.run_native(
+                    layout,
+                    self.repo,
+                    command,
+                    fake_env(),
+                    layout.logs / "forced-kill.log",
+                    "warm",
+                    True,
+                    False,
+                    read_fd,
+                )
+        finally:
+            thread.join(timeout=5)
+            os.close(read_fd)
+            os.close(write_fd)
+
+        self.assertEqual(result["outcome"], "recovery_required")
+        self.assertTrue(result["force_killed"])
+        self.assertTrue(layout.inflight.exists())
 
     def test_interrupted_run_requires_exact_recovery(self):
         slow = [
