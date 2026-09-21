@@ -153,3 +153,17 @@ to Blacksmith cloud, and
 fails CI if a required workflow hardcodes a fleet label. Repository variables
 may point to the isolated `tart-*` pool. Legacy physical runner services remain
 disabled and their GitHub records remain offline for rollback.
+
+
+## CMUX-owned machine enrollment
+
+Persistent CMUX hardware can be enrolled for repository-owned semantic workloads without becoming a direct required-CI runner. See [fleet-enrollment.md](fleet-enrollment.md).
+
+The first reviewed role bindings are:
+
+- `cmux_macos_native_build -> cmux.macos.dev-check@1`
+- `cmux_linux_ci -> cmux.ci.guard@1`
+
+CMUX owns those workload profiles and their pass/fail semantics through `scripts/ci/cmux_workload_profile.py`. Glaeda owns the machine enrollment record, candidate eligibility, local admission, and acceptance receipt that binds the exact canonical `cmux-workload-result/v1` bytes.
+
+Enrollment does not register a GitHub runner or change repository runner variables. Required CI continues to use the policy above until a separately reviewed CI routing change promotes a fleet role.
