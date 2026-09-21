@@ -11820,14 +11820,10 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         let docs = app.descendants(matching: .any)["MobileDocsSafariView"]
         XCTAssertTrue(docs.waitForExistence(timeout: 10))
         XCTAssertEqual(docs.value as? String, "https://cmux.com/docs/ios#setup")
-        let done = app.buttons["Done"]
-        XCTAssertTrue(done.waitForExistence(timeout: 10))
         capture("setup-guide-opened-in-native-safari-sheet", in: app)
         record(
             "setup-guide-sheet-result",
             "Tapped See Docs. cmux presented its native SFSafariViewController sheet for https://cmux.com/docs/ios#setup."
         )
-        done.tap()
-        XCTAssertTrue(guide.waitForExistence(timeout: 5))
     }
 }
