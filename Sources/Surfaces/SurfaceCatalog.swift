@@ -199,6 +199,7 @@ final class SurfaceCatalog {
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
+        syncCloudTerminalTabIcons(on: machine)
         pendingRestoredProjections.remove(machine: machine)
         cloudWorkspaceProjectionCoordinator.cancel(machine: machine)
         cloudProjectionIndexDirty = true
@@ -298,6 +299,7 @@ final class SurfaceCatalog {
         }
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
+        syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         notifyChange()
         return true
@@ -310,6 +312,7 @@ final class SurfaceCatalog {
         resources[resource.id] = resource
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         resolvePendingRestoredProjections(on: resource.machine)
+        syncCloudTerminalTabIcons(on: resource.machine, affected: [resource.id])
         notifyChange()
     }
 
@@ -321,6 +324,7 @@ final class SurfaceCatalog {
         if resourceIDsByMachine[id.machine]?.isEmpty == true {
             resourceIDsByMachine[id.machine] = nil
         }
+        syncCloudTerminalTabIcons(on: id.machine, affected: [id])
         notifyChange()
     }
 
@@ -473,6 +477,7 @@ final class SurfaceCatalog {
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
         resolvePendingRestoredProjections(on: state.machine)
+        syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
         notifyChange()
         return changed
@@ -515,6 +520,7 @@ final class SurfaceCatalog {
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         cloudWorkspaceCreationCoordinator.reconcile(state)
         resolvePendingRestoredProjections(on: state.machine)
+        syncCloudTerminalTabIcons(on: state.machine, affected: changed)
         updateCloudDirectoryMetadata(on: state.machine)
         notifyChange()
         return changed
@@ -561,6 +567,7 @@ final class SurfaceCatalog {
         rebuildResourceIndex(for: machine)
         machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         resolvePendingRestoredProjections(on: machine)
+        syncCloudTerminalTabIcons(on: machine)
         updateCloudDirectoryMetadata(on: machine)
         notifyChange()
     }
@@ -1107,6 +1114,7 @@ final class SurfaceCatalog {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
+        syncCloudTerminalTabIcon(projection)
         notifyChange()
     }
 

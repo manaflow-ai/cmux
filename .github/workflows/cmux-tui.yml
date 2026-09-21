@@ -466,6 +466,19 @@ jobs:
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
+      - name: cargo fmt
+        id: rustfmt-check
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      - name: userland agent plugin package tests
+        working-directory: cmux-tui
+        # The reference plugin is an independent Cargo workspace, so the
+        # daemon workspace test does not compile it. Keep this explicit check
+        # in both hosted OS lanes.
+        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+
+
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
@@ -819,6 +832,8 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
+      # Build the exact reference plugin beside the daemon artifact.
+      build_agent_plugin: true
       build_cloudflare_relay: false
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       macos_runner: blacksmith-6vcpu-macos-15
