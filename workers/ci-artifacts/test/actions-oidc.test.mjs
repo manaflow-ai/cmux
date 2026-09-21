@@ -37,7 +37,7 @@ function token(overrides = {}, headerOverrides = {}) {
 }
 
 async function keys(request) {
-  assert.equal(new URL(request.url).href, "https://token.actions.githubusercontent.com/.well-known/jwks");
+  assert.equal(new URL(typeof request === "string" ? request : request.url).href, "https://token.actions.githubusercontent.com/.well-known/jwks");
   return Response.json({ keys: [jwk] });
 }
 
