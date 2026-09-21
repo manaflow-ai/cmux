@@ -4584,18 +4584,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !isTerminatingApp,
               didAttemptStartupSessionRestore,
               !isApplyingSessionRestore else { return }
-        let update = SessionTodoStateSnapshot(workspace: workspace)
         if todoStatePersistenceCoordinator == nil {
             todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
                 queue: sessionPersistenceQueue,
                 snapshotStore: sessionSnapshotStore,
                 fallbackSave: { [weak self] in
-                    guard let self, !self.isTerminatingApp else { return }
-                    _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+                    guard let self, !self.isTerminatingApp else { return false }
+                    return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
                 }
             )
         }
-        todoStatePersistenceCoordinator?.enqueue(update)
+        todoStatePersistenceCoordinator?.enqueue(workspace: workspace)
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
