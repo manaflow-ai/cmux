@@ -1329,8 +1329,10 @@ final class SurfaceCatalog {
     /// after the link reconnects); local resources are re-registered by the local provider
     /// with the same panel-derived key, so they resolve immediately.
     func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
-        do { try validateOwnership(of: records.map(\.resource), at: .workspace(id: workspaceID, placement: .tab)) }
-        catch { return }
+        for record in records where DockSplitStore.liveStore(containingPanel: record.panelID)?.scope != .global {
+            do { try validateOwnership(of: [record.resource], at: .workspace(id: workspaceID, placement: .tab)) }
+            catch { return }
+        }
         for record in records {
             if resources[record.resource] != nil {
                 pendingRestoredProjections.remove(panelID: record.panelID)

@@ -39,7 +39,12 @@ extension BrowserPanel {
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
-        do { try catalog.validateOwnership(of: [resource], at: .workspace(id: workspaceId, placement: .tab)) }
+        let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
+        do {
+            if !isGlobalDock {
+                try catalog.validateOwnership(of: [resource], at: .workspace(id: workspaceId, placement: .tab))
+            }
+        }
         catch { cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message); return }
         cloudAccess.retainResource(resource)
         retainTransferredSurfaceMachine(resource.machine)

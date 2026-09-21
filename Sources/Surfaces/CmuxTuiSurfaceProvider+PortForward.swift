@@ -82,9 +82,12 @@ extension CmuxTuiSurfaceProvider {
             return false
         }
         let resourceID = explicitResource ?? fallbackID
+        let isGlobalDock = DockSplitStore.liveStore(containingPanel: browser.id)?.scope == .global
+        let destinationOwned = isGlobalDock
+            || (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil
         guard resourceID.machine == machine,
               browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
-              (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil else {
+              destinationOwned else {
             browser.cloudAccess.showUnavailable(SurfaceTransferRejection.cloudMachineMismatch.message)
             return false
         }

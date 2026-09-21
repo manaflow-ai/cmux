@@ -246,10 +246,13 @@ extension SurfaceCatalog {
         let refreshedIDs = Set(refreshed.map(\.id))
         let previousIDs = Set(previous.map(\.id))
         let projectedResourceIDs = Set(projections.map(\.resource))
+        let displayPortsOwned = machineInfo(for: machine)?.hasDesktop == true
+            || previous.contains { $0.kind == .display }
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
         where candidate.id.isForwardedPort
             && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
+            && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(candidate.id.forwardedPort ?? -1))
             && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
