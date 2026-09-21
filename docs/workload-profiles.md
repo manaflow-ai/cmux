@@ -53,14 +53,15 @@ Run it and publish a canonical semantic result:
 
 ```sh
 state_root="$(mktemp -d)"
+result_path="$state_root/result.json"
 python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard \
   --generation 1 \
   --state-class cold \
   --state-root "$state_root" \
-  --result /tmp/cmux-ci-guard-result.json
+  --result "$result_path"
 ```
 
-An external execution request should also pass the frozen `--commit` and `--tree`. The runner refuses source drift and generation drift.
+An external execution request should also pass the frozen `--commit` and `--tree`. The runner refuses source drift and generation drift. File results are published only into a canonical current-user private directory; keeping the result under the profile state root satisfies that boundary and gives downstream consumers mode-`0600` canonical bytes.
 
 `cmux.macos.app-host-test-shard` has one semantic parameter:
 
