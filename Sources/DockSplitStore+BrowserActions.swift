@@ -50,8 +50,9 @@ extension DockSplitStore {
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
             if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
                 duplicatedPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
-                duplicatedPanel.cloudAccess.configure(model: model, url: url, resourceID: resource)
-                duplicatedPanel.showCloudAddress(url)
+                let configuredURL = browser.cloudRestoreURL(on: url)
+                duplicatedPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
+                duplicatedPanel.showCloudAddress(configuredURL)
                 model.connect()
             } else {
                 duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)

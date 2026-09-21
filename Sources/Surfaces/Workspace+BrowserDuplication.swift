@@ -33,8 +33,9 @@ extension Workspace {
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: id)
             if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
                 newPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
-                newPanel.cloudAccess.configure(model: model, url: url, resourceID: resource)
-                newPanel.showCloudAddress(url)
+                let configuredURL = browser.cloudRestoreURL(on: url)
+                newPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
+                newPanel.showCloudAddress(configuredURL)
                 model.connect()
             } else {
                 newPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)

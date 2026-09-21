@@ -31,7 +31,7 @@ final class CloudDisplayCoordinator {
             do {
                 var response: VMExecResult?
                 var lastError: (any Error)?
-                for attempt in 0..<20 {
+                for attempt in 0..<3 {
                     do {
                         let candidate = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
                         if candidate.exitCode == 0 {
@@ -42,7 +42,7 @@ final class CloudDisplayCoordinator {
                     } catch {
                         lastError = error
                     }
-                    if attempt < 19 { try await Task.sleep(for: .milliseconds(100)) }
+                    if attempt < 2 { try await Task.sleep(for: .milliseconds(100)) }
                 }
                 guard let response else { throw lastError ?? SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
                 guard response.exitCode == 0 else {
