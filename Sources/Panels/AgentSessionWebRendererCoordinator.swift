@@ -29,6 +29,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+    var onRunCommand: ((String) throws -> [String: Any])?
 
     func bind(
         panelId: UUID,
@@ -618,6 +619,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "provider.stop":
             try processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
+        case "terminal.runCommand":
+            let command = try request.requiredString("command")
+            guard let onRunCommand else {
+                throw AgentSessionBridgeError.providerNotReady("terminal")
+            }
+            return onRunCommand(command)
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }

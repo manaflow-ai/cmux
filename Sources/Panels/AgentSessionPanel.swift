@@ -14,6 +14,12 @@ final class AgentSessionPanel: Panel {
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
+    private(set) var pairedTerminalPanelId: UUID?
+    var onRunCommand: ((String) throws -> [String: Any])? {
+        didSet {
+            rendererSession.onRunCommand = onRunCommand
+        }
+    }
     var displayIcon: String? { "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {
@@ -69,6 +75,10 @@ final class AgentSessionPanel: Panel {
 
     func clearWorkingDirectory() {
         workingDirectory = nil
+    }
+
+    func setPairedTerminalPanelId(_ panelId: UUID?) {
+        pairedTerminalPanelId = panelId
     }
 
     private func setHasActiveProvider(_ hasActiveProvider: Bool) {

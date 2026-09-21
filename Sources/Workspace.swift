@@ -10441,8 +10441,53 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         installAgentSessionPanelSubscription(agentPanel)
+        installAgentSessionCommandRouting(agentPanel)
 
         return agentPanel
+    }
+
+    private func installAgentSessionCommandRouting(_ agentPanel: AgentSessionPanel) {
+        agentPanel.onRunCommand = { [weak self, weak agentPanel] command in
+            guard let self, let agentPanel else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            return try self.runAgentSessionCommand(command, for: agentPanel)
+        }
+    }
+
+    /// Routes composer shell commands to a terminal owned by this agent panel.
+    /// The terminal is created once and reused so stateful commands such as `cd`
+    /// remain in effect for subsequent commands.
+    private func runAgentSessionCommand(
+        _ command: String,
+        for agentPanel: AgentSessionPanel
+    ) throws -> [String: Any] {
+        let terminalPanel: TerminalPanel?
+        if let pairedTerminalPanelId = agentPanel.pairedTerminalPanelId,
+           let existing = terminalPanel(for: pairedTerminalPanelId) {
+            terminalPanel = existing
+        } else {
+            guard let paneId = paneId(forPanelId: agentPanel.id),
+                  let created = newTerminalSurface(
+                      inPane: paneId,
+                      focus: true,
+                      workingDirectory: agentPanel.workingDirectory,
+                      autoRefreshMetadata: false
+                  ) else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            agentPanel.setPairedTerminalPanelId(created.id)
+            terminalPanel = created
+        }
+
+        guard let terminalPanel,
+              terminalPanel.sendInputResult(command + "\n").accepted else {
+            throw AgentSessionBridgeError.unsupportedTransport("terminal")
+        }
+        return [
+            "accepted": true,
+            "terminalPanelId": terminalPanel.id.uuidString
+        ]
     }
 
     @discardableResult

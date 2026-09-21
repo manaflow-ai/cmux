@@ -17,6 +17,7 @@ import {
   CODEX_SUBMIT_BUTTON,
 } from "../shared/codexClassNames";
 import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
+import { commandText, composerCommandRoute } from "../shared/commandRouting";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
   computeFooterCollapse,
@@ -287,7 +288,9 @@ function SessionSurface({
   const canStart = canStartProvider(state);
   const canStop = canStopProvider(state);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const canSend = state.status === "running" && (state.input.length > 0 || attachments.length > 0);
+  const canSend =
+    (state.status === "running" && (state.input.length > 0 || attachments.length > 0)) ||
+    (attachments.length === 0 && composerCommandRoute(state.input) !== null);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
@@ -333,12 +336,23 @@ function SessionSurface({
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
     const currentInput = editorRef.current?.getText() ?? state.input;
-    const canSubmit = state.status === "running" && (currentInput.length > 0 || attachments.length > 0);
+    const canSubmit =
+      (state.status === "running" && (currentInput.length > 0 || attachments.length > 0)) ||
+      (attachments.length === 0 && composerCommandRoute(currentInput) !== null);
     if (!canSubmit) {
       return;
     }
     if (currentInput !== state.input) {
       dispatch({ type: "setInput", input: currentInput });
+    }
+    const commandRoute = attachments.length === 0 ? composerCommandRoute(currentInput) : null;
+    if (commandRoute) {
+      void callNative("terminal.runCommand", { command: commandText(currentInput) })
+        .then(() => dispatch({ type: "setInput", input: "" }))
+        .catch((error) => {
+          dispatch({ type: "failed", message: messageForError(error, state) });
+        });
+      return;
     }
     setMenuKind(null);
     setMenuQuery("");

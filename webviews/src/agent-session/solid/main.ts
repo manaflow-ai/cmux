@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { activityGlyph } from "../shared/activityGlyph";
-import { subscribeToAgentEvents } from "../shared/bridge";
+import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -32,6 +32,7 @@ import {
   canStartProvider,
   canStopProvider,
   loadInitialData,
+  messageForError,
   reduceSession,
   sendInput,
   selectProvider,
@@ -42,6 +43,7 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
+import { commandText, composerCommandRoute } from "../shared/commandRouting";
 import { applyCodexDocumentMetadata } from "../shared/theme";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
@@ -107,7 +109,8 @@ function SessionSurface({
   const provider = () => state().providers.find((item) => item.id === state().selectedProviderId);
   const canStart = () => canStartProvider(state());
   const canStop = () => canStopProvider(state());
-  const canSend = () => state().status === "running" && state().input.length > 0;
+  const canSend = () =>
+    (state().status === "running" && state().input.length > 0) || composerCommandRoute(state().input) !== null;
   const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
@@ -152,6 +155,13 @@ function SessionSurface({
   form.className = "w-full min-w-0";
   form.addEventListener("submit", (event) => {
     event.preventDefault();
+    const input = state().input;
+    if (composerCommandRoute(input)) {
+      void callNative("terminal.runCommand", { command: commandText(input) })
+        .then(() => dispatch({ type: "setInput", input: "" }))
+        .catch((error) => dispatch({ type: "failed", message: messageForError(error, state()) }));
+      return;
+    }
     void sendInput(state(), dispatch);
   });
   composerStack.append(form);
@@ -186,6 +196,13 @@ function SessionSurface({
       return;
     }
     event.preventDefault();
+    const input = state().input;
+    if (composerCommandRoute(input)) {
+      void callNative("terminal.runCommand", { command: commandText(input) })
+        .then(() => dispatch({ type: "setInput", input: "" }))
+        .catch((error) => dispatch({ type: "failed", message: messageForError(error, state()) }));
+      return;
+    }
     void sendInput(state(), dispatch);
   });
   composerBody.append(textarea);
