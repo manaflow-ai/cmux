@@ -1,3 +1,5 @@
+import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 
 extension ComputerUseRuntimeService {
