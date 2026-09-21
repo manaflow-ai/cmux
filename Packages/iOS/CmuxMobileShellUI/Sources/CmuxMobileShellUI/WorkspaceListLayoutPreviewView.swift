@@ -6,6 +6,26 @@ import CmuxMobileSupport
 import Observation
 import SwiftUI
 
+private actor WorkspaceListPreviewRefreshGate {
+    private var completions: [UUID: AsyncStream<Void>.Continuation] = [:]
+
+    func wait() async {
+        let (stream, completion) = AsyncStream<Void>.makeStream()
+        let refreshID = UUID()
+        completions[refreshID] = completion
+        defer { completions.removeValue(forKey: refreshID) }
+        for await _ in stream { break }
+    }
+
+    func finish() {
+        let currentCompletions = Array(completions.values)
+        completions.removeAll()
+        for completion in currentCompletions {
+            completion.finish()
+        }
+    }
+}
+
 /// Owns the mutable rows and live-update stimulus for the DEBUG preview.
 @MainActor
 @Observable
@@ -30,31 +50,22 @@ private final class WorkspaceListLayoutPreviewModel {
     var workspaces: [MobileWorkspacePreview]
     var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
+    private let refreshGate = WorkspaceListPreviewRefreshGate()
     var refreshIsWaiting = false
-    @ObservationIgnored private var refreshCompletions: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     func waitForRefreshReleaseIfNeeded() async {
         guard ProcessInfo.processInfo.environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH"
         ] == "1" else { return }
-        let (stream, completion) = AsyncStream<Void>.makeStream()
-        let refreshID = UUID()
-        refreshCompletions[refreshID] = completion
         refreshIsWaiting = true
-        defer {
-            refreshCompletions.removeValue(forKey: refreshID)
-            refreshIsWaiting = !refreshCompletions.isEmpty
-        }
-        for await _ in stream { break }
+        await refreshGate.wait()
+        refreshIsWaiting = false
     }
 
     func finishRefresh() {
-        let completions = Array(refreshCompletions.values)
-        refreshCompletions.removeAll()
         refreshIsWaiting = false
-        for completion in completions {
-            completion.finish()
-        }
+        let refreshGate = refreshGate
+        Task { await refreshGate.finish() }
     }
 
     /// Creates a preview model with an optional continuous update feed.
