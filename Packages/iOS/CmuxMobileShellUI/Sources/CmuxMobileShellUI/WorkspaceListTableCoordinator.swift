@@ -1446,13 +1446,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .emptyWorkspaceList:
             // Keep the row alive while its selected Mac emits an intermediate
             // empty snapshot, so an in-flight retry survives table updates.
-            // Rebuild when the connection context changes because the closure
-            // then targets a different Mac/session.
-            return previous.host != next.host
-                || previous.connectionStatus != next.connectionStatus
-                || previous.connectionRequiresReauth != next.connectionRequiresReauth
-                || previous.connectionError != next.connectionError
-                || (previous.refresh != nil) != (next.refresh != nil)
+            // The refresh closure is owned by the shell store, so connection
+            // status and error updates do not change the action's target. Only
+            // adding or removing the action changes the row's structure.
+            return (previous.refresh != nil) != (next.refresh != nil)
         }
     }
 
