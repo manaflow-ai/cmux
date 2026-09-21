@@ -1790,6 +1790,9 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         let app = try launchConnectedApp(
             port: port,
+            environment: [
+                "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+            ],
             launchArguments: [
                 "-dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId",
                 "connections.v2",
