@@ -49,7 +49,14 @@ struct cmuxApp: App {
         }
         let v3Catalog = v3.map { _ in MobileIrohRouteCatalog() }
         let v3Discovery = v3.flatMap { runtime in
-            v3Catalog.map { MobileV3DiscoveryProvider(runtime: runtime, preferredTag: "default", routeCatalog: $0) }
+            v3Catalog.map {
+                MobileV3DiscoveryProvider(
+                    runtime: runtime,
+                    preferredTag: MobileIOSBuildScope.current()?.value ?? "default",
+                    compatibilityPolicy: buildCompatibilityPolicy,
+                    routeCatalog: $0
+                )
+            }
         }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on

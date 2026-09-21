@@ -989,8 +989,11 @@ final class MobileHostService {
         case .stackBearer:
             guard requiresAuthorization(method: request.method) else { return nil }
             return await stackAuthorization(request)
-        case .irohAdmission, .v3Admission:
+        case .irohAdmission:
             return nil
+        case .v3Admission:
+            guard let error = Self.v3ControlRPCError(for: request) else { return nil }
+            return .failure(error)
         }
     }
 
@@ -1280,6 +1283,33 @@ final class MobileHostService {
         default:
             break
         }
+    }
+
+    /// A v3 control lane is authorized for the `connect` action only. Feature
+    /// lanes carry the narrower terminal/artifact/simulator grants, so control
+    /// RPCs that mutate or stream feature data must not bypass those grants.
+    nonisolated private static func v3ControlRPCError(for request: MobileHostRPCRequest) -> MobileHostRPCError? {
+        let laneOnlyMethods: Set<String> = [
+            "mobile.terminal.input", "terminal.input",
+            "mobile.terminal.paste", "terminal.paste",
+            "mobile.terminal.paste_image", "terminal.paste_image",
+            "mobile.terminal.replay", "terminal.replay",
+            "mobile.terminal.viewport", "terminal.viewport",
+            "mobile.terminal.scroll", "terminal.scroll",
+            "mobile.terminal.artifact.scan", "mobile.terminal.artifact.stat",
+            "mobile.terminal.artifact.fetch", "mobile.terminal.artifact.thumbnail",
+            "mobile.terminal.artifact.list",
+            "mobile.simulator.input.pointer", "mobile.simulator.input.text",
+            "mobile.simulator.input.button", "mobile.simulator.stream.start",
+            "mobile.simulator.stream.stop",
+            "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
+            "mobile.panel.artifact.thumbnail",
+        ]
+        guard laneOnlyMethods.contains(request.method) else { return nil }
+        return MobileHostRPCError(
+            code: "v3_lane_required",
+            message: "This operation requires its authorized v3 feature lane."
+        )
     }
 
     nonisolated private static func requiresAuthorization(method: String) -> Bool {

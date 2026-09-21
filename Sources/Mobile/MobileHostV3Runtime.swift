@@ -202,6 +202,13 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
             userID: { try await auth.authenticatedSessionSnapshot().accountID }
         )
         let grants = CmxV3HTTPGrantProvider(configuration: grantConfiguration)
+        let metadata = try CmxV3DeviceMetadata(
+            platform: .mac,
+            instanceTag: MobileHostIdentity.instanceTag(),
+            displayName: MobileHostIdentity.instanceDisplayName() ?? Host.current().localizedName ?? "Mac",
+            pairingEnabled: MobileHostService.isListeningEnabled,
+            clientNamespace: "mac:\(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.debug")"
+        )
         let directAddresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
             .filter {
                 !$0.isEmpty && !$0.contains("/p2p/")
@@ -209,7 +216,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
                     && !$0.contains("/ip6/::/")
             }
             .map { "\($0)/p2p/\(endpoint.peerId())" }
-        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses)
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses, metadata: metadata)
         let relayAddresses = try await CmxV3RelayReservation.reserve(
             endpoint: endpoint,
             grants: grants,
@@ -217,7 +224,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
             addresses: configuration.relayAddresses
         )
         let addresses = directAddresses + relayAddresses
-        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: addresses)
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: addresses, metadata: metadata)
         guard generation == token, desiredScope == next, isNetworkingAllowed else {
             endpoint.close()
             throw Error.stale

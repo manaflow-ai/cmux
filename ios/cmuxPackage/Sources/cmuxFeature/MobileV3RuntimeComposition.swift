@@ -198,7 +198,14 @@ public actor MobileV3RuntimeComposition {
             }
         )
         let grants = CmxV3HTTPGrantProvider(configuration: provider)
-        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses)
+        let metadata = try CmxV3DeviceMetadata(
+            platform: .ios,
+            instanceTag: MobileIOSBuildScope.current()?.value ?? "default",
+            displayName: UIDevice.current.name,
+            pairingEnabled: false,
+            clientNamespace: "ios:\(Bundle.main.bundleIdentifier ?? "dev.cmux.ios")"
+        )
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses, metadata: metadata)
         let relayAddresses = try await CmxV3RelayReservation.reserve(
             endpoint: endpoint,
             grants: grants,
@@ -206,7 +213,7 @@ public actor MobileV3RuntimeComposition {
             addresses: configuration.relayAddresses
         )
         let advertisedAddresses = directAddresses + relayAddresses
-        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: advertisedAddresses)
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: advertisedAddresses, metadata: metadata)
         guard desiredScope == next else {
             endpoint.close()
             throw Error.scopeChanged
