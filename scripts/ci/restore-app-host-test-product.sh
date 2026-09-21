@@ -1,5 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+restore_started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+record_restore_receipt() {
+  local status="$?"
+  local outcome="failure"
+  local elapsed
+  trap - EXIT
+  if [ "$status" -eq 0 ]; then
+    outcome="success"
+  fi
+  elapsed="$(python3 -c 'import sys,time; print(round((time.monotonic_ns()-int(sys.argv[1]))/1_000_000_000, 3))' "$restore_started_ns")" || elapsed="0"
+  python3 scripts/ci/app_host_consumer_receipt.py restore --seconds "$elapsed" --outcome "$outcome" || true
+  exit "$status"
+}
+trap record_restore_receipt EXIT
 if [ "${CMUX_LAYER_RESTORED:-}" = "true" ]; then
   # Layer assembly already verified provider and inner archive integrity. Keep
   # the real producer warning evidence and the ordinary restore validations.
