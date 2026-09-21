@@ -208,8 +208,52 @@ daemon that is valid for it is reachable ~0.6 s later, and a memory-preserving
 resume is ~0.14 s end to end (`resumeDaemonListenMs` is measured from before
 `start()`, so the 141 ms already contains the 92 ms start call; the first
 probe after `start()` returns already sees the listener). The supervisor's
-1 s poll (`cmux-devbox-boot`) is visible as the 0.33 s between first-exec and
-daemon-process; daemon start to listen is ~0.30 s.
+1 s poll (`cmux-devbox-boot`, before epoch 2026-09-21-r1) is visible as the
+0.33 s between first-exec and daemon-process; daemon start to listen is ~0.30 s.
+
+#### Epoch 2026-09-21-r1 receipt (#13312)
+
+The promoted image bakes the guest tools and runs the supervisor on a 100 ms
+tick while parked or until its daemon is bound, 1 s afterwards. Two readings
+of this benchmark, both md; raw files beside this document.
+
+Promotion-time run on the new default `sh-2d4fcd3e…`, quiet provider
+(2026-09-21 02:54Z, n=5, `floor-md-2026-09-21-r1-promotion.json`): allocation
+319 ms, first exec 389 ms, **daemon listening and bound 675 ms (620–719)**,
+first exec → bound listener 286 ms, against 1214 ms and 632 ms in the table
+above (measured earlier on `sh-397d9f1b…`, another md image of the same
+2026-09-10-r2 epoch).
+
+Same-session A/B of the previous default (`sh-0b6a5ee6…`, epoch 2026-09-10-r2)
+and the promoted one, alternating runs of 5 trials (2026-09-21 05:04–05:16Z;
+`floor-md-2026-09-10-r2-{a,b,c}.json`, `floor-md-2026-09-21-r1-{a,b,c}.json`).
+The provider was noisy in that window (allocation alone ranged 0.27–1.3 s
+on both images), so the medians carry the comparison:
+
+| Stage, md, p50 ms (min–max) | epoch 2026-09-10-r2, n=15 | epoch 2026-09-21-r1, n=15 |
+| --- | --- | --- |
+| `vms.create` returns (allocation) | 596 (272–928) | 514 (284–1312) |
+| first successful guest exec | 936 (402–2086) | 838 (429–2227) |
+| daemon process running | 1326 (667–2872) | 948 (429–2227) |
+| **daemon listening on 1337, bound to this machine** | 1411 (729–3654) | 1026 (714–2227) |
+| first exec → bound listener (image-only part) | 307 (0–3212) | 316 (0–756) |
+| daemon listening after resume (incl. `start()`) | 650 (129–1544) | 594 (126–904) |
+| `bash -lc true` as work user (guest clock) | 475 (329–542) | 497 (438–536) |
+| interactive `bash -il` + ble.sh under a pty (guest clock) | 1067 (1026–1279) | 1106 (1028–1281) |
+
+Per run (median of 5 trials), in the order they ran:
+- old-1: allocation 356, first exec 896, bound listener 1682, resume 682
+- new-1: allocation 673, first exec 884, bound listener 1201, resume 685
+- old-2: allocation 596, first exec 936, bound listener 1326, resume 188
+- new-2: allocation 360, first exec 512, bound listener 1026, resume 226
+- old-3: allocation 721, first exec 1007, bound listener 1411, resume 650
+- new-3: allocation 647, first exec 838, bound listener 926, resume 594
+
+Under the same conditions the bound listener arrives about 0.39 s
+earlier at p50 on the promoted image. The image-only part (first exec → bound
+listener) does not separate cleanly under this noise: a late first exec often
+finds the listener already up, which reads as 0. Attach repair and first prompt
+are control-plane stages (`bench-vm-startup.mjs`, #13326), not this benchmark's.
 
 ### 4.4 Transport benchmark (`bench-private-link.ts`, md, n=3)
 
@@ -314,9 +358,9 @@ Each item lists the expected saving on the fresh-create path (p50), the
 proof required before claiming it, and ownership overlap.
 
 1. **Attach: one exec, no re-installs, readiness by dial** (web driver). Merge announce + settle + probe + devices + trusted-listener into one script; skip the shim/opener, hooks and reporter checks when `/etc/cmux/image-stamp` epoch ≥ the epoch that bakes them; skip the `getStatus` probe for rows created in the last minute; move lease/usage/metadata writes to `after()` where the response does not depend on them. Expected: server p50 1.12 s → ~0.35–0.45 s, p95 15 s → ≤ 2 s. Proof: `bench-vm-startup.mjs` before/after (n ≥ 10 staging, n ≥ 5 production) plus PostHog open_attach p50/p95 by build; provider tests asserting the exec count. Overlap: #12672 (create/attach outcome) — coordinate on the driver; #12537 owns the UI.
-2. **Create: allocation only** (image + web). Bake `/usr/local/bin/cmux` shim, the guest browser openers (`guestBrowser.ts`) and the `cmux-resource-stats` unit into the devbox (add them to `devboxSourceDigest`), drop `installGuestCli` and `ensureResourceReporter` from create (keep the heal-time install for pre-epoch images), accept `displayName` in `POST /api/vm` and set it in the create transaction, make the CLI's rename fire-and-forget. Expected: provider_create 1.30 s → ~0.5 s; named-create tail −14 s. Proof: Server-Timing provider_create before/after; regression test that create issues zero guest execs on a current-epoch image. Overlap: #12672.
+2. **Create: allocation only** (image + web). Bake `/usr/local/bin/cmux` shim, the guest browser openers (`guestBrowser.ts`) and the `cmux-resource-stats` unit into the devbox (add them to `devboxSourceDigest`), drop `installGuestCli` and `ensureResourceReporter` from create (keep the heal-time install for pre-epoch images), accept `displayName` in `POST /api/vm` and set it in the create transaction, make the CLI's rename fire-and-forget. Expected: provider_create 1.30 s → ~0.5 s; named-create tail −14 s. Proof: Server-Timing provider_create before/after; regression test that create issues zero guest execs on a current-epoch image. Overlap: #12672. *Status:* the image half landed in #13312 (epoch 2026-09-21-r1, promoted 2026-09-21; `devboxSource` schema 3 covers the tool bytes); the driver half, skipping the installs when the epoch proves the bake, is #13326.
 3. **Create response carries the addresses; client dials from them; hub in parallel** (web + Mac). `POST /api/vm` returns the private addresses the driver already persists at create (they are in the row's provider metadata and on the list and attach routes today, not on the create response); `vm new` then dials from them; pin the hub and probe the route while the create is in flight; dial `--carrier` immediately and call attach-endpoint only when the dial fails N times (repair). Persist the route for later opens (already done). Expected −0.75 to −1.5 s. Proof: `cli.vm.timing` stages on a tagged build; native phases from `CloudOperationRecorder` (`open.tunnel/route/connect`). Overlap: #12537 (readiness presentation), #11008 (deadlines).
-4. **Guest supervisor: start the daemon on resume** (image). Replace the 1 s tick for the clone check with an immediate check at supervisor start plus a metadata/instance-id watch, keep the 30 s announce loop. Expected −0.3 s. Proof: `bench-freestyle-floor.ts` daemonListenMs p50 1.21 s → ≤ 0.9 s on the promoted image.
+4. **Guest supervisor: start the daemon on resume** (image). Replace the 1 s tick for the clone check with an immediate check at supervisor start plus a metadata/instance-id watch, keep the 30 s announce loop. Expected −0.3 s. Proof: `bench-freestyle-floor.ts` daemonListenMs p50 1.21 s → ≤ 0.9 s on the promoted image. *Status:* landed in #13312 as an adaptive supervisor tick (100 ms while parked or until the daemon is bound, 1 s in the steady state; the metadata service offers nothing to watch): 675 ms p50 on the promoted image at promotion time, and about 0.39 s ahead of the previous default in the same-session A/B (4.3).
 5. **Guest shell: prompt in ≤ 0.5 s** (image). Profile `/etc/profile.d` + bashrc chain; defer ble.sh sourcing until after the first prompt (or precompile), keep ghost text, prompt name and agent configs. Expected −0.5 to −0.8 s per terminal. Proof: floor bench loginShell/interactivePty before/after; `bench-private-link.ts` runToPromptMs; parity checks for ghost text and prompt name.
 6. **Resume: single heal, fast poll** (web). Skip `ensureCmuxTuiRunning` on resume when the pinned daemon is present; poll `getStatus` at 200 ms; let `openCmuxRemote` do the one exec from item 1. Expected resume-attach 1.7–2.4 s → ~0.5 s. Proof: bench resumeAttachMs.
 7. **Control-plane tails** (ops + web). Measure and remove cold starts for the cloud routes (Fluid compute/keep-warm; verify with the exec p90 in PostHog), batch DB writes, keep `resolve_network` off the create path for returning users (row already holds the network id). Expected p90 −2 s.
@@ -348,6 +392,9 @@ owns it; it is the largest single tail and must land regardless).
 cd web && bun install --frozen-lockfile
 # Provider floor (needs FREESTYLE_API_KEY from ~/.secrets/cmux.env; creates and deletes its own VPC and machines)
 bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3 --out /tmp/floor.json
+# Same-session A/B of two md images (the 4.3 receipt); alternate the pair, more than once
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --image sh-0b6a5ee6edfd490795e0e5d556f5adf5 --out /tmp/floor-old.json
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --image sh-2d4fcd3e944f494da99dba572f5eb516 --out /tmp/floor-new.json
 # Transport path with the Nightly-bundled client (or --client <path to cmux-tui>)
 bun scripts/cloud-vm/bench-private-link.ts --trials 3 --out /tmp/link.json
 # Control plane (throwaway Pro user; Vercel env pulled like the smoke script)
