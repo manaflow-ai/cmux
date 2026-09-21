@@ -39215,7 +39215,7 @@ export default CMUXSessionRestore;
     /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
     /// the essential send — a stalled probe degrades to ambient addressing,
     /// never to a starved notification.
-    private func resolvedAttentionDeliveryTarget(
+    func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
         client: SocketClient,
