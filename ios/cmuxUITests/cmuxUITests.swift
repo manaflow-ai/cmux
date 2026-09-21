@@ -1781,23 +1781,14 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
-    /// Keep a real Workspace Detail terminal mounted while its mock Mac drops
-    /// offline. The dock probe and kept screenshot prove that the composer
-    /// still reserves the device's bottom safe area in the disconnected state.
+    /// Keep a real Workspace Detail terminal mounted while its foreground Mac
+    /// becomes unavailable. The dock probe and kept screenshot prove that the
+    /// composer still reserves the device's bottom safe area in that state.
     @MainActor
     func testDisconnectedTerminalComposerStaysAboveSafeArea() async throws {
-        let server = try MobileSyncMockHostServer()
-        let port = try await server.start()
-        let app = try launchConnectedApp(
-            port: port,
-            environment: [
-                "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-            ],
-            launchArguments: [
-                "-dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId",
-                "connections.v2",
-            ]
-        )
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED_TERMINAL": "1",
+        ])
         defer { app.terminate() }
 
         XCTAssertTrue(
@@ -1807,7 +1798,6 @@ final class cmuxUITests: XCTestCase {
         let composerField = app.descendants(matching: .any)[Composer.field]
         XCTAssertTrue(composerField.waitForExistence(timeout: 8))
 
-        server.stop()
         let title = workspaceTitleElement(in: app)
         let disconnected = XCTNSPredicateExpectation(
             predicate: NSPredicate { object, _ in

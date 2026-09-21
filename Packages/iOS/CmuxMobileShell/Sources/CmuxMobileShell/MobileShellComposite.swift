@@ -8317,6 +8317,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         setForegroundWorkspaceState(workspaces: workspaces, groups: groups, merge: false)
     }
 
+    /// Test seam for the retained-detail path: keep the foreground workspace
+    /// snapshot mounted while its Mac reports unavailable.
+    public func markForegroundMacUnavailableForTesting() {
+        markMacConnectionUnavailable()
+    }
+
     /// Test seam: seed the full per-Mac workspace source of truth so aggregation
     /// edge cases can be tested without opening live secondary transports.
     func setWorkspaceStatesForTesting(

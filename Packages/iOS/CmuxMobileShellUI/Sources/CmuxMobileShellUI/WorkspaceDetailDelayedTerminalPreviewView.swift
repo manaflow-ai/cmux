@@ -70,6 +70,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             store.replaceForegroundWorkspaceState([workspace])
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
+            if Self.marksTerminalDisconnected {
+                store.markForegroundMacUnavailableForTesting()
+            }
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
@@ -82,6 +85,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
 
     private static var showsThemeParitySequence: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_THEME_PARITY_PREVIEW"] == "1"
+    }
+
+    private static var marksTerminalDisconnected: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED_TERMINAL"] == "1"
     }
 
     private func runThemeParitySequence() async {
