@@ -9046,14 +9046,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.windowsThatReportedVisible.add(window)
         }
         terminalSurface?.setRendererWindowVisible(
-            TerminalRendererWindowVisibility.isVisible(
+            TerminalRendererWindowVisibility(
                 occlusionVisible: occlusionVisible,
                 windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
                 isWindowVisible: window.isVisible,
                 isMiniaturized: window.isMiniaturized,
                 isOnActiveSpace: window.isOnActiveSpace,
                 isKeyWindow: window.isKeyWindow
-            )
+            ).isVisible
         )
     }
 
@@ -13071,7 +13071,10 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // AppKit owns the style (Show scroll bars preference); the policy owns presence.
+        // AppKit owns style and transient visibility, including Automatic's
+        // input-device choice. Do not set alpha or add a separate hide timer.
+        // autohidesScrollers controls document-fit removal, not overlay fading;
+        // disabling it keeps the legacy gutter stable without pinning overlays.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
         return didChange
@@ -13147,11 +13150,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        TerminalScrollBarPresencePolicy.isPresent(
+        TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
             hasScrollback: surfaceHasScrollback()
-        )
+        ).isPresent
     }
 
 }

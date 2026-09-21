@@ -3,7 +3,7 @@
  * `hexclave-refresh-<project>--<suffix>` (with a `__Host-` prefix on secure
  * origins); older sessions still carry `stack-refresh-<project>` or the bare
  * `stack-refresh`. Mirrors `_getRefreshTokenCookieNamePatterns` in
- * `@stackframe/js`, so the edge gate and the session key agree with the SDK.
+ * `@hexclave/js`, so the edge gate and the session key agree with the SDK.
  */
 export type CookieLike = { readonly name: string; readonly value: string };
 

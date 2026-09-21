@@ -122,7 +122,7 @@ final class CloudOperationRecorder {
         _ work: () async throws -> T
     ) async rethrows -> T {
         let root = await begin(operation, foreground: foreground, file: file, line: line)
-        return try await CloudOperationContext.$current.withValue(root) {
+        return try await CloudOperationContext.withCurrent(root) {
             do {
                 let value = try await work()
                 await finish(root)
