@@ -104,40 +104,32 @@ struct ControlBoundedHopTests {
         let clock = TestSocketRecoveryClock()
         let probe = BodyProbe()
         let hop = ControlBoundedHop(deadlineMilliseconds: 10_000, clock: clock)
-        let bodyStarted = DispatchSemaphore(value: 0)
+        // The body signals its start through an async stream the test awaits,
+        // and is held inside `running` by a semaphore it waits on from its own
+        // GCD thread (never from an async context).
+        let (bodyStarted, bodyStartedContinuation) = AsyncStream<Void>.makeStream()
         let bodyMayFinish = DispatchSemaphore(value: 0)
 
-        let outcome = await withTaskGroup(of: ControlBoundedHopOutcome<Int>?.self) { group in
-            group.addTask {
-                await hop.run(
-                    schedule: { job in
-                        DispatchQueue.global(qos: .utility).async(execute: job)
-                    },
-                    body: { () -> Int in
-                        bodyStarted.signal()
-                        // Test-only: hold the body inside `running` until the
-                        // deadline has been observed.
-                        bodyMayFinish.wait()
-                        probe.record()
-                        return 2
-                    }
-                )
+        async let outcome = hop.run(
+            schedule: { job in
+                DispatchQueue.global(qos: .utility).async(execute: job)
+            },
+            body: { () -> Int in
+                bodyStartedContinuation.yield(())
+                bodyStartedContinuation.finish()
+                bodyMayFinish.wait()
+                probe.record()
+                return 2
             }
-            group.addTask {
-                // Fire the deadline only once the body is provably running.
-                bodyStarted.wait()
-                clock.advance()
-                return nil
-            }
-            var outcome: ControlBoundedHopOutcome<Int>?
-            for await result in group {
-                if let result { outcome = result }
-            }
-            return outcome
-        }
+        )
+        var startedIterator = bodyStarted.makeAsyncIterator()
+        _ = await startedIterator.next()
+        // Fire the deadline only once the body is provably running.
+        clock.advance()
+        let result = await outcome
 
-        guard case .timedOutWhileRunning? = outcome else {
-            Issue.record("expected a running-body timeout, got \(String(describing: outcome))")
+        guard case .timedOutWhileRunning = result else {
+            Issue.record("expected a running-body timeout, got \(result)")
             bodyMayFinish.signal()
             return
         }
