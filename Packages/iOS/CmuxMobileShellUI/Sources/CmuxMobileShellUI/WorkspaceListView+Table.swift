@@ -83,10 +83,13 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
-        let emptyStateHost = host
+        let emptyStateMacDeviceID = store?.connectedMacDeviceID
+        let emptyStateMacInstanceTag = store?.connectedMacInstanceTag
         let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
             {
-                store.connectedHostName == emptyStateHost && store.workspaces.isEmpty
+                store.connectedMacDeviceID == emptyStateMacDeviceID
+                    && store.connectedMacInstanceTag == emptyStateMacInstanceTag
+                    && store.workspaces.isEmpty
             }
         }
         return WorkspaceListTable(
@@ -104,6 +107,8 @@ extension WorkspaceListView {
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,
             unreadBadgeDiameter: unreadBadgeDiameter,
             connectionStatus: connectionStatus,
+            workspaceOwnerID: emptyStateMacDeviceID,
+            workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,

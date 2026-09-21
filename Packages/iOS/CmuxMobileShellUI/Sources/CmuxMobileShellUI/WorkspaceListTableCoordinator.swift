@@ -29,7 +29,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
-        case emptyWorkspaceList(hasRetry: Bool)
+        case emptyWorkspaceList(hasRetry: Bool, ownerID: String?, instanceTag: String?)
     }
 
     private struct HeightCacheKey: Hashable {
@@ -1352,7 +1352,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
         case .emptyWorkspaceList:
-            kind = .emptyWorkspaceList(hasRetry: configuration.refresh != nil)
+            kind = .emptyWorkspaceList(
+                hasRetry: configuration.refresh != nil,
+                ownerID: configuration.workspaceOwnerID,
+                instanceTag: configuration.workspaceOwnerInstanceTag
+            )
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1471,7 +1475,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // The refresh closure is owned by the shell store, so connection
             // status and error updates do not change the action's target. Only
             // adding or removing the action changes the row's structure.
-            return previous.host != next.host
+            return previous.workspaceOwnerID != next.workspaceOwnerID
+                || previous.workspaceOwnerInstanceTag != next.workspaceOwnerInstanceTag
                 || (previous.refresh != nil) != (next.refresh != nil)
         }
     }
