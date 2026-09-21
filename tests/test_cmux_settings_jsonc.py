@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -257,6 +258,29 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("intermediate key 'app' is not an object", result.stderr)
             self.assertEqual(config.read_text(encoding="utf-8"), source)
+
+    def test_helper_refuses_while_shared_writer_lock_is_held(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            source = '{"app":{"appearance":"dark"}}\n'
+            config.write_text(source, encoding="utf-8")
+            lock_path = Path(str(config.resolve()) + ".cmux-write.lock")
+            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                result = self.run_helper(
+                    config,
+                    "set",
+                    "app.appearance",
+                    "light",
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("another cmux config write is in progress", result.stderr)
+                self.assertEqual(config.read_text(encoding="utf-8"), source)
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
 
     @staticmethod
     def strip_jsonc_for_test(text: str) -> str:
