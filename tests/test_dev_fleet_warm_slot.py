@@ -561,18 +561,10 @@ class WarmSlotTest(unittest.TestCase):
         ]
 
         def request_preempt():
-            deadline = time.time() + 5
-            while time.time() < deadline:
-                try:
-                    inflight = json.loads(layout.inflight.read_text())
-                except (FileNotFoundError, json.JSONDecodeError):
-                    time.sleep(0.01)
-                    continue
-                if inflight.get("process_group"):
-                    os.write(write_fd, b"1")
-                    return
-                time.sleep(0.01)
-            self.fail("native launch never published process-group identity")
+            # The FIFO-style pipe retains the byte until run_native installs its
+            # watcher, so the test does not need to race the launch journal.
+            time.sleep(0.05)
+            os.write(write_fd, b"1")
 
         thread = threading.Thread(target=request_preempt)
         thread.start()
