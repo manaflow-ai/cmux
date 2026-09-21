@@ -15806,10 +15806,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            guard !Task.isCancelled,
-                  self?.pullToRefreshGeneration == generation,
-                  self?.connectionState == .connected,
-                  self?.remoteClient != nil {
+            if !Task.isCancelled,
+               self?.pullToRefreshGeneration == generation,
+               self?.connectionState == .connected,
+               self?.remoteClient != nil {
                 // Reconnection/discovery has its own coalesced, cancellable
                 // owner. An offline saved Mac must not hold the foreground
                 // refresh spinner (or terminal navigation) until a dial timeout.
