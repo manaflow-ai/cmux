@@ -18,6 +18,7 @@ PRODUCER = ROOT / ".github/workflows/persistent-macos-compile.yml"
 ROUTER = ROOT / ".github/workflows/persistent-macos-router.yml"
 PROFILE = ROOT / "glaeda.apple.json"
 DRIVER = ROOT / "scripts/ci/run-persistent-mac-compile.py"
+SEMANTIC_ENTRYPOINT = ROOT / "scripts/ci/persistent-mac-semantic-entrypoint.sh"
 
 
 spec = importlib.util.spec_from_file_location("persistent_mac_route", ROUTE)
@@ -202,6 +203,7 @@ class WorkflowContractTests(unittest.TestCase):
         cls.producer = PRODUCER.read_text()
         cls.router = ROUTER.read_text()
         cls.driver = DRIVER.read_text()
+        cls.semantic_entrypoint = SEMANTIC_ENTRYPOINT.read_text()
         cls.profile = json.loads(PROFILE.read_text())
 
     def test_producer_is_manual_dedicated_and_credential_minimized(self):
@@ -221,6 +223,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("secrets.", self.producer)
         self.assertNotIn("actions/checkout@", self.producer)
         self.assertRegex(self.producer, r"(?m)^      GLAEDA_REF: [a-f0-9]{40}$")
+        self.assertIn("cmux-workload-result.json", self.producer)
+        self.assertIn("semantic profile:", self.producer)
 
     def test_dispatch_authority_is_default_branch_only(self):
         self.assertIn("  workflow_run:", self.router)
@@ -263,6 +267,10 @@ class WorkflowContractTests(unittest.TestCase):
             "  app-host-unit-tests:", 1
         )[0]
         self.assertIn("persistent producer source identity mismatch", admission)
+        self.assertIn("persistent semantic profile identity mismatch", admission)
+        self.assertIn("persistent semantic validator mismatch", admission)
+        self.assertIn("persistent semantic cleanup incomplete", admission)
+        self.assertIn("persistent semantic Xcode identity mismatch", admission)
         self.assertIn("Package.resolved identity mismatch", admission)
         self.assertIn("submodule identity mismatch", admission)
         self.assertIn("Xcode identity mismatch", admission)
@@ -274,29 +282,86 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("macos-compile-admission-metrics-", admission)
         self.assertIn('"classification": classification', admission)
 
-    def test_glaeda_profile_owns_native_cache_paths_but_not_result_authority(self):
+    def test_glaeda_owns_native_state_while_cmux_owns_compile_semantics(self):
         profile = self.profile["profiles"]["ci-compile-admission"]
         self.assertEqual(profile["engine"], "script")
         self.assertEqual(
             self.profile["cache_policies"]["ci-compile-admission"],
             "native",
         )
+        self.assertNotIn("preparations", self.profile)
         self.assertEqual(
-            self.profile["preparations"]["ci-compile-admission"]["engine"],
-            "xcode",
+            profile["executable"],
+            "scripts/ci/persistent-mac-semantic-entrypoint.sh",
         )
-        self.assertIn("{derived_data}", profile["arguments"])
-        self.assertIn("{source_packages}", profile["arguments"])
-        self.assertIn("{module_cache}", profile["environment"]["CMUX_CI_MODULE_CACHE_PATH"])
-        self.assertEqual(profile["arguments"][-1], "{derived_data}/persistent-build-aggregate.log")
-        self.assertNotEqual(profile["arguments"][-1], "{derived_data}/cmux-build.log")
+        self.assertEqual(
+            profile["arguments"],
+            ["{products}/semantic-state", "{products}/semantic-result.json"],
+        )
+        self.assertIn(
+            "{module_cache}",
+            profile["environment"]["CMUX_CI_MODULE_CACHE_PATH"],
+        )
+        self.assertIn("cmux.macos.compile-admission", self.semantic_entrypoint)
+        self.assertIn("--generation 1", self.semantic_entrypoint)
+        self.assertIn("state_class=cold", self.semantic_entrypoint)
+        self.assertIn("state_class=compiler-warm", self.semantic_entrypoint)
+        self.assertIn("cmux_workload_profile.py", self.semantic_entrypoint)
+        self.assertIn("#13411", self.semantic_entrypoint)
+
         self.assertIn("--expected-commit", self.driver)
         self.assertIn("--expected-tree", self.driver)
         self.assertIn("require_clean=True", self.driver)
-        self.assertIn("Package.resolved changed during package readiness", self.driver)
+        self.assertIn('"cmux-workload-result"', self.driver)
+        self.assertIn('"cmux.macos.compile-admission"', self.driver)
+        self.assertIn('"cmux.compile-admission/v1"', self.driver)
+        self.assertIn("Package.resolved changed during canonical compile admission", self.driver)
+        self.assertIn("quarantine_state(project, args.request_id + \"-semantic-failed\")", self.driver)
         self.assertIn('"cold-reset"', self.driver)
         self.assertIn('"partially-warm"', self.driver)
         self.assertIn('"hot"', self.driver)
+
+    def test_canonical_semantic_receipt_validation_is_fail_closed(self):
+        commit = "a" * 40
+        tree = "b" * 40
+        valid = {
+            "document_type": "cmux-workload-result",
+            "schema_version": 1,
+            "source": {
+                "repository": "manaflow-ai/cmux",
+                "commit": commit,
+                "tree": tree,
+            },
+            "profile": {"id": "cmux.macos.compile-admission", "generation": 1},
+            "semantic_validator": "cmux.compile-admission/v1",
+            "result": "passed",
+            "validation": {"missing_required_artifact_classes": []},
+            "cleanup": {"state": "complete", "process_group_settled": True},
+            "benchmark": {
+                "state_class": "compiler-warm",
+                "semantic_comparison_key": "sha256:" + "c" * 64,
+                "comparison_context_key": "sha256:" + "d" * 64,
+            },
+            "toolchain": {
+                "identity": "sha256:" + "e" * 64,
+                "observations": {},
+            },
+            "stage_timings": [
+                {"stage": "setup", "seconds": 1.0},
+                {"stage": "dependency_preparation", "seconds": 2.0},
+                {"stage": "compile", "seconds": 3.0},
+                {"stage": "validation", "seconds": 4.0},
+            ],
+        }
+        self.assertIs(driver.validate_semantic_result(valid, commit, tree), valid)
+        bad = json.loads(json.dumps(valid))
+        bad["cleanup"]["state"] = "forced"
+        with self.assertRaisesRegex(driver.Refusal, "cleanup"):
+            driver.validate_semantic_result(bad, commit, tree)
+        bad = json.loads(json.dumps(valid))
+        bad["profile"]["generation"] = 2
+        with self.assertRaisesRegex(driver.Refusal, "profile"):
+            driver.validate_semantic_result(bad, commit, tree)
 
 
 if __name__ == "__main__":
