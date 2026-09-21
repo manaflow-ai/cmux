@@ -780,7 +780,7 @@ actor VMClient {
             (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
         }
         return try await withOperation(.list, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/vm")
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let items = obj["vms"] as? [[String: Any]] else {
@@ -1666,8 +1666,7 @@ actor VMClient {
                     "POST",
                     path: "/api/vm/\(encodedID)/attach-endpoint",
                     jsonBody: body,
-                    timeoutSeconds: Self.attachTimeoutSeconds,
-                    retryTransientServiceUnavailable: true
+                    timeoutSeconds: 20
                 )
                 try ensureOK(http, data: data)
                 return try decodeJSONObject(data)

@@ -348,8 +348,18 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
         let trailing = frame.maxX
+        let node = item(atRow: row) as? CloudTreeNode
+        let disclosureGap: CGFloat
+        if node?.isMachineRow == true {
+            // Machine content reserves a real icon slot. Match the gap after
+            // the disclosure control to the icon-to-title gap; the band adds
+            // its own six-point leading inset.
+            disclosureGap = max(0, treeStyle.iconGap - (treeStyle.machineBand ? 6 : 0))
+        } else {
+            disclosureGap = treeStyle.rowGrid.disclosureGap
+        }
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
-            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
+            treeStyle.rowGrid.disclosureSlot + disclosureGap
         )
         frame.size.width = max(0, trailing - frame.minX)
         return frame
