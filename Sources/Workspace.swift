@@ -3110,7 +3110,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var pendingPlainSSHRestorePanelIds: Set<UUID> = []
     var observedPlainSSHPanelIds: Set<UUID> = []
     var plainSSHDetectionMissesByPanelId: [UUID: Int] = [:]
-    private static let plainSSHRestoreObservationMissLimit = 3
+    static let plainSSHRestoreObservationMissLimit = 3
     var restoredGuardedWorkingDirectoriesByPanelId: [UUID: RestoredWorkingDirectoryGuard] = [:]
     /// The session directory each restored auto-resume launcher targets, kept
     /// for the resumed run so split/new-tab cwd inheritance can rescue a
