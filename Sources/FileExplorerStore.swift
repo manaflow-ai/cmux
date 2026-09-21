@@ -768,6 +768,7 @@ final class FileExplorerStore: ObservableObject {
     private var recentlyMaterializedRemotePreviewURLs: [URL: Date] = [:]
 
     private let gitStatusProvider: GitStatusProvider
+    private var gitStatusGeneration: UInt64 = 0
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
@@ -850,11 +851,14 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func refreshGitStatus() {
+        gitStatusGeneration &+= 1
+        let generation = gitStatusGeneration
         guard !rootPath.isEmpty else {
             gitStatusByPath = [:]
             return
         }
         let path = rootPath
+        guard let expectedProvider = provider else { return }
         if let sshProvider = provider as? SSHFileExplorerProvider {
             let dest = sshProvider.destination
             let port = sshProvider.port
@@ -866,8 +870,12 @@ final class FileExplorerStore: ObservableObject {
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                DispatchQueue.main.async { [weak self, weak expectedProvider] in
+                    guard let self, let expectedProvider,
+                          self.gitStatusGeneration == generation,
+                          self.provider === expectedProvider,
+                          self.rootPath == path else { return }
+                    self.gitStatusByPath = status
                 }
             }
         } else if provider is CloudVMFileExplorerProvider {
@@ -878,8 +886,12 @@ final class FileExplorerStore: ObservableObject {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatus(directory: path)
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                DispatchQueue.main.async { [weak self, weak expectedProvider] in
+                    guard let self, let expectedProvider,
+                          self.gitStatusGeneration == generation,
+                          self.provider === expectedProvider,
+                          self.rootPath == path else { return }
+                    self.gitStatusByPath = status
                 }
             }
         }
@@ -981,6 +993,13 @@ final class FileExplorerStore: ObservableObject {
         #if DEBUG
         NSLog("[FileExplorer] setProvider: \(type(of: newProvider).self) available=\(newProvider?.isAvailable ?? false)")
         #endif
+        let providerChanged: Bool
+        switch (provider, newProvider) {
+        case let (current?, next?): providerChanged = current !== next
+        case (nil, nil): providerChanged = false
+        default: providerChanged = true
+        }
+        if providerChanged { objectWillChange.send() }
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
