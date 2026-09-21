@@ -1623,8 +1623,11 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
 
 def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     app_host = workflow_job_block("app-host-unit-tests")
+    console_runner = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(encoding="utf-8")
 
     assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
+    assert "CMUX_APP_HOST_CAPTURE_XCRESULTS" in console_runner
+    assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
     assert "- name: Collect app-host failure diagnostics" in app_host
     assert "- name: Upload app-host failure diagnostics" in app_host
     assert "cmux-app-host-xcodebuild-*.meta" in app_host
