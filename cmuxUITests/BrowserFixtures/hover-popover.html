@@ -28,6 +28,8 @@
 <div id="stage">
   <output id="native-state" role="status">Native hover idle</output>
   <button id="trigger">Hover me</button>
+  <a id="native-link" href="#clicked">Native navigation target</a>
+  <output id="navigation" role="status">Waiting for native navigation</output>
   <div id="popover" role="status">Popover</div>
 </div>
 <script>
@@ -42,6 +44,9 @@
   const trigger = document.getElementById('trigger');
   const popover = document.getElementById('popover');
   const nativeState = document.getElementById('native-state');
+  const navigation = document.getElementById('navigation');
+  let trustedClickCount = 0;
+  let trustedNavigation = false;
   document.addEventListener('mousemove', event => {
     state.mouseMoveCount += 1;
     state.lastMouseMove = { x: event.clientX, y: event.clientY, target: event.target.id, trusted: event.isTrusted };
@@ -65,6 +70,17 @@
   trigger.addEventListener('mouseleave', () => {
     popover.dataset.visible = 'false';
     nativeState.textContent = 'Native hover idle';
+  });
+  trigger.addEventListener('click', event => {
+    if (event.isTrusted) nativeState.textContent = `Native clicks: ${++trustedClickCount}`;
+  });
+  document.getElementById('native-link').addEventListener('click', event => {
+    trustedNavigation = event.isTrusted;
+  });
+  window.addEventListener('hashchange', () => {
+    if (trustedNavigation && location.hash === '#clicked') {
+      navigation.textContent = 'Native navigation complete';
+    }
   });
   window.__cmuxHoverState = () => {
     const rect = popover.getBoundingClientRect();
