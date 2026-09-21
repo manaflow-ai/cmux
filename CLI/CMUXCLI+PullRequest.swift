@@ -143,13 +143,16 @@ extension CMUXCLI {
         // gh owns fork/upstream/default-remote selection, just as it does for
         // the preceding gh pr create. Pin the resolved repository for the PR
         // lookup so an unrelated URL cannot select a different repository.
-        let repoJSON = try pullRequestGH(["repo", "view", "--json", "nameWithOwner,url"], directory: root)
+        let repoJSON = try pullRequestGH(["repo", "view", "--json", "nameWithOwner,url,parent"], directory: root)
         guard let repository = repoJSON["nameWithOwner"] as? String,
               let repositoryURL = repoJSON["url"] as? String,
               URL(string: repositoryURL)?.host?.lowercased() == "github.com" else {
             throw pullRequestMalformedMetadataError()
         }
-        if let inputURL, inputURL.repository.caseInsensitiveCompare(repository) != .orderedSame {
+        let parentRepository = (repoJSON["parent"] as? [String: Any])?["nameWithOwner"] as? String
+        let requestedRepository = inputURL?.repository ?? repository
+        let allowedRepositories = Set([repository, parentRepository].compactMap { $0?.lowercased() })
+        if !allowedRepositories.contains(requestedRepository.lowercased()) {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.pr.error.repositoryMismatch",
                 defaultValue: "cmux pr: the pull request does not belong to the detected repository"
@@ -159,12 +162,12 @@ extension CMUXCLI {
             throw pullRequestMalformedMetadataError()
         }
         let object = try pullRequestGH([
-            "pr", "view", String(requestedNumber), "--repo", repository,
+            "pr", "view", String(requestedNumber), "--repo", requestedRepository,
             "--json", "number,url,state,headRefName"
         ], directory: root)
         guard let number = object["number"] as? Int, number == requestedNumber,
               let url = object["url"] as? String, let canonical = pullRequestURL(url),
-              canonical.number == number, canonical.repository.caseInsensitiveCompare(repository) == .orderedSame,
+              canonical.number == number, canonical.repository.caseInsensitiveCompare(requestedRepository) == .orderedSame,
               let state = object["state"] as? String, ["OPEN", "MERGED", "CLOSED"].contains(state),
               let branch = object["headRefName"] as? String else { throw pullRequestMalformedMetadataError() }
         return (number, canonical.url, state.lowercased(), branch)
@@ -174,7 +177,7 @@ extension CMUXCLI {
         guard let url = URLComponents(string: raw), url.scheme?.lowercased() == "https",
               url.host?.lowercased() == "github.com", url.user == nil, url.password == nil, url.port == nil else { return nil }
         let path = url.path.split(separator: "/")
-        guard path.count == 4, path[2] == "pull", let number = Int(path[3]), number > 0,
+        guard path.count >= 4, path[2] == "pull", let number = Int(path[3]), number > 0,
               path[3].allSatisfy(\.isNumber),
               path.prefix(2).allSatisfy({ $0.range(of: "^[A-Za-z0-9_.-]+$", options: .regularExpression) != nil }) else { return nil }
         let repo = "\(path[0])/\(path[1])"

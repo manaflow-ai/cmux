@@ -5,7 +5,7 @@ import Testing
 extension CLICallerWorkspaceDefaultTests {
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "fork-upstream", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -41,11 +41,23 @@ extension CLICallerWorkspaceDefaultTests {
           echo '{not-json'
           exit 0
         fi
+        expected_repo="owner/repo"
+        expected_url="https://github.com/owner/repo/pull/123"
+        if [ "$GH_FORK" = 1 ]; then
+          expected_repo="upstream/repo"
+          expected_url="https://github.com/upstream/repo/pull/123"
+        fi
         case "$1 $2" in
-          'repo view') echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
+          'repo view')
+            if [ "$GH_FORK" = 1 ]; then
+              echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo","parent":{"nameWithOwner":"upstream/repo"}}'
+            else
+              echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}'
+            fi
+            ;;
           'pr view')
-            [ "$3" = 123 ] && [ "$4" = --repo ] && [ "$5" = owner/repo ] || exit 8
-            echo '{"number":123,"url":"https://github.com/owner/repo/pull/123","state":"OPEN","headRefName":"handoff"}' ;;
+            [ "$3" = 123 ] && [ "$4" = --repo ] && [ "$5" = "$expected_repo" ] || exit 8
+            echo '{"number":123,"url":"'"$expected_url"'","state":"OPEN","headRefName":"handoff"}' ;;
           *) exit 9 ;;
         esac
         """#.write(to: gh, atomically: true, encoding: .utf8)
@@ -83,7 +95,10 @@ extension CLICallerWorkspaceDefaultTests {
         }
         var args = ["pr", "123"]
         switch scenario {
-        case "url": args[1] = "https://github.com/owner/repo/pull/123?diff=split#discussion"
+        case "url": args[1] = "https://github.com/owner/repo/pull/123/files?diff=split#discussion"
+        case "fork-upstream":
+            args[1] = "https://github.com/upstream/repo/pull/123"
+            environment["GH_FORK"] = "1"
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
@@ -115,7 +130,7 @@ extension CLICallerWorkspaceDefaultTests {
                 #expect(!result.stderr.contains("provider secret"))
                 #expect(result.stderr.contains("gh auth status"))
             }
-            if scenario == "gh-malformed" {
+        if scenario == "gh-malformed" {
                 #expect(result.stderr.contains("invalid pull-request metadata"))
                 #expect(!result.stderr.contains("not-json"))
             }
@@ -129,7 +144,10 @@ extension CLICallerWorkspaceDefaultTests {
             #expect(mutation.contains("clear_workspace_pr"))
         } else {
             #expect(mutation.contains("report_workspace_pr"))
-            #expect(mutation.contains("https://github.com/owner/repo/pull/123"))
+            let expectedURL = scenario == "fork-upstream"
+                ? "https://github.com/upstream/repo/pull/123"
+                : "https://github.com/owner/repo/pull/123"
+            #expect(mutation.contains(expectedURL))
             #expect(mutation.contains("--state=open"))
             #expect(mutation.contains("--branch=handoff"))
         }
