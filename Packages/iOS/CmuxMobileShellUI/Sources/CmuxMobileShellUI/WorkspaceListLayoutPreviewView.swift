@@ -7,8 +7,8 @@ import Observation
 import SwiftUI
 
 /// Owns the mutable rows and live-update stimulus for the DEBUG preview.
-@MainActor
 @Observable
+@MainActor
 private final class WorkspaceListLayoutPreviewModel {
     /// The continuous update feed's payload shape
     /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES`).
