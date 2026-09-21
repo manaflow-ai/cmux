@@ -89,7 +89,7 @@ class RoutingTests(unittest.TestCase):
                         "event": "pull_request",
                         "run_attempt": 2,
                         "path": ".github/workflows/ci.yml",
-                        "head_sha": "b" * 40,
+                        "head_sha": "a" * 40,
                         "head_repository": {"full_name": "manaflow-ai/cmux"},
                         "pull_requests": [{
                             "number": 13198,
@@ -126,7 +126,7 @@ class RoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             route.verify_live_request(API({"head_sha": "e" * 40}), live),
-            (False, "source_run_head_mismatch"),
+            (False, "source_run_source_mismatch"),
         )
         self.assertEqual(
             route.verify_live_request(API({"pull_requests": [{"number": 99}]}), live),
@@ -236,7 +236,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("persistent-mac-route-request-", self.router)
         route_text = ROUTE.read_text()
         self.assertIn('actions/runs/{args.run_id}', route_text)
-        self.assertIn('"source_run_head_mismatch"', route_text)
+        self.assertIn('"source_run_source_mismatch"', route_text)
         self.assertIn('"source_run_pr_mismatch"', route_text)
         self.assertNotIn("actions: write", self.ci)
         route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
