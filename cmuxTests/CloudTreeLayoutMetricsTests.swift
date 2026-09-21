@@ -58,7 +58,7 @@ struct CloudTreeLayoutMetricsTests {
         #expect(reopened.metrics == settings.metrics)
         settings.metrics.disclosureGap = CloudSidebarDebugMetrics.default.disclosureGap
         #expect(settings.metrics.rowHeight == 32)
-        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 2)
+        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 4)
     }
 #endif
 }
