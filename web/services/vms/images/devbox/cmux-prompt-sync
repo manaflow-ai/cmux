@@ -99,7 +99,13 @@ def tui(*args):
 
 
 def terminal_id(value):
-    return next((item.get("terminal_id") for item in walk(value) if isinstance(item, dict) and isinstance(item.get("terminal_id"), str) and item.get("terminal_id")), None)
+    for item in walk(value):
+        if not isinstance(item, dict):
+            continue
+        candidate = item.get("terminal_id") or item.get("id")
+        if isinstance(candidate, str) and candidate.startswith("term_"):
+            return candidate
+    return None
 
 
 def find_existing_terminal():
