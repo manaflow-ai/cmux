@@ -573,6 +573,7 @@ def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = 
         receipt_path = getattr(args, "receipt", None)
         output = None
         published = False
+        receipt_error = None
         try:
             if receipt_path:
                 destination = Path(receipt_path).absolute()
@@ -588,16 +589,32 @@ def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = 
             # An interrupted publication leaves an empty/incomplete receipt, which
             # undo refuses; it can never masquerade as a successful application.
             if output is not None:
-                json.dump(receipt, output, ensure_ascii=False)
-                output.write("\n")
-                output.flush()
-        except OSError:
+                try:
+                    json.dump(receipt, output, ensure_ascii=False)
+                    output.write("\n")
+                    output.flush()
+                except OSError as error:
+                    receipt_error = error
+        except OSError as error:
             if published:
-                print(json.dumps({"status": "persisted", "receipt": "failed", "runtime": "unobserved"}), file=sys.stderr)
-            raise
+                receipt_error = error
+            else:
+                raise
         finally:
             if output is not None:
-                output.close()
+                try:
+                    output.close()
+                except OSError as error:
+                    if published and receipt_error is None:
+                        receipt_error = error
+                    elif not published:
+                        raise
+        if receipt_error is not None:
+            # Publication is the committed effect. A receipt failure only makes
+            # the optional undo handle unavailable, so return a structured
+            # success result instead of raising a traceback that invites retry.
+            print(json.dumps({"status": "persisted", "receipt": "failed", "runtime": "unobserved"}))
+            return 0
         print(json.dumps({"status": "unchanged" if unchanged else "persisted", "key": args.key, "runtime": "unobserved"}))
         return 0
 

@@ -148,6 +148,23 @@ class ConfigTransactionTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.undo()
 
+    def test_committed_publication_reports_receipt_failure_without_retry_error(self):
+        output = io.StringIO()
+        args = self.args()
+        args.receipt = str(self.receipt)
+        with patch.object(helper.json, 'dump', side_effect=OSError('receipt failure')):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(
+                    helper.cmd_set(args),
+                    0,
+                )
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {'status': 'persisted', 'receipt': 'failed', 'runtime': 'unobserved'},
+        )
+        self.assertFalse(helper.load_settings(self.config)['computerUse']['showInMenuBar'])
+        self.assertEqual(self.receipt.read_bytes(), b'')
+
     def test_undo_refuses_retarget_even_with_same_installed_value(self):
         self.set_value(receipt=str(self.receipt))
         target = self.root / 'other.json'

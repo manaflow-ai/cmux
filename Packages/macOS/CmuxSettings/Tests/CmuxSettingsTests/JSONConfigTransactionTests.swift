@@ -148,16 +148,16 @@ raise SystemExit(m.cmd_set(argparse.Namespace(file=sys.argv[2], key='app.appeara
             #expect(issues.contains { $0.path == "$.app.appearance" })
         }
         #expect(try Data(contentsOf: file) == before)
-        // Q's schema currently omits this real legacy key. Do not silently break it.
+        // The canonical schema includes this real legacy catalog key so a
+        // validated Computer Use write cannot reject an otherwise valid file.
         let legacy = SettingCatalog().app.devWindowDisplay
         try await store.set("Fixture Display", for: legacy)
         #expect(store.snapshotValue(for: legacy) == "Fixture Display")
         let legacyBytes = try Data(contentsOf: file)
-        do {
-            _ = try await store.setWithReceipt(false, for: SettingCatalog().computerUse.showInMenuBar)
-            Issue.record("invalid full candidate accepted")
-        } catch JSONConfigMutationError.invalidCandidate { }
-        #expect(try Data(contentsOf: file) == legacyBytes)
+        _ = try await store.setWithReceipt(false, for: SettingCatalog().computerUse.showInMenuBar)
+        #expect(store.snapshotValue(for: SettingCatalog().computerUse.showInMenuBar) == false)
+        #expect(try Data(contentsOf: file) != legacyBytes)
+        #expect(store.snapshotValue(for: legacy) == "Fixture Display")
     }
 
     @Test func undoRejectsRetargetedSymlink() async throws {

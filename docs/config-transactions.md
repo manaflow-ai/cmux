@@ -29,9 +29,10 @@ Legacy `set/reset` retain their existing syntax-only validation contract.
 `setWithReceipt/resetWithReceipt/undo`, the two Computer Use Settings models,
 and the helper validate the full candidate with Q's canonical validator.
 The native receipt API is for global config. Helper scope inference and explicit
-`--scope` are unchanged. Q's schema currently omits the real legacy
-`app.devWindowDisplay` key; broad native enforcement requires that separate
-schema compatibility work. There is no special-case validator exemption here.
+`--scope` are unchanged. The canonical schema includes the real legacy
+`app.devWindowDisplay` catalog key, so validated Computer Use writes preserve
+that setting instead of rejecting an otherwise valid config. There is no
+special-case validator exemption here.
 
 ## Single-path apply and undo
 
@@ -51,8 +52,10 @@ and revision. Treat this output and receipts as private config data. Receipts
 are exclusively created with mode 0600 and never overwritten. Publication and
 receipt persistence are separate effects: an interrupted/failed receipt write
 may leave an unusable empty/incomplete receipt. If config publication succeeded
-but receipt output failed, the helper reports `persisted` with `receipt: failed`.
-Do not treat that as an unapplied change or automatically retry the preset.
+but receipt output failed, the helper returns success with a structured
+`persisted` result and `receipt: failed`. The committed config change must not
+be treated as unapplied or automatically retried; the receipt is unavailable
+for undo.
 
 Undo re-reads under the same lock and restores the prior value only if the target
 and current raw value equal the receipt's installed result. Conflict diagnostics
