@@ -3,12 +3,44 @@ name: Web complexity candidate
 on:
   # This is a fast, contributor-side diagnostic. The authoritative required
   # check runs from the base branch in web-complexity-trusted.yml.
+  # Complexity only reads production JS/TS plus its own policy/toolchain files.
+  # Keep docs, locale catalogs, assets, and unrelated source changes out of this
+  # non-required diagnostic workflow entirely.
   pull_request:
+    paths:
+      - "web/**/*.js"
+      - "web/**/*.jsx"
+      - "web/**/*.mjs"
+      - "web/**/*.cjs"
+      - "web/**/*.ts"
+      - "web/**/*.tsx"
+      - "web/**/*.mts"
+      - "web/**/*.cts"
+      - web/.oxlintrc.json
+      - web/bunfig.toml
+      - web/oxlint-complexity-baseline.txt
+      - web/package.json
+      - web/bun.lock
+      - scripts/ci/fetch-complexity-base.sh
+      - .github/workflows/web-complexity.yml
   push:
     branches:
       - main
     paths:
-      - web/**
+      - "web/**/*.js"
+      - "web/**/*.jsx"
+      - "web/**/*.mjs"
+      - "web/**/*.cjs"
+      - "web/**/*.ts"
+      - "web/**/*.tsx"
+      - "web/**/*.mts"
+      - "web/**/*.cts"
+      - web/.oxlintrc.json
+      - web/bunfig.toml
+      - web/oxlint-complexity-baseline.txt
+      - web/package.json
+      - web/bun.lock
+      - scripts/ci/fetch-complexity-base.sh
       - .github/workflows/web-complexity.yml
 
 permissions:
