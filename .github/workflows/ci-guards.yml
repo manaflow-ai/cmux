@@ -57,6 +57,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate fleet acceptance harness
+        run: python3 tests/test_fleet_acceptance.py
+
       - name: Test macOS localization catalog tooling
         run: |
           python3 tests/test_localization_catalog.py
