@@ -68,6 +68,9 @@ actor CloudFilePreviewCache {
         }
         guard entries.contains(lease.url) else { throw FileExplorerError.providerUnavailable }
         guard lease.remoteIdentity == provider.remoteIdentity else { throw FileExplorerError.providerUnavailable }
+        // SSH downloads stream into the existing file; leases are read-only
+        // while displayed, so briefly restore owner write permission first.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lease.url.path)
         try await provider.downloadFile(path: lease.remotePath, to: lease.url)
         try Task.checkCancellation()
         try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: lease.url.path)

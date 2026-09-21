@@ -36,9 +36,9 @@ final class FileExplorerWorkspaceObservation {
         ) { [weak self, weak workspace] notification in
             MainActor.assumeIsolated {
                 guard let self, let workspace,
-                      let machine = workspace.cloudVMBinding?.vmID,
-                      let changedMachines = notification.userInfo?["machines"] as? [String],
-                      changedMachines.contains(machine) else { return }
+                      let machine = workspace.cloudVMBinding?.vmID else { return }
+                if let changedMachines = notification.userInfo?["machines"] as? [String],
+                   !changedMachines.contains(machine) { return }
                 self.refresh()
             }
         }

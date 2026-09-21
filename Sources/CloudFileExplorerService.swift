@@ -63,14 +63,17 @@ json.dump(entries, sys.stdout, separators=(",", ":"))
     /// Downloads one bounded remote file to a local preview cache.
     func download(vmID: String, path: String, to localURL: URL) async throws {
         let script = #"""
-import base64, os, sys
+import base64, os, sys, stat as stat_module
 path = sys.argv[1]
 limit = int(sys.argv[2])
 try:
+    metadata = os.stat(path, follow_symlinks=True)
+    if not stat_module.S_ISREG(metadata.st_mode):
+        sys.exit(74)
     fd = os.open(path, os.O_RDONLY)
     try:
         stat = os.fstat(fd)
-        if not os.path.isfile(path) or stat.st_size > limit:
+        if stat.st_size > limit:
             sys.exit(73)
         data = os.read(fd, limit + 1)
     finally:
