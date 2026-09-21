@@ -80,15 +80,18 @@ runs:
             ),
         }
         print("CMUX_TEST_PRODUCT_TRANSFER " + json.dumps(record, sort_keys=True))
-        if complete:
-            sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "scripts/ci"))
-            try:
-                import app_host_consumer_receipt as receipt
-                if provider_bytes is not None:
-                    receipt.add_transfer("github-aggregate", provider_bytes, provider_bytes, elapsed)
+        sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "scripts/ci"))
+        try:
+            import app_host_consumer_receipt as receipt
+            receipt.add_transfer(
+                "github-aggregate", provider_bytes or 0,
+                provider_bytes if complete and provider_bytes is not None else 0, elapsed)
+            if complete:
                 receipt.aggregate_hit("github-aggregate")
-            except (ImportError, OSError, ValueError, TypeError, json.JSONDecodeError) as error:
-                print(f"::warning::unable to update app-host consumer receipt: {type(error).__name__}: {error}")
+            else:
+                receipt.append_fallback(f"github-aggregate:{os.environ['TRANSFER_OUTCOME']}")
+        except (ImportError, OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+            print(f"::warning::unable to update app-host consumer receipt: {type(error).__name__}: {error}")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write("### Compiled test product transfer\n\n```json\n")
             summary.write(json.dumps(record, indent=2, sort_keys=True))
