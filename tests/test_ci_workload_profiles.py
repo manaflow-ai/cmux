@@ -416,11 +416,11 @@ class WorkloadProfileTests(unittest.TestCase):
             if arguments == ("rev-parse", "HEAD^{tree}"):
                 return "2" * 40
             if arguments and arguments[0] == "status":
-                return ""
+                if "--ignore-submodules=none" not in arguments:
+                    raise AssertionError(arguments)
+                return " m ghostty"
             if arguments == ("submodule", "status", "--recursive"):
                 return " " + "3" * 40 + " ghostty (heads/main)"
-            if arguments[:3] == ("-C", "ghostty", "status"):
-                return " M src/ghostty.zig"
             raise AssertionError(arguments)
 
         clean_diff = mock.Mock(returncode=0)
@@ -430,17 +430,13 @@ class WorkloadProfileTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 profile.ProfileError,
-                "submodule worktree differs",
+                "non-ignored source changes",
             ):
                 profile.source_identity(None, None)
 
         status_call = next(arguments for arguments in calls if arguments[0] == "status")
-        self.assertIn("--ignore-submodules=dirty", status_call)
-        self.assertNotIn("--ignore-submodules=none", status_call)
-        self.assertIn(
-            ("-C", "ghostty", "status", "--porcelain=v1", "--untracked-files=all"),
-            calls,
-        )
+        self.assertIn("--ignore-submodules=none", status_call)
+        self.assertNotIn("--ignore-submodules=dirty", status_call)
 
     def test_source_identity_accepts_clean_materialized_gitlink(self) -> None:
         def fake_git_text(*arguments: str) -> str:
@@ -452,8 +448,6 @@ class WorkloadProfileTests(unittest.TestCase):
                 return ""
             if arguments == ("submodule", "status", "--recursive"):
                 return " " + "3" * 40 + " ghostty (heads/main)"
-            if arguments[:3] == ("-C", "ghostty", "status"):
-                return ""
             raise AssertionError(arguments)
 
         clean_diff = mock.Mock(returncode=0)
