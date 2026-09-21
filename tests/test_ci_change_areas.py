@@ -591,6 +591,29 @@ def run_app_host_unit_test_step(
             ROOT / "scripts/ci/classify-app-host-test-output.py",
             ci_scripts / "classify-app-host-test-output.py",
         )
+        shutil.copy2(
+            ROOT / "scripts/ci/run-and-capture.sh",
+            ci_scripts / "run-and-capture.sh",
+        )
+        shutil.copy2(
+            ROOT / "scripts/ci/app_host_result_accounting.py",
+            ci_scripts / "app_host_result_accounting.py",
+        )
+        shutil.copy2(
+            ROOT / "scripts/ci/app-host-known-failures.json",
+            ci_scripts / "app-host-known-failures.json",
+        )
+        inventory = runner_temp / "cmux-app-host-test-inventory.json"
+        inventory.write_text(
+            json.dumps({
+                "version": 1,
+                "tests": [
+                    "FakeTests/testOne()",
+                    "FakeTests/testTwo()",
+                ],
+            }),
+            encoding="utf-8",
+        )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
@@ -623,8 +646,14 @@ if [ -f "$counter" ]; then
 fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
+result_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-$RUNNER_TEMP/cmux-app-host-xcresults}"
+mkdir -p "$result_root"
 if [ "$iteration" -eq 1 ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-1.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Failed"}]}]}
+JSON
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  echo "** TEST FAILED **"
   exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
@@ -652,6 +681,7 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_APP_HOST_TEST_INVENTORY": str(inventory),
             },
             text=True,
             stdout=subprocess.PIPE,
