@@ -1,4 +1,4 @@
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
@@ -18,10 +18,11 @@ const linkClass =
   "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
 export default function IosPage() {
-  const locale = useLocale();
   const t = useTranslations("docs.ios");
   const setup = useTranslations("docs");
-  const showSetupGuide = locale === "en" || locale === "ja";
+  // Non-English catalogs inherit missing docs.iosSetup keys from English via
+  // loadMessages, so every locale keeps the #setup destination available.
+  const showSetupGuide = true;
 
   return (
     <>

@@ -4,15 +4,33 @@
 /// next attempt.
 actor MobileWorkspaceRetryGate {
     private var active: Task<Void, Never>?
+    private var activeID: UUID?
 
     func run(_ operation: @escaping @Sendable () async -> Void) async {
-        if let active {
-            await active.value
+        while true {
+            guard !Task.isCancelled else { return }
+            if let active {
+                await active.value
+                guard !Task.isCancelled else { return }
+                continue
+            }
+
+            let operationID = UUID()
+            let task = Task { [self] in
+                await operation()
+                await finish(operationID)
+            }
+            activeID = operationID
+            active = task
+            await task.value
+            return
         }
-        let task = Task { await operation() }
-        active = task
-        await task.value
+    }
+
+    private func finish(_ operationID: UUID) {
+        guard activeID == operationID else { return }
         active = nil
+        activeID = nil
     }
 }
 #endif
