@@ -716,8 +716,8 @@ actor VMClient {
     /// panel. The request coordinator remains the single reachability owner;
     /// consumers subscribe to its stream instead of observing a process-wide
     /// notification and maintaining a second state machine.
-    func networkChanges() -> AsyncStream<Bool> {
-        readRequests.networkEvents
+    func networkChanges() async -> AsyncStream<Bool> {
+        await readRequests.networkChanges()
     }
 
     func listPage() async throws -> VMListPage {

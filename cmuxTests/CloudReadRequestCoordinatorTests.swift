@@ -33,6 +33,24 @@ struct CloudReadRequestCoordinatorTests {
         print("cloud-read-scale machines=\(machines) owners=4 requests=\(await gate.requests) requests_per_machine=1")
     }
 
+    @Test("Reachability changes fan out to every panel subscriber")
+    func networkChangesBroadcast() async {
+        let owner = Owner()
+        let first = await owner.networkChanges()
+        let second = await owner.networkChanges()
+        let firstValue = Task {
+            var iterator = first.makeAsyncIterator()
+            return await iterator.next()
+        }
+        let secondValue = Task {
+            var iterator = second.makeAsyncIterator()
+            return await iterator.next()
+        }
+        await owner.networkChanged(isOnline: false)
+        #expect(await firstValue.value == .some(false))
+        #expect(await secondValue.value == .some(false))
+    }
+
     @Test("The final waiter cancels and holds the draining slot after another caller leaves", arguments: [false, true])
     func independentCancellation(expireFirst: Bool) async throws {
         let gate = CloudReadResponseGate()

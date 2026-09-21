@@ -11,21 +11,17 @@ actor CloudReadRequestCoordinator {
     private nonisolated let clock: CloudRequestClock
     private nonisolated let budget: Duration
     private let onNetworkChange: @Sendable (Bool) async -> Void
-    nonisolated let networkEvents: AsyncStream<Bool>
-    private let networkEventsContinuation: AsyncStream<Bool>.Continuation
     private(set) var entries: [Key: Entry] = [:]
     private var networkTask: Task<Void, Never>?
     private var isOnline: Bool?
     private var cooldowns = CloudReadCooldownStore()
+    private var networkSubscribers: [UUID: AsyncStream<Bool>.Continuation] = [:]
 
     init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30),
          onNetworkChange: @escaping @Sendable (Bool) async -> Void = { _ in }) {
         self.clock = clock
         self.budget = budget
         self.onNetworkChange = onNetworkChange
-        let (networkEvents, networkEventsContinuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        self.networkEvents = networkEvents
-        self.networkEventsContinuation = networkEventsContinuation
     }
 
     nonisolated func makeDeadline(elapsed: Duration = .zero, limit: Duration? = nil) -> Duration {
@@ -265,6 +261,22 @@ actor CloudReadRequestCoordinator {
         }
     }
 
+    /// Each consumer receives its own stream so multiple Machines panels never
+    /// compete for a single `AsyncStream` iterator.
+    func networkChanges() -> AsyncStream<Bool> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeNetworkSubscriber(id) }
+        }
+        networkSubscribers[id] = continuation
+        return stream
+    }
+
+    private func removeNetworkSubscriber(_ id: UUID) {
+        networkSubscribers.removeValue(forKey: id)
+    }
+
     func networkChanged(isOnline: Bool) async {
         let changed = self.isOnline != isOnline && (self.isOnline != nil || !isOnline)
         self.isOnline = isOnline
@@ -275,13 +287,18 @@ actor CloudReadRequestCoordinator {
             }
         }
         if changed {
-            networkEventsContinuation.yield(isOnline)
+            var terminated: [UUID] = []
+            for (id, continuation) in networkSubscribers {
+                if case .terminated = continuation.yield(isOnline) {
+                    terminated.append(id)
+                }
+            }
+            for id in terminated { networkSubscribers.removeValue(forKey: id) }
             await onNetworkChange(isOnline)
         }
     }
 
     deinit {
-        networkEventsContinuation.finish()
         networkTask?.cancel()
         for entry in entries.values {
             entry.work?.cancel()
