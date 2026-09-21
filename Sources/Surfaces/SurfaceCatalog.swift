@@ -171,7 +171,7 @@ final class SurfaceCatalog {
         if cloudStates[provider.machine] != nil {
             cloudWorkspaceProjectionCoordinator.request(machine: provider.machine, catalog: self)
         }
-        notifyChange(for: machine)
+        notifyChange(for: provider.machine)
     }
 
     func unregister(machine: SurfaceMachineID) {
@@ -213,7 +213,7 @@ final class SurfaceCatalog {
         updateCloudDirectoryMetadata(on: machine)
         projections = projections.filter { $0.resource.machine != machine }
         projectionVersions[machine] = nil
-        notifyChange(for: resource.machine)
+        notifyChange(for: machine)
     }
 
     func provider(for machine: SurfaceMachineID) -> (any SurfaceProvider)? {
@@ -384,7 +384,7 @@ final class SurfaceCatalog {
         guard observation.pendingWrites != pending else { return }
         observation.pendingWrites = pending
         cloudStateObservations[machine] = observation
-        notifyChange()
+        notifyChange(for: machine)
     }
 
     /// Installs one complete cloud graph and all of its derived resource rows as
@@ -480,7 +480,7 @@ final class SurfaceCatalog {
         cloudWorkspaceCreationCoordinator.reconcile(state)
         resolvePendingRestoredProjections(on: state.machine)
         updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
-        notifyChange()
+        notifyChange(for: state.machine)
         return changed
     }
 
@@ -522,7 +522,7 @@ final class SurfaceCatalog {
         cloudWorkspaceCreationCoordinator.reconcile(state)
         resolvePendingRestoredProjections(on: state.machine)
         updateCloudDirectoryMetadata(on: state.machine)
-        notifyChange()
+        notifyChange(for: state.machine)
         return changed
     }
 
@@ -531,7 +531,7 @@ final class SurfaceCatalog {
         let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
         guard removedState || removedObservation else { return }
         updateCloudDirectoryMetadata(on: machine)
-        notifyChange()
+        notifyChange(for: machine)
     }
 
     /// Atomically publishes the machine's reachable capability rows while its
@@ -568,7 +568,7 @@ final class SurfaceCatalog {
         machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         resolvePendingRestoredProjections(on: machine)
         updateCloudDirectoryMetadata(on: machine)
-        notifyChange()
+        notifyChange(for: machine)
     }
 
     /// Rebuilds the machine reverse index after a cloud transaction. Cloud
@@ -1399,8 +1399,8 @@ final class SurfaceCatalog {
     /// Observers get at most one notification per main-runloop turn: a burst of upserts
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
-    private var changeNotificationPending = false
-    private var pendingChangedMachines: Set<SurfaceMachineID> = []
+    fileprivate var changeNotificationPending = false
+    fileprivate var pendingChangedMachines: Set<SurfaceMachineID> = []
 
 
 }
