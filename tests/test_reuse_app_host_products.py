@@ -170,6 +170,45 @@ class ReuseProducts(TestProductHandoff):
                     else:
                         self.api.artifact["size_in_bytes"] = old
 
+    def valid_schema2_upstream(self):
+        """Build a complete prior-hop provenance record for validation tests."""
+        producer = {
+            "run_id": "10",
+            "run_attempt": "1",
+            "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/10",
+            "revision": "abc123",
+            "artifact_id": 40,
+            "artifact_digest": "sha256:" + "a" * 64,
+        }
+        return {
+            "schema": 2,
+            "original_producer": dict(producer),
+            "immediate_producer": dict(producer),
+            "consumer": {"run_id": "11", "run_attempt": "1", "revision": "abc123"},
+            "restore_route": "github_artifact",
+            "metrics": {
+                "compile_seconds_avoided": 600.0,
+                "lookup_seconds": 1.0,
+                "transfer_seconds": 2.0,
+                "restore_seconds": 3.0,
+                "total_reuse_seconds": 6.0,
+                "macos_runner_minutes_saved": 9.9,
+            },
+            "candidate_misses": [],
+            "run_url": producer["run_url"],
+            "revision": producer["revision"],
+            "artifact_id": producer["artifact_id"],
+            "artifact_digest": producer["artifact_digest"],
+            "consumer_revision": "abc123",
+            "upstream": None,
+        }
+
+    def install_upstream(self, provenance):
+        """Embed provenance in the producer archive and refresh its outer digest."""
+        root = self.producer / "Build/Products"
+        (root / "cmux-original-producer.json").write_text(json.dumps(provenance))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+
     def test_malformed_receipt_revision_is_a_normal_miss(self):
         root = self.producer / "Build/Products"
         receipt = json.loads((root / reuse.RECEIPT).read_text())
@@ -180,6 +219,41 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse(report=report))
         self.assertIn("product_provenance_invalid", report["miss_reasons"])
         self.assertFalse(self.consumer.exists())
+
+    def test_malformed_schema2_upstream_provenance_is_a_miss(self):
+        cases = {
+            "empty_original_producer": lambda value: value.__setitem__("original_producer", {}),
+            "nan_compile_metric": lambda value: value["metrics"].__setitem__(
+                "compile_seconds_avoided", float("nan")),
+            "negative_restore_metric": lambda value: value["metrics"].__setitem__(
+                "restore_seconds", -1),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                provenance = self.valid_schema2_upstream()
+                mutate(provenance)
+                self.install_upstream(provenance)
+                report = {}
+                self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("product_provenance_invalid", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+                (self.producer / "Build/Products/cmux-original-producer.json").unlink()
+                self.seal()
+
+    def test_valid_legacy_upstream_provenance_remains_eligible(self):
+        legacy = {
+            "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/9",
+            "revision": "abc123",
+            "artifact_id": 39,
+            "consumer_revision": "abc123",
+            "upstream": None,
+        }
+        self.install_upstream(legacy)
+        self.assertTrue(self.restore_reuse())
+        provenance = json.loads(
+            (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(provenance["upstream"], legacy)
+        self.assertEqual(provenance["original_producer"]["run_id"], "12")
 
     def test_corrupt_archive_never_populates_consumer(self):
         self.api.archive.write_bytes(b'corrupt')
