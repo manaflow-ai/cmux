@@ -901,15 +901,28 @@ final class FileExplorerStore: ObservableObject {
             displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
-        await Self.pruneRemotePreviewCache(excluding: cacheURL)
+        await Self.pruneRemotePreviewCache(excluding: activeRemotePreviewURLs().union([cacheURL]))
         try await remoteProvider.downloadFile(path: path, to: cacheURL)
         guard expectedWorkspaceRootIdentity == nil ||
               (workspaceRootIdentity == expectedWorkspaceRootIdentity && provider === remoteProvider) else {
             try? FileManager.default.removeItem(at: cacheURL)
             throw FileExplorerError.providerUnavailable
         }
-        await Self.pruneRemotePreviewCache(excluding: cacheURL)
+        await Self.pruneRemotePreviewCache(excluding: activeRemotePreviewURLs().union([cacheURL]))
         return cacheURL
+    }
+
+    private func activeRemotePreviewURLs() -> Set<URL> {
+        var paths = Set<URL>()
+        for manager in AppDelegate.shared?.liveWorkspaceIdentityTabManagers() ?? [] {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let preview = panel as? FilePreviewPanel else { continue }
+                    paths.insert(URL(fileURLWithPath: preview.filePath).standardizedFileURL)
+                }
+            }
+        }
+        return paths
     }
 
     private func updateDirectoryWatcher() {
@@ -1169,7 +1182,7 @@ final class FileExplorerStore: ObservableObject {
             .appendingPathComponent(filename, isDirectory: false)
     }
 
-    private nonisolated static func pruneRemotePreviewCache(excluding protectedURL: URL) async {
+    private nonisolated static func pruneRemotePreviewCache(excluding protectedURLs: Set<URL>) async {
         await Task.detached(priority: .utility) {
             let cacheRoot = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
@@ -1197,7 +1210,7 @@ final class FileExplorerStore: ObservableObject {
             var retainedCount = fileURLs.count
             let evictionCutoff = Date().addingTimeInterval(-60 * 60)
             for url in ordered where retainedCount > 32 || totalBytes > 32 * 1_024 * 1_024 {
-                guard url != protectedURL else { continue }
+                guard !protectedURLs.contains(url.standardizedFileURL) else { continue }
                 let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
                 // Keep recent files available to open preview tabs; stale entries are
                 // evicted once they are outside the active preview window.
