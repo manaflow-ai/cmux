@@ -15798,8 +15798,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshGeneration = generation
         let task = Task { @MainActor [weak self] in
             defer {
-                guard let self, self.pullToRefreshGeneration == generation else { return }
-                self.pullToRefreshTask = nil
+                if let self, self.pullToRefreshGeneration == generation {
+                    self.pullToRefreshTask = nil
+                }
             }
             guard !Task.isCancelled else { return }
             await self?.reloadWorkspaceListFromMac()
