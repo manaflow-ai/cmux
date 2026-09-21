@@ -34,12 +34,12 @@ final class BrowserNativeClickUITests: XCTestCase {
             ? host
             : host.descendants(matching: .webView).firstMatch
         XCTAssertTrue(webView.waitForExistence(timeout: 15), "Browser WebView must mount in the native click fixture")
-        let button = webView.buttons["Hover me"].firstMatch
+        let button = webView.buttons["Native click target"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Native click fixture must finish loading")
 
         click(button)
         XCTAssertTrue(
-            webView.staticTexts["Native clicks: 1"].firstMatch.waitForExistence(timeout: 5),
+            webView.staticTexts["Trusted clicks: 1"].firstMatch.waitForExistence(timeout: 5),
             "The first native click must reach the page"
         )
 
@@ -76,7 +76,7 @@ final class BrowserNativeClickUITests: XCTestCase {
 
         click(button)
         XCTAssertTrue(
-            webView.staticTexts["Native clicks: 2"].firstMatch.waitForExistence(timeout: 5),
+            webView.staticTexts["Trusted clicks: 2"].firstMatch.waitForExistence(timeout: 5),
             "A stale Finder payload must not capture the native mouse release"
         )
 
@@ -104,6 +104,6 @@ final class BrowserNativeClickUITests: XCTestCase {
     private static var fixtureURL: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
-            .appendingPathComponent("BrowserFixtures/hover-popover.html")
+            .appendingPathComponent("BrowserFixtures/native-click.html")
     }
 }
