@@ -450,7 +450,7 @@ jobs:
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
       - name: Validate pipe-safe CI capture
-        run: ./tests/test_ci_run_and_capture.sh
+        run: bash tests/test_ci_run_and_capture.sh
 
       - name: Validate focused test launcher
         run: python3 tests/test_run_e2e.py
@@ -1236,7 +1236,7 @@ jobs:
           # reusing the compile-admission product.
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
-          scripts/ci/run-and-capture.sh "$test_log" \
+          bash scripts/ci/run-and-capture.sh "$test_log" \
             scripts/ci/run-in-console-session.sh \
             env CMUX_TAG=main-window-zoom-placement \
             scripts/ci/run-app-host-xcodebuild.sh \
@@ -1464,7 +1464,7 @@ jobs:
             RemoteTmuxMirrorDedicatedPlacementTests
           do
             suite_output="$RUNNER_TEMP/cmux-remote-tmux-mirror-${suite}-attempt-1.txt"
-            scripts/ci/run-and-capture.sh "$suite_output" \
+            bash scripts/ci/run-and-capture.sh "$suite_output" \
               scripts/ci/run-in-console-session.sh \
               env "CMUX_TAG=remote-tmux-${suite}" \
               scripts/ci/run-app-host-xcodebuild.sh \
@@ -1846,7 +1846,7 @@ jobs:
           # the test bundle, so this shard only spends time running tests.
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-global-search-shortcuts.txt"
-          scripts/ci/run-and-capture.sh "$test_log" \
+          bash scripts/ci/run-and-capture.sh "$test_log" \
             scripts/ci/run-in-console-session.sh \
             env CMUX_TAG=global-search-shortcuts \
             scripts/ci/run-app-host-xcodebuild.sh \
@@ -1870,7 +1870,7 @@ jobs:
           set -euo pipefail
           for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
             test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
-            scripts/ci/run-and-capture.sh "$test_log" \
+            bash scripts/ci/run-and-capture.sh "$test_log" \
               scripts/ci/run-in-console-session.sh \
               env "CMUX_TAG=cloud-ordering-${suite}" \
               scripts/ci/run-app-host-xcodebuild.sh \
@@ -2112,7 +2112,7 @@ jobs:
             OpenCodeHookRegressionTests
           do
             test_log="$RUNNER_TEMP/cmux-notification-${suite}.txt"
-            scripts/ci/run-and-capture.sh "$test_log" \
+            bash scripts/ci/run-and-capture.sh "$test_log" \
               scripts/ci/run-in-console-session.sh \
               env "TEST_RUNNER_PATH=$PATH" "TEST_RUNNER_BUN_INSTALL=$bun_install" \
                 "CMUX_TAG=notification-${suite}" \
@@ -2260,6 +2260,90 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+
+      - name: Collect app-host failure diagnostics
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -u
+          diagnostics="$RUNNER_TEMP/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}"
+          rm -rf -- "$diagnostics"
+          mkdir -p "$diagnostics/captures"
+
+          {
+            echo "run_id=${{ github.run_id }}"
+            echo "run_attempt=${{ github.run_attempt }}"
+            echo "sha=${{ github.sha }}"
+            echo "physical_shard=${{ matrix.shard }}"
+            echo "derived_data=${CMUX_DERIVED_DATA_PATH:-}"
+            echo "result_bundle_root=${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}"
+          } >"$diagnostics/manifest.txt"
+
+          shopt -s nullglob
+          capture_files=(
+            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log
+            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta
+            "$RUNNER_TEMP"/cmux-unit-output-*.txt
+            "$RUNNER_TEMP"/cmux-unit-unfinished-*.txt
+            "$RUNNER_TEMP"/cmux-unit-shard-*.args
+            "$RUNNER_TEMP"/app-host-hang-sample-*.txt
+            "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
+            "$RUNNER_TEMP"/cmux-main-window-zoom-placement.txt
+            "$RUNNER_TEMP"/cmux-global-search-shortcuts.txt
+            "$RUNNER_TEMP"/cmux-cloud-ordering-*.txt
+            "$RUNNER_TEMP"/cmux-notification-*.txt
+          )
+          if [ "${#capture_files[@]}" -gt 0 ]; then
+            cp "${capture_files[@]}" "$diagnostics/captures/" || true
+          fi
+
+          if [ -n "${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}" ] \
+            && [ -d "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT" ]; then
+            cp -R "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT" "$diagnostics/xcresults" || true
+          fi
+
+          # Preserve reports from the isolated XCTest HOME before the always-
+          # running cleanup removes that run scope.
+          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
+            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
+            # shellcheck source=scripts/ci/app-host-isolation.sh
+            source "$ci_script_dir/app-host-isolation.sh"
+            if cmux_validate_published_app_host_identity_values; then
+              for crash_relative in ".local/state/cmux/crash" "Library/Logs/DiagnosticReports"; do
+                crash_source="$CMUX_RESOLVED_APP_HOST_HOME/$crash_relative"
+                case "$crash_relative" in
+                  .local/*) crash_destination="$diagnostics/ghostty-crash-reports" ;;
+                  *) crash_destination="$diagnostics/macos-diagnostic-reports" ;;
+                esac
+                if [ -d "$crash_source" ] \
+                  || sudo -n test -d "$crash_source" 2>/dev/null; then
+                  rm -rf -- "$crash_destination"
+                  if cp -R "$crash_source" "$crash_destination" 2>/dev/null; then
+                    :
+                  elif sudo -n true 2>/dev/null; then
+                    if sudo -n cp -R "$crash_source" "$crash_destination"; then
+                      sudo -n chown -R "$(id -u):$(id -g)" "$crash_destination" || true
+                    fi
+                  fi
+                fi
+              done
+            else
+              echo "::warning::app-host identity validation failed; crash reports were not collected" >&2
+            fi
+          fi
+
+          find "$diagnostics" -type f -print | sort || true
+
+      - name: Upload app-host failure diagnostics
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
