@@ -142,13 +142,15 @@ class AppHostTestOutputTests(unittest.TestCase):
         self.assertFalse(safe)
 
     def test_wrapper_retry_is_blocked_after_swift_testing_started(self) -> None:
-        safe, _ = MODULE.retry_safe(
-            "◇ Test run started.\n"
-            "◇ Test waitingForCallback() started.\n"
-            "Failed to establish communication with the test runner.\n"
-        )
+        for marker in ("◇", "▶"):
+            with self.subTest(marker=marker):
+                safe, _ = MODULE.retry_safe(
+                    f"{marker} Test run started.\n"
+                    f"{marker} Test waitingForCallback() started.\n"
+                    "Failed to establish communication with the test runner.\n"
+                )
 
-        self.assertFalse(safe)
+                self.assertFalse(safe)
 
     def test_timeout_words_in_successful_test_names_or_app_logs_are_not_failures(self) -> None:
         passed, _ = MODULE.classify(
