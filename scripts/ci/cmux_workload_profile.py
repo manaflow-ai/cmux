@@ -737,23 +737,72 @@ def context_key(semantic: str, state_class: str, toolchain: str) -> str:
     )
 
 
-def process_group_alive(pid: int) -> bool:
+def wait_child_unreaped(pid: int, timeout: float | None) -> int:
+    """Wait for one direct child to exit without releasing its PID/PGID identity."""
+    options = os.WEXITED | os.WNOWAIT
+    previous_handler = None
+    if timeout is not None:
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        if previous_timer[0] > 0 or previous_timer[1] > 0:
+            raise ProfileError("workload runner cannot replace an active real-time timer")
+
+        def timeout_handler(_signum: int, _frame: object) -> None:
+            raise subprocess.TimeoutExpired("workload", timeout)
+
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, timeout_handler)
+        signal.setitimer(signal.ITIMER_REAL, timeout)
     try:
-        os.killpg(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
+        status = os.waitid(os.P_PID, pid, options)
+    finally:
+        if timeout is not None:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+    if status is None:
+        raise ProfileError("workload child exit status is unavailable")
+    if status.si_code == os.CLD_EXITED:
+        return status.si_status
+    if status.si_code in {os.CLD_KILLED, os.CLD_DUMPED}:
+        return -status.si_status
+    raise ProfileError("workload child exit status is invalid")
+
+
+def process_group_alive(pid: int, *, ignore_pid: int | None = None) -> bool:
+    # Keep the exited group leader waitable while checking for descendants.
+    # /bin/ps is available on both supported runner platforms and lets us ignore
+    # that known zombie leader without releasing its PID/PGID for reuse.
+    completed = subprocess.run(
+        ["/bin/ps", "-axo", "pid=,pgid="],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        text=True,
+        env={"LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin:/bin"},
+    )
+    if completed.returncode != 0:
         return True
-    return True
+    for line in completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        try:
+            member_pid, group_id = (int(value) for value in fields)
+        except ValueError:
+            continue
+        if group_id == pid and member_pid != ignore_pid:
+            return True
+    return False
 
 
-def settle_process_group(pid: int) -> tuple[bool, str]:
-    if not process_group_alive(pid):
+def settle_process_group(
+    pid: int, *, ignore_pid: int | None = None
+) -> tuple[bool, str]:
+    if not process_group_alive(pid, ignore_pid=ignore_pid):
         return True, "complete"
-    # The profile command itself has already terminated. Any process still in
-    # its dedicated group is leaked descendant state, so do not synchronize on
-    # wall-clock polling here: force the residual group down and mark the run
-    # non-clean. The semantic result becomes ambiguous whenever this path runs.
+    # Any member other than the known exited leader is leaked descendant state.
+    # Do not synchronize on wall-clock polling: force that residual group down
+    # once and mark the semantic result ambiguous.
     try:
         os.killpg(pid, signal.SIGKILL)
     except ProcessLookupError:
@@ -943,7 +992,9 @@ def run_profile(args: argparse.Namespace) -> int:
             start_new_session=True,
         )
         try:
-            exit_code = child.wait(timeout=profile["timeout"]["seconds"])
+            exit_code = wait_child_unreaped(
+                child.pid, profile["timeout"]["seconds"]
+            )
         except subprocess.TimeoutExpired:
             timed_out = True
             try:
@@ -951,16 +1002,23 @@ def run_profile(args: argparse.Namespace) -> int:
             except ProcessLookupError:
                 pass
             try:
-                exit_code = child.wait(timeout=5)
+                exit_code = wait_child_unreaped(child.pid, 5)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(child.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                child.wait()
+                wait_child_unreaped(child.pid, None)
                 exit_code = 124
         elapsed = time.monotonic() - started_monotonic
-        settled_cleanly, cleanup_state = settle_process_group(child.pid)
+        try:
+            settled_cleanly, cleanup_state = settle_process_group(
+                child.pid, ignore_pid=child.pid
+            )
+        finally:
+            reaped_exit_code = child.wait()
+        if exit_code != 124 and reaped_exit_code != exit_code:
+            raise ProfileError("workload child exit status changed while reaping")
         source_after = source_identity(source["commit"], source["tree"])
         if source_after != source:
             raise ProfileError("checkout source identity changed during workload")
@@ -1166,15 +1224,6 @@ def validate_result_structure(value: dict[str, Any]) -> None:
         raise ProfileError("semantic result toolchain structure is invalid")
     if toolchain["identity"] != sha256_bytes(
         canonical_bytes(toolchain["observations"])
-    ):
-        raise ProfileError("semantic result toolchain identity is inconsistent")
-    if (
-        any(
-            not isinstance(name, str) or not isinstance(observation, str)
-            for name, observation in toolchain["observations"].items()
-        )
-        or toolchain["identity"]
-        != sha256_bytes(canonical_bytes(toolchain["observations"]))
     ):
         raise ProfileError("semantic result toolchain identity is inconsistent")
     if (
