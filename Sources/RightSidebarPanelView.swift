@@ -460,28 +460,15 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
-                if let store = AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        defaultMachineStore: store,
-                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
-                        devicesModel: devicesModel,
-                        tabManager: tabManager
-                    )
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    devicesModel: devicesModel,
+                    tabManager: tabManager
+                )
 #if DEBUG
-                    .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
+                .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
 #endif
-                } else {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
-                        devicesModel: devicesModel,
-                        tabManager: tabManager
-                    )
-#if DEBUG
-                    .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
-#endif
-                }
             case .customSidebar:
                 customSidebarPanel
             }

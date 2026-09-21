@@ -33,7 +33,6 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
-        defaultMachineStore: DefaultCloudMachineStore?,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil
@@ -41,7 +40,6 @@ struct MachinesPanelView: View {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore,
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -51,20 +49,6 @@ struct MachinesPanelView: View {
             }
         ))
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
-    }
-
-    init(
-        chromeBackgroundColor: NSColor,
-        machinePinStore: CloudMachinePinStore? = nil,
-        devicesModel: DevicesPanelViewModel? = nil,
-        tabManager: TabManager? = nil
-    ) {
-        self.init(
-            chromeBackgroundColor: chromeBackgroundColor,
-            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
-            machinePinStore: machinePinStore, devicesModel: devicesModel,
-            tabManager: tabManager
-        )
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -135,9 +119,6 @@ struct MachinesPanelView: View {
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
-        }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -595,9 +576,6 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
-        }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
