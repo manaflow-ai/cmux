@@ -41,8 +41,11 @@ class RetryWait:
         self._clock = clock
         self._cancelled = threading.Event()
         self._wait = wait or self._cancelled.wait
+        self.cancel_signal: int | None = None
 
-    def cancel(self) -> None:
+    def cancel(self, signum: int | None = None) -> None:
+        if signum is not None:
+            self.cancel_signal = signum
         self._cancelled.set()
 
     def until(self, deadline: float, probe, *, initial_delay: float = 0.5, max_delay: float = 3.0):
@@ -60,8 +63,8 @@ class RetryWait:
 
 
 def install_cancel_handlers(waiter: RetryWait) -> None:
-    def cancel_wait(_signum, _frame) -> None:
-        waiter.cancel()
+    def cancel_wait(signum, _frame) -> None:
+        waiter.cancel(signum)
 
     signal.signal(signal.SIGINT, cancel_wait)
     signal.signal(signal.SIGTERM, cancel_wait)
@@ -157,27 +160,31 @@ def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, st
     return True, "verified"
 
 
+def matching_run(api: GitHub, request_id: str) -> dict[str, object] | None:
+    title = f"persistent-mac-compile-{request_id}"
+    payload = api.api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=50")
+    runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+    matches = [
+        run for run in runs
+        if isinstance(run, dict)
+        and run.get("display_title") == title
+        and run.get("head_branch") == "main"
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda run: int(run.get("id", 0)), reverse=True)
+    return matches[0]
+
+
 def find_run(
     api: GitHub,
     request_id: str,
     deadline: float,
     waiter: RetryWait,
 ) -> dict[str, object]:
-    title = f"persistent-mac-compile-{request_id}"
-
     def observe():
-        payload = api.api(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=50")
-        runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
-        matches = [
-            run for run in runs
-            if isinstance(run, dict)
-            and run.get("display_title") == title
-            and run.get("head_branch") == "main"
-        ]
-        if not matches:
-            return False, None
-        matches.sort(key=lambda run: int(run.get("id", 0)), reverse=True)
-        return True, matches[0]
+        run = matching_run(api, request_id)
+        return (run is not None, run)
 
     found = waiter.until(deadline, observe)
     if found is None:
@@ -204,6 +211,27 @@ def cancel(api: GitHub, run_id: int) -> None:
         api.api(f"actions/runs/{run_id}/cancel", method="POST")
     except RuntimeError as error:
         print(f"warning: producer cancellation failed: {error}", file=sys.stderr)
+
+
+def cancel_owned_producer(
+    api: GitHub,
+    request_id: str,
+    run_id: int | None,
+    dispatched: bool,
+) -> int | None:
+    if run_id is None and dispatched:
+        try:
+            observed = matching_run(api, request_id)
+            if observed is not None:
+                run_id = int(observed["id"])
+        except (RuntimeError, KeyError, TypeError, ValueError) as error:
+            print(
+                f"warning: cancelled producer could not be rediscovered: {error}",
+                file=sys.stderr,
+            )
+    if run_id is not None:
+        cancel(api, run_id)
+    return run_id
 
 
 def write_outputs(path: Path, values: dict[str, object]) -> None:
@@ -280,6 +308,8 @@ def main() -> int:
     api = GitHub(args.repository)
     waiter = RetryWait()
     install_cancel_handlers(waiter)
+    dispatched = False
+    producer_run_id: int | None = None
     try:
         verified, live_reason = verify_live_request(api, args)
         if not verified:
@@ -299,8 +329,10 @@ def main() -> int:
                     "head_sha": args.head_sha,
                 }
             )
+            dispatched = True
             run = find_run(api, request_id, discovery_started + 30, waiter)
         run_id = int(run["id"])
+        producer_run_id = run_id
         queue_deadline = now() + args.queue_seconds
 
         def observe_queue():
@@ -387,6 +419,20 @@ def main() -> int:
             queue_seconds=queue_seconds,
             allocated_seconds=allocated_seconds,
         )
+    except RetryCancelled:
+        if not args.observe_only:
+            producer_run_id = cancel_owned_producer(
+                api,
+                request_id,
+                producer_run_id,
+                dispatched,
+            )
+        fallback(
+            args.github_output,
+            "routing_cancelled",
+            producer_run_id=producer_run_id or "",
+        )
+        return 128 + (waiter.cancel_signal or signal.SIGTERM)
     except (RuntimeError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
         print(f"persistent Mac routing fell back to hosted: {error}", file=sys.stderr)
         return fallback(args.github_output, "routing_error")
