@@ -4882,6 +4882,7 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
@@ -19217,6 +19218,8 @@ struct CMUXCLI {
               cmux list-pane-surfaces
               cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
             """
+        case "glaeda":
+            return Self.glaedaUsage
         case "current":
             return CurrentCommand.usage
         case "tree":

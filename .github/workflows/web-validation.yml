@@ -5,9 +5,9 @@ on:
   # The changes job owns routing; no separate fallback may report success.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # Both web-validation and ci-status are required. CI owns tests and database
-  # checks on PRs/merge groups, where its Linux preflight gates the Mac workers.
-  # This workflow owns the production build and runs all checks standalone.
+  # Both web-validation and ci-status are required. CI owns the production build,
+  # tests, and database checks on PRs/merge groups, where its Linux preflight gates
+  # the Mac workers. This workflow runs the full standalone suite on main/manual.
   merge_group:
   push:
     branches: [main]
@@ -44,7 +44,7 @@ jobs:
   build:
     name: web-build
     needs: changes
-    if: needs.changes.outputs.required == 'true'
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:

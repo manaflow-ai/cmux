@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
+WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
     "workflow-guard-tests",
@@ -32,6 +33,16 @@ GUARD_ROUTE_JOBS = {
     "linux_guard_cli": "workflow-guard-cli-scripts",
     "linux_guard_source": "workflow-guard-source-lints",
 }
+WEB_JOBS = (
+    "web-typecheck",
+    "web-production-build",
+    "web-tests",
+    "web-instant-navigation",
+    "react-apps-check",
+    "diff-sidecar-check",
+    "web-db-migrations",
+    "agent-session-web-resources",
+)
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
@@ -227,6 +238,14 @@ def test_workflow_changes_run_everything() -> None:
         web=True,
         agent_session_web=True,
     )
+
+
+def test_reusable_web_workflow_edit_runs_every_owned_web_job() -> None:
+    actual = module.classify_files([".github/workflows/ci-web.yml"])
+    assert actual.macos is False
+    assert actual.web is True
+    assert actual.agent_session_web is True
+    assert actual.release_build is False
 
 
 def test_other_workflow_changes_skip_macos_and_web() -> None:
@@ -604,11 +623,7 @@ def linux_preflight_needs(
         "static-preflight": "success",
         "guards": "success",
         "ghosttykit-release-check": "success",
-        "web-typecheck": "success",
-        "react-apps-check": "success",
-        "diff-sidecar-check": "success",
-        "web-db-migrations": "success",
-        "agent-session-web-resources": "success",
+        "web": "success",
     }
     if results:
         job_results.update(results)
@@ -645,6 +660,40 @@ def run_guard_status(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def run_web_status(
+    *,
+    inputs: dict[str, str] | None = None,
+    results: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    route_inputs = {
+        "web": "true",
+        "macos": "true",
+        "agent_session_web": "true",
+    } if inputs is None else dict(inputs)
+    job_results = dict.fromkeys(WEB_JOBS, "success")
+    if results:
+        job_results.update(results)
+    script = workflow_job_step_script(
+        "web-status", "Check routed web jobs", WEB_WORKFLOW
+    )
+    env = {
+        **os.environ,
+        "WEB_INPUTS": json.dumps(route_inputs),
+        "WEB_NEEDS": json.dumps(
+            {name: {"result": result} for name, result in job_results.items()}
+        ),
+    }
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
 
 
 def run_detect_step_for_paths(
@@ -1007,10 +1056,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "static-preflight",
         "guards",
-        "web-typecheck",
-        "react-apps-check",
-        "diff-sidecar-check",
-        "web-db-migrations",
+        "web",
         "linux-preflight",
         "macos-compile-admission",
         "app-host-unit-tests",
@@ -1039,7 +1085,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
 
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
-    script = workflow_job_step_script("web-typecheck", "Typecheck")
+    script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
 
     assert "bun run typecheck 2>&1 | tee \"$log\"" in script
     assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in script
@@ -1049,7 +1095,8 @@ def test_web_typecheck_retries_native_tsgo_abort() -> None:
 
 def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
-    workflow = workflow_job_block("web-typecheck")
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
     web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
     assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
@@ -1057,17 +1104,13 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
     assert '"test:instant:checked"' not in package_json
 
-    ci_typecheck = workflow.index("      - name: Typecheck")
-    ci_instant = workflow.index("      - name: Instant navigation tests")
-    assert ci_typecheck < ci_instant
-    # The only second invocation is the bounded retry owned by the Typecheck
-    # step; the Instant navigation step must never own a typecheck.
-    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
-    ci_instant_step = workflow[ci_instant:]
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
-    assert "        env:" in ci_instant_step
-    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
-    assert "        run: bun run test:instant" in ci_instant_step
+    # The only second invocation is the bounded retry owned by the independent
+    # Typecheck job. The browser job must never own a typecheck.
+    assert typecheck.count("bun run typecheck") == 2
+    assert "bun run typecheck" not in instant
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in instant
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
+    assert "        run: bun run test:instant" in instant
 
     validation_typecheck = web_validation.index("      - run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
@@ -1185,7 +1228,7 @@ def tests_gate_needs(
         "macos-compile-admission": {"result": admission},
         "app-host-unit-tests": {"result": app_host},
         "swift-package-tests": {"result": "skipped" if app_host == "skipped" else "success"},
-        "agent-session-web-resources": {"result": "skipped"},
+        "web": {"result": "skipped"},
     }
 
 
@@ -1621,6 +1664,22 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 
+def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
+    app_host = workflow_job_block("app-host-unit-tests")
+    console_runner = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(encoding="utf-8")
+
+    assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
+    assert "CMUX_APP_HOST_CAPTURE_XCRESULTS" in console_runner
+    assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
+    assert "- name: Collect app-host failure diagnostics" in app_host
+    assert "- name: Upload app-host failure diagnostics" in app_host
+    assert "cmux-app-host-xcodebuild-*.meta" in app_host
+    assert "cmux-app-host-xcresults" in app_host
+    assert ".local/state/cmux/crash" in app_host
+    assert "Library/Logs/DiagnosticReports" in app_host
+    assert "if: ${{ failure() || cancelled() }}" in app_host
+
+
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
@@ -1631,15 +1690,16 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     for guard_job in GUARD_JOBS:
         assert f"      - {guard_job}" not in block
     assert "      - ghosttykit-release-check" in block
-    assert "      - web-typecheck" in block
-    assert "      - react-apps-check" in block
-    assert "      - diff-sidecar-check" in block
-    assert "      - web-db-migrations" in block
-    assert "      - agent-session-web-resources" in block
+    assert "      - web" in block
+    for web_job in WEB_JOBS:
+        assert f"      - {web_job}" not in block
     assert "if: ${{ always() }}" in block
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
+    assert 'web_routes = ("web", "macos", "agent_session_web")' in block
+    assert 'bad[f"web.{route}"]' in block
+    assert 'bad["web"] = f"{web_result} (one or more web routes=true)"' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
@@ -1672,25 +1732,67 @@ def test_only_the_history_guard_job_fetches_full_history() -> None:
         assert fetches_history == (guard_job == "workflow-guard-history"), guard_job
 
 
-def test_linux_preflight_fails_when_routed_job_skips() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(results={"web-typecheck": "skipped"})
+def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
+    block = workflow_job_block("web")
+
+    assert "    needs: [changes, static-preflight]" in block
+    assert "    uses: ./.github/workflows/ci-web.yml" in block
+    for route in ("web", "macos", "agent_session_web"):
+        assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
+        assert f"needs.changes.outputs.{route} != 'false'" in block
+
+
+def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    production = workflow_job_block("web-production-build", WEB_WORKFLOW)
+    tests = workflow_job_block("web-tests", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
+
+    assert "bun run typecheck" in typecheck
+    assert "bun run test" not in typecheck
+    assert "playwright" not in typecheck
+    assert "bun run vercel-build" in production
+
+    assert 'shard: ["1/4", "2/4", "3/4", "4/4"]' in tests
+    assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
+
+    assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
+    assert "bunx playwright install --with-deps chromium" in instant
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
+
+
+def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
+    for web_job in WEB_JOBS:
+        for outcome in ("skipped", "failure", "cancelled"):
+            result = run_web_status(results={web_job: outcome})
+            assert result.returncode != 0, (web_job, outcome)
+
+
+def test_web_status_allows_unrouted_skips() -> None:
+    result = run_web_status(
+        inputs={"web": "false", "macos": "false", "agent_session_web": "false"},
+        results=dict.fromkeys(WEB_JOBS, "skipped"),
     )
+    assert result.returncode == 0, result.stderr
+
+
+def test_linux_preflight_fails_when_routed_web_workflow_skips() -> None:
+    result = run_linux_preflight(linux_preflight_needs(results={"web": "skipped"}))
 
     assert result.returncode != 0
-    assert "web-typecheck: skipped (route web=true)" in result.stderr
+    assert "web: skipped (one or more web routes=true)" in result.stderr
 
 
-def test_linux_preflight_allows_unrouted_job_skip() -> None:
+def test_linux_preflight_allows_unrouted_web_workflow_skip() -> None:
     result = run_linux_preflight(
         linux_preflight_needs(
-            outputs={"web": "false"},
-            results={"web-typecheck": "skipped"},
+            outputs={"web": "false", "macos": "false", "agent_session_web": "false"},
+            results={"web": "skipped"},
         )
     )
 
     assert result.returncode == 0, result.stderr
-    assert "web-typecheck: skipped" in result.stdout
+    assert "web: skipped" in result.stdout
 
 
 def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
@@ -1815,6 +1917,10 @@ def run_focused_app_host_step(
             ROOT / "scripts/ci/require_selected_test_execution.sh",
             ci_scripts / "require_selected_test_execution.sh",
         )
+        shutil.copy2(
+            ROOT / "scripts/ci/run-and-capture.sh",
+            ci_scripts / "run-and-capture.sh",
+        )
         outcomes_file = root / "outcomes"
         outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
         counter = root / "invocations"
@@ -1881,20 +1987,15 @@ esac
         return result, invocations
 
 
-def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
-    # The close suite crashes once and passes on its rerun; the isolated focus
-    # and placement suites then pass, for four invocations in total.
-    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
+def test_remote_tmux_mirror_gate_keeps_a_crash_red_without_rerunning() -> None:
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass"])
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert invocations == 4, result.stdout
-    assert "rerunning the suite once" in result.stdout
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
-    assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
+    assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
+def test_remote_tmux_mirror_gate_keeps_an_assertion_failure_red() -> None:
     result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
 
     assert result.returncode == 65, result.stdout + result.stderr
@@ -1902,11 +2003,14 @@ def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
     assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
-    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
+def test_remote_tmux_mirror_gate_runs_each_suite_once_on_success() -> None:
+    result, invocations = run_focused_app_host_step(["pass", "pass", "pass"])
 
-    assert result.returncode == 65, result.stdout + result.stderr
-    assert invocations == 2, result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 3, result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests") == 1
 
 
 def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:
@@ -1946,9 +2050,9 @@ def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
-    block = workflow_job_block("agent-session-web-resources")
+    block = workflow_job_block("agent-session-web-resources", WEB_WORKFLOW)
 
-    assert "if: ${{ needs.changes.outputs.agent_session_web == 'true' }}" in block
+    assert "if: ${{ inputs.agent_session_web == 'true' }}" in block
 
 
 def test_perf_activation_runs_for_its_own_workflow_and_not_for_others() -> None:
