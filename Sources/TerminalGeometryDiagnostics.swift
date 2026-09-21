@@ -5,6 +5,10 @@ import CmuxTerminal
 /// App boundary for privacy-safe snapshots; it never reads terminal contents.
 @MainActor
 struct TerminalGeometryDiagnostics {
+    let log: DiagnosticLog
+
+    init(log: DiagnosticLog = MobileHostDiagnostics.log) { self.log = log }
+
     func context(
         workspaceID: UUID?,
         transition: TerminalWorkContext.Transition
@@ -29,7 +33,7 @@ struct TerminalGeometryDiagnostics {
         workspaceID: UUID?,
         transition: TerminalWorkContext.Transition = .unknown
     ) -> TerminalWorkInterval {
-        MobileHostDiagnostics.log.beginTerminalWork(
+        log.beginTerminalWork(
             phase, context: context(workspaceID: workspaceID, transition: transition)
         )
     }

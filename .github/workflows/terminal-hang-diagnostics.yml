@@ -9,6 +9,7 @@ on:
       - Packages/iOS/CmuxMobileTerminal/**
       - Packages/macOS/CmuxTerminal/**
       - Sources/GhosttyTerminalView*.swift
+      - Sources/GhosttySurfaceScrollView+WorkDiagnostics.swift
       - Sources/TerminalWindowPortal*.swift
       - Sources/TerminalGeometryDiagnostics.swift
       - Sources/Workspace+GeometryDiagnostics.swift

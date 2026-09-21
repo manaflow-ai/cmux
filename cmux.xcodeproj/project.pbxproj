@@ -1990,6 +1990,7 @@
 		B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
 		A5F100000000000000000009 /* GhosttySurfaceScrollView+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */; };
+		E8C90135C6D24113A1AAA814 /* GhosttySurfaceScrollView+WorkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37FC2632B9304285873E9649 /* GhosttySurfaceScrollView+WorkDiagnostics.swift */; };
 		A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */; };
 		C0DEF828300000000000001 /* GhosttyTerminalImmediateHostedStateAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */; };
 		37106908DC3196DFD53D7812 /* GhosttyTerminalMouseRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */; };
@@ -6017,6 +6018,7 @@
 		B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
 		A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceScrollView+NotificationScroll.swift"; sourceTree = "<group>"; };
+		37FC2632B9304285873E9649 /* GhosttySurfaceScrollView+WorkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySurfaceScrollView+WorkDiagnostics.swift; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
 		C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalImmediateHostedStateAction.swift; sourceTree = "<group>"; };
 		56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalMouseRoutingTests.swift; sourceTree = "<group>"; };
@@ -9667,6 +9669,7 @@
 				39CE4363C02D4FEBAA7C13C8 /* TerminalPortalReconciliationReasons.swift */,
 				B72F0DA688C0482DB7DF5483 /* TerminalPortalReconciliationRequest.swift */,
 				43ABCA055AE54A31A46503DC /* TerminalPortalReconciliationScheduler.swift */,
+				37FC2632B9304285873E9649 /* GhosttySurfaceScrollView+WorkDiagnostics.swift */,
 				9612B0010000000000000001 /* TerminalPortalReconciliation.swift */,
 				F949FFE94E234BC39DDDCE34 /* Workspace+GeometryDiagnostics.swift */,
 				C2A07192C2FF4C09B133C525 /* TerminalGeometryDiagnostics.swift */,
@@ -13996,6 +13999,7 @@
 				B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */,
 				B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */,
 				A5F100000000000000000009 /* GhosttySurfaceScrollView+NotificationScroll.swift in Sources */,
+				E8C90135C6D24113A1AAA814 /* GhosttySurfaceScrollView+WorkDiagnostics.swift in Sources */,
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
 				C0DEF828300000000000001 /* GhosttyTerminalImmediateHostedStateAction.swift in Sources */,
 				A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */,

@@ -10,6 +10,27 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalPortalTransitionAttributionTests {
+    @Test(arguments: [TerminalWorkContext.Transition.unknown, .split, .restore, .reveal, .resize])
+    func rendererRefreshUsesTypedOriginInsteadOfReasonText(transition: TerminalWorkContext.Transition) async throws {
+        let fixture = TerminalPortalGeometryFixture()
+        defer { fixture.close() }
+        let log = DiagnosticLog(capacity: 8)
+        let (events, continuation) = AsyncStream<DiagnosticEvent>.makeStream()
+        log.setEventTap { continuation.yield($0) }
+        defer { log.setEventTap(nil); continuation.finish() }
+        TerminalGeometryDiagnostics(log: log).refresh(
+            fixture.hosted, reason: "portal.reveal", transition: transition
+        )
+        var iterator = events.makeAsyncIterator()
+        let started = try #require(await iterator.next())
+        let finished = try #require(await iterator.next())
+        #expect(started.code == .terminalWorkStarted)
+        #expect(finished.code == .terminalWorkFinished)
+        #expect(started.terminalWork?.phase == .rendererRefresh)
+        #expect(started.terminalWork?.context.transition == transition)
+        #expect(finished.terminalWork == started.terminalWork)
+    }
+
     @Test(arguments: [TerminalWorkContext.Transition.split, .restore])
     @MainActor
     func queuedGeometryRetainsItsOwnerTransitionAfterTheScopeEnds(transition: TerminalWorkContext.Transition) throws {
