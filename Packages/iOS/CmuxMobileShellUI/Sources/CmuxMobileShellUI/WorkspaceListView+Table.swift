@@ -101,7 +101,7 @@ extension WorkspaceListView {
                     && store.workspaces.isEmpty
             }
         }
-        let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
+        let cancelRefreshForEmptyState: (() -> Void)? = cancelRefresh ?? store.map { store in
             {
                 store.cancelWorkspaceListRecovery()
             }

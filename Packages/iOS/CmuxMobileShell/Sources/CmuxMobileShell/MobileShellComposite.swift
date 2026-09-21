@@ -1366,6 +1366,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// by the workspace-list Retry action.
     var workspaceListRecoveryOwnerID: String?
     var workspaceListRecoveryOwnerInstanceTag: String?
+    var workspaceListRecoveryActive = false
     var workspaceListRecoveryGeneration = UUID()
     /// Generation of the task currently occupying ``pullToRefreshTask``.
     /// Cancelled attempts advance it before detaching their handle so a late
@@ -1985,6 +1986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pullToRefreshOwnerInstanceTag = nil
         self.workspaceListRecoveryOwnerID = nil
         self.workspaceListRecoveryOwnerInstanceTag = nil
+        self.workspaceListRecoveryActive = false
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
         self.foregroundWorkspaceMutationRefreshGeneration = UUID()
@@ -11495,6 +11497,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshOwnerInstanceTag = nil
         workspaceListRecoveryOwnerID = nil
         workspaceListRecoveryOwnerInstanceTag = nil
+        workspaceListRecoveryActive = false
         workspaceListRecoveryGeneration = UUID()
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryDebounceTask = nil

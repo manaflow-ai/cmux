@@ -156,11 +156,13 @@ extension MobileShellComposite {
     public func reconnectOrRefresh() async {
         let recoveryScope = workspaceListRecoveryTarget
         let recoveryGeneration = UUID()
+        workspaceListRecoveryActive = true
         workspaceListRecoveryGeneration = recoveryGeneration
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
         workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
         defer {
             if workspaceListRecoveryGeneration == recoveryGeneration {
+                workspaceListRecoveryActive = false
                 workspaceListRecoveryOwnerID = nil
                 workspaceListRecoveryOwnerInstanceTag = nil
             }
@@ -233,37 +235,31 @@ extension MobileShellComposite {
         instanceTag: String? = nil,
         ownerScoped: Bool = false
     ) {
-        if ownerScoped {
-            if pullToRefreshTask != nil {
-                guard pullToRefreshOwnerID == macDeviceID,
-                      pullToRefreshOwnerInstanceTag == instanceTag else {
-                    return
-                }
-            }
-            if connectionRecoveryOwner.isActive {
-                guard workspaceListRecoveryOwnerID == macDeviceID,
-                      workspaceListRecoveryOwnerInstanceTag == instanceTag else {
-                    return
-                }
-            }
-            if pullToRefreshTask == nil, !connectionRecoveryOwner.isActive {
-                guard workspaceListRecoveryOwnerID == macDeviceID,
-                      workspaceListRecoveryOwnerInstanceTag == instanceTag else {
-                    return
-                }
-            }
+        let pullMatches = pullToRefreshTask != nil
+            && pullToRefreshOwnerID == macDeviceID
+            && pullToRefreshOwnerInstanceTag == instanceTag
+        let recoveryMatches = workspaceListRecoveryActive
+            && workspaceListRecoveryOwnerID == macDeviceID
+            && workspaceListRecoveryOwnerInstanceTag == instanceTag
+        if ownerScoped && !pullMatches && !recoveryMatches {
+            return
         }
-        pullToRefreshTask?.cancel()
-        pullToRefreshTask = nil
-        pullToRefreshGeneration = UUID()
-        pullToRefreshOwnerID = nil
-        pullToRefreshOwnerInstanceTag = nil
-        workspaceListRecoveryGeneration = UUID()
-        workspaceListRecoveryOwnerID = nil
-        workspaceListRecoveryOwnerInstanceTag = nil
-        connectionRecoveryOwner.cancel()
-        connectionRecoveryAttemptDeadlineTask?.cancel()
-        connectionRecoveryAttemptDeadlineTask = nil
+        if !ownerScoped || pullMatches {
+            pullToRefreshTask?.cancel()
+            pullToRefreshTask = nil
+            pullToRefreshGeneration = UUID()
+            pullToRefreshOwnerID = nil
+            pullToRefreshOwnerInstanceTag = nil
+        }
+        if !ownerScoped || recoveryMatches {
+            workspaceListRecoveryGeneration = UUID()
+            workspaceListRecoveryActive = false
+            workspaceListRecoveryOwnerID = nil
+            workspaceListRecoveryOwnerInstanceTag = nil
+            connectionRecoveryOwner.cancel()
+            connectionRecoveryAttemptDeadlineTask?.cancel()
+            connectionRecoveryAttemptDeadlineTask = nil
+        }
     }
 
     private func refreshConnectedWorkspaceContent() async {
