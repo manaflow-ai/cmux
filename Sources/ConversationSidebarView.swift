@@ -475,7 +475,7 @@ struct ConversationSidebarView: View {
         // `.task(id: searchText)` cancels the previous search. The short
         // debounce keeps rapid typing from starting one full-disk search per
         // keystroke while preserving cancellation for the final query.
-        try? await Task.sleep(for: .milliseconds(150))
+        try? await ContinuousClock().sleep(for: .milliseconds(150))
         guard !Task.isCancelled else { return }
         let outcome = await store.searchAllSessions(rawQuery: trimmed)
         guard !Task.isCancelled else { return }
