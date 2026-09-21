@@ -232,6 +232,21 @@ describe("codex responses proxy session routing", () => {
     expect(cooldowns).toEqual(["acct-capacity"]);
   });
 
+  test("fails over an NDJSON capacity event split across chunks", async () => {
+    const record = JSON.stringify({ type: "error", code: "usage_limit_reached" });
+    const encoder = new TextEncoder();
+    const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(record.slice(0, -4)));
+        controller.enqueue(encoder.encode(record.slice(-4) + "\n"));
+        controller.close();
+      },
+    }), { status: 200, headers: { "content-type": "application/x-ndjson" } })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
   test("does not fail over when output text contains a capacity marker", async () => {
     const body = `data: ${JSON.stringify({
       type: "response.output_text.delta",
@@ -254,6 +269,17 @@ describe("codex responses proxy session routing", () => {
     const response = await capacityProxy((async () => new Response(body, {
       status: 200,
       headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("preserves an unterminated final NDJSON record at EOF", async () => {
+    const body = JSON.stringify({ type: "response.output_text.delta", delta: "full" });
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
     })) as typeof fetch)(responsesRequest());
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(body);
