@@ -765,6 +765,7 @@ final class FileExplorerStore: ObservableObject {
 
     var remoteHomeResolutionTask: Task<Void, Never>?
     var remoteHomeResolutionKey: String?
+    private var recentlyMaterializedRemotePreviewURLs: [URL: Date] = [:]
 
     private let gitStatusProvider: GitStatusProvider
 
@@ -901,15 +902,32 @@ final class FileExplorerStore: ObservableObject {
             displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
-        await Self.pruneRemotePreviewCache(excluding: activeRemotePreviewURLs().union([cacheURL]))
+        let protectedURLs = protectRecentlyMaterializedPreview(cacheURL)
+        await Self.pruneRemotePreviewCache(excluding: protectedURLs)
         try await remoteProvider.downloadFile(path: path, to: cacheURL)
         guard expectedWorkspaceRootIdentity == nil ||
               (workspaceRootIdentity == expectedWorkspaceRootIdentity && provider === remoteProvider) else {
             try? FileManager.default.removeItem(at: cacheURL)
             throw FileExplorerError.providerUnavailable
         }
-        await Self.pruneRemotePreviewCache(excluding: activeRemotePreviewURLs().union([cacheURL]))
+        await Self.pruneRemotePreviewCache(excluding: protectedURLs)
         return cacheURL
+    }
+
+    private func protectRecentlyMaterializedPreview(_ url: URL) -> Set<URL> {
+        let now = Date()
+        recentlyMaterializedRemotePreviewURLs = recentlyMaterializedRemotePreviewURLs.filter {
+            now.timeIntervalSince($0.value) < 300
+        }
+        recentlyMaterializedRemotePreviewURLs[url.standardizedFileURL] = now
+        if recentlyMaterializedRemotePreviewURLs.count > 64 {
+            let oldest = recentlyMaterializedRemotePreviewURLs
+                .sorted { $0.value < $1.value }
+                .prefix(recentlyMaterializedRemotePreviewURLs.count - 64)
+                .map(\.key)
+            for key in oldest { recentlyMaterializedRemotePreviewURLs.removeValue(forKey: key) }
+        }
+        return activeRemotePreviewURLs().union(recentlyMaterializedRemotePreviewURLs.keys).union([url])
     }
 
     private func activeRemotePreviewURLs() -> Set<URL> {

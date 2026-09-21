@@ -125,7 +125,7 @@ if limited:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-    sys.stdout.write("__CMUX_LIMIT__\n")
+    sys.stdout.write(f"__CMUX_LIMIT__:{count}\n")
     sys.exit(0)
 exit_code = process.wait()
 sys.exit(0 if exit_code in (0, 1) else exit_code)
@@ -141,7 +141,10 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
         let command = "python3 -c \(Self.shellQuote(script)) \(Self.shellQuote(query)) \(Self.shellQuote(rootPath)) "
             + rgArguments.map(Self.shellQuote).joined(separator: " ")
         let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
-        let wasLimited = result.stdout.split(whereSeparator: \.isNewline).contains { $0 == "__CMUX_LIMIT__" }
+        let limitCount = result.stdout
+            .split(whereSeparator: \.isNewline)
+            .first(where: { $0.hasPrefix("__CMUX_LIMIT__:") })
+            .flatMap { Int($0.dropFirst("__CMUX_LIMIT__:".count)) }
         let results = result.stdout
             .split(whereSeparator: \.isNewline)
             .compactMap { FileSearchRipgrepParser.parseMatchLine(String($0), rootPath: rootPath) }
@@ -151,7 +154,7 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
         return FileSearchSnapshot(
             query: query,
             results: results,
-            status: results.isEmpty ? .noMatches : (wasLimited ? .limited(Self.maxSearchResults) : .matches),
+            status: results.isEmpty ? .noMatches : (limitCount.map { .limited($0) } ?? .matches),
             isSearching: false
         )
     }

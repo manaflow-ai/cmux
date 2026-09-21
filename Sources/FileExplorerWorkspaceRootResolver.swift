@@ -17,7 +17,7 @@ struct FileExplorerWorkspaceRootResolver {
             } else if !featureEnabled {
                 detail = CloudMachinesFeature.disabledMessage
             } else if !connected {
-                detail = provider?.info.linkError ?? String(localized: "fileExplorer.status.cloudDisconnected", defaultValue: "Cloud machine is not connected")
+                detail = String(localized: "fileExplorer.status.cloudDisconnected", defaultValue: "Cloud machine is not connected")
             } else {
                 detail = nil
             }

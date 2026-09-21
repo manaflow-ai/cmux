@@ -2,7 +2,7 @@ import Foundation
 
 /// A file provider whose filesystem lives outside this Mac.
 protocol RemoteFileExplorerProvider: FileExplorerProvider {
-    var displayTarget: String { get }
-    func resolveHomePath() async throws -> String
-    func downloadFile(path: String, to localURL: URL) async throws
+    nonisolated var displayTarget: String { get }
+    nonisolated func resolveHomePath() async throws -> String
+    nonisolated func downloadFile(path: String, to localURL: URL) async throws
 }

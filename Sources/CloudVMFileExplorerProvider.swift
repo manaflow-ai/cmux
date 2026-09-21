@@ -37,19 +37,19 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
     }
 
     /// Resolves the machine home through the service actor.
-    func resolveHomePath() async throws -> String {
+    nonisolated func resolveHomePath() async throws -> String {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
         return try await service.resolveHome(vmID: vmID)
     }
 
     /// Lists a directory on the Cloud machine.
-    func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
+    nonisolated func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
         return try await service.listDirectory(vmID: vmID, path: path, showHidden: showHidden)
     }
 
     /// Downloads a remote file into the local preview cache.
-    func downloadFile(path: String, to localURL: URL) async throws {
+    nonisolated func downloadFile(path: String, to localURL: URL) async throws {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
         try await service.download(vmID: vmID, path: path, to: localURL)
     }
