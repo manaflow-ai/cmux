@@ -116,12 +116,13 @@ extension CmuxConfigSemanticValidator {
             )
         }
         if let multiple = schemaNumber(schema["multipleOf"]), multiple > 0 {
-            let remainder = abs(value.truncatingRemainder(dividingBy: multiple))
-            let distance = min(remainder, multiple - remainder)
-            // Permit only floating-point representation error, never a fraction
-            // of the configured multiple. A quotient-scaled decimal tolerance
-            // grows large enough to accept invalid values.
-            let tolerance = max(value.ulp, multiple.ulp) * 4
+            let quotient = value / multiple
+            let nearestInteger = quotient.rounded()
+            let distance = abs(quotient - nearestInteger)
+            // Division can round an exact mathematical multiple by one ULP.
+            // Compare in quotient space so tolerance stays tied to that single
+            // operation instead of growing with the configured multiple.
+            let tolerance = max(quotient.ulp, nearestInteger.ulp)
             if distance > tolerance {
                 issues.append(
                     CmuxConfigSemanticIssue(
