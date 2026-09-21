@@ -1023,7 +1023,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     # The only second invocation is the bounded retry owned by the Typecheck
     # step; the Instant navigation step must never own a typecheck.
     assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
-    ci_instant_step = workflow[ci_instant:]
+    ci_instant_step = workflow_step_block("web-typecheck", "Instant navigation tests")
     assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
     assert "        env:" in ci_instant_step
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
@@ -1036,7 +1036,7 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
-    validation_instant_step = web_validation[validation_instant:]
+    validation_instant_step = workflow_run_step_block("tests", "bun run test:instant", WEB_VALIDATION_WORKFLOW)
     assert "CMUX_INSTANT_CHECK_TYPECHECK" not in validation_instant_step
     assert '        env:\n          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in validation_instant_step
     validation_run_lines = [
@@ -1464,9 +1464,20 @@ def test_admission_lookup_shares_one_deadline_across_successive_requests() -> No
         assert output.read_text() == "compile_admitted=false\n"
 
 
-def workflow_step_block(job_name: str, step_name: str) -> str:
-    lines = workflow_job_block(job_name).splitlines()
+def workflow_step_block(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_job_block(job_name, workflow_path).splitlines()
     start = lines.index(f"      - name: {step_name}")
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("      - ") or (line.strip() and not line.startswith("        ")):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def workflow_run_step_block(job_name: str, run_command: str, workflow_path: Path = CI_WORKFLOW) -> str:
+    lines = workflow_job_block(job_name, workflow_path).splitlines()
+    start = lines.index(f"      - run: {run_command}")
     body = [lines[start]]
     for line in lines[start + 1 :]:
         if line.startswith("      - ") or (line.strip() and not line.startswith("        ")):
