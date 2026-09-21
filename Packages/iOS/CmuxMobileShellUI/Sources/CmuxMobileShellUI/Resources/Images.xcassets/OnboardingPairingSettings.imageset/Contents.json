@@ -1,0 +1,15 @@
+{
+  "images" : [
+    {
+      "filename" : "MacSettings-light.png",
+      "idiom" : "universal",
+      "appearances" : [{"appearance" : "luminosity", "value" : "light"}]
+    },
+    {
+      "filename" : "MacSettings-dark.png",
+      "idiom" : "universal",
+      "appearances" : [{"appearance" : "luminosity", "value" : "dark"}]
+    }
+  ],
+  "info" : {"author" : "xcode", "version" : 1}
+}
