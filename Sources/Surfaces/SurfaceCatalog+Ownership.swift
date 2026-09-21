@@ -51,6 +51,9 @@ extension SurfaceCatalog {
     /// receipt can enter the catalog, and retire only the just-created view.
     func validateMaterializationOwnership(_ projection: SurfaceProjection, provider: any SurfaceProvider) throws {
         do {
+            if DockSplitStore.liveStore(containingPanel: projection.panelID)?.scope == .global {
+                return
+            }
             try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
         } catch {
             provider.discardMaterialization(projection)
@@ -59,6 +62,9 @@ extension SurfaceCatalog {
     }
 
     func canRestoreProjection(_ projection: SurfaceProjection) -> Bool {
+        if DockSplitStore.liveStore(containingPanel: projection.panelID)?.scope == .global {
+            return true
+        }
         do {
             try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
             return true

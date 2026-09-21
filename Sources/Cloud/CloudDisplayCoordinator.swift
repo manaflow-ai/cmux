@@ -29,7 +29,22 @@ final class CloudDisplayCoordinator {
         let token = generation
         let task = Task { [weak self, execute] in
             do {
-                let response = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
+                var response: VMExecResult?
+                var lastError: (any Error)?
+                for attempt in 0..<20 {
+                    do {
+                        let candidate = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
+                        if candidate.exitCode == 0 {
+                            response = candidate
+                            break
+                        }
+                        lastError = SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
+                    } catch {
+                        lastError = error
+                    }
+                    if attempt < 19 { try await Task.sleep(for: .milliseconds(100)) }
+                }
+                guard let response else { throw lastError ?? SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
                 guard response.exitCode == 0 else {
                     throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
                 }
