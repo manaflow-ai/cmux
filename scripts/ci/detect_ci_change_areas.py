@@ -290,6 +290,12 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             continue
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
+        if path == WEB_WORKFLOW_PATH:
+            # The reusable web workflow is itself an input to every web lane.
+            # Run every job body it owns without unnecessarily routing macOS.
+            web = True
+            agent_session_web = True
+            continue
         if forces_all_areas(path):
             macos = True
             web = True
