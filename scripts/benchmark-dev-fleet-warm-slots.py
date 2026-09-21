@@ -347,7 +347,6 @@ def run_preemption(
         )
     finally:
         os.close(ready_w)
-    known_at = time.time()
     try:
         if not wait_for_warmer_ready(ready_r):
             stdout, stderr = cleanup_warmer(state, slot, warmer)
@@ -357,6 +356,7 @@ def run_preemption(
                 "warmer_stdout": stdout[-4000:],
                 "warmer_stderr": stderr[-4000:],
             }
+        known_at = time.time()
         try:
             task_result = task(
                 helper,
