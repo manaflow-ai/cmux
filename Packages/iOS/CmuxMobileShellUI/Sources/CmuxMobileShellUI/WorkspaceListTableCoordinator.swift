@@ -104,6 +104,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         to tableView: WorkspaceListUITableView,
         viewController: WorkspaceListTableViewController? = nil
     ) {
+        var configuration = configuration
         tableViewController = viewController
         editedItemID = nil
         deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)

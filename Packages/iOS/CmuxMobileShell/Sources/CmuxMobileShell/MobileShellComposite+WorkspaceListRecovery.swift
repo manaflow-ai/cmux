@@ -182,6 +182,8 @@ extension MobileShellComposite {
         await reconnectOrRefresh(recoveryGeneration: recoveryGeneration)
     }
 
+    /// Performs the workspace-list recovery for the supplied prepared token,
+    /// or starts a fresh token for pull-to-refresh and other callers.
     public func reconnectOrRefresh(recoveryGeneration requestedGeneration: UUID? = nil) async {
         let recoveryGeneration = requestedGeneration ?? UUID()
         if let requestedGeneration,

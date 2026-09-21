@@ -66,6 +66,7 @@ public final class MobileIrohReleaseGateTerminalSession {
                 let submitTask = Task { @MainActor in
                     await client.value.submitTerminalRawInput(command, surfaceID: surfaceID)
                 }
+                defer { submitTask.cancel() }
                 group.addTask {
                     try await withTaskCancellationHandler {
                         await submitTask.value
