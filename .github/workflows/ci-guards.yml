@@ -502,7 +502,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 2
+          # PR/merge-group synthetic commits need only HEAD + first parent.
+          # Manual dispatches have no synthetic parent, so retain full history
+          # and origin/main for the policy's fallback merge-base comparison.
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
           persist-credentials: false
 
       - name: Bind package policy to synthetic merge base
