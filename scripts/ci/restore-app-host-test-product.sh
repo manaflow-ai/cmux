@@ -30,11 +30,17 @@ import time
 
 archive = Path(os.environ["RUNNER_TEMP"]) / "app-host-products/app-host-products.tar.gz"
 elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_NS"])) / 1_000_000_000)
+local_lookup = float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0)
+peer_lookup = float(os.environ.get("CMUX_PEER_PRODUCT_LOOKUP_SECONDS") or 0)
 record = {
     "archive_bytes": archive.stat().st_size,
     "elapsed_seconds": round(elapsed, 6),
+    "lookup_source": os.environ.get("CMUX_PRODUCT_LOOKUP_SOURCE") or "github",
+    "lookup_seconds": round(local_lookup + peer_lookup, 6),
+    "transfer_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_TRANSFER_SECONDS") or 0),
+    "bytes_transferred": int(os.environ.get("CMUX_PEER_PRODUCT_BYTES_TRANSFERRED") or 0),
     "local_hit": os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true",
-    "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
+    "peer_hit": os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true",
     "run_id": os.environ.get("GITHUB_RUN_ID"),
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
