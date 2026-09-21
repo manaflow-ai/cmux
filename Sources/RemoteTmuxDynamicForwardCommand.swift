@@ -3,7 +3,7 @@ import Foundation
 /// Argv construction and stderr classification for adding/removing a SOCKS5
 /// dynamic forward on an ssh-tmux host's already-running SSH ControlMaster,
 /// via OpenSSH's multiplex `-O forward`/`-O cancel` control commands. No
-/// process launching here — that's `RemoteTmuxSSHTransport`, which holds one
+/// process launching here — that's ``RemoteTmuxSSHTransport``, which holds one
 /// instance and injects it (constructable/injectable per the repository's
 /// no-ambient-global-state policy). Instance methods rather than static
 /// members specifically so argv exactness and stderr classification stay

@@ -35,6 +35,7 @@ final class RemoteTmuxBrowserProxyRegistry {
     }
 
     private var entriesByConnectionHash: [String: Entry] = [:]
+    private let loopbackPortAllocator = LoopbackPortAllocator()
 
     /// Set once by `RemoteTmuxController` right after construction (a plain
     /// `init` parameter would need `self` before it exists, since the
@@ -139,7 +140,7 @@ final class RemoteTmuxBrowserProxyRegistry {
     /// Invalidates a host's existing `-D` forward and SOCKS listener without
     /// tearing down the whole entry — used both when a reconnected SSH
     /// session makes them stale, and when a live listener fails or is
-    /// cancelled unexpectedly after startup. Unlike `releaseHost`, this must
+    /// cancelled unexpectedly after startup. Unlike ``releaseHost(connectionHash:)``, this must
     /// never drop the host's `retainingWorkspaceIDs`: every mirror workspace
     /// still using this host keeps its retention on the SAME entry and gets
     /// rebuilt exactly once here, rather than each caller racing to tear the
@@ -192,8 +193,8 @@ final class RemoteTmuxBrowserProxyRegistry {
         var lastError: Error = RemoteTmuxError.unreachable("could not start the browser proxy")
         for _ in 0..<3 {
             try Task.checkCancellation()
-            guard let forwardPort = LoopbackPortAllocator.allocate(),
-                  let listenerPort = LoopbackPortAllocator.allocate(),
+            guard let forwardPort = loopbackPortAllocator.allocate(),
+                  let listenerPort = loopbackPortAllocator.allocate(),
                   forwardPort != listenerPort else {
                 lastError = RemoteTmuxError.unreachable("could not allocate local ports for the browser proxy")
                 continue
