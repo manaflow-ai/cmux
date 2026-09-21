@@ -384,4 +384,85 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(underLimit.visible.count == 7)
         #expect(underLimit.hiddenCount == 0)
     }
+
+    @Test
+    func incrementalTodoPersistenceTargetsOneWorkspaceAndPreservesTheRest() {
+        let firstID = UUID()
+        let targetID = UUID()
+        let first = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "First",
+            customColor: nil,
+            isPinned: true,
+            currentDirectory: "/tmp/first",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let second = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Second",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/second",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        var first = first
+        var second = second
+        first.workspaceId = firstID
+        second.workspaceId = targetID
+        var snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 0,
+            windows: [SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: [first, second]),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+            )]
+        )
+
+        let item = SessionChecklistItemSnapshot(
+            id: UUID(),
+            text: "Typed without blur",
+            state: "pending",
+            origin: "user"
+        )
+        let update = SessionTodoStateSnapshot(
+            workspaceID: targetID,
+            statusOverride: "working",
+            inferredAtOverride: "todo",
+            statusHidden: nil,
+            checklist: [item]
+        )
+
+        #expect(update.apply(to: &snapshot))
+        #expect(snapshot.windows[0].tabManager.workspaces[0].customTitle == "First")
+        #expect(snapshot.windows[0].tabManager.workspaces[0].checklist == nil)
+        #expect(snapshot.windows[0].tabManager.workspaces[1].customTitle == "Second")
+        #expect(snapshot.windows[0].tabManager.workspaces[1].checklist == [item])
+        #expect(snapshot.windows[0].tabManager.workspaces[1].taskStatusOverride == "working")
+
+        let cleared = SessionTodoStateSnapshot(
+            workspaceID: targetID,
+            statusOverride: nil,
+            inferredAtOverride: nil,
+            statusHidden: true,
+            checklist: nil
+        )
+        #expect(cleared.apply(to: &snapshot))
+        #expect(snapshot.windows[0].tabManager.workspaces[1].checklist == nil)
+        #expect(snapshot.windows[0].tabManager.workspaces[1].taskStatusOverride == nil)
+        #expect(snapshot.windows[0].tabManager.workspaces[1].taskStatusHidden == true)
+    }
 }

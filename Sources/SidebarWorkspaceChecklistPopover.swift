@@ -540,19 +540,25 @@ struct SidebarWorkspaceChecklistPopover: View {
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
         editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
         editingOriginalText = ""
         editingItemId = nil
         editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 

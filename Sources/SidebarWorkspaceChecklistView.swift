@@ -560,8 +560,12 @@ struct SidebarWorkspaceChecklistSection: View {
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID, text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 

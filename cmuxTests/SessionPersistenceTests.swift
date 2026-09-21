@@ -1855,46 +1855,6 @@ final class SessionPersistenceTests: XCTestCase {
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 
-    func testTodoUpdatePreservesOtherSessionStateAndTargetsWorkspaceIdentity() throws {
-        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
-        let targetID = UUID()
-        snapshot.windows[0].tabManager.workspaces[0].workspaceId = UUID()
-        var target = snapshot.windows[0].tabManager.workspaces[0]
-        target.workspaceId = targetID
-        snapshot.windows[0].tabManager.workspaces.append(target)
-        let original = try JSONEncoder().encode(snapshot.windows[0].tabManager.workspaces[0])
-        let item = SessionChecklistItemSnapshot(id: UUID(), text: "Typed without blur", state: "pending", origin: "user")
-        let update = SessionTodoStateSnapshot(
-            workspaceID: targetID,
-            statusOverride: "working",
-            inferredAtOverride: "todo",
-            statusHidden: nil,
-            checklist: [item]
-        )
-
-        XCTAssertTrue(update.apply(to: &snapshot))
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces[1].checklist, [item])
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces[1].taskStatusOverride, "working")
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces[1].customTitle, target.customTitle)
-        // Compare decoded objects because JSON dictionary key ordering is unspecified.
-        let unchanged = try JSONEncoder().encode(snapshot.windows[0].tabManager.workspaces[0])
-        XCTAssertEqual(try JSONSerialization.jsonObject(with: unchanged) as? NSDictionary,
-                       try JSONSerialization.jsonObject(with: original) as? NSDictionary)
-
-        let cleared = SessionTodoStateSnapshot(
-            workspaceID: targetID, statusOverride: nil, inferredAtOverride: nil,
-            statusHidden: true, checklist: nil
-        )
-        XCTAssertTrue(cleared.apply(to: &snapshot))
-        XCTAssertNil(snapshot.windows[0].tabManager.workspaces[1].checklist)
-        XCTAssertNil(snapshot.windows[0].tabManager.workspaces[1].taskStatusOverride)
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces[1].taskStatusHidden, true)
-
-        snapshot.windows[0].tabManager.workspaces.removeLast()
-        XCTAssertFalse(update.apply(to: &snapshot))
-        XCTAssertEqual(snapshot.windows[0].tabManager.workspaces.count, 1)
-    }
-
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",

@@ -1191,6 +1191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -4584,19 +4585,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               didAttemptStartupSessionRestore,
               !isApplyingSessionRestore else { return }
         let update = SessionTodoStateSnapshot(workspace: workspace)
-        sessionPersistenceQueue.async { [weak self, sessionSnapshotStore] in
-            guard var snapshot = sessionSnapshotStore.load(fileURL: nil),
-                  update.apply(to: &snapshot) else {
-                // A new workspace may not have a baseline session yet. Capture
-                // its current state once through the normal persistence owner.
-                Task { @MainActor [weak self] in
+        if todoStatePersistenceCoordinator == nil {
+            todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
+                queue: sessionPersistenceQueue,
+                snapshotStore: sessionSnapshotStore,
+                fallbackSave: { [weak self] in
                     guard let self, !self.isTerminatingApp else { return }
                     _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
                 }
-                return
-            }
-            _ = sessionSnapshotStore.save(snapshot, fileURL: nil)
+            )
         }
+        todoStatePersistenceCoordinator?.enqueue(update)
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
