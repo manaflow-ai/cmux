@@ -74,6 +74,100 @@ def swift_test_name(value: str) -> str:
     return value.strip().strip('"')
 
 
+def typed_failed_test_cases(payload: Any) -> list[dict[str, str]]:
+    """Return distinct failed Test Case nodes from xcresulttool typed test JSON."""
+    failed: dict[str, dict[str, str]] = {}
+
+    def walk(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+            return
+        if not isinstance(value, dict):
+            return
+
+        if value.get("nodeType") == "Test Case" and value.get("result") == "Failed":
+            identifier = value.get("nodeIdentifier")
+            name = value.get("name")
+            if isinstance(identifier, str) and identifier.strip():
+                failed.setdefault(
+                    identifier,
+                    {
+                        "nodeIdentifier": identifier.strip(),
+                        "name": name.strip() if isinstance(name, str) else "",
+                    },
+                )
+
+        for child in value.values():
+            if isinstance(child, (dict, list)):
+                walk(child)
+
+    walk(payload)
+    return list(failed.values())
+
+
+def _strip_call_suffix(value: str) -> str:
+    return value[:-2] if value.endswith("()") else value
+
+
+def failure_id_matches_typed_node(identifier: str, node: dict[str, str]) -> bool:
+    node_identifier = _strip_call_suffix(node["nodeIdentifier"].strip())
+    node_name = swift_test_name(node.get("name", ""))
+
+    if identifier.startswith("xctest:"):
+        body = identifier.removeprefix("xctest:")
+        suite, separator, test = body.partition("/")
+        if not separator:
+            return False
+        suite = suite.rsplit(".", 1)[-1]
+        expected = f"{suite}/{_strip_call_suffix(test)}"
+        return node_identifier == expected
+
+    if identifier.startswith("swift:"):
+        expected = swift_test_name(identifier.removeprefix("swift:"))
+        return (
+            node_name == expected
+            or swift_test_name(node_identifier.rsplit("/", 1)[-1]) == expected
+        )
+
+    return False
+
+
+def typed_failure_accounting(output: str, payloads: list[Any]) -> tuple[bool, str]:
+    """Pair each console failure ID with one typed failed Test Case node."""
+    typed_nodes: dict[str, dict[str, str]] = {}
+    for payload in payloads:
+        for node in typed_failed_test_cases(payload):
+            typed_nodes.setdefault(node["nodeIdentifier"], node)
+
+    ids = failure_ids(output)
+    if not typed_nodes:
+        return False, "typed xcresult reported zero failed Test Case nodes"
+    if not ids:
+        return False, "typed xcresult failures have no attributable console test identifier"
+
+    unmatched_nodes = dict(typed_nodes)
+    for identifier in sorted(ids):
+        matches = [
+            key
+            for key, node in unmatched_nodes.items()
+            if failure_id_matches_typed_node(identifier, node)
+        ]
+        if len(matches) != 1:
+            if not matches:
+                return False, f"console failure {identifier} has no matching typed Test Case"
+            return False, f"console failure {identifier} matches multiple typed Test Cases"
+        unmatched_nodes.pop(matches[0])
+
+    if unmatched_nodes:
+        return False, (
+            "typed failed Test Case(s) have no attributable console identifier: "
+            + ", ".join(sorted(unmatched_nodes))
+        )
+
+    return True, f"{len(typed_nodes)} typed failed Test Case(s) accounted one-for-one"
+
+
 def failure_ids(output: str) -> set[str]:
     ids: set[str] = set()
     for line in io.StringIO(clean(output)):
@@ -88,7 +182,10 @@ def failure_ids(output: str) -> set[str]:
         if match:
             ids.add(f"xctest:{match.group('suite')}/{match.group('test')}")
             continue
-        match = SWIFT_ISSUE_RE.search(line) or SWIFT_FAILED_RE.search(line)
+        # "recorded an issue" is the attributable Swift Testing record.
+        # "failed after ..." is also emitted for parameterized aggregate nodes,
+        # which are verdict summaries rather than distinct failed tests.
+        match = SWIFT_ISSUE_RE.search(line)
         if match:
             ids.add(f"swift:{swift_test_name(match.group('test'))}")
     return ids
@@ -192,7 +289,13 @@ def known_ids(catalog: dict[str, Any]) -> set[str]:
     return {entry["id"] for entry in catalog["failures"]}
 
 
-def evaluate(output: str, *, exit_code: int, catalog: dict[str, Any]) -> tuple[bool, str]:
+def evaluate(
+    output: str,
+    *,
+    exit_code: int,
+    catalog: dict[str, Any],
+    typed_tests: Optional[list[Any]] = None,
+) -> tuple[bool, str]:
     output = clean(output)
     if INCOMPLETE_RE.search(output):
         return False, "hard app-host failure: crash/timeout/incomplete execution cannot be catalogued"
@@ -228,7 +331,12 @@ def evaluate(output: str, *, exit_code: int, catalog: dict[str, Any]) -> tuple[b
             f"got {exit_code}"
         )
 
-    accounted, accounting_message = failure_accounting(output)
+    if typed_tests is not None:
+        accounted, accounting_message = typed_failure_accounting(output, typed_tests)
+    else:
+        # Keep the text-only path for focused unit tests of this parser. CI
+        # verdict mode always supplies typed xcresult JSON for status-65 runs.
+        accounted, accounting_message = failure_accounting(output)
     if not accounted:
         return False, "unparsed app-host failure evidence: " + accounting_message
 
@@ -283,6 +391,7 @@ def main() -> int:
     parser.add_argument("output", type=Path, nargs="?")
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--exit-code", type=int)
+    parser.add_argument("--tests-json", type=Path, nargs="+")
     parser.add_argument("--check-shrink-only", action="store_true")
     parser.add_argument("--base-ref")
     parser.add_argument("--baseline-ref", default="origin/main")
@@ -321,7 +430,28 @@ def main() -> int:
         print(f"could not read {args.output}: {exc}", file=sys.stderr)
         return 2
 
-    passed, message = evaluate(output, exit_code=args.exit_code, catalog=catalog)
+    typed_tests = None
+    if args.tests_json:
+        typed_tests = []
+        try:
+            for tests_path in args.tests_json:
+                typed_tests.append(json.loads(tests_path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            print(f"could not read typed xcresult tests: {exc}", file=sys.stderr)
+            return 2
+
+    # CI may normalize status 65 only with typed per-test evidence. This keeps
+    # assertion-line multiplicity and console-format drift out of the verdict.
+    if args.exit_code == 65 and typed_tests is None:
+        print("--tests-json is required to ratchet xcodebuild status 65", file=sys.stderr)
+        return 2
+
+    passed, message = evaluate(
+        output,
+        exit_code=args.exit_code,
+        catalog=catalog,
+        typed_tests=typed_tests,
+    )
     print(message, file=sys.stdout if passed else sys.stderr)
     return 0 if passed else 1
 
