@@ -1127,7 +1127,9 @@ check_no_self_hosted_fleet_runners() {
   for probe in 'runs-on: macfleet' '- tart-canary' '- tart-dual' '- tart-small' '- tart-macos-26' '- tart-ios' '- mac4' '- mac-mini' '- slot-3' '- xcode-26-3' '- cmux' \
                "runs-on: \${{ vars.X || 'macos-26' }}" '- warp-macos-26-arm64-6x' \
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
-               'runs-on: [self-hosted, macOS, ARM64]'; do
+               'runs-on: [self-hosted, macOS, ARM64]' \
+               '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
+               '      group: cmux-persistent-compile'; do
     if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
@@ -1191,7 +1193,8 @@ check_no_self_hosted_fleet_runners() {
     content="${line#*:*:}"
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
     if [[ "$line" == "$PERSISTENT_COMPILE_FILE:"* ]] && \
-       [[ "$content" == '    runs-on: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; then
+       { [[ "$content" == '      group: cmux-persistent-compile' ]] || \
+         [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
       continue
     fi
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
@@ -1208,7 +1211,7 @@ check_no_self_hosted_fleet_runners() {
       continue
     fi
     hits+="$line"$'\n'
-  done < <(grep -rnE "(runs-on:|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
+  done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
     echo "FAIL: workflow references a self-hosted mac fleet label or bare self-hosted runner in a runner-selection position."
     echo "      Use a cloud label so required jobs never land on a mini that can't foreground a GUI app:"
