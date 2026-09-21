@@ -1941,8 +1941,6 @@
   "docs": {
     "iosSetup": {
       "title": "iPhone・iPad で cmux を設定する",
-      "metaTitle": "cmux iOS 設定ガイド",
-      "metaDescription": "iPhone・iPad の cmux を Mac に接続する手順。インストール、ログイン、ペアリング、通知の設定、ワークスペースが表示されない場合の対処法を説明します。",
       "intro": "iOS 版 cmux は Mac で動作する cmux に接続します。シェルとエージェントは Mac で実行を続け、スマートフォンやタブレットからワークスペースを表示・操作できます。",
       "checklistTitle": "始める前に",
       "checklist1": "Mac に最新版の cmux をインストールし、ワークスペースを 1 つ以上開いた状態で起動しておきます。iOS 側で新しい Mac 版が必要と表示されたら、接続先の cmux アプリを更新してください。",

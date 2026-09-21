@@ -29,7 +29,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
-        case emptyWorkspaceList
+        case emptyWorkspaceList(hasRetry: Bool)
     }
 
     private struct HeightCacheKey: Hashable {
@@ -1330,7 +1330,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
         case .emptyWorkspaceList:
-            kind = .emptyWorkspaceList
+            kind = .emptyWorkspaceList(hasRetry: configuration.refresh != nil)
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1444,7 +1444,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             return previous.filter != next.filter
         case .emptyWorkspaceList:
-            return false
+            return (previous.refresh != nil) != (next.refresh != nil)
         }
     }
 

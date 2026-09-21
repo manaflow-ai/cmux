@@ -1975,8 +1975,6 @@
   "docs": {
     "iosSetup": {
       "title": "Set up cmux on iPhone and iPad",
-      "metaTitle": "cmux iOS setup guide",
-      "metaDescription": "Connect cmux on iPhone or iPad to your Mac: install, sign in, enable pairing, connect, set up notifications, and troubleshoot missing workspaces.",
       "intro": "cmux on iOS connects to cmux running on your Mac. Your shells and agents continue running on the Mac while you view and control their workspaces from your phone or tablet.",
       "checklistTitle": "Before you start",
       "checklist1": "Install the latest cmux on your Mac and keep it open with at least one workspace. If the phone requests a newer Mac version, update the specific cmux app you are connecting to.",

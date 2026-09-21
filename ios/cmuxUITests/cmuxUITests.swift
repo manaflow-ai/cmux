@@ -11747,6 +11747,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "0",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "unavailable",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REFRESH_DELAY_MS": "400",
         ]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
@@ -11759,6 +11760,10 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         capture("empty-workspaces-before-actions", in: app)
         for generation in 1...2 {
             retry.tap()
+            let disabled = NSPredicate { _, _ in !retry.isEnabled }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: disabled, object: nil
+            )], timeout: 2), .completed)
             XCTAssertTrue(app.descendants(matching: .any)[
                 "MobileWorkspaceListRefreshGeneration-\(generation)"
             ].waitForExistence(timeout: 5))
