@@ -180,7 +180,7 @@ const GUEST_TOOL_CHECKS: readonly string[] = [
   `${guestBrowserReadyCommand} && echo guest-browser-openers-baked`,
   `${guestResourceReporterReadyCommand()} && echo guest-resource-reporter-baked`,
   "sh -lc 'test -x /usr/local/bin/cmux && cmux --version; command -v coderouter cr; readlink -f /usr/local/bin/xdg-open; xdg-mime query default x-scheme-handler/https; systemctl is-active cmux-resource-stats; cat /etc/cmux/vm-name /etc/cmux/image-stamp'",
-  `cmux --version | grep -q . && [ "$(command -v coderouter)" = /usr/local/bin/coderouter ] && [ "$(command -v cr)" = /usr/local/bin/cr ] && [ "$(readlink -f /usr/local/bin/xdg-open)" = /usr/local/bin/xdg-open ] && [ "$(xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(runuser -u ${DEVBOX_WORK_USER} -- xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(systemctl is-active cmux-resource-stats)" = active ] && [ "$(cat /etc/cmux/vm-name)" = cmux ] && echo guest-tools-parity-ok`,
+  `[ -n "$(cmux --version 2>/dev/null)" ] && [ "$(command -v coderouter)" = /usr/local/bin/coderouter ] && [ "$(command -v cr)" = /usr/local/bin/cr ] && [ "$(readlink -f /usr/local/bin/xdg-open)" = /usr/local/bin/xdg-open ] && [ "$(xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(runuser -u ${DEVBOX_WORK_USER} -- xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(systemctl is-active cmux-resource-stats)" = active ] && [ "$(cat /etc/cmux/vm-name)" = cmux ] && echo guest-tools-parity-ok`,
 ];
 
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
