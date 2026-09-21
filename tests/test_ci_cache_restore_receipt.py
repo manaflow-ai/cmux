@@ -33,6 +33,19 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             with self.subTest(event=event):
                 self.assertTrue(inspected.issubset(set(events[event]["paths"])))
 
+    def test_contract_uses_runner_python_without_setup_action(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cache-receipts.yml").read_text())
+        steps = workflow["jobs"]["receipt-contract"]["steps"]
+        self.assertFalse(
+            any("actions/setup-python" in str(step.get("uses", "")) for step in steps),
+            "receipt contract should use the runner Python already present in CI",
+        )
+        prepare = next(step for step in steps if step.get("name") == "Prepare receipt-test Python")
+        self.assertIn("python3 -m venv", prepare["run"])
+        self.assertIn("PyYAML==6.0.3", prepare["run"])
+        commands = "\n".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("$CACHE_RECEIPT_PYTHON", commands)
+
     def test_read_only_guard_accepts_receipts_but_rejects_extra_effects(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)
