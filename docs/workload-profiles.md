@@ -61,7 +61,7 @@ python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard \
   --result "$result_path"
 ```
 
-An external execution request should also pass the frozen `--commit` and `--tree`. The runner refuses source drift and generation drift. File results are published only into a canonical current-user private directory; keeping the result under the profile state root satisfies that boundary and gives downstream consumers mode-`0600` canonical bytes.
+An external execution request should also pass the frozen `--commit` and `--tree`. The runner refuses source drift and generation drift. Keeping a file result under the profile state root is the preferred path and gives downstream consumers mode-`0600` canonical bytes. The publisher also supports trusted root-owned sticky temporary directories such as `/tmp` through the same descriptor-relative exclusive staging and atomic replacement path.
 
 `cmux.macos.app-host-test-shard` has one semantic parameter:
 
