@@ -52,7 +52,7 @@ else:
     assert "oidc-request-token" not in args
     assert "header.payload.signature" not in args
     url = args[-1]
-    if url.startswith("https://token.actions.githubusercontent.com/oidc?"):
+    if url.startswith("https://pipelines.actions.githubusercontent.com/oidc?"):
         assert "audience=cmux-ci-artifacts" in url
         assert "Authorization: Bearer oidc-request-token" in config.read_text()
         (work / "oidc-called").touch()
@@ -85,7 +85,7 @@ else:
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: temporary,
         GITHUB_OUTPUT: output, GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1",
         GITHUB_REPOSITORY: "manaflow-ai/cmux",
-        ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.actions.githubusercontent.com/oidc?api-version=2.0",
+        ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/oidc?api-version=2.0",
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: "oidc-request-token",
         ...Object.fromEntries(Object.entries(restore.env).map(([key, value]) => [key, render(value, values)])),
       } });
