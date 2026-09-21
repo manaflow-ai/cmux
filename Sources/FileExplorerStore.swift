@@ -312,6 +312,9 @@ final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Send
     }
 
     var destination: String { connection.destination }
+    nonisolated var remoteIdentity: String {
+        "ssh:\(connection.destination)|\(connection.port.map(String.init) ?? "")|\(connection.identityFile ?? "")|\(connection.sshOptions.joined(separator: "\u{1f}"))"
+    }
     var port: Int? { connection.port }
     var identityFile: String? { connection.identityFile }
     var sshOptions: [String] { connection.sshOptions }

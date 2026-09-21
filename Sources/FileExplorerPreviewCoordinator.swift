@@ -16,7 +16,8 @@ struct FileExplorerPreviewCoordinator {
                                           reuseExisting: true, duplicateWhenFocused: true)
             return
         }
-        let providerIdentity = ObjectIdentifier(provider)
+        guard let remoteProvider = provider as? any RemoteFileExplorerProvider else { return }
+        let providerIdentity = remoteProvider.remoteIdentity
         Task { [weak workspace, store] in
             guard let workspace else { return }
             do {
@@ -35,7 +36,6 @@ struct FileExplorerPreviewCoordinator {
                     // never resolve relative remote paths through the Mac browser.
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
-                        panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
@@ -48,7 +48,6 @@ struct FileExplorerPreviewCoordinator {
                     guard isCurrent(), store.resourceContextID == context else { return }
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
-                        panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
@@ -64,7 +63,7 @@ struct FileExplorerPreviewCoordinator {
 
     private static func refreshExistingRemotePreview(
         path: String,
-        providerIdentity: ObjectIdentifier,
+        providerIdentity: String,
         workspace: Workspace,
         pane: PaneID,
         cache: CloudFilePreviewCache,

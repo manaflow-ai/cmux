@@ -1279,10 +1279,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
     }
     var cloudPreviewRemotePath: String?
-    var cloudPreviewProviderIdentity: ObjectIdentifier?
+    var cloudPreviewProviderIdentity: String?
     var cloudPreviewLease: CloudFilePreviewLease? {
         didSet {
             cloudPreviewRemotePath = cloudPreviewLease?.remotePath
+            cloudPreviewProviderIdentity = cloudPreviewLease?.remoteIdentity
             if cloudPreviewLease != nil { textView?.isEditable = false }
         }
     }

@@ -4,11 +4,13 @@ import Foundation
 final class CloudFilePreviewLease: Sendable {
     let url: URL
     let remotePath: String
+    let remoteIdentity: String
     private let cache: CloudFilePreviewCache
 
-    init(url: URL, remotePath: String, cache: CloudFilePreviewCache) {
+    init(url: URL, remotePath: String, remoteIdentity: String, cache: CloudFilePreviewCache) {
         self.url = url
         self.remotePath = remotePath
+        self.remoteIdentity = remoteIdentity
         self.cache = cache
     }
 
