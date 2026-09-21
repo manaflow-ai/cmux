@@ -2209,8 +2209,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == workspaceTitle })
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
 
-        // Until the machine's provider reports the terminal, the pane is a plain local shell.
-        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource.machine.isLocal, true)
+        // Until the machine's provider reports the terminal, the pane is a reserved Cloud
+        // pane (#12675): it has no live projection yet, but its persisted remote identity
+        // stays staged so the restore is never mistaken for a plain local shell.
+        XCTAssertNil(catalog.projection(forPanel: restoredPanelId))
+        XCTAssertEqual(catalog.projectionIncludingPendingRestore(forPanel: restoredPanelId)?.resource, remote)
+        XCTAssertEqual(restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.ioMode, .manualMirror)
         catalog.upsert(SurfaceResource(id: remote, title: "root@\(machineId)", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil), from: provider)
         XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
         XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)

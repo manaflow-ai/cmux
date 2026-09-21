@@ -3359,7 +3359,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
+        // First-responder focus reaches the surface through the deferred main-actor
+        // scheduler; wait for it rather than sampling after a fixed spin.
+        XCTAssertTrue(
+            waitUntil(timeout: 2.0) { surface.debugDesiredFocusState() },
+            "Focused terminal should start with desired Ghostty focus"
+        )
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3674,6 +3679,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
         drainMainQueue()
+        // The visibility-restore redraw is scheduled through a main-actor task, which
+        // `drainMainQueue` (GCD) does not drain; wait for it before counting.
+        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= 1 }
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
@@ -3721,16 +3729,20 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before measuring focus redraws")
+        // Runtime creation is asynchronous in the app host; wait for it instead of
+        // assuming the fixed run-loop spin above finished it.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before measuring focus redraws"
+        )
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
         XCTAssertTrue(window.makeFirstResponder(otherResponder))
 
         surface.resetDebugForceRefreshCount()
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
-        XCTAssertGreaterThan(
-            surface.debugForceRefreshCount(),
-            0,
+        XCTAssertTrue(
+            waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() > 0 },
             "Clicking back into the terminal should redraw immediately so the cursor reflects focused input"
         )
 #else
@@ -4031,7 +4043,10 @@ final class WindowTerminalHostViewTests: XCTestCase {
     }
 
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
-        let terminalSideOverlapWidth: CGFloat = 2
+        // The split-divider hit band reaches `dividerHitExpansion` past the divider edge
+        // (667cc431d9). With the `.thin` (1 pt) divider below, the last pass-through point
+        // on the terminal side is one point inside that band.
+        let terminalSideOverlapWidth: CGFloat = 0.5 + PortalSplitDividerRegion.dividerHitExpansion - 1
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -4108,6 +4123,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     private final class ScrollbarPostingSurfaceView: GhosttyNSView {
         var nextScrollbar: GhosttyScrollbar?
+
+        // Wheel sync requires an authoritative scrollbar response (bbc3edfae4); a
+        // passive packet posted after the wheel event no longer moves the viewport.
+        override func readAuthoritativeScrollbar(
+            _ result: UnsafeMutablePointer<ghostty_surface_scrollbar_s>
+        ) -> Bool {
+            guard let nextScrollbar else { return false }
+            result.pointee = ghostty_surface_scrollbar_s(
+                total: nextScrollbar.total,
+                offset: nextScrollbar.offset,
+                len: nextScrollbar.len,
+                row_space_revision: 1
+            )
+            return true
+        }
 
         override func scrollWheel(with event: NSEvent) {
             super.scrollWheel(with: event)
@@ -5394,7 +5424,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The overlay mounts through a deferred main-actor task; wait for it like the
+        // sibling mount tests instead of assuming a fixed run-loop spin drained it.
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
@@ -6624,7 +6658,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             accessMode: .allowAll
         )
 
-        XCTAssertFalse(transport.pathAcceptsConnections(path))
+        // Owning the lock is definitive (959f38a4c3): a refused socket inode left by a
+        // dead listener is replaced, so the restarted listener accepts connections.
+        XCTAssertTrue(transport.pathAcceptsConnections(path))
     }
 
     @MainActor
