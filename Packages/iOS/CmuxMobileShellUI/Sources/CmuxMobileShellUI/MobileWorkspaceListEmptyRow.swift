@@ -40,7 +40,7 @@ struct MobileWorkspaceListEmptyRow: View {
         } actions: {
             if let retry {
                 Button {
-                    guard !isRetrying else { return }
+                    guard !isRetrying, retryTask == nil else { return }
                     let attemptID = UUID()
                     retryAttemptID = attemptID
                     retryTimedOut = false
@@ -66,7 +66,6 @@ struct MobileWorkspaceListEmptyRow: View {
                         }
                         if retryAttemptID == attemptID {
                             retryTask?.cancel()
-                            retryTask = nil
                             retryTimeoutTask = nil
                             isRetrying = false
                             retryTimedOut = true
@@ -86,7 +85,7 @@ struct MobileWorkspaceListEmptyRow: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .disabled(isRetrying)
+                .disabled(isRetrying || retryTask != nil)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
             }
             Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
