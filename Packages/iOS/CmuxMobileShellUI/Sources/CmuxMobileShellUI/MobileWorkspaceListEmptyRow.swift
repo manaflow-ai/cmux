@@ -49,11 +49,12 @@ struct MobileWorkspaceListEmptyRow: View {
                     isRetrying = true
                     retryTask = Task { @MainActor in
                         defer {
-                            guard retryAttemptID == attemptID else { return }
-                            retryTask = nil
-                            retryTimeoutTask?.cancel()
-                            retryTimeoutTask = nil
-                            isRetrying = false
+                            if retryAttemptID == attemptID {
+                                retryTask = nil
+                                retryTimeoutTask?.cancel()
+                                retryTimeoutTask = nil
+                                isRetrying = false
+                            }
                         }
                         await retry()
                     }
@@ -63,12 +64,13 @@ struct MobileWorkspaceListEmptyRow: View {
                         } catch {
                             return
                         }
-                        guard retryAttemptID == attemptID else { return }
-                        retryTask?.cancel()
-                        retryTask = nil
-                        retryTimeoutTask = nil
-                        isRetrying = false
-                        retryTimedOut = true
+                        if retryAttemptID == attemptID {
+                            retryTask?.cancel()
+                            retryTask = nil
+                            retryTimeoutTask = nil
+                            isRetrying = false
+                            retryTimedOut = true
+                        }
                     }
                 } label: {
                     Label {
