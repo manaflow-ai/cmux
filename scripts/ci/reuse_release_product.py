@@ -107,7 +107,7 @@ def contract() -> dict:
 
 
 def product_digest(app: Path) -> str:
-    """Digest every app entry, preserving type, mode, path, bytes, and links."""
+    """Digest app entry type/path/content while canonicalizing symlink mode."""
     if not app.is_dir():
         raise ValueError("Release app is missing")
     digest = hashlib.sha256()
@@ -116,7 +116,14 @@ def product_digest(app: Path) -> str:
     for path in sorted(entries, key=lambda item: item.relative_to(root).as_posix()):
         rel = path.relative_to(root).as_posix().encode()
         metadata = path.lstat()
-        mode = stat.S_IMODE(metadata.st_mode)
+        if path.is_symlink():
+            # Symlink permission bits are not a portable restored attribute on
+            # macOS/Python. The link target is the durable product identity.
+            mode = 0
+            kind = b"L"
+            payload = os.readlink(path).encode()
+        else:
+            mode = stat.S_IMODE(metadata.st_mode)
         if path.is_symlink():
             kind = b"L"
             payload = os.readlink(path).encode()
