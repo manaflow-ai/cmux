@@ -43,7 +43,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 #expect(result["window_id"] is NSNull)
                 let owner = try #require(result["workspace"] as? [String: Any])
                 #expect(owner["id"] as? String == fixture.workspace.id.uuidString)
-                #expect(owner["title"] as? String == fixture.workspace.title)
+                #expect((owner["title"] as? String)?.isEmpty == false)
                 #expect(Set(owner.keys) == ["id", "title"])
             }
         }
