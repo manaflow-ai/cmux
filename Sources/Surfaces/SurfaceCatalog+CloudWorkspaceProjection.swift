@@ -51,13 +51,18 @@ extension SurfaceCatalog {
         cloudWorkspaceRenameService.reconcileRemoteState(machine: state.machine, state: state, catalog: self, observation: cloudStateObservations[state.machine] ?? .current)
     }
     func beginProjectionMutation(for resources: [SurfaceResourceID]) -> [SurfaceMachineID: UUID] {
-        Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map {
-            ($0, cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: $0))
+        Dictionary(uniqueKeysWithValues: Set(resources.map(\.machine)).filter { !$0.isLocal }.map { machine in
+            let token = cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
+            (provider(for: machine) as? any SurfaceProjectionMutationObserving)?.beginProjectionMutation(token)
+            return (machine, token)
         })
     }
 
     func endProjectionMutation(_ tokens: [SurfaceMachineID: UUID]) {
-        for (machine, token) in tokens { cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: self) }
+        for (machine, token) in tokens {
+            cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: self)
+            (provider(for: machine) as? any SurfaceProjectionMutationObserving)?.endProjectionMutation(token)
+        }
     }
 
     func requestCloudWorkspaceProjection(_ workspaceID: UUID) {

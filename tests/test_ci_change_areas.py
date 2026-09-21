@@ -580,6 +580,11 @@ def linux_preflight_needs(
     results: dict[str, str] | None = None,
 ) -> dict[str, object]:
     route_outputs = {
+        "linux_guard_tests": "true",
+        "linux_guard_history": "true",
+        "linux_guard_cli": "true",
+        "linux_guard_source": "true",
+        "ghosttykit_release": "true",
         "macos": "true",
         "web": "true",
         "agent_session_web": "true",
@@ -1713,9 +1718,7 @@ def run_focused_app_host_step(
     ``fail`` (an assertion failure with the host alive, exit 65). Returns the
     step result and how many times the runner was invoked.
     """
-    script = workflow_job_step_script(
-        "app-host-unit-tests", step_name
-    )
+    script = workflow_job_step_script("app-host-unit-tests", step_name)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -1819,6 +1822,21 @@ def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
 
     assert result.returncode == 65, result.stdout + result.stderr
     assert invocations == 2, result.stdout
+
+
+def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:
+    for outcome in ("fail", "crash"):
+        result, invocations = run_focused_app_host_step(
+            [outcome, "pass"], "Run My Devices regressions"
+        )
+        assert result.returncode == 65, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+
+
+def test_devices_gate_accepts_successful_execution() -> None:
+    result, invocations = run_focused_app_host_step(["pass"], "Run My Devices regressions")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
 
 
 def test_global_search_gate_requires_nonempty_successful_execution() -> None:

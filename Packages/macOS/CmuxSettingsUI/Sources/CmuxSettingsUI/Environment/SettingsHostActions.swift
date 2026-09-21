@@ -16,6 +16,7 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
     /// without a second list in the settings package.
@@ -67,6 +68,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
+
+    /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
+    func openTerminalThemePicker()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -363,6 +367,9 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
+
+    /// Default no-op for package-only settings hosts without a terminal theme picker.
+    func openTerminalThemePicker() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}

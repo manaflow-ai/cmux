@@ -428,6 +428,31 @@ extension TerminalController {
         )
     }
 
+    /// Returns the binding that owns agent-resume semantics for a surface.
+    /// Dock terminals keep this managed binding separately from a transient
+    /// process/tmux binding that may currently be effective for ``get``.
+    func controlSurfaceManagedAgentResumeBinding(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let target = resolveSurfaceResumeTarget(
+                  routing: routing,
+                  explicitTargetID: explicitTargetID,
+                  hasResolvedWindowID: hasResolvedWindowID,
+                  fallbackTabManager: tabManager
+              ) else {
+            return nil
+        }
+        switch target {
+        case .workspace:
+            return target.binding?.isAgentHookBinding == true ? target.binding : nil
+        case .dock(_, let dock, let surfaceID):
+            return dock.managedAgentResumeBinding(panelId: surfaceID)
+        }
+    }
+
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,

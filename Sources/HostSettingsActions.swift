@@ -9,11 +9,12 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
+    let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private let browserDataImportCoordinator: BrowserDataImportCoordinator
@@ -52,8 +53,10 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
-        browserDataImportCoordinator: BrowserDataImportCoordinator
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
+        computersActions: ComputersSettingsActions? = nil
     ) {
+        self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
         self.browserDataImportCoordinator = browserDataImportCoordinator
@@ -108,6 +111,45 @@ final class HostSettingsActions: SettingsHostActions {
 
     func terminalAdaptiveDefaultThemeDidChange() {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    func openTerminalThemePicker() {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
+            return
+        }
+
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit\n"
+        do {
+            let picker = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil,
+                initialInput: initialInput,
+                workingDirectory: nil,
+                at: .workspace(id: workspace.id, placement: .tab),
+                focus: true
+            )
+            if let windowID = appDelegate.windowId(for: manager) {
+                _ = appDelegate.focusMainWindow(windowId: windowID)
+            }
+            SurfacePaneFactory.focus(
+                panelID: picker.panelID,
+                in: picker.workspaceID
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to open terminal theme picker")
+        }
     }
 
     func notifyShortcutSettingsDidChange() {
