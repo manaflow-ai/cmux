@@ -207,6 +207,11 @@ public final class ComputerUseRuntimeService {
     /// Whether setup evidence is still required before functional tools can run.
     public var onboardingRequired: Bool { !permissionPhase.isReady }
 
+    /// Whether durable setup completion and both daemon publications are ready.
+    public var onboardingIsComplete: Bool {
+        onboarding.completionCommitted && desiredEnabled && permissionPhase.isReady
+    }
+
     /// Claims automatic first-use onboarding for an explicit functional request.
     @discardableResult
     public func requestAutomaticOnboarding() -> Bool {
