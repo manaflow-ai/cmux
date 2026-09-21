@@ -375,6 +375,17 @@ load_whitelist_patterns() {
     done <<< "$raw"
 }
 
+# Force byte-wise (C-locale) glob/pattern matching for the rest of this
+# script. Every case statement and ${var%pattern}/${var#pattern} expansion
+# below matches only ASCII structure (flags, URL schemes, extensions,
+# whitespace, "://" separators, etc.), so forcing C locale never changes what
+# they match. It does avoid a real crash: some bash builds (observed with
+# MacPorts bash 5.3.9 on macOS 15 under a UTF-8 locale) SIGSEGV in their
+# multibyte-aware glob matcher when *any* case/pattern match runs against a
+# non-ASCII argument, such as a Japanese filename passed to `open`, even for
+# purely literal patterns with no wildcards.
+export LC_ALL=C
+
 # Pass through immediately if not in a cmux terminal.
 if [[ -z "$CMUX_SOCKET_PATH" ]]; then
     system_open "$@"
