@@ -439,9 +439,9 @@ struct ConversationSidebarView: View {
         }
         let providerOptions = projection.providerFilterOptions(
             agents: (live + fallbackOpen).map(\.agent)
+                + store.agentOrder
                 + cachedHistoryAgents
-                + Array(paginatedProviderAgentsByID.values)
-                + store.agentOrder,
+                + Array(paginatedProviderAgentsByID.values),
             preferredOrder: store.agentOrder,
             selectedProviderID: selectedProviderID
         )
