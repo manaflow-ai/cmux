@@ -225,6 +225,35 @@ class WorkloadProfileTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
+    def test_isolated_build_profiles_refuse_checkout_lease_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            common = Path(directory).resolve()
+            request_profile = {"environment_class": "isolated-build"}
+            with mock.patch.object(
+                profile,
+                "git_text",
+                return_value=str(common),
+            ):
+                with profile.CheckoutMutationLease(request_profile):
+                    lock = common / "cmux-workload-isolated-build.lock"
+                    self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+                    with self.assertRaisesRegex(
+                        profile.ProfileError,
+                        "mutation lease is busy",
+                    ):
+                        profile.CheckoutMutationLease(request_profile)
+
+    def test_non_build_profiles_do_not_acquire_checkout_mutation_lease(self) -> None:
+        with mock.patch.object(
+            profile,
+            "git_text",
+            side_effect=AssertionError("non-build profile must not touch git metadata"),
+        ):
+            with profile.CheckoutMutationLease(
+                {"environment_class": "isolated-portable"}
+            ):
+                pass
+
     def test_parameters_are_bounded_by_profile_contract(self) -> None:
         registry = profile.load_registry()
         shard = profile.profile_by_id(registry, "cmux.macos.app-host-test-shard")
@@ -476,6 +505,119 @@ class WorkloadProfileTests(unittest.TestCase):
                 binary.write_bytes(b"two")
                 second = profile.runtime_inputs(spec)[0]["sha256"]
         self.assertNotEqual(first, second)
+
+    def test_run_refuses_source_drift_after_execution(self) -> None:
+        registry = profile.load_registry()
+        workload = profile.profile_by_id(registry, "cmux.ci.guard")
+        frozen = {
+            "repository": "manaflow-ai/cmux",
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+        }
+
+        class Child:
+            pid = 4242
+
+            def wait(self, timeout=None):
+                return 0
+
+        with tempfile.TemporaryDirectory() as directory:
+            state = (Path(directory) / "state").resolve()
+            result_path = (Path(directory) / "result.json").resolve()
+            args = mock.Mock(
+                profile=workload["id"],
+                generation=workload["generation"],
+                commit=frozen["commit"],
+                tree=frozen["tree"],
+                param=[],
+                state_class="cold",
+                state_root=str(state),
+                result=str(result_path),
+            )
+            with (
+                mock.patch.object(profile, "validate_platform"),
+                mock.patch.object(
+                    profile,
+                    "source_identity",
+                    side_effect=[
+                        frozen,
+                        profile.ProfileError("checkout has tracked source changes"),
+                    ],
+                ),
+                mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
+                mock.patch.object(profile, "runtime_inputs", return_value=[]),
+                mock.patch.object(
+                    profile,
+                    "settle_process_group",
+                    return_value=(True, "complete"),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    profile.ProfileError,
+                    "tracked source changes",
+                ):
+                    profile.run_profile(args)
+            self.assertFalse(result_path.exists())
+
+    def test_run_refuses_runtime_input_drift_after_execution(self) -> None:
+        registry = profile.load_registry()
+        workload = profile.profile_by_id(registry, "cmux.ci.guard")
+        frozen = {
+            "repository": "manaflow-ai/cmux",
+            "commit": "1" * 40,
+            "tree": "2" * 40,
+        }
+
+        class Child:
+            pid = 4242
+
+            def wait(self, timeout=None):
+                return 0
+
+        first = []
+        second = [
+            {
+                "name": "fixture",
+                "class": "cmux.fixture/v1",
+                "identity": "file-sha256",
+                "sha256": "sha256:" + "a" * 64,
+                "bytes": 1,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            state = (Path(directory) / "state").resolve()
+            result_path = (Path(directory) / "result.json").resolve()
+            args = mock.Mock(
+                profile=workload["id"],
+                generation=workload["generation"],
+                commit=frozen["commit"],
+                tree=frozen["tree"],
+                param=[],
+                state_class="cold",
+                state_root=str(state),
+                result=str(result_path),
+            )
+            with (
+                mock.patch.object(profile, "validate_platform"),
+                mock.patch.object(profile, "source_identity", return_value=frozen),
+                mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
+                mock.patch.object(
+                    profile,
+                    "runtime_inputs",
+                    side_effect=[first, second],
+                ),
+                mock.patch.object(
+                    profile,
+                    "settle_process_group",
+                    return_value=(True, "complete"),
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    profile.ProfileError,
+                    "runtime input identity changed",
+                ):
+                    profile.run_profile(args)
+            self.assertFalse(result_path.exists())
 
     def test_forced_cleanup_receipt_reports_unsettled_process_group(self) -> None:
         registry = profile.load_registry()
