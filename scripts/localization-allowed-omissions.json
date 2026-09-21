@@ -3106,5 +3106,9 @@
       "es": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder.",
       "ja": "The standard pixel unit abbreviation px is invariant; the localized entry preserves the numeric placeholder."
     }
+  },
+  "settings.mobile.route.v3": {
+    "source": "libp2p v3",
+    "class": "technical"
   }
 }
