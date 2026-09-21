@@ -3,10 +3,13 @@
 import hashlib
 import importlib.util
 import io
+import os
+import stat
 import subprocess
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +70,86 @@ class TransportTests(unittest.TestCase):
         self.receipt = {}
         return transport.restore(broker, "123", "456", repository, self.destination,
                                  self.metadata, self.download, self.identity, self.receipt)
+
+    def test_actions_oidc_identity_uses_fixed_issuer_and_secret_config(self):
+        work = Path(self.temp.name) / "oidc"
+        work.mkdir()
+        seen = {}
+
+        def fake_check_output(args, text, timeout):
+            self.assertTrue(text)
+            self.assertEqual(timeout, 15)
+            self.assertNotIn("oidc-request-token", args)
+            self.assertIn("--config", args)
+            config = Path(args[args.index("--config") + 1])
+            seen["mode"] = stat.S_IMODE(config.stat().st_mode)
+            seen["config"] = config.read_text()
+            seen["url"] = args[-1]
+            return '{"value":"header.payload.signature"}'
+
+        environment = {
+            "ACTIONS_ID_TOKEN_REQUEST_URL":
+                "https://token.actions.githubusercontent.com/oidc?api-version=2.0&audience=old",
+            "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-request-token",
+        }
+        with patch.dict(os.environ, environment, clear=False), \
+             patch.object(transport.subprocess, "check_output", fake_check_output):
+            self.assertEqual(transport.actions_identity(work), "header.payload.signature")
+
+        self.assertEqual(seen["mode"], 0o600)
+        self.assertIn("Authorization: Bearer oidc-request-token", seen["config"])
+        self.assertIn("audience=cmux-ci-artifacts", seen["url"])
+        self.assertNotIn("audience=old", seen["url"])
+
+    def test_actions_oidc_identity_rejects_foreign_or_nonstandard_issuer(self):
+        work = Path(self.temp.name) / "oidc-invalid"
+        work.mkdir()
+        for url in [
+            "http://token.actions.githubusercontent.com/oidc",
+            "https://token.actions.githubusercontent.com:8443/oidc",
+            "https://attacker.example/oidc",
+            "https://secret@token.actions.githubusercontent.com/oidc",
+        ]:
+            with self.subTest(url=url), patch.dict(os.environ, {
+                "ACTIONS_ID_TOKEN_REQUEST_URL": url,
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-request-token",
+            }, clear=False), patch.object(transport.subprocess, "check_output") as command:
+                with self.assertRaises(ValueError):
+                    transport.actions_identity(work)
+                command.assert_not_called()
+
+    def test_broker_download_keeps_identity_out_of_argv_and_reports_timing(self):
+        work = Path(self.temp.name) / "broker"
+        work.mkdir()
+        target = work / "artifact.zip"
+        seen = {}
+
+        def fake_run(args, check, timeout, capture_output, text):
+            self.assertTrue(check)
+            self.assertEqual(timeout, 180)
+            self.assertTrue(capture_output)
+            self.assertTrue(text)
+            self.assertNotIn("header.payload.signature", args)
+            config = Path(args[args.index("--config") + 1])
+            headers = Path(args[args.index("--dump-header") + 1])
+            output = Path(args[args.index("--output") + 1])
+            seen["mode"] = stat.S_IMODE(config.stat().st_mode)
+            seen["config"] = config.read_text()
+            headers.write_text("HTTP/1.1 200 OK\r\nX-Cmux-Artifact-Cache: hit\r\n\r\n")
+            output.write_bytes(self.zip)
+            return subprocess.CompletedProcess(args, 0,
+                                               stdout=f"200 0.125 0.625 {len(self.zip)}", stderr="")
+
+        with patch.object(transport.subprocess, "run", fake_run):
+            record = transport.download("https://broker.example/artifact", target, len(self.zip),
+                                        "header.payload.signature", work)
+
+        self.assertEqual(seen["mode"], 0o600)
+        self.assertIn("Authorization: Bearer header.payload.signature", seen["config"])
+        self.assertEqual(record["cache"], "hit")
+        self.assertEqual(record["broker_wait_seconds"], 0.125)
+        self.assertEqual(record["transfer_seconds"], 0.5)
+        self.assertEqual(record["downloaded_bytes"], len(self.zip))
 
     def test_disabled_does_no_network_work(self):
         self.assertFalse(self.restore(""))
