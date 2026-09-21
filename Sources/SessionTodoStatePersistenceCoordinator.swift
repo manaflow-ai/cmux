@@ -51,26 +51,35 @@ final class SessionTodoStatePersistenceCoordinator {
             terminalFailure = false
             consecutiveFailures = 0
         }
-        scheduleWriteIfNeeded()
+        scheduleWriteIfNeeded(resetDelay: true)
     }
 
-    private func scheduleWriteIfNeeded(after requestedDelay: DispatchTimeInterval? = nil) {
+    private func scheduleWriteIfNeeded(
+        after requestedDelay: DispatchTimeInterval? = nil,
+        resetDelay: Bool = false
+    ) {
+        if resetDelay {
+            writeTimer?.cancel()
+            writeTimer = nil
+        }
         guard !writeInFlight, !pending.isEmpty, writeTimer == nil, !terminalFailure else { return }
         let delay = requestedDelay ?? .milliseconds(100)
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler { [weak self] in
-            self?.writeTimer?.cancel()
-            self?.writeTimer = nil
-            self?.startWrite()
+            Task { @MainActor [weak self] in
+                self?.writeTimer?.cancel()
+                self?.writeTimer = nil
+                self?.startWrite()
+            }
         }
         writeTimer = timer
         timer.resume()
     }
 
     private func startWrite() {
-        guard !writeInFlight, !pending.isEmpty, !terminalFailure else { return }
+        guard !writeInFlight, !pending.isEmpty, writeTimer == nil, !terminalFailure else { return }
         writeInFlight = true
         activeUpdates = Array(pending.values)
         pending.removeAll(keepingCapacity: true)
@@ -84,7 +93,7 @@ final class SessionTodoStatePersistenceCoordinator {
         let snapshotStore = snapshotStore
 
         queue.async { [weak self] in
-            var saveSucceeded = false
+            let saveSucceeded: Bool
             if var snapshot = snapshotStore.load(fileURL: nil) {
                 var allUpdatesApplied = true
                 for update in updates {
@@ -92,10 +101,15 @@ final class SessionTodoStatePersistenceCoordinator {
                 }
                 if allUpdatesApplied {
                     saveSucceeded = snapshotStore.save(snapshot, fileURL: nil)
+                } else {
+                    saveSucceeded = false
                 }
+            } else {
+                saveSucceeded = false
             }
+            let didSave = saveSucceeded
             Task { @MainActor [weak self] in
-                self?.finishWrite(saveSucceeded: saveSucceeded)
+                self?.finishWrite(saveSucceeded: didSave)
             }
         }
     }
