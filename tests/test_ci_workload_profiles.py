@@ -132,7 +132,9 @@ class WorkloadProfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('tag="profile-$attempt_id"', script)
         self.assertIn('cmux_attach_validate_dev_tag "$tag"', script)
+        self.assertIn('tag_slug="$(cmux_attach__slug "$tag")"', script)
         self.assertIn('cmux_attach_mac_bundle_id "$tag"', script)
+        self.assertIn('cmux DEV $tag_slug.app', script)
         self.assertIn('./scripts/reload.sh \\', script)
         self.assertIn('--tag "$tag"', script)
         self.assertIn('--derived-data "$derived"', script)
@@ -566,6 +568,9 @@ class WorkloadProfileTests(unittest.TestCase):
                     ],
                 ),
                 mock.patch.object(profile.subprocess, "Popen", return_value=Child()),
+                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
+                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
+                mock.patch.object(profile, "wait_child_unreaped", return_value=0),
                 mock.patch.object(profile, "runtime_inputs", return_value=[]),
                 mock.patch.object(
                     profile,
@@ -757,12 +762,35 @@ class WorkloadProfileTests(unittest.TestCase):
             ):
                 profile.sha256_tree(products)
 
+    def test_wait_child_unreaped_keeps_pid_identity_until_reap(self) -> None:
+        status = mock.Mock(si_code=profile.os.CLD_EXITED, si_status=7)
+        with mock.patch.object(profile.os, "waitid", return_value=status) as waitid:
+            self.assertEqual(profile.wait_child_unreaped(1234, None), 7)
+        waitid.assert_called_once_with(
+            profile.os.P_PID,
+            1234,
+            profile.os.WEXITED | profile.os.WNOWAIT,
+        )
+
+    def test_process_group_probe_ignores_known_exited_leader(self) -> None:
+        completed = mock.Mock(
+            returncode=0,
+            stdout="1234 1234\n1235 1234\n9000 9000\n",
+        )
+        with mock.patch.object(profile.subprocess, "run", return_value=completed):
+            self.assertTrue(profile.process_group_alive(1234, ignore_pid=1234))
+            completed.stdout = "1234 1234\n9000 9000\n"
+            self.assertFalse(profile.process_group_alive(1234, ignore_pid=1234))
+
     def test_settlement_kills_leaked_group_without_polling(self) -> None:
         with (
             mock.patch.object(profile, "process_group_alive", return_value=True),
             mock.patch.object(profile.os, "killpg") as killpg,
         ):
-            self.assertEqual(profile.settle_process_group(1234), (False, "forced"))
+            self.assertEqual(
+                profile.settle_process_group(1234, ignore_pid=1234),
+                (False, "forced"),
+            )
         killpg.assert_called_once_with(1234, profile.signal.SIGKILL)
 
 
