@@ -79,6 +79,11 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         let transport: DiagnosticTransportKind?
         let failure: DiagnosticFailureKind?
         let userUsable: Bool
+        /// The originating diagnostic event is retained as fixed vocabulary
+        /// plus its bounded integer slots. This lets Axiom reconstruct the
+        /// exact transport lifecycle edge without exporting error text,
+        /// addresses, peer IDs, or terminal content.
+        let event: DiagnosticEvent
     }
 
     private let emitter: any AnalyticsEmitting
@@ -428,7 +433,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             durationMs: durationMs,
             transport: transport,
             failure: failureKind,
-            userUsable: userUsable
+            userUsable: userUsable,
+            event: event
         )
     }
 
@@ -475,7 +481,33 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         if let failure = observation.failure {
             properties["failure"] = .string(presentation.name(failure))
         }
+        properties["event_code"] = .string(presentation.name(observation.event.code))
+        properties["event_code_raw"] = .int(Int(observation.event.code.rawValue))
+        if let surface = observation.event.surface {
+            properties["event_surface"] = .int(Int(surface))
+        }
+        Self.addDiagnosticInteger(observation.event.a, key: "event_a", to: &properties)
+        Self.addDiagnosticInteger(observation.event.b, key: "event_b", to: &properties)
+        Self.addDiagnosticInteger(observation.event.c, key: "event_c", to: &properties)
+        if observation.event.code == .transportDialCancelled,
+           let rawReason = observation.event.a,
+           let reason = DiagnosticCancellationReason(rawValue: rawReason) {
+            properties["cancellation_reason"] = .string(String(describing: reason))
+        }
         return properties
+    }
+
+    /// Diagnostic event payload slots are fixed, bounded integers by contract.
+    /// Keep the guard here as a second line of defense before values leave the
+    /// client, so a future event cannot accidentally turn a slot into a large
+    /// or signed free-form payload.
+    private static func addDiagnosticInteger(
+        _ value: Int?,
+        key: String,
+        to properties: inout [String: AnalyticsValue]
+    ) {
+        guard let value, value >= 0, value <= Int(UInt32.max) else { return }
+        properties[key] = .int(value)
     }
 
     private static func phase(for code: DiagnosticEventCode) -> Phase? {
