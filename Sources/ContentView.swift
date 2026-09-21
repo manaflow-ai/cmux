@@ -6033,7 +6033,7 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
-    private static func resolveCommandPaletteAgentLauncherProviders(
+    private nonisolated static func resolveCommandPaletteAgentLauncherProviders(
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String]
