@@ -158,6 +158,20 @@ class ReleaseProductReuseTests(unittest.TestCase):
         with mock.patch.object(Path, "lstat", autospec=True, side_effect=lstat):
             self.assertEqual(reuse.product_digest(app), baseline)
 
+    def test_product_digest_ignores_symlink_permission_bits(self):
+        app = self.producer / Path(reuse.APP_REL)
+        expected = reuse.product_digest(app)
+        original_lstat = Path.lstat
+
+        def lstat_with_different_link_mode(path):
+            metadata = original_lstat(path)
+            if path.is_symlink():
+                metadata = mock.Mock(st_mode=(metadata.st_mode & ~0o777) | 0o700)
+            return metadata
+
+        with mock.patch.object(Path, "lstat", new=lstat_with_different_link_mode):
+            self.assertEqual(reuse.product_digest(app), expected)
+
     def test_source_mismatch_forces_rebuild(self):
         self.assert_rebuild_for_contract_change(
             lambda value: value.__setitem__("source_revision", "9" * 40)
