@@ -541,6 +541,10 @@ struct cmuxApp: App {
 
 #if DEBUG
             CommandMenu("Update Pill") {
+                Button("Update State Debug…") {
+                    UpdateStateDebugWindowController.shared.show()
+                }
+                Divider()
                 Button("Show Update Pill") {
                     appDelegate.showUpdatePill(nil)
                 }
