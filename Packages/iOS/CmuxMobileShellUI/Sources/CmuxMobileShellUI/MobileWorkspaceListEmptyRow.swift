@@ -6,7 +6,7 @@ struct MobileWorkspaceListEmptyRow: View {
     let retry: (@Sendable () async -> Void)?
     @State private var retryCoordinator = MobileWorkspaceRetryCoordinator()
     @State private var isRetrying = false
-    @State private var retryTask: Task<Void, Never>?
+    @State private var retryCompletionTask: Task<Void, Never>?
     @State private var retryDeadlineTask: Task<Void, Never>?
     @State private var retryAttemptID: UUID?
     @State private var retryFailure: String?
@@ -28,44 +28,44 @@ struct MobileWorkspaceListEmptyRow: View {
                     guard !isRetrying else { return }
                     retryFailure = nil
                     isRetrying = true
-                    let attemptID = UUID()
-                    retryAttemptID = attemptID
-                    let task = Task { @MainActor in
-                        defer {
-                            if retryAttemptID == attemptID {
-                                retryDeadlineTask?.cancel()
-                                retryDeadlineTask = nil
-                                retryTask = nil
-                                isRetrying = false
-                            }
-                        }
-                        let started = await retryCoordinator.run(retry)
-                        if !started {
+                    Task { @MainActor in
+                        let started = await retryCoordinator.start(retry)
+                        guard let started else {
+                            isRetrying = false
                             retryFailure = L10n.string(
                                 "mobile.workspaces.empty.retryInProgress",
                                 defaultValue: "A refresh is still finishing. Try again in a moment."
                             )
-                        }
-                    }
-                    retryTask = task
-                    retryDeadlineTask = Task { @MainActor in
-                        do {
-                            try await ContinuousClock().sleep(for: .seconds(15))
-                        } catch {
                             return
                         }
-                        guard retryAttemptID == attemptID else { return }
-                        retryTask?.cancel()
-                        Task {
-                            await retryCoordinator.cancelActive()
+                        retryAttemptID = started.id
+                        retryCompletionTask = Task { @MainActor in
+                            await started.task.value
+                            guard retryAttemptID == started.id else { return }
+                            retryDeadlineTask?.cancel()
+                            retryDeadlineTask = nil
+                            retryCompletionTask = nil
+                            retryAttemptID = nil
+                            isRetrying = false
                         }
-                        retryTask = nil
-                        retryDeadlineTask = nil
-                        isRetrying = false
-                        retryFailure = L10n.string(
-                            "mobile.workspaces.empty.retryFailed",
-                            defaultValue: "Couldn’t refresh. Try again."
-                        )
+                        retryDeadlineTask = Task { @MainActor in
+                            do {
+                                try await ContinuousClock().sleep(for: .seconds(15))
+                            } catch {
+                                return
+                            }
+                            guard retryAttemptID == started.id else { return }
+                            await retryCoordinator.cancel(started.id)
+                            retryCompletionTask?.cancel()
+                            retryCompletionTask = nil
+                            retryDeadlineTask = nil
+                            retryAttemptID = nil
+                            isRetrying = false
+                            retryFailure = L10n.string(
+                                "mobile.workspaces.empty.retryFailed",
+                                defaultValue: "Couldn’t refresh. Try again."
+                            )
+                        }
                     }
                 } label: {
                     Label {
@@ -111,14 +111,15 @@ struct MobileWorkspaceListEmptyRow: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .onDisappear {
-            retryTask?.cancel()
+            retryCompletionTask?.cancel()
             retryDeadlineTask?.cancel()
-            retryTask = nil
+            retryCompletionTask = nil
             retryDeadlineTask = nil
+            let attemptID = retryAttemptID
             retryAttemptID = nil
             isRetrying = false
             Task {
-                await retryCoordinator.cancelActive()
+                await retryCoordinator.cancelActive(attemptID)
             }
         }
     }

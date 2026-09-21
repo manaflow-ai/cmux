@@ -1,36 +1,51 @@
 #if os(iOS)
+import Foundation
 
-/// Serializes workspace refreshes so a timed-out caller cannot start a second
-/// refresh while the first transport operation is still unwinding.
+/// Owns refresh tasks after a timeout so a cancellation-ignoring transport
+/// cannot wedge the empty-state control or accumulate unbounded work.
 actor MobileWorkspaceRetryCoordinator {
-    private var activeOperation: Task<Void, Never>?
-    private var activeOperationID: UUID?
-
-    @discardableResult
-    func run(_ operation: @escaping @Sendable () async -> Void) async -> Bool {
-        guard activeOperation == nil else {
-            return false
-        }
-
-        let operationTask = Task {
-            await operation()
-        }
-        let operationID = UUID()
-        activeOperationID = operationID
-        activeOperation = operationTask
-        await operationTask.value
-        if activeOperationID == operationID {
-            activeOperationID = nil
-            activeOperation = nil
-        }
-        return true
+    struct Attempt: Sendable {
+        let id: UUID
+        let task: Task<Void, Never>
     }
 
-    /// Cancels the active transport task while retaining ownership until it
-    /// finishes. A second tap is rejected during that unwind, so refreshes can
-    /// never overlap even when cancellation takes time to propagate.
-    func cancelActive() {
-        activeOperation?.cancel()
+    private static let maximumAbandonedAttempts = 3
+    private var activeAttempt: Attempt?
+    private var abandonedAttempts: [UUID: Task<Void, Never>] = [:]
+
+    func start(_ operation: @escaping @Sendable () async -> Void) -> Attempt? {
+        guard activeAttempt == nil,
+              abandonedAttempts.count < Self.maximumAbandonedAttempts else {
+            return nil
+        }
+        let attempt = Attempt(id: UUID(), task: Task { await operation() })
+        activeAttempt = attempt
+        Task { [weak self] in
+            await attempt.task.value
+            await self?.finish(attempt.id)
+        }
+        return attempt
+    }
+
+    /// Cancels the active task and tracks it until it exits. A later retry can
+    /// start immediately, with a small cap on abandoned transports.
+    func cancel(_ id: UUID) {
+        guard activeAttempt?.id == id, let attempt = activeAttempt else { return }
+        activeAttempt = nil
+        abandonedAttempts[id] = attempt.task
+        attempt.task.cancel()
+    }
+
+    func cancelActive(_ id: UUID?) {
+        guard let id else { return }
+        cancel(id)
+    }
+
+    private func finish(_ id: UUID) {
+        if activeAttempt?.id == id {
+            activeAttempt = nil
+        }
+        abandonedAttempts.removeValue(forKey: id)
     }
 }
 #endif

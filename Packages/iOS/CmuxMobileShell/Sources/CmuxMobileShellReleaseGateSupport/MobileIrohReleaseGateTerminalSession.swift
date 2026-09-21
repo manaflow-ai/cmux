@@ -58,42 +58,25 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             let command = probe.command
-            let (resultStream, resultContinuation) = AsyncThrowingStream<Void, any Error>.makeStream(
-                bufferingPolicy: .bufferingOldest(1)
-            )
-            let submissionTask = Task { @MainActor in
-                do {
-                    await self.client.submitTerminalRawInput(command, surfaceID: surfaceID)
-                    try Task.checkCancellation()
-                    for try await _ in proof {
+            let client = self.client
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    try await MainActor.run {
+                        await client.submitTerminalRawInput(command, surfaceID: surfaceID)
                         try Task.checkCancellation()
-                        resultContinuation.yield(())
-                        resultContinuation.finish()
-                        return
+                        for try await _ in proof {
+                            try Task.checkCancellation()
+                            return
+                        }
+                        throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                     }
-                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
-                } catch {
-                    resultContinuation.finish(throwing: error)
                 }
-            }
-            let timeoutTask = Task {
-                do {
+                group.addTask {
                     try await ContinuousClock().sleep(for: Self.verificationTimeout)
-                    submissionTask.cancel()
-                    resultContinuation.finish(
-                        throwing: MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
-                    )
-                } catch {
-                    // The submission completed before the deadline.
+                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                 }
-            }
-            defer {
-                timeoutTask.cancel()
-                submissionTask.cancel()
-                resultContinuation.finish()
-            }
-            for try await _ in resultStream {
-                break
+                try await group.next()
+                group.cancelAll()
             }
         } catch {
             reset()
