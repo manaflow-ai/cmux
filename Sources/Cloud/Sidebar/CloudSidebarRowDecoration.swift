@@ -14,9 +14,12 @@ struct CloudSidebarRowDecoration: ViewModifier {
         // identity column; two points matches the tree's shared gaps.
         HStack(spacing: 2) {
             if isPinned {
-                Image(systemName: "pin.fill")
-                    .cmuxFont(size: 9, weight: .semibold)
-                    .foregroundStyle(.secondary)
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: 9,
+                    weight: .semibold,
+                    tint: .secondary
+                )
                     .fixedSize()
                     .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
