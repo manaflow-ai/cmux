@@ -4,13 +4,8 @@ import Foundation
 /// pending query is retained; cancellation cannot turn into overlapping VM execs.
 actor CloudFileExplorerSearchQueue {
     typealias Operation = @Sendable () async throws -> FileSearchSnapshot
-    private struct Request {
-        let id: UUID
-        let operation: Operation
-        var continuation: CheckedContinuation<FileSearchSnapshot, Error>?
-    }
-    private var active: Request?
-    private var pending: Request?
+    private var active: CloudFileExplorerSearchRequest?
+    private var pending: CloudFileExplorerSearchRequest?
 
     func submit(_ operation: @escaping Operation) async throws -> FileSearchSnapshot {
         let id = UUID()
@@ -23,7 +18,7 @@ actor CloudFileExplorerSearchQueue {
                     return
                 }
                 pending?.continuation?.resume(throwing: CancellationError())
-                pending = Request(id: id, operation: operation, continuation: continuation)
+                pending = CloudFileExplorerSearchRequest(id: id, operation: operation, continuation: continuation)
                 startNext()
             }
             try Task.checkCancellation()

@@ -1,13 +1,8 @@
 import Foundation
 
 enum FilePreviewTextSaver {
-    enum Result: Sendable {
-        case saved
-        case failed(fileExists: Bool)
-    }
-
     @concurrent
-    static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
+    static func save(content: String, to url: URL, encoding: String.Encoding) async -> FilePreviewTextSaveResult {
         guard let data = content.data(using: encoding) else {
             return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
         }

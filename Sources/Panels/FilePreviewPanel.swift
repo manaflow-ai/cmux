@@ -1278,13 +1278,18 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var textView: NSTextView? {
         didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
     }
+    var cloudPreviewRemotePath: String?
+    var cloudPreviewProviderIdentity: ObjectIdentifier?
     var cloudPreviewLease: CloudFilePreviewLease? {
-        didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
+        didSet {
+            cloudPreviewRemotePath = cloudPreviewLease?.remotePath
+            if cloudPreviewLease != nil { textView?.isEditable = false }
+        }
     }
     let focusCoordinator: FilePreviewFocusCoordinator
     private let selectionReader = NativeTextSurfaceSelectionReader()
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
-    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
+    private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaveResult
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
     private let textLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewTextLoader.Result>()
     private let modeLoadCoordinator = FilePreviewLatestLoadCoordinator<FilePreviewMode>()
@@ -1309,7 +1314,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
-        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result = {
+        textSaver: @escaping @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaveResult = {
             content, url, encoding in
             await FilePreviewTextSaver.save(content: content, to: url, encoding: encoding)
         },
@@ -1352,6 +1357,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         cloudPreviewLease = nil
+        cloudPreviewProviderIdentity = nil
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()

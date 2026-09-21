@@ -751,8 +751,10 @@
 		CFSF00000000000000000011 /* CloudFileExplorerBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000011 /* CloudFileExplorerBehaviorTests.swift */; };
 		CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000001 /* CloudFileExplorerCommandRunning.swift */; };
 		F434C13ADFB45B7DD70B2191 /* CloudFileExplorerSearchQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = CED37B4AE84C8DC6ECAC892D /* CloudFileExplorerSearchQueue.swift */; };
+		CF87F1FC8930F903B0EA4831 /* CloudFileExplorerSearchRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */; };
 		CFSF00000000000000000002 /* CloudFileExplorerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFSR00000000000000000002 /* CloudFileExplorerService.swift */; };
 		6DE7B4A186F6DDBA66F41265 /* CloudFileExplorerTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3D41B42C83E82AE426C0F6A /* CloudFileExplorerTarget.swift */; };
+		F1B3A871EE6D2EB7BEFB9566 /* CloudFileExplorerTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */; };
 		BCDE68E325D57019C97020A9 /* CloudFilePreviewCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42F77A3BC50BBFAB2127492E /* CloudFilePreviewCache.swift */; };
 		8057A5361378502071A49E66 /* CloudFilePreviewLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = E552C26ABB353CE0A826C1C7 /* CloudFilePreviewLease.swift */; };
 		0A42EBEFBFD8771DC2D5C061 /* CloudFileRootOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C859FBBF795C3F290CEE905 /* CloudFileRootOwnershipTests.swift */; };
@@ -1920,6 +1922,7 @@
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
 		C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */; };
 		0EA7EC478B6600AD4BDDB053 /* FilePreviewTextSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E1431CCC54BD49EA9BBBF /* FilePreviewTextSaver.swift */; };
+		DDB55536A403FB051DA28DFC /* FilePreviewTextSaveResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */; };
 		C0DE86520000000000000113 /* FilePreviewViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000114 /* FilePreviewViewport.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
 		A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */; };
@@ -4888,8 +4891,10 @@
 		CFSR00000000000000000011 /* CloudFileExplorerBehaviorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerBehaviorTests.swift; sourceTree = "<group>"; };
 		CFSR00000000000000000001 /* CloudFileExplorerCommandRunning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerCommandRunning.swift; sourceTree = "<group>"; };
 		CED37B4AE84C8DC6ECAC892D /* CloudFileExplorerSearchQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerSearchQueue.swift"; sourceTree = "<group>"; };
+		B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerSearchRequest.swift"; sourceTree = "<group>"; };
 		CFSR00000000000000000002 /* CloudFileExplorerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudFileExplorerService.swift; sourceTree = "<group>"; };
 		A3D41B42C83E82AE426C0F6A /* CloudFileExplorerTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerTarget.swift"; sourceTree = "<group>"; };
+		6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileExplorerTargetIdentity.swift"; sourceTree = "<group>"; };
 		42F77A3BC50BBFAB2127492E /* CloudFilePreviewCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFilePreviewCache.swift"; sourceTree = "<group>"; };
 		E552C26ABB353CE0A826C1C7 /* CloudFilePreviewLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFilePreviewLease.swift"; sourceTree = "<group>"; };
 		2C859FBBF795C3F290CEE905 /* CloudFileRootOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudFileRootOwnershipTests.swift"; sourceTree = "<group>"; };
@@ -5953,6 +5958,7 @@
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
 		C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewTextEditorTextKitTests.swift; sourceTree = "<group>"; };
 		BC7E1431CCC54BD49EA9BBBF /* FilePreviewTextSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewTextSaver.swift"; sourceTree = "<group>"; };
+		AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewTextSaveResult.swift"; sourceTree = "<group>"; };
 		C0DE86520000000000000114 /* FilePreviewViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewViewport.swift; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
 		A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWorkspaceOpenSupport.swift; sourceTree = "<group>"; };
@@ -10743,6 +10749,9 @@
 				F8B194E800BD6F9561D6AFB9 /* FileExplorerWorkspaceObservation.swift */,
 				B4C45C476EFD93642E069F38 /* FileExplorerStore+Workspace.swift */,
 				5BF8AA8182149D0EC033A391 /* FileExplorerContainerView+SearchStatus.swift */,
+				6D9C29302A2C3C40E58D68C9 /* CloudFileExplorerTargetIdentity.swift */,
+				B91DC369A91EBE2EE27E5231 /* CloudFileExplorerSearchRequest.swift */,
+				AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */,
 				FE001001 /* FileExplorerStore.swift */,
 				FE001004 /* FileExplorerTerminalPathInsertion.swift */,
 				FE001002 /* FileExplorerView.swift */,
@@ -13357,8 +13366,10 @@
 				00034889FEF18E9AE0AFDEEC /* CloudFileDelivery.swift in Sources */,
 				CFSF00000000000000000001 /* CloudFileExplorerCommandRunning.swift in Sources */,
 				F434C13ADFB45B7DD70B2191 /* CloudFileExplorerSearchQueue.swift in Sources */,
+				CF87F1FC8930F903B0EA4831 /* CloudFileExplorerSearchRequest.swift in Sources */,
 				CFSF00000000000000000002 /* CloudFileExplorerService.swift in Sources */,
 				6DE7B4A186F6DDBA66F41265 /* CloudFileExplorerTarget.swift in Sources */,
+				F1B3A871EE6D2EB7BEFB9566 /* CloudFileExplorerTargetIdentity.swift in Sources */,
 				BCDE68E325D57019C97020A9 /* CloudFilePreviewCache.swift in Sources */,
 				8057A5361378502071A49E66 /* CloudFilePreviewLease.swift in Sources */,
 				902ED2709F9B61E9E4B59A24 /* CloudGuestURLService.swift in Sources */,
@@ -13982,6 +13993,7 @@
 				C0DE97470000000000000003 /* FilePreviewTabMetadataHost.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 				0EA7EC478B6600AD4BDDB053 /* FilePreviewTextSaver.swift in Sources */,
+				DDB55536A403FB051DA28DFC /* FilePreviewTextSaveResult.swift in Sources */,
 				C0DE86520000000000000113 /* FilePreviewViewport.swift in Sources */,
 					F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */,
 				A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */,

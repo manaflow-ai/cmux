@@ -28,7 +28,7 @@ actor CloudFilePreviewCache {
             try await provider.downloadFile(path: path, to: url)
             try Task.checkCancellation()
             try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
-            return CloudFilePreviewLease(url: url, cache: self)
+            return CloudFilePreviewLease(url: url, remotePath: path, cache: self)
         } catch {
             release(url)
             throw error

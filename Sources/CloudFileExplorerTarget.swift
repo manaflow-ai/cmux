@@ -3,15 +3,7 @@ import Foundation
 
 /// Credential-free authority carried by every Cloud filesystem request and result.
 struct CloudFileExplorerTarget: Equatable, Sendable {
-    struct Identity: Equatable, Sendable {
-        let workspaceID: UUID
-        let vmID: String
-        let remoteWorkspaceID: String?
-        let team: AuthenticatedTeamScope
-        let provider: ObjectIdentifier
-        let generation: String?
-    }
-
+    typealias Identity = CloudFileExplorerTargetIdentity
     let identity: Identity
     let isCurrent: @MainActor @Sendable () -> Bool
 

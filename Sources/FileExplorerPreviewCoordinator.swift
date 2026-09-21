@@ -16,6 +16,7 @@ struct FileExplorerPreviewCoordinator {
                                           reuseExisting: true, duplicateWhenFocused: true)
             return
         }
+        let providerIdentity = ObjectIdentifier(provider)
         Task { [weak workspace, store] in
             guard let workspace else { return }
             do {
@@ -23,6 +24,9 @@ struct FileExplorerPreviewCoordinator {
                 if let cloud = provider as? CloudVMFileExplorerProvider {
                     guard let target = cloud.target else { throw FileExplorerError.providerUnavailable }
                     try target.validate(vmID: cloud.vmID)
+                    if Self.focusExistingRemotePreview(
+                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane
+                    ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: cloud)
                     guard isCurrent(), store.resourceContextID == context else { return }
                     try target.validate(vmID: cloud.vmID)
@@ -30,13 +34,18 @@ struct FileExplorerPreviewCoordinator {
                     // never resolve relative remote paths through the Mac browser.
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
+                        panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
                     }
                 } else if let remote = provider as? any RemoteFileExplorerProvider {
+                    if Self.focusExistingRemotePreview(
+                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane
+                    ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: remote)
                     guard isCurrent(), store.resourceContextID == context else { return }
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
+                        panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
                     }
                 }
@@ -47,6 +56,24 @@ struct FileExplorerPreviewCoordinator {
                 present(error, window: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id))
             }
         }
+    }
+
+    private static func focusExistingRemotePreview(
+        path: String,
+        providerIdentity: ObjectIdentifier,
+        workspace: Workspace,
+        pane: PaneID
+    ) -> Bool {
+        guard let existing = workspace.panels.values
+            .compactMap({ $0 as? FilePreviewPanel })
+            .first(where: {
+                !$0.isClosed &&
+                    $0.cloudPreviewRemotePath == path &&
+                    $0.cloudPreviewProviderIdentity == providerIdentity &&
+                    FileManager.default.fileExists(atPath: $0.filePath)
+            }) else { return false }
+        _ = workspace.openOrFocusFilePreviewSurface(inPane: pane, filePath: existing.filePath, focus: true)
+        return true
     }
 
     private func present(_ error: Error, window: NSWindow?) {
