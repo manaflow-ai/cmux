@@ -216,12 +216,9 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.consumer.exists())
 
     def test_unrelated_producer_tree_rejected_before_download(self):
-        self.api.tree = 'different-tree'
-        with mock.patch.object(self.api, 'download', wraps=self.api.download) as download:
-            try:
-                self.restore_reuse()
-            except ValueError:
-                pass
+        self.api.trees["abc123"] = "different-tree"
+        with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
+            self.assertFalse(self.restore_reuse())
             download.assert_not_called()
 
     def test_completed_compile_can_be_used_while_other_tests_run(self):
