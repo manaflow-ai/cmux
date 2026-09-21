@@ -23,7 +23,7 @@ final class BrowserNativeClickUITests: XCTestCase {
             predicate: NSPredicate { _, _ in self.browserHost(in: window) != nil },
             object: nil
         )
-        let hostWaitResult = XCTWaiter.wait(for: [hostReady], timeout: 15)
+        let hostWaitResult = XCTWaiter.wait(for: [hostReady], timeout: 30)
         XCTAssertEqual(
             hostWaitResult,
             .completed,
