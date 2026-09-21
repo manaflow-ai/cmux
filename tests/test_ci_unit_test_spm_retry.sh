@@ -8,12 +8,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-import yaml
-
-workflow = yaml.safe_load(Path('.github/workflows/ci.yml').read_text())
-step = next(s for s in workflow['jobs']['app-host-unit-tests']['steps']
-            if s.get('name') == 'Resolve Swift packages')
-script = step['run'].replace('${{ matrix.shard }}', '1')
+lines = Path('.github/workflows/ci.yml').read_text().splitlines()
+start = lines.index('      - name: Resolve Swift packages')
+run_start = lines.index('        run: |', start) + 1
+end = next(i for i in range(run_start, len(lines))
+           if lines[i].startswith('      - name: '))
+script = '\n'.join(line[10:] for line in lines[run_start:end])
+script = script.replace('${{ matrix.shard }}', '1')
 
 class ResolverTests(unittest.TestCase):
     def exercise(self, mode):
