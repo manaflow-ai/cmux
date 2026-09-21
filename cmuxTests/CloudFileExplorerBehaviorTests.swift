@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAuthRuntime
 import Testing
 
 #if canImport(cmux_DEV)
@@ -85,7 +86,8 @@ struct CloudFileExplorerBehaviorTests {
                 displayTarget: "vivid-newt",
                 rootPath: nil,
                 isAvailable: true,
-                unavailableDetail: nil
+                unavailableDetail: nil,
+                target: nil
             )
         )
 
@@ -94,6 +96,18 @@ struct CloudFileExplorerBehaviorTests {
         #expect(store.displayRootPath == "cloud://vivid-newt:/home/cmux")
         #expect(store.provider is CloudVMFileExplorerProvider)
         #expect(runner.calls.allSatisfy { $0.vmID == "vivid-newt" })
+    }
+
+    @Test
+    func searchScopeKeepsLocalAndCloudProvidersSeparate() {
+        let local = LocalFileExplorerProvider()
+        let cloud = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt", displayTarget: "vivid-newt", isAvailable: true,
+            commandRunner: CloudFileExplorerCommandRunnerFixture()
+        )
+        #expect(FileSearchScope(provider: local) == .local)
+        #expect(FileSearchScope(provider: cloud) == .remoteCloud(cloud))
+        #expect(FileSearchScope(provider: local) != .remoteCloud(cloud))
     }
 
     @Test
@@ -112,10 +126,12 @@ struct CloudFileExplorerBehaviorTests {
             guard command.contains("rg") else { return nil }
             return VMExecResult(exitCode: 0, stdout: String(decoding: line, as: UTF8.self) + "\n", stderr: "")
         }]
-        let controller = FileSearchController(cloudCommandRunner: runner)
+        let provider = CloudVMFileExplorerProvider(vmID: "vivid-newt", displayTarget: "vivid-newt",
+            isAvailable: true, commandRunner: runner)
+        let controller = FileSearchController()
         var snapshots: [FileSearchSnapshot] = []
         controller.onSnapshotChanged = { snapshots.append($0) }
-        controller.search(query: "needle", rootPath: "/home/cmux", scope: .remoteCloud(vmID: "vivid-newt"))
+        controller.search(query: "needle", rootPath: "/home/cmux", scope: .remoteCloud(provider))
 
         try await waitFor("Cloud search settled") { snapshots.last?.isSearching == false }
         let snapshot = try #require(snapshots.last)
@@ -133,5 +149,50 @@ struct CloudFileExplorerBehaviorTests {
         async let second = service.search(vmID: "vivid-newt", query: "second", rootPath: "/home/cmux")
         _ = try await (first, second)
         #expect(await runner.maximumActiveRequests == 1)
+    }
+
+    @Test
+    func cloudTransportRejectsMissingOrStaleOwnership() async throws {
+        let scope = AuthenticatedTeamScope(
+            session: AuthenticatedSessionIdentity(generation: 1, accountID: "account"),
+            teamID: "team",
+            generation: 1
+        )
+        let currentTarget = CloudFileExplorerTarget(
+            identity: .init(
+                workspaceID: UUID(), vmID: "vivid-newt", remoteWorkspaceID: nil,
+                team: scope, provider: ObjectIdentifier(NSObject()), generation: nil
+            ),
+            isCurrent: { true }
+        )
+        try currentTarget.validate(vmID: "vivid-newt")
+        #expect(throws: FileExplorerError.self) {
+            try currentTarget.validate(vmID: "other-machine")
+        }
+
+        let staleTarget = CloudFileExplorerTarget(
+            identity: currentTarget.identity,
+            isCurrent: { false }
+        )
+        #expect(throws: FileExplorerError.self) {
+            try staleTarget.validate(vmID: "vivid-newt")
+        }
+
+        let runner = LiveCloudFileExplorerCommandRunner(target: nil)
+        #expect(throws: FileExplorerError.self) {
+            try await runner.run(vmID: "vivid-newt", command: "printf ok", timeoutMs: 100)
+        }
+    }
+
+    @Test
+    func cloudDirectoryErrorsDoNotBecomeEmptyLocalResults() async throws {
+        let runner = CloudFileExplorerCommandRunnerFixture()
+        runner.responses = [{ _ in VMExecResult(exitCode: 74, stdout: "", stderr: "disconnected") }]
+        let provider = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt", displayTarget: "vivid-newt", isAvailable: true, commandRunner: runner
+        )
+        await #expect(throws: FileExplorerError.self) {
+            try await provider.listDirectory(path: "/home/cmux", showHidden: true)
+        }
     }
 }

@@ -454,12 +454,6 @@ final class FileSearchController: FileSearchControlling {
     var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
     var searchTask: Task<Void, Never>?
-    let cloudFileService: CloudFileExplorerService
-
-    init(cloudCommandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()) {
-        self.cloudFileService = CloudFileExplorerService(commandRunner: cloudCommandRunner)
-    }
-
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
         search(query: rawQuery, rootPath: rootPath, scope: isLocal ? .local : .unsupported, contentRevision: contentRevision)
     }
@@ -489,8 +483,8 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .noMatches, isSearching: false)
             return
         }
-        if case .remoteCloud(let vmID) = scope {
-            startRemoteSearch(vmID: vmID, query: query, rootPath: rootPath)
+        if case .remoteCloud(let provider) = scope {
+            startRemoteSearch(provider: provider, query: query, rootPath: rootPath)
             return
         }
         guard scope == .local else {

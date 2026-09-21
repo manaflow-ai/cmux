@@ -2436,35 +2436,8 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        if fileExplorerStore.provider is any RemoteFileExplorerProvider {
-            let expectedRootIdentity = fileExplorerStore.workspaceRootIdentity
-            Task { [weak workspace, fileExplorerStore] in
-                guard let workspace else { return }
-                do {
-                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(
-                        path: filePath,
-                        expectedWorkspaceRootIdentity: expectedRootIdentity
-                    )
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true,
-                        duplicateWhenFocused: true
-                    )
-                } catch {
-                    FileExplorerRemotePreviewPresentation.present(error)
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true,
-            duplicateWhenFocused: true
-        )
+        FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
+            pane: paneId, isCurrent: { tabManager.selectedTabId == workspace.id })
     }
 
     private func syncFileExplorerDirectory() {
@@ -2487,7 +2460,7 @@ struct ContentView: View {
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
-        fileExplorerStore.applyWorkspaceRoot(FileExplorerWorkspaceRootResolver().resolve(tab))
+        fileExplorerStore.syncWorkspaceRoot(from: tab)
     }
 
     private var shouldSyncFileExplorerStore: Bool {
@@ -2803,21 +2776,6 @@ struct ContentView: View {
 
         // File explorer: keep the Combine subscription stable across body re-evaluations.
         view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
-            syncFileExplorerDirectory()
-        })
-
-        // Cloud provider refreshes publish the authoritative machine link state
-        // through the surface catalog. Re-resolve Files/Find without requiring
-        // a sidebar toggle or a cwd change after reconnects.
-        view = AnyView(view.onReceive(
-            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)
-                .filter { [weak tabManager] notification in
-                    guard let machine = tabManager?.selectedWorkspace?.cloudVMID,
-                          let changedMachines = notification.userInfo?["machines"] as? [String]
-                    else { return false }
-                    return changedMachines.contains(machine)
-                }
-        ) { _ in
             syncFileExplorerDirectory()
         })
 

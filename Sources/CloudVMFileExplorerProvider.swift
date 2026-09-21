@@ -2,6 +2,8 @@ import Foundation
 
 /// An immutable Cloud filesystem identity with I/O owned by its service actor.
 final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
+    let id: UUID
+    let target: CloudFileExplorerTarget?
     let vmID: String
     let displayTarget: String
     let homePath: String
@@ -14,16 +16,21 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
         displayTarget: String,
         homePath: String = "",
         isAvailable: Bool,
-        commandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()
+        target: CloudFileExplorerTarget? = nil,
+        commandRunner: (any CloudFileExplorerCommandRunning)? = nil
     ) {
+        self.id = UUID()
+        self.target = target
         self.vmID = vmID
         self.displayTarget = displayTarget
         self.homePath = homePath
         self.isAvailable = isAvailable
-        self.service = CloudFileExplorerService(commandRunner: commandRunner)
+        self.service = CloudFileExplorerService(commandRunner: commandRunner ?? LiveCloudFileExplorerCommandRunner(target: target))
     }
 
     private init(provider: CloudVMFileExplorerProvider, homePath: String) {
+        id = provider.id
+        target = provider.target
         vmID = provider.vmID
         displayTarget = provider.displayTarget
         self.homePath = homePath
@@ -46,6 +53,11 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
     nonisolated func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry] {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
         return try await service.listDirectory(vmID: vmID, path: path, showHidden: showHidden)
+    }
+
+    nonisolated func search(query: String, rootPath: String) async throws -> FileSearchSnapshot {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        return try await service.search(vmID: vmID, query: query, rootPath: rootPath)
     }
 
     /// Downloads a remote file into the local preview cache.

@@ -5,21 +5,7 @@ actor CloudFileExplorerService {
     private static let maxSearchResults = 500
     private static let maxPreviewBytes = 1_048_576
     private let commandRunner: any CloudFileExplorerCommandRunning
-    private struct PendingSearch {
-        let id: UUID
-        let vmID: String
-        let query: String
-        let rootPath: String
-        let continuation: CheckedContinuation<FileSearchSnapshot, Error>
-    }
-
-    /// The VM exec API cannot cancel a command already accepted by the machine.
-    /// Keep one active scan and one replaceable pending request; newer UI queries
-    /// supersede a queued request before it reaches the guest.
-    private var activeSearch: PendingSearch?
-    private var pendingSearch: PendingSearch?
-    private var cancelledSearchIDs: Set<UUID> = []
-    private var searchWorker: Task<Void, Never>?
+    private let searchQueue = CloudFileExplorerSearchQueue()
 
     /// Creates a service with the command transport used by one Cloud machine.
     init(commandRunner: any CloudFileExplorerCommandRunning) {
@@ -91,7 +77,7 @@ if len(data) > limit:
     sys.exit(73)
 sys.stdout.write(base64.b64encode(data).decode("ascii"))
 """#
-        let command = "python3 -c \(Self.shellQuote(script)) \(Self.shellQuote(path)) 1048576"
+        let command = "python3 -c \(Self.shellQuote(script)) \(Self.shellQuote(path)) \(Self.maxPreviewBytes)"
         let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
         if result.exitCode == 73 { throw FileExplorerError.remoteFileTooLarge }
         guard result.exitCode == 0,
@@ -105,71 +91,12 @@ sys.stdout.write(base64.b64encode(data).decode("ascii"))
         try data.write(to: localURL, options: .atomic)
     }
 
-    /// Searches the remote root with a bounded ripgrep producer.
+    /// Keeps canceled HTTP callers from spawning overlapping guest scans.
     func search(vmID: String, query: String, rootPath: String) async throws -> FileSearchSnapshot {
-        let id = UUID()
-        return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { continuation in
-                enqueueSearch(
-                    PendingSearch(
-                        id: id,
-                        vmID: vmID,
-                        query: query,
-                        rootPath: rootPath,
-                        continuation: continuation
-                    )
-                )
-            }
-        }, onCancel: {
-            Task { await self.cancelSearch(id: id) }
-        })
-    }
-
-    private func enqueueSearch(_ request: PendingSearch) {
-        if let pendingSearch {
-            pendingSearch.continuation.resume(throwing: CancellationError())
+        let runner = commandRunner
+        return try await searchQueue.submit {
+            try await Self.performSearch(commandRunner: runner, vmID: vmID, query: query, rootPath: rootPath)
         }
-        pendingSearch = request
-        if searchWorker == nil {
-            searchWorker = Task { [weak self] in
-                await self?.runSearchWorker()
-            }
-        }
-    }
-
-    private func cancelSearch(id: UUID) {
-        if let pendingSearch, pendingSearch.id == id {
-            self.pendingSearch = nil
-            pendingSearch.continuation.resume(throwing: CancellationError())
-            return
-        }
-        guard let activeSearch, activeSearch.id == id else { return }
-        cancelledSearchIDs.insert(id)
-        activeSearch.continuation.resume(throwing: CancellationError())
-    }
-
-    private func runSearchWorker() async {
-        while let request = pendingSearch {
-            pendingSearch = nil
-            activeSearch = request
-            do {
-                let snapshot = try await Self.performSearch(
-                    commandRunner: commandRunner,
-                    vmID: request.vmID,
-                    query: request.query,
-                    rootPath: request.rootPath
-                )
-                if cancelledSearchIDs.remove(request.id) == nil {
-                    request.continuation.resume(returning: snapshot)
-                }
-            } catch {
-                if cancelledSearchIDs.remove(request.id) == nil {
-                    request.continuation.resume(throwing: error)
-                }
-            }
-            activeSearch = nil
-        }
-        searchWorker = nil
     }
 
     private static func performSearch(
@@ -180,8 +107,8 @@ sys.stdout.write(base64.b64encode(data).decode("ascii"))
     ) async throws -> FileSearchSnapshot {
         let script = #"""
 import subprocess, sys
-limit = 500
-byte_limit = 1048576
+limit = \#(Self.maxSearchResults)
+byte_limit = \#(Self.maxPreviewBytes)
 query = sys.argv[1]
 root = sys.argv[2]
 rg_args = sys.argv[3:]
@@ -211,7 +138,8 @@ if limited:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
-    sys.stdout.write(f"__CMUX_LIMIT__:{count}\n")
+    sys.stdout.buffer.write(f"__CMUX_LIMIT__:{count}\n".encode())
+    sys.stdout.buffer.flush()
     sys.exit(0)
 exit_code = process.wait()
 sys.exit(0 if exit_code in (0, 1) else exit_code)

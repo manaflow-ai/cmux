@@ -177,6 +177,7 @@ final class FileExplorerNode: Identifiable {
     var children: [FileExplorerNode]?
     var isLoading: Bool = false
     var error: String?
+    var resourceContextID: UUID?
 
     init(name: String, path: String, isDirectory: Bool) {
         self.id = path
@@ -259,7 +260,8 @@ enum FileExplorerWorkspaceRoot: Equatable {
         displayTarget: String,
         rootPath: String?,
         isAvailable: Bool,
-        unavailableDetail: String?
+        unavailableDetail: String?,
+        target: CloudFileExplorerTarget?
     )
 }
 
@@ -689,6 +691,7 @@ enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
     case remoteCommandFailed(String)
+    case previewCapacity
     case remoteFileTooLarge
 
     var errorDescription: String? {
@@ -697,6 +700,8 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed:
             return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
+        case .previewCapacity:
+            return String(localized: "fileExplorer.preview.capacity", defaultValue: "Close a Cloud file preview and try again.")
         case .remoteFileTooLarge:
             return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
         case .remoteCommandFailed:
@@ -726,7 +731,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
-    @Published var rootStatusMessage: String?
+    @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
 
     var provider: FileExplorerProvider?
@@ -763,9 +768,11 @@ final class FileExplorerStore: ObservableObject {
     /// Prefetch debounce schedulers keyed by path.
     private var prefetchSchedulers: [String: MainActorDeferredActionScheduler] = [:]
 
+    var workspaceRootObservation: FileExplorerWorkspaceObservation?
     var remoteHomeResolutionTask: Task<Void, Never>?
     var remoteHomeResolutionKey: String?
-    private var recentlyMaterializedRemotePreviewURLs: [URL: Date] = [:]
+    let cloudPreviewCache = CloudFilePreviewCache()
+    private(set) var resourceContextID = UUID()
 
     private let gitStatusProvider: GitStatusProvider
     private var gitStatusGeneration: UInt64 = 0
@@ -796,6 +803,7 @@ final class FileExplorerStore: ObservableObject {
     ) {
         switch request {
         case .none:
+            workspaceRootObservation?.stop(); workspaceRootObservation = nil
             cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(nil)
             if provider != nil { setProvider(nil, reloadIfAvailable: false) }
             setRootPath("")
@@ -816,18 +824,38 @@ final class FileExplorerStore: ObservableObject {
                 unavailableDetail: unavailableDetail,
                 sshTransport: sshTransport
             )
-        case .remoteCloud(let workspaceId, let vmID, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
+        case .remoteCloud(let workspaceId, let vmID, let displayTarget, let rootPath, let isAvailable, let unavailableDetail, let target):
             applyRemoteCloudWorkspaceRoot(
                 workspaceId: workspaceId,
                 vmID: vmID,
                 displayTarget: displayTarget,
                 rootPath: rootPath,
                 isAvailable: isAvailable,
-                unavailableDetail: unavailableDetail
+                unavailableDetail: unavailableDetail, target: target
             )
         }
     }
-    func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
+    func setWorkspaceRootIdentity(_ identity: UUID?) {
+        guard workspaceRootIdentity != identity else { return }
+        workspaceRootIdentity = identity
+        resetResourceContext()
+        rootPath = ""
+        updateDirectoryWatcher()
+    }
+
+    func setRootStatusMessage(_ message: String?) {
+        guard rootStatusMessage != message else { return }
+        rootStatusMessage = message
+    }
+
+    private func resetResourceContext() {
+        resourceContextID = UUID()
+        cancelRemoteHomeResolution()
+        cancelAllLoads()
+        selectedPath = nil; selectedPaths = []; expandedPaths = []
+        rootNodes = []; nodesByPath = [:]; gitStatusByPath = [:]
+        contentRevision &+= 1
+    }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -844,6 +872,7 @@ final class FileExplorerStore: ObservableObject {
             selectedPaths = []
             pendingDescendIntoFirstChildPath = nil
         }
+        resourceContextID = UUID()
         rootPath = path
         reload()
         refreshGitStatus()
@@ -852,48 +881,24 @@ final class FileExplorerStore: ObservableObject {
 
     func refreshGitStatus() {
         gitStatusGeneration &+= 1
-        let generation = gitStatusGeneration
-        guard !rootPath.isEmpty else {
+        let generation = gitStatusGeneration, path = rootPath
+        let context = resourceContextID, source = gitStatusProvider
+        guard !path.isEmpty, provider?.isAvailable == true,
+              provider is LocalFileExplorerProvider || provider is SSHFileExplorerProvider else {
             gitStatusByPath = [:]
             return
         }
-        let path = rootPath
-        guard let expectedProvider = provider else { return }
-        if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
-                )
-                DispatchQueue.main.async { [weak self, weak expectedProvider] in
-                    guard let self, let expectedProvider,
-                          self.gitStatusGeneration == generation,
-                          self.provider === expectedProvider,
-                          self.rootPath == path else { return }
-                    self.gitStatusByPath = status
+        let connection = (provider as? SSHFileExplorerProvider)?.connection
+        Task { [weak self] in
+            let status = await Task.detached(priority: .utility) {
+                if let connection {
+                    return source.fetchStatusSSH(directory: path, destination: connection.destination,
+                        port: connection.port, identityFile: connection.identityFile, sshOptions: connection.sshOptions)
                 }
-            }
-        } else if provider is CloudVMFileExplorerProvider {
-            // Cloud git metadata belongs to the VM and must never be inferred
-            // from the local Mac's checkout.
-            gitStatusByPath = [:]
-        } else {
-            let gitStatusProvider = self.gitStatusProvider
-            DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatus(directory: path)
-                DispatchQueue.main.async { [weak self, weak expectedProvider] in
-                    guard let self, let expectedProvider,
-                          self.gitStatusGeneration == generation,
-                          self.provider === expectedProvider,
-                          self.rootPath == path else { return }
-                    self.gitStatusByPath = status
-                }
-            }
+                return source.fetchStatus(directory: path)
+            }.value
+            guard let self, self.gitStatusGeneration == generation, self.resourceContextID == context else { return }
+            self.gitStatusByPath = status
         }
     }
 
@@ -907,56 +912,20 @@ final class FileExplorerStore: ObservableObject {
             throw ManagedFileTransferPolicy.refusalError()
         }
         guard expectedWorkspaceRootIdentity == nil || workspaceRootIdentity == expectedWorkspaceRootIdentity,
-              let remoteProvider = provider as? any RemoteFileExplorerProvider else {
+              let remoteProvider = provider as? SSHFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }
         let cacheURL = Self.remotePreviewCacheURL(
             displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
-        let protectedURLs = protectRecentlyMaterializedPreview(cacheURL)
-        await Self.pruneRemotePreviewCache(excluding: protectedURLs)
         try await remoteProvider.downloadFile(path: path, to: cacheURL)
         guard expectedWorkspaceRootIdentity == nil ||
               (workspaceRootIdentity == expectedWorkspaceRootIdentity && provider === remoteProvider) else {
             try? FileManager.default.removeItem(at: cacheURL)
             throw FileExplorerError.providerUnavailable
         }
-        await Self.pruneRemotePreviewCache(excluding: protectedURLs)
         return cacheURL
-    }
-
-    private func protectRecentlyMaterializedPreview(_ url: URL) -> Set<URL> {
-        let now = Date()
-        recentlyMaterializedRemotePreviewURLs = recentlyMaterializedRemotePreviewURLs.filter {
-            now.timeIntervalSince($0.value) < 300
-        }
-        recentlyMaterializedRemotePreviewURLs[url.standardizedFileURL] = now
-        if recentlyMaterializedRemotePreviewURLs.count > 64 {
-            let oldest = recentlyMaterializedRemotePreviewURLs
-                .sorted { $0.value < $1.value }
-                .prefix(recentlyMaterializedRemotePreviewURLs.count - 64)
-                .map(\.key)
-            for key in oldest { recentlyMaterializedRemotePreviewURLs.removeValue(forKey: key) }
-        }
-        return activeRemotePreviewURLs().union(recentlyMaterializedRemotePreviewURLs.keys).union([url])
-    }
-
-    private func activeRemotePreviewURLs() -> Set<URL> {
-        var paths = Set<URL>()
-        for manager in AppDelegate.shared?.liveWorkspaceIdentityTabManagers() ?? [] {
-            for workspace in manager.tabs {
-                for panel in workspace.panels.values {
-                    if let preview = panel as? FilePreviewPanel {
-                        paths.insert(URL(fileURLWithPath: preview.filePath).standardizedFileURL)
-                    }
-                    if let markdown = panel as? MarkdownPanel {
-                        paths.insert(URL(fileURLWithPath: markdown.filePath).standardizedFileURL)
-                    }
-                }
-            }
-        }
-        return paths
     }
 
     private func updateDirectoryWatcher() {
@@ -999,7 +968,7 @@ final class FileExplorerStore: ObservableObject {
         case (nil, nil): providerChanged = false
         default: providerChanged = true
         }
-        if providerChanged { objectWillChange.send() }
+        if providerChanged { resetResourceContext() }
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
@@ -1032,7 +1001,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func expand(node: FileExplorerNode) {
-        guard node.isDirectory else { return }
+        guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory else { return }
         expandedPaths.insert(node.path)
         if node.children == nil, loadTasks[node.path] == nil, !loadingPaths.contains(node.path) {
             node.isLoading = true
@@ -1082,7 +1051,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func requestDescendIntoFirstChild(of node: FileExplorerNode) {
-        guard node.isDirectory else { return }
+        guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory else { return }
         selectedPath = node.path
         selectedPaths = [node.path]
         pendingDescendIntoFirstChildPath = node.path
@@ -1090,7 +1059,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func prefetchChildren(for node: FileExplorerNode) {
-        guard node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
+        guard node.resourceContextID == nil || node.resourceContextID == resourceContextID, node.isDirectory, node.children == nil, !loadingPaths.contains(node.path) else { return }
         // Debounce: only prefetch if hover persists for 200ms
         let path = node.path
         let scheduler = prefetchSchedulers[path] ?? MainActorDeferredActionScheduler()
@@ -1123,6 +1092,7 @@ final class FileExplorerStore: ObservableObject {
 
     @MainActor
     private func loadChildren(for parentNode: FileExplorerNode?, at path: String, silent: Bool = false) async {
+        guard parentNode?.resourceContextID == nil || parentNode?.resourceContextID == resourceContextID else { return }
         // A load cancelled by cancelAllLoads (e.g. a root reload during an SSH provider swap) must not
         // reach provider.listDirectory: the provider may have been replaced, so a stale in-flight load
         // would list the old path through the new transport. Bail before any listing.
@@ -1140,6 +1110,7 @@ final class FileExplorerStore: ObservableObject {
             try Task.checkCancellation()
             let children = entries.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
+                node.resourceContextID = resourceContextID
                 nodesByPath[entry.path] = node
                 return node
             }.sorted { a, b in
@@ -1221,42 +1192,6 @@ final class FileExplorerStore: ObservableObject {
         return cacheRoot
             .appendingPathComponent(target, isDirectory: true)
             .appendingPathComponent(filename, isDirectory: false)
-    }
-
-    private nonisolated static func pruneRemotePreviewCache(excluding protectedURLs: Set<URL>) async {
-        await Task.detached(priority: .utility) {
-            let cacheRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
-            guard let urls = try? FileManager.default.contentsOfDirectory(
-                at: cacheRoot,
-                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
-                options: [.skipsHiddenFiles]
-            ) else { return }
-            let fileURLs = urls.flatMap { url -> [URL] in
-                guard let children = try? FileManager.default.contentsOfDirectory(
-                    at: url,
-                    includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
-                    options: [.skipsHiddenFiles]
-                ) else { return [] }
-                return children
-            }
-            let ordered = fileURLs.sorted {
-                let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                return lhs < rhs
-            }
-            var totalBytes = fileURLs.reduce(into: 0) { total, url in
-                total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            }
-            var retainedCount = fileURLs.count
-            for url in ordered where retainedCount > 32 || totalBytes > 32 * 1_024 * 1_024 {
-                guard !protectedURLs.contains(url.standardizedFileURL) else { continue }
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                try? FileManager.default.removeItem(at: url)
-                totalBytes = max(0, totalBytes - size)
-                retainedCount = max(0, retainedCount - 1)
-            }
-        }.value
     }
 
     private static func sanitizedCacheComponent(_ value: String) -> String {

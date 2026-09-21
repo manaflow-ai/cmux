@@ -85,7 +85,8 @@ extension FileExplorerStore {
         displayTarget: String,
         rootPath requestedRootPath: String?,
         isAvailable: Bool,
-        unavailableDetail: String?
+        unavailableDetail: String?,
+        target: CloudFileExplorerTarget?
     ) {
         setWorkspaceRootIdentity(workspaceId)
 
@@ -93,6 +94,7 @@ extension FileExplorerStore {
         let cloudProvider: CloudVMFileExplorerProvider
         if let existingProvider,
            existingProvider.vmID == vmID,
+           existingProvider.target == target,
            existingProvider.displayTarget == displayTarget,
            existingProvider.isAvailable == isAvailable {
             cloudProvider = existingProvider
@@ -102,7 +104,7 @@ extension FileExplorerStore {
             cloudProvider = CloudVMFileExplorerProvider(
                 vmID: vmID,
                 displayTarget: displayTarget,
-                isAvailable: isAvailable
+                isAvailable: isAvailable, target: target
             )
             setProvider(cloudProvider, reloadIfAvailable: false)
         }
@@ -198,11 +200,6 @@ extension FileExplorerStore {
         remoteHomeResolutionTask?.cancel()
         remoteHomeResolutionTask = nil
         remoteHomeResolutionKey = nil
-    }
-
-    func setRootStatusMessage(_ message: String?) {
-        guard rootStatusMessage != message else { return }
-        rootStatusMessage = message
     }
 
     static func path(_ candidate: String, isContainedIn root: String) -> Bool {

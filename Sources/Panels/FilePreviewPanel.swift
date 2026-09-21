@@ -1242,26 +1242,6 @@ enum FilePreviewTextLoader {
     }
 }
 
-enum FilePreviewTextSaver {
-    enum Result: Sendable {
-        case saved
-        case failed(fileExists: Bool)
-    }
-
-    @concurrent
-    static func save(content: String, to url: URL, encoding: String.Encoding) async -> Result {
-        guard let data = content.data(using: encoding) else {
-            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-        }
-
-        do {
-            try data.write(to: url, options: [])
-            return .saved
-        } catch {
-            return .failed(fileExists: FileManager.default.fileExists(atPath: url.path))
-        }
-    }
-}
 
 @MainActor
 final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
@@ -1295,7 +1275,12 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
     var lastObservedFileState: FilePreviewFileState?
     var isClosed = false
-    weak var textView: NSTextView?
+    weak var textView: NSTextView? {
+        didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
+    }
+    var cloudPreviewLease: CloudFilePreviewLease? {
+        didSet { if cloudPreviewLease != nil { textView?.isEditable = false } }
+    }
     let focusCoordinator: FilePreviewFocusCoordinator
     private let selectionReader = NativeTextSurfaceSelectionReader()
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
@@ -1366,6 +1351,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        cloudPreviewLease = nil
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
@@ -1504,6 +1490,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func updateTextContent(_ nextContent: String) {
+        guard cloudPreviewLease == nil else { return }
         guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
     }
@@ -1640,6 +1627,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     @discardableResult
     func saveTextContent() -> Task<Void, Never>? {
+        guard cloudPreviewLease == nil else { return nil }
         guard previewMode == .text else { return nil }
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent

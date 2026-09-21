@@ -99,36 +99,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if fileExplorerStore.provider is any RemoteFileExplorerProvider {
-            let store = fileExplorerStore
-            let expectedRootIdentity = store.workspaceRootIdentity
-            Task { [weak workspace, weak store] in
-                guard let workspace, let store else { return }
-                do {
-                    let localURL = try await store.materializeRemoteFileForPreview(
-                        path: filePath,
-                        expectedWorkspaceRootIdentity: expectedRootIdentity
-                    )
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true,
-                        duplicateWhenFocused: true
-                    )
-                } catch {
-                    FileExplorerRemotePreviewPresentation.present(error)
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true,
-            duplicateWhenFocused: true
-        )
+        FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
+            pane: paneId, isCurrent: { [weak self, weak workspace] in
+                guard let self, let workspace else { return false }
+                return self.workspace === workspace
+            })
     }
 
     var isFocusedInWorkspace: Bool {
@@ -136,6 +111,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     func close() {
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel(); rootSyncTask = nil
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
@@ -191,23 +168,15 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher(),
-            NotificationCenter.default.publisher(for: SurfaceCatalog.didChangeNotification)
-                .filter { [weak workspace] notification in
-                    guard let machine = workspace?.cloudVMID,
-                          let changedMachines = notification.userInfo?["machines"] as? [String]
-                    else { return false }
-                    return changedMachines.contains(machine)
-                }
-                .map { _ in () }
-                .eraseToAnyPublisher()
+            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+
         )
         .sink { [weak self, weak workspace] _ in
             guard let self, let workspace, self.rootSyncTask == nil else { return }
             self.rootSyncGeneration &+= 1
             let generation = self.rootSyncGeneration
             self.rootSyncTask = Task { @MainActor [weak self, weak workspace] in
-                defer { self?.rootSyncTask = nil }
+                defer { if self?.rootSyncGeneration == generation { self?.rootSyncTask = nil } }
                 guard let self, let workspace,
                       self.workspace === workspace,
                       self.rootSyncGeneration == generation else { return }
@@ -218,7 +187,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
-        store.applyWorkspaceRoot(FileExplorerWorkspaceRootResolver().resolve(workspace))
+        store.syncWorkspaceRoot(from: workspace)
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {

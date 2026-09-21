@@ -196,7 +196,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
                 isLoading: store.isRootLoading,
-                statusMessage: store.rootStatusMessage
+                statusMessage: store.rootStatusMessage,
+                showsRemoteTarget: store.provider is any RemoteFileExplorerProvider
             )
 
             let newCount = store.rootNodes.count
@@ -906,6 +907,7 @@ final class FileExplorerContainerView: NSView {
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentSearchScope: FileSearchScope = .unsupported
+    private var currentResourceContextID: UUID?
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
@@ -1227,11 +1229,13 @@ final class FileExplorerContainerView: NSView {
     func updateHeader(store: FileExplorerStore) {
         let nextRootPath = store.rootPath, nextSearchScope = FileSearchScope(provider: store.provider)
         let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
-        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity || currentResourceContextID != store.resourceContextID, contentRevisionChanged = nextContentRevision != currentContentRevision
         let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextSearchScope != currentSearchScope
         currentRootPath = nextRootPath; currentSearchScope = nextSearchScope
+        currentResourceContextID = store.resourceContextID
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath)
+        headerView.update(displayPath: store.displayRootPath,
+            retry: store.provider is CloudVMFileExplorerProvider ? { [weak store] in store?.retryRemoteRoot() } : nil)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
@@ -1274,11 +1278,16 @@ final class FileExplorerContainerView: NSView {
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+    func updateVisibility(
+        hasContent: Bool,
+        isLoading: Bool,
+        statusMessage: String?,
+        showsRemoteTarget: Bool = false
+    ) {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        applyHidden(headerView, !hasContent && !hasStatus)
+        applyHidden(headerView, !hasContent && !hasStatus && !showsRemoteTarget)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
         let nextEmptyText = hasStatus
@@ -1550,36 +1559,6 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.reloadData()
     }
 
-    private func statusText(for snapshot: FileSearchSnapshot) -> String {
-        switch snapshot.status {
-        case .idle:
-            return ""
-        case .unsupported:
-            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
-        case .searching:
-            return String(
-                format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
-                snapshot.results.count
-            )
-        case .noMatches:
-            return String(localized: "fileExplorer.search.noMatches", defaultValue: "No matches")
-        case .matches:
-            return String(
-                format: String(localized: "fileExplorer.search.matches", defaultValue: "%d matches"),
-                snapshot.results.count
-            )
-        case .limited(let limit):
-            return String(
-                format: String(localized: "fileExplorer.search.limit", defaultValue: "First %d matches"),
-                limit
-            )
-        case .failed(let message):
-            return String(
-                format: String(localized: "fileExplorer.search.failed", defaultValue: "Search failed: %@"),
-                message
-            )
-        }
-    }
 
 #if DEBUG
     private func debugSearchNumber(_ value: CGFloat) -> String {
@@ -1717,7 +1696,8 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func searchResult(forMenuItem sender: NSMenuItem) -> FileSearchResult? {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue,
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
@@ -1728,7 +1708,7 @@ final class FileExplorerContainerView: NSView {
     @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         let path = searchSnapshot.results[row].path
         // Editor/preferred-editor actions operate on local file paths via
         // NSWorkspace; for non-local providers fall back to the cmux preview.
@@ -2014,7 +1994,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         menu.removeAllItems()
         let clickedRow = searchResultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }

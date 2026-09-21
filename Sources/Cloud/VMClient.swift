@@ -341,11 +341,6 @@ struct VMBaseSummary {
     let retainedProviderVmId: String?
 }
 
-struct VMExecResult: Sendable {
-    let exitCode: Int
-    let stdout: String
-    let stderr: String
-}
 
 /// What a machine's provider can do; the app offers only verbs that can succeed
 /// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
@@ -1927,7 +1922,7 @@ actor VMClient {
         )
     }
 
-    func exec(id: String, command: String, timeoutMs: Int = 30_000) async throws -> VMExecResult {
+    func exec(id: String, command: String, timeoutMs: Int = 30_000, expectedTeamScope: AuthenticatedTeamScope? = nil) async throws -> VMExecResult {
         return try await withOperation(.exec, foreground: true) {
             let body: [String: Any] = ["command": command, "timeoutMs": timeoutMs]
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -1935,7 +1930,7 @@ actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/exec",
                 jsonBody: body,
-                timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0)
+                timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0), expectedTeamScope: expectedTeamScope
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2039,12 +2034,12 @@ actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false
+        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
             try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
                 timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+                allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope)
         }
         if CloudOperationContext.current != nil || operations == nil { return try await work() }
         let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
@@ -2058,7 +2053,7 @@ actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false
+        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> (Data, HTTPURLResponse) {
         if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
             throw VMClientError.disabledByManagedPolicy
@@ -2101,7 +2096,7 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowedWhenCloudDisabled: allowedUnderManagedPolicy,
+                allowedWhenCloudDisabled: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -2173,12 +2168,13 @@ actor VMClient {
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
-        allowedWhenCloudDisabled: Bool,
+        allowedWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
         // session. A request that was already queued when sign-out began must
         // not publish/use a stale result after the session epoch flips.
+        if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
@@ -2228,6 +2224,7 @@ actor VMClient {
         var retriesLeft = 2
         while true {
             try Task.checkCancellation()
+            if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
             guard await auth.resolvedTeamID == requestedTeamID else {
                 throw VMClientError.notSignedIn
             }
@@ -2261,6 +2258,7 @@ actor VMClient {
                 throw error
             }
             try Task.checkCancellation()
+            if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")

@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
@@ -7,6 +8,7 @@ import Foundation
 /// session, so a local pane closing never touches them (only local browser preparation is cancelled).
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
+    let fileAccessTeamScope: AuthenticatedTeamScope?
     let machineID: String
     var machine: SurfaceMachineID { .cloud(machineID) }
     private(set) var info: SurfaceMachineInfo
@@ -113,6 +115,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
         summary: VMSummary,
+        fileAccessTeamScope: AuthenticatedTeamScope? = nil,
         links: CloudMachineLinkManager,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
@@ -120,6 +123,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         portAccessStore: CloudPortAccessStore? = nil,
         browserPolicy: @escaping @MainActor () -> BrowserURLAllowlistPolicy = { BrowserURLAllowlistPolicy() }
     ) {
+        self.fileAccessTeamScope = fileAccessTeamScope
         machineID = summary.id
         self.attachmentClock = attachmentClock
         self.summary = summary
@@ -130,14 +134,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.browserPolicy = browserPolicy
         info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
         installNotificationSync()
-    }
-    var isAwake: Bool { summary.status == "running" }
-    var providerID: String { summary.provider }
-    /// Port rows are openable only when the machine advertises a preview
-    /// capability or has the private route used by Freestyle.
-    var capabilities: VMCapabilities { summary.capabilities }
-    var supportsPortPreviews: Bool {
-        capabilities.ports || summary.preferredPrivateAddress != nil
     }
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
