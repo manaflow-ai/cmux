@@ -5,10 +5,21 @@ actor CloudFileExplorerService {
     private static let maxSearchResults = 500
     private static let maxPreviewBytes = 1_048_576
     private let commandRunner: any CloudFileExplorerCommandRunning
-    /// Serializes guest searches because the VM exec API cannot cancel a command
-    /// already accepted by the machine. The latest UI query waits behind the
-    /// bounded prior scan instead of creating overlapping ripgrep processes.
-    private var searchTail: Task<Void, Never>?
+    private struct PendingSearch {
+        let id: UUID
+        let vmID: String
+        let query: String
+        let rootPath: String
+        let continuation: CheckedContinuation<FileSearchSnapshot, Error>
+    }
+
+    /// The VM exec API cannot cancel a command already accepted by the machine.
+    /// Keep one active scan and one replaceable pending request; newer UI queries
+    /// supersede a queued request before it reaches the guest.
+    private var activeSearch: PendingSearch?
+    private var pendingSearch: PendingSearch?
+    private var cancelledSearchIDs: Set<UUID> = []
+    private var searchWorker: Task<Void, Never>?
 
     /// Creates a service with the command transport used by one Cloud machine.
     init(commandRunner: any CloudFileExplorerCommandRunning) {
@@ -96,19 +107,69 @@ sys.stdout.write(base64.b64encode(data).decode("ascii"))
 
     /// Searches the remote root with a bounded ripgrep producer.
     func search(vmID: String, query: String, rootPath: String) async throws -> FileSearchSnapshot {
-        let predecessor = searchTail
-        let runner = commandRunner
-        let operation = Task.detached(priority: .userInitiated) {
-            await predecessor?.value
-            return try await Self.performSearch(
-                commandRunner: runner,
-                vmID: vmID,
-                query: query,
-                rootPath: rootPath
-            )
+        let id = UUID()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                enqueueSearch(
+                    PendingSearch(
+                        id: id,
+                        vmID: vmID,
+                        query: query,
+                        rootPath: rootPath,
+                        continuation: continuation
+                    )
+                )
+            }
+        }, onCancel: {
+            Task { await self.cancelSearch(id: id) }
+        })
+    }
+
+    private func enqueueSearch(_ request: PendingSearch) {
+        if let pendingSearch {
+            pendingSearch.continuation.resume(throwing: CancellationError())
         }
-        searchTail = Task { _ = await operation.result }
-        return try await operation.value
+        pendingSearch = request
+        if searchWorker == nil {
+            searchWorker = Task { [weak self] in
+                await self?.runSearchWorker()
+            }
+        }
+    }
+
+    private func cancelSearch(id: UUID) {
+        if let pendingSearch, pendingSearch.id == id {
+            self.pendingSearch = nil
+            pendingSearch.continuation.resume(throwing: CancellationError())
+            return
+        }
+        guard let activeSearch, activeSearch.id == id else { return }
+        cancelledSearchIDs.insert(id)
+        activeSearch.continuation.resume(throwing: CancellationError())
+    }
+
+    private func runSearchWorker() async {
+        while let request = pendingSearch {
+            pendingSearch = nil
+            activeSearch = request
+            do {
+                let snapshot = try await Self.performSearch(
+                    commandRunner: commandRunner,
+                    vmID: request.vmID,
+                    query: request.query,
+                    rootPath: request.rootPath
+                )
+                if cancelledSearchIDs.remove(request.id) == nil {
+                    request.continuation.resume(returning: snapshot)
+                }
+            } catch {
+                if cancelledSearchIDs.remove(request.id) == nil {
+                    request.continuation.resume(throwing: error)
+                }
+            }
+            activeSearch = nil
+        }
+        searchWorker = nil
     }
 
     private static func performSearch(

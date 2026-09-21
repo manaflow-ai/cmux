@@ -1749,15 +1749,15 @@ final class FileExplorerContainerView: NSView {
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
         FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
-
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let result = searchResult(forMenuItem: sender) else { return }
         FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
     }
-
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
         GhosttyApp.terminalPasteboard.writeString(
@@ -1853,7 +1853,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard tableView === searchResultsView,
+        guard tableView === searchResultsView, coordinator.store.provider is LocalFileExplorerProvider,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
@@ -2028,21 +2028,21 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        FileExplorerExternalOpenMenuItems(
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        ).add(to: menu)
-
-        let revealItem = NSMenuItem(
-            title: FileExternalOpenText.revealInFinder,
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
-
+        if coordinator.store.provider is LocalFileExplorerProvider {
+            FileExplorerExternalOpenMenuItems(
+                fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+                target: self,
+                action: #selector(contextMenuOpenSearchResultExternally(_:))
+            ).add(to: menu)
+            let revealItem = NSMenuItem(
+                title: FileExternalOpenText.revealInFinder,
+                action: #selector(contextMenuRevealSearchResultInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = NSNumber(value: row)
+            menu.addItem(revealItem)
+        }
         menu.addItem(.separator())
 
         menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
