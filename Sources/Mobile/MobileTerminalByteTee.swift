@@ -251,6 +251,22 @@ final class MobileTerminalByteTee {
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
     }
 
+    #if DEBUG
+    /// Test-only synchronous publish, bypassing the cross-thread hop so
+    /// append cost is observable deterministically from the main actor.
+    func debugPublishForTesting(surfaceID: UUID, data: Data) {
+        publishFromMain(surfaceID: surfaceID, data: data)
+    }
+
+    /// Test-only identity of the live replay buffer's backing storage.
+    /// A copy-on-write relocation changes it; an in-place append does not.
+    func debugReplayBufferAddressForTesting(surfaceID: UUID) -> UInt? {
+        statesBySurfaceID[surfaceID]?.replayBuffer.withUnsafeBytes { raw in
+            UInt(bitPattern: raw.baseAddress)
+        }
+    }
+    #endif
+
     private func removeLaneContinuation(id: UUID, surfaceID: UUID) {
         guard laneContinuationsBySurfaceID[surfaceID]?.removeValue(forKey: id) != nil else {
             return
