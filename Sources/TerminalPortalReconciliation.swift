@@ -40,10 +40,9 @@ extension GhosttyTerminalView {
         // Capture the source before the run-loop hop. Binding is required for
         // moves and ordinary updates too, so it does not establish a reveal.
         let diagnostics = TerminalGeometryDiagnostics()
-        let capturedTransition = diagnostics.context(
-            workspaceID: terminalSurface.tabId,
-            transition: transition == .unknown ? diagnostics.resizeTransition(in: host.window) : transition
-        ).transition
+        let enclosingTransition = diagnostics.context(workspaceID: terminalSurface.tabId, transition: .unknown).transition
+        let fallbackTransition = transition == .unknown ? diagnostics.resizeTransition(in: host.window) : transition
+        let capturedTransition = enclosingTransition == .unknown ? fallbackTransition : enclosingTransition
         coordinator.portalReconciliationScheduler.stage(reasons: reasons, transition: capturedTransition) {
             [weak host, weak hostedView, weak coordinator, weak terminalSurface] request in
             let reasons = request.reasons

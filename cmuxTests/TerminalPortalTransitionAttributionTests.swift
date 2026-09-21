@@ -34,6 +34,12 @@ struct TerminalPortalTransitionAttributionTests {
         scheduler.stage(reasons: .bindingRequired) { delivered = $0.transition }
         scheduler.flushPendingReconciliation()
         #expect(delivered == transition)
+        // A later enclosing operation must not replace a queued request's
+        // already captured origin when its interval is finally recorded.
+        let finishLater = workspace.beginTerminalGeometryTransition(.resize)
+        defer { finishLater() }
+        let laterContext = TerminalGeometryDiagnostics().context(workspaceID: fixture.id, transition: transition)
+        #expect(laterContext.transition == transition)
     }
 
 }
