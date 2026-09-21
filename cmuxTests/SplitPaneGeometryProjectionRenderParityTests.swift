@@ -18,7 +18,7 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SplitPaneGeometryProjectionRenderParityTests {
-    private struct Case: Sendable {
+    struct Case: Sendable {
         let direction: CmuxSplitDirection
         let split: Double
     }
