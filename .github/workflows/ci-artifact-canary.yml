@@ -101,7 +101,18 @@ jobs:
           CANARY_RESOURCE: ${{ steps.preflight.outputs.resource }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: ./node_modules/.bin/wrangler r2 object delete "$CANARY_RESOURCE/github/manaflow-ai/cmux/10610975375/08f56e901618eff4aacdffbd3046d9e9732b638004cba1d69ad44f447199608f.zip" --remote
+        run: |
+          key="$CANARY_RESOURCE/github/manaflow-ai/cmux/10610975375/08f56e901618eff4aacdffbd3046d9e9732b638004cba1d69ad44f447199608f.zip"
+          for attempt in 1 2 3 4; do
+            if ./node_modules/.bin/wrangler r2 object delete "$key" --remote; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "failed to remove the canary artifact after 4 attempts" >&2
+          exit 1
       - name: Remove an empty bucket created by this run
         if: always() && steps.preflight.outcome != 'skipped'
         env:
