@@ -73,11 +73,27 @@ struct ControlClientSourceLifecycleTests {
                 socklen_t(MemoryLayout<Int>.size)
             ) == 0
         )
+        #expect(fcntl(pair.writer, F_SETFL, O_NONBLOCK) == 0)
+        let fill = [UInt8](repeating: 0x46, count: 64 * 1024)
+        var reachedWouldBlock = false
+        while !reachedWouldBlock {
+            let written = fill.withUnsafeBytes {
+                Darwin.write(pair.writer, $0.baseAddress, $0.count)
+            }
+            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                reachedWouldBlock = true
+            } else {
+                #expect(written > 0)
+            }
+        }
+        #expect(reachedWouldBlock)
         let writer = ControlClientAsyncWriter(socket: pair.writer)
         let pending = Task {
             await writer.writeAll(Data(repeating: 0x58, count: 16 * 1024 * 1024))
         }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0..<16 {
+            await Task.yield()
+        }
         pending.cancel()
         #expect(await pending.value == false)
         await writer.cancelAndWait()
