@@ -1,58 +1,75 @@
 import Foundation
 
-/// Creates cloud workspaces from a fresh fleet response and returns their exact local identity.
+/// Creates Cloud workspaces through the sidebar's ordering and account authority.
 @MainActor
 public final class CloudWorkspaceCoordinator {
-    /// The selection shared with every Machines panel.
-    public let defaultMachineStore: DefaultCloudMachineStore
+    private let machinePinStore: CloudMachinePinStore
     private let allowsOperation: @MainActor () -> Bool
-    private let loadMachines: @MainActor () async throws -> [CloudMachineDescriptor]
-    private let createWorkspace: @MainActor (String, Bool) async throws -> UUID?
+    private let loadMachines: @MainActor () async throws -> [String]
+    private let createWorkspace: @MainActor (CloudWorkspaceCreationRequest) async throws -> UUID?
+    private let targetResolver = CloudWorkspaceTargetResolver()
 
-    /// Whether Cloud Machines and the current authenticated account permit an action.
+    /// Whether the feature and current authenticated account permit an action.
     public var isAvailable: Bool { allowsOperation() }
+    /// The same account/team scope that owns sidebar pins and ordering.
+    public var scopeIdentifier: String? { machinePinStore.scopeIdentifier }
 
-    /// Assembles the operation from app-owned authentication and cloud services.
+    /// Composes live authentication, the sidebar's order store, and Cloud operations.
     /// - Parameters:
-    ///   - defaultMachineStore: The app's shared selection model.
+    ///   - machinePinStore: The one store shared with every Machines panel.
     ///   - allowsOperation: Reads live feature and account availability.
-    ///   - loadMachines: Loads the complete, authoritative fleet, throwing on failure.
-    ///   - createWorkspace: Creates and opens a workspace on the selected machine.
+    ///   - loadMachines: Loads the complete authenticated fleet in its reported order.
+    ///   - createWorkspace: Creates on the exact machine and projects into the captured window.
     public init(
-        defaultMachineStore: DefaultCloudMachineStore,
+        machinePinStore: CloudMachinePinStore,
         allowsOperation: @escaping @MainActor () -> Bool,
-        loadMachines: @escaping @MainActor () async throws -> [CloudMachineDescriptor],
-        createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?
+        loadMachines: @escaping @MainActor () async throws -> [String],
+        createWorkspace: @escaping @MainActor (CloudWorkspaceCreationRequest) async throws -> UUID?
     ) {
-        self.defaultMachineStore = defaultMachineStore
+        self.machinePinStore = machinePinStore
         self.allowsOperation = allowsOperation
         self.loadMachines = loadMachines
         self.createWorkspace = createWorkspace
     }
 
-    /// Creates a workspace on the specified cloud machine.
-    /// - Parameters:
-    ///   - id: The cloud machine identifier.
-    ///   - focus: Whether to focus the new local workspace.
-    /// - Returns: The exact created local workspace ID, or nil when unavailable.
-    /// - Throws: Cancellation or a cloud service failure.
-    public func createOnMachine(id: String, focus: Bool) async throws -> UUID? {
-        guard isAvailable, !id.isEmpty else { return nil }
-        try Task.checkCancellation()
-        return try await createWorkspace(id, focus)
+    /// Creates window-owned memory bound to the sidebar's account/team source.
+    /// - Returns: Fresh selection state; no persisted default-machine value is read.
+    public func makeSelectionState() -> CloudWorkspaceSelectionState {
+        CloudWorkspaceSelectionState(scopeProvider: { [machinePinStore] in machinePinStore.scopeIdentifier })
     }
 
-    /// Creates a workspace on the persisted default cloud machine.
-    /// - Parameter focus: Whether to focus the new local workspace.
-    /// - Returns: The exact created local workspace ID, or nil when unavailable.
-    /// - Throws: Cancellation or a cloud service failure.
-    public func createOnDefaultMachine(focus: Bool) async throws -> UUID? {
-        guard isAvailable else { return nil }
+    /// Creates on an explicitly selected machine, preserving Cmd+N's current-workspace behavior.
+    /// - Parameters:
+    ///   - request: The machine, window, and scope captured at dispatch.
+    /// - Returns: The created local workspace identity, or nil if access is unavailable.
+    /// - Throws: Cancellation or an operation failure.
+    public func createOnMachine(_ request: CloudWorkspaceCreationRequest) async throws -> UUID? {
+        guard isAvailable, !request.machineID.isEmpty, request.scopeID == scopeIdentifier else { return nil }
         try Task.checkCancellation()
-        let machines = try await loadMachines()
+        return try await createWorkspace(request)
+    }
+
+    /// Creates on the remembered Cloud machine or the first available machine in sidebar order.
+    /// - Parameters:
+    ///   - selection: Validated window-owned selection captured at action dispatch.
+    ///   - windowID: The originating window.
+    ///   - scopeID: The account/team captured synchronously at dispatch.
+    /// - Returns: The exact created local workspace identity, or nil if access changed.
+    /// - Throws: ``CloudWorkspaceCreationError/noMachines``, cancellation, or an operation failure.
+    public func createOnResolvedMachine(
+        selection: CloudWorkspaceSelection?, windowID: UUID, scopeID: String
+    ) async throws -> UUID? {
+        guard isAvailable, scopeID == scopeIdentifier else { return nil }
         try Task.checkCancellation()
-        guard isAvailable,
-              let id = defaultMachineStore.resolveMachineID(from: machines, isComplete: true) else { return nil }
-        return try await createOnMachine(id: id, focus: focus)
+        let machineIDs = try await loadMachines()
+        try Task.checkCancellation()
+        guard isAvailable, scopeID == scopeIdentifier else { return nil }
+        machinePinStore.refreshScope()
+        machinePinStore.remember(machineIDs: machineIDs)
+        let orderedIDs = machinePinStore.orderedMachineIDs(machineIDs)
+        guard let id = targetResolver.resolve(
+            lastSelection: selection, currentScopeID: scopeID, sidebarMachineIDs: orderedIDs
+        ) else { throw CloudWorkspaceCreationError.noMachines }
+        return try await createWorkspace(CloudWorkspaceCreationRequest(machineID: id, scopeID: scopeID, windowID: windowID))
     }
 }

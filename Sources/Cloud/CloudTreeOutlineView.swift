@@ -434,6 +434,27 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             open(node)
         }
 
+        /// A double-click is the rename gesture for Cloud machines and their
+        /// remote workspaces. The first click still follows the normal open
+        /// path; `handleSingleClick` ignores the second click so it cannot
+        /// open or toggle the row a second time.
+        @objc func handleDoubleClick(_ sender: Any?) {
+            guard let outlineView else { return }
+            let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
+            guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+#if DEBUG
+            cmuxDebugLog("cloudTree.doubleClick row=\(row) kind=\(node.structureTag)")
+#endif
+            switch node.kind {
+            case .machine(let machine, _):
+                machineActions.promptRename(machine.id, machine.label)
+            case .workspace(let machine, let workspace, _, _, _):
+                nodeActions.renameWorkspace(machine, workspace)
+            default:
+                break
+            }
+        }
+
         func openSelection() {
             guard let outlineView, outlineView.selectedRow >= 0,
                   let node = outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode else { return }
