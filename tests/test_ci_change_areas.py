@@ -236,6 +236,14 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_reusable_web_workflow_edit_runs_every_owned_web_job() -> None:
+    actual = module.classify_files([".github/workflows/ci-web.yml"])
+    assert actual.macos is False
+    assert actual.web is True
+    assert actual.agent_session_web is True
+    assert actual.release_build is False
+
+
 def test_other_workflow_changes_skip_macos_and_web() -> None:
     # ci.yml's macOS and web jobs never read another workflow file. Those edits
     # are validated by workflow-guard-tests and by the edited workflow itself.
