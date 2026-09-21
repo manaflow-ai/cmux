@@ -1819,6 +1819,15 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
+def test_guard_bun_setup_runs_only_for_preflight_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Bun for guard tests")
+    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    setup_block = block[setup:next_step]
+    assert "if: ${{ matrix.group == 'preflight' }}" in setup_block
+    assert block.count("setup-bun@") == 1
+
+
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
