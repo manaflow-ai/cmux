@@ -70,7 +70,6 @@ extension DockSplitStore {
             break
         }
     }
-
     /// Starts title admission for a terminal rebuilt directly inside this Dock.
     func armRestoredPanelTitleBoundary(
         panelId: UUID,
