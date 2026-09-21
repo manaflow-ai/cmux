@@ -28,6 +28,7 @@ Have exact CMUX and Glaeda checkouts locally. Package installation, accounts, SS
 Common variables:
 
 ```bash
+set -euo pipefail
 GLAEDA_ROOT=/absolute/path/to/glaeda
 CMUX_ROOT=/absolute/path/to/cmux
 FLEET_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/glaeda/cmux-fleet"
@@ -87,6 +88,7 @@ Bootstrap is read-only. It verifies the exact CMUX checkout exposes the reviewed
 Choose an opaque node ID. Hostnames, serial numbers, private addresses, usernames, and MDM identifiers stay out of the record.
 
 ```bash
+set -euo pipefail
 cd "$GLAEDA_ROOT"
 case "$(uname -s)" in
   Darwin) NODE_ID=cmux-mac-001 ;;
@@ -147,7 +149,7 @@ CMUX still owns workload commands, validator semantics, artifacts, environment c
 
 The low-level `finalize-acceptance` command remains available to validate externally supplied semantic evidence, but v2 marks that evidence as external and it can only produce a rejected receipt. Candidate-eligible receipts come from `accept-local`.
 
-## 5. Mark the node candidate-eligible
+## 4. Mark the node candidate-eligible
 
 ```bash
 python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
@@ -162,7 +164,7 @@ bash "$GLAEDA_ROOT/scripts/cmux-fleet" status "$ENROLLMENT" \
 
 Status exposes routing-candidate eligibility while `automaticDispatchAuthorized` remains false. Current host pressure, drain state, physical lease ownership, and higher-level routing policy still apply at execution time.
 
-## 6. Drain, recover, quarantine, or retire
+## 5. Drain, recover, quarantine, or retire
 
 These operations are intentionally usable from a fresh shell after reboot. Reconstruct the durable paths first:
 
