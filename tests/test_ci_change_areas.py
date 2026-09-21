@@ -1438,9 +1438,15 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
         != base
     )
 
-    changed_recipe = workflow.replace(
+    changed_admission = admission.replace(
         '      CMUX_SKIP_ZIG_BUILD: "1"\n',
         '      CMUX_SKIP_ZIG_BUILD: "0"\n',
+        1,
+    )
+    assert changed_admission != admission
+    changed_recipe = workflow.replace(
+        admission,
+        changed_admission,
         1,
     )
     assert changed_recipe != workflow
