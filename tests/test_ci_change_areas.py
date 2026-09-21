@@ -777,6 +777,75 @@ def run_detect_step_for_paths(
         return result, output_path.read_text(encoding="utf-8").splitlines()
 
 
+def run_compile_admission_change_step(
+    paths: list[str],
+    *,
+    event: str = "pull_request",
+) -> dict[str, str]:
+    script = workflow_job_step_script("changes", "Detect compile-admission changes")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        changed = root / "changed-files.txt"
+        changed.write_text("\n".join(paths) + ("\n" if paths else ""), encoding="utf-8")
+        output = root / "github-output.txt"
+        actual_script = script.replace(
+            "/tmp/cmux-ci-changed-files.txt",
+            str(changed),
+        )
+        result = subprocess.run(
+            ["bash", "-c", actual_script],
+            cwd=ROOT,
+            env={
+                **os.environ,
+                "EVENT_NAME": event,
+                "GITHUB_OUTPUT": str(output),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        return dict(
+            line.split("=", 1)
+            for line in output.read_text(encoding="utf-8").splitlines()
+        )
+
+
+def test_compile_admission_change_gate_separates_orchestration_from_product_inputs() -> None:
+    for path in (
+        ".github/workflows/ci.yml",
+        ".github/actions/cache-restore/action.yml",
+        "scripts/ci/persistent_mac_route.py",
+        "scripts/ci/new-admission-helper.py",
+    ):
+        assert run_compile_admission_change_step([path]) == {"changed": "true"}, path
+
+    for path in (
+        "Sources/App.swift",
+        "cmuxTests/WorkspaceTests.swift",
+        "tests/test_ci_change_areas.py",
+        "docs/ci-runners.md",
+    ):
+        assert run_compile_admission_change_step([path]) == {"changed": "false"}, path
+
+    assert run_compile_admission_change_step([]) == {"changed": "true"}
+    assert run_compile_admission_change_step(
+        ["Sources/App.swift"],
+        event="workflow_dispatch",
+    ) == {"changed": "true"}
+
+    block = workflow_job_block("changes")
+    assert (
+        "compile_admission_changed: ${{ steps.admission-change.outputs.changed }}"
+        in block
+    )
+    assert (
+        'product_input_identity.py --key --extra "xcode=$XCODE_APP"'
+        in block
+    )
+    assert "steps.admission-change.outputs.changed == 'false'" in block
+
+
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
