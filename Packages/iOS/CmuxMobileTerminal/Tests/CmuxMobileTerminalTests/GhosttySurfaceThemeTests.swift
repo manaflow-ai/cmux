@@ -80,10 +80,16 @@ import UIKit
     let input = TerminalInputTextView()
     let controller = UIViewController()
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 100))
+    let previousKeyWindow = UIApplication.shared.connectedScenes
+        .compactMap { ($0 as? UIWindowScene)?.windows.first(where: \.isKeyWindow) }
+        .first
     controller.view.addSubview(input.toolbarView)
     window.rootViewController = controller
-    window.isHidden = false
-    defer { window.isHidden = true }
+    window.makeKeyAndVisible()
+    defer {
+        previousKeyWindow?.makeKey()
+        window.isHidden = true
+    }
     let button = try #require(input.toolbarView.descendant(
         withAccessibilityIdentifier: "terminal.inputAccessory.control"
     ) as? AccessoryActionButton)
