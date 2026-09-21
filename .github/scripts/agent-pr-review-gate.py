@@ -234,8 +234,16 @@ def evaluate(
         for bot in [canonical_bot(login(r.get("author")), required_bots)]
         if bot is not None
     }
-    require_coverage = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE") == "1"
-    missing = [bot for bot in required_bots if bot not in current_reviews] if require_coverage else []
+    require_coverage = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE", "1") == "1"
+    coverage_bots = tuple(
+        bot.strip().lower()
+        for bot in os.environ.get("REVIEW_COVERAGE_BOTS", "greptile-apps").split(",")
+        if bot.strip()
+    )
+    unknown_coverage_bots = [bot for bot in coverage_bots if bot not in required_bots]
+    if unknown_coverage_bots:
+        raise ValueError("review coverage bots must also be configured review bots")
+    missing = [bot for bot in coverage_bots if bot not in current_reviews] if require_coverage else []
     actors = reply_actors or configured_reply_actors(pr)
     ledger = review_ledger(pr, required_bots, actors)
     items = [item for item in ledger if item.active]

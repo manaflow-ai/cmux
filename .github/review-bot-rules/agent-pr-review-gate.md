@@ -27,13 +27,18 @@ review, thread, and per-thread comment connections; a collector error is a
 failure rather than a pass. It does not write replies, resolve threads, or
 merge PRs.
 
-Current-head provider coverage is a separate, optional check. Set
-`REQUIRE_BOT_REVIEW_COVERAGE=1` only when the configured providers publish a
-reliable structured review record whose commit matches the PR head. The
-default is `0`, so the landing slice enforces answered current threads and
-reports coverage in the read ledger without claiming that every provider has
-reviewed the head. An unavailable provider never counts as a review when
-coverage is enabled.
+Current-head provider coverage is part of the default opted-in contract. The
+configured providers publish structured review records bound to the reviewed
+commit. The workflow defaults `REQUIRE_BOT_REVIEW_COVERAGE` to `1` and
+`AGENT_REVIEW_COVERAGE_BOTS` to `greptile-apps`, so Greptile must review the
+exact PR head while CodeRabbit findings remain reply obligations whenever
+CodeRabbit runs. Repositories can set `AGENT_REVIEW_COVERAGE_BOTS` to a
+comma-separated subset of `AGENT_REVIEW_BOTS` (for example,
+`coderabbitai,greptile-apps`) to require more providers. Set
+`REQUIRE_BOT_REVIEW_COVERAGE=0` only as an explicit degraded mode during a
+provider outage; thread-reply obligations still apply, while the gate stops
+claiming complete provider coverage. An unavailable required provider never
+counts as a review while coverage is enabled.
 
 For an audit-friendly read, run the trusted base-branch checker with
 `--json`; it emits `cmux.agent-pr-review/v1` with the PR/head, configured bots

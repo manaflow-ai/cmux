@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import unittest
 from unittest import mock
 import sys
@@ -34,19 +35,37 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertFalse(items)
         self.assertIn("not opted", reasons[0])
 
-    def test_current_head_requires_each_configured_bot(self):
-        import os
-        previous = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE")
-        os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = "1"
+    def test_current_head_requires_each_configured_bot_by_default(self):
+        previous = os.environ.pop("REQUIRE_BOT_REVIEW_COVERAGE", None)
         try:
             passed, reasons, _ = gate.evaluate(make_pr(reviews=[review("coderabbitai")]))
         finally:
-            if previous is None:
-                os.environ.pop("REQUIRE_BOT_REVIEW_COVERAGE", None)
-            else:
+            if previous is not None:
                 os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = previous
         self.assertFalse(passed)
         self.assertTrue(any("greptile-apps" in reason for reason in reasons))
+
+    def test_coderabbit_is_reported_but_not_required_for_default_coverage(self):
+        previous = os.environ.pop("REVIEW_COVERAGE_BOTS", None)
+        try:
+            passed, reasons, _ = gate.evaluate(make_pr(reviews=[review("greptile-apps")]))
+        finally:
+            if previous is not None:
+                os.environ["REVIEW_COVERAGE_BOTS"] = previous
+        self.assertTrue(passed)
+        self.assertFalse(any("coderabbitai" in reason for reason in reasons))
+
+    def test_repository_can_require_multiple_coverage_bots(self):
+        with mock.patch.dict(os.environ, {"REVIEW_COVERAGE_BOTS": "coderabbitai,greptile-apps"}):
+            passed, reasons, _ = gate.evaluate(make_pr(reviews=[review("greptile-apps")]))
+        self.assertFalse(passed)
+        self.assertTrue(any("coderabbitai" in reason for reason in reasons))
+
+    def test_repository_can_explicitly_disable_provider_coverage(self):
+        with mock.patch.dict(os.environ, {"REQUIRE_BOT_REVIEW_COVERAGE": "0"}):
+            passed, reasons, _ = gate.evaluate(make_pr(reviews=[review("coderabbitai")]))
+        self.assertTrue(passed)
+        self.assertFalse(any("review pending" in reason for reason in reasons))
 
     def test_unanswered_thread_blocks_even_when_resolved(self):
         passed, reasons, items = gate.evaluate(make_pr(reviews=[review("coderabbitai"), review("greptile-apps")], threads=[thread(resolved=True)]))
@@ -110,8 +129,9 @@ class AgentPRReviewGateTests(unittest.TestCase):
             reviews=[review("coderabbitai")],
             threads=[thread("greptile-apps", body="Bugbot is paused — on-demand spend limit reached")],
         )
-        passed, _, items = gate.evaluate(pr)
-        self.assertTrue(passed)
+        passed, reasons, items = gate.evaluate(pr)
+        self.assertFalse(passed)
+        self.assertTrue(any("greptile-apps" in reason for reason in reasons))
         self.assertEqual(items, [])
         report = gate.ledger_report(pr, gate.DEFAULT_REVIEW_BOTS, ("agent-author",))
         self.assertEqual(report["coverage"][0]["status"], "reviewed")
@@ -230,6 +250,17 @@ class AgentPRReviewGateTests(unittest.TestCase):
         passed, _, items = gate.evaluate(make_pr(reviews=[review("coderabbitai"), review("greptile-apps")], threads=[thread(outdated=True), informational]))
         self.assertTrue(passed)
         self.assertEqual(items, [])
+
+    def test_repository_wiring_requires_current_head_bot_coverage(self):
+        root = Path(__file__).parents[1]
+        workflow = (root / ".github/workflows/agent-pr-review-gate.yml").read_text(encoding="utf-8")
+        template = (root / ".github/pull_request_template.md").read_text(encoding="utf-8")
+        agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '1' }}", workflow)
+        self.assertIn("REVIEW_COVERAGE_BOTS: ${{ vars.AGENT_REVIEW_COVERAGE_BOTS || 'greptile-apps' }}", workflow)
+        self.assertIn("<!-- agent-pr-review-required -->", template)
+        self.assertIn("@greptile-apps review", template)
+        self.assertIn("API-created PRs bypass the repository PR template", agents)
 
 
 if __name__ == "__main__":

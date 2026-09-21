@@ -41,6 +41,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
           AGENT_REVIEW_REPLY_ACTORS: ${{ vars.AGENT_REVIEW_REPLY_ACTORS || github.event.pull_request.user.login }}
-          REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '0' }}
+          REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '1' }}
+          REVIEW_COVERAGE_BOTS: ${{ vars.AGENT_REVIEW_COVERAGE_BOTS || 'greptile-apps' }}
           REVIEW_ATTENTION_LABEL: "${{ vars.AGENT_REVIEW_ATTENTION_LABEL || 'review: needs-attention' }}"
         run: python3 .github/scripts/agent-pr-review-gate.py --sync-label

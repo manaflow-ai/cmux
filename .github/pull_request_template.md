@@ -25,6 +25,10 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 @cubic-dev-ai review
 ```
 
+GitHub's API does not inject this PR template. Agent-authored/API-created PRs
+using the review gate must include `<!-- agent-pr-review-required -->` in the
+PR body and post the review commands after the latest pushed commit.
+
 ## Checklist
 
 - [ ] I tested the change locally
