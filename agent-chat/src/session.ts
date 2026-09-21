@@ -237,6 +237,18 @@ export function consumeOptimisticUserEcho(queue: string[], text: string): boolea
   return true;
 }
 
+export function shouldAcceptHandoffResponse(
+  sourceSessionId: string | undefined,
+  pendingSourceSessionId: string | null,
+  currentSessionId: string | null,
+): boolean {
+  return Boolean(
+    sourceSessionId
+      && sourceSessionId === pendingSourceSessionId
+      && sourceSessionId === currentSessionId
+  );
+}
+
 export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
@@ -263,6 +275,7 @@ export function useSession(): SessionState {
   // fork itself is asynchronous, so opening it when the response arrives can
   // be rejected as a popup by the browser.
   const handoffWindowRef = useRef<Window | null>(null);
+  const pendingHandoffSourceSessionRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
@@ -283,6 +296,7 @@ export function useSession(): SessionState {
   const closeHandoffWindow = useCallback(() => {
     const popup = handoffWindowRef.current;
     handoffWindowRef.current = null;
+    pendingHandoffSourceSessionRef.current = null;
     if (popup && !popup.closed) popup.close();
   }, []);
 
@@ -356,6 +370,13 @@ export function useSession(): SessionState {
             break;
           }
           case "session-created":
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
@@ -382,6 +403,13 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "history":
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             setSession(msg.session);
@@ -396,6 +424,8 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "no-session":
+            closeHandoffWindow();
+            setHandoffPending(false);
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
@@ -432,11 +462,22 @@ export function useSession(): SessionState {
             window.open(appPath("/s/" + msg.session.id), "_blank");
             break;
           case "session-handoff":
-            setHandoffPending(false);
             {
+              const sourceSessionId = typeof msg.sourceSessionId === "string"
+                ? msg.sourceSessionId
+                : undefined;
+              if (!shouldAcceptHandoffResponse(
+                sourceSessionId,
+                pendingHandoffSourceSessionRef.current,
+                sessionIdRef.current,
+              )) {
+                break;
+              }
+              setHandoffPending(false);
               const target = appPath("/s/" + msg.session.id);
               const popup = handoffWindowRef.current;
               handoffWindowRef.current = null;
+              pendingHandoffSourceSessionRef.current = null;
               if (popup && !popup.closed) {
                 popup.location.href = target;
                 popup.focus();
@@ -593,11 +634,13 @@ export function useSession(): SessionState {
     }
   }, [sendRaw]);
   const handoff = useCallback(() => {
-    if (sessionIdRef.current) {
+    const sourceSessionId = sessionIdRef.current;
+    if (sourceSessionId) {
       closeHandoffWindow();
       const popup = window.open("about:blank", "_blank");
-      if (sendRaw({ op: "handoff", sessionId: sessionIdRef.current })) {
+      if (sendRaw({ op: "handoff", sessionId: sourceSessionId })) {
         handoffWindowRef.current = popup;
+        pendingHandoffSourceSessionRef.current = sourceSessionId;
         setHandoffPending(true);
       } else {
         popup?.close();
