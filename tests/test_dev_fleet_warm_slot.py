@@ -157,6 +157,36 @@ class WarmSlotTest(unittest.TestCase):
         planned = self.call("plan", *self.common(), "--target", self.base)
         self.assertEqual(planned["reason"], "slot_needs_rewarm")
 
+    def test_reserved_generation_change_forces_cold_task_build(self):
+        warmed = self.warm(self.base)
+        selected = self.call(
+            "task-base", *self.common(), "--authoritative-main", self.base,
+            "--task-id", "reserved-generation",
+        )
+        self.assertEqual(
+            selected["warm_generation_id"],
+            warmed["generation"]["generation_id"],
+        )
+
+        record_path = self.state / "slots/slot/slot.json"
+        record = json.loads(record_path.read_text())
+        record["generation"]["generation_id"] = "advanced-generation"
+        record_path.write_text(json.dumps(record))
+
+        built = self.task(
+            self.base,
+            task_id="reserved-generation",
+            lease_id=selected["lease_id"],
+            warm_generation_id=selected["warm_generation_id"],
+        )
+        self.assertEqual(built["status"], "success")
+        self.assertTrue(built["receipt"]["cold_fallback"])
+        self.assertIsNone(built["receipt"]["warm_generation_id"])
+        self.assertEqual(
+            built["receipt"]["reserved_generation_id"],
+            selected["warm_generation_id"],
+        )
+
     def test_reserved_slot_blocks_warmer_until_task_consumes_it(self):
         self.warm(self.base)
         selected = self.call(
