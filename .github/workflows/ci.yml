@@ -261,7 +261,7 @@ jobs:
       - name: Validate macOS localization parity
         run: python3 scripts/localization_catalog.py check
 
-      - name: Validate pbxproj objectVersion pin and normalization
+      - name: Validate pbxproj syntax, objectVersion pin and normalization
         run: |
           python3 tests/test_normalize_pbxproj.py
           ./scripts/check-pbxproj.sh
