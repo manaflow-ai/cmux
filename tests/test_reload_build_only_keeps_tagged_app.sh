@@ -50,3 +50,14 @@ cleanup_incomplete_xcodebuild_outputs
 [[ ! -e "$XCODEBUILD_SOURCE_APP_PATH" && ! -e "$TAG_APP_STAGING_PATH" ]] \
   || fail "a normal reload no longer clears stale xcodebuild outputs"
 echo "PASS: a normal reload still clears the stale tagged app"
+# A build-only base-name override aliases the xcodebuild source bundle to the
+# running tagged bundle, so it must be rejected before any build or cleanup.
+set +e
+collision_output="$(CMUX_DEV_BACKEND_MODE=local "$RELOAD" --tag probe --name "cmux DEV" --build-only 2>&1)"
+collision_status=$?
+set -e
+[[ "$collision_status" -ne 0 ]] || fail "--build-only accepted a source/tag bundle name collision"
+[[ "$collision_output" == *"--build-only cannot use --name 'cmux DEV'"* ]] \
+  || fail "collision refusal did not explain the protected bundle name"
+echo "PASS: --build-only rejects a name override that aliases the running tagged bundle"
+
