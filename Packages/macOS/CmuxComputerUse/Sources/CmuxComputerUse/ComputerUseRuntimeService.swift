@@ -204,6 +204,9 @@ public final class ComputerUseRuntimeService {
     /// Whether setup evidence is still required before functional tools can run.
     public var onboardingRequired: Bool { !permissionPhase.isReady }
 
+    /// Whether organization policy disables Computer Use for this host.
+    public var computerUseDisabledByPolicy: Bool { isDisabledByPolicy() }
+
     /// Whether durable setup completion and both daemon publications are ready.
     public var onboardingIsComplete: Bool {
         onboarding.completionCommitted && desiredEnabled && onboarding.phase.isReady
@@ -218,7 +221,9 @@ public final class ComputerUseRuntimeService {
     /// Claims automatic first-use onboarding for an explicit functional request.
     @discardableResult
     public func requestAutomaticOnboarding() -> Bool {
-        guard acceptsNewLaunches, !permissionPhase.isReady else { return false }
+        guard acceptsNewLaunches, !isDisabledByPolicy(), !permissionPhase.isReady else {
+            return false
+        }
         if case .disabled = permissionPhase {
             transitionPermissionPhase(.setEnabled(true))
         }

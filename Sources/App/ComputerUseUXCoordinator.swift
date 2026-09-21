@@ -349,9 +349,10 @@ final class ComputerUseUXCoordinator {
         } == true
         if isComputerUseInvocation,
            toolName != "check_permissions",
-           hasValidSurface,
-           ownsLocalSurface,
-           runtimeService.acceptsNewLaunches {
+            hasValidSurface,
+            ownsLocalSurface,
+            runtimeService.acceptsNewLaunches {
+            guard !runtimeService.computerUseDisabledByPolicy else { return }
             if !runtimeService.desiredEnabled {
                 // Enable first so startup restores an existing scoped record or
                 // invalidates it for a replaced helper before the presentation
@@ -359,6 +360,10 @@ final class ComputerUseUXCoordinator {
                 try? await configStore.set(true, for: enabledKey)
                 await runtimeService.setEnabled(true)
             }
+            // Recheck authoritative helper-owned TCC status before claiming
+            // first-use presentation; revocation can happen while onboarding
+            // is closed and no permission-event stream is being consumed.
+            _ = await runtimeService.refreshHelperStatus()
             // Authenticated hook ingress has already established ownership of a
             // live local terminal. Agent process indexing may lag the first
             // hook, so it is used only for session bookkeeping below.
