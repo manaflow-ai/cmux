@@ -34,6 +34,9 @@ reviews:
     - path: "web/**/*.{tsx,jsx}"
       instructions: |
         Apply `.github/review-bot-rules/react-base-ui-accessibility.md` during review. For custom React UI, require `@base-ui-components/react` or an existing local component when it provides the relevant dialog, popover, menu, checkbox, select, switch, tabs, tooltip, combobox, focus, or keyboard behavior. Pass for native semantic controls and for cases with no relevant primitive where the PR owns complete accessibility and keyboard behavior.
+    - path: "web/{app/api/vm,services/vms}/**/*.ts"
+      instructions: |
+        Apply `.github/review-bot-rules/cloud-vm-effect-boundary.md` during review. The Cloud VM control plane is an Effect boundary. Flag a VM route that awaits Drizzle, `cloudDb()`, `services/coderouter/teamMachines`, or a provider SDK directly; `Effect.runPromise`, `Effect.provide`, or `runVmWorkflow` inside a route handler; `isVm*Error` predicate chains in a route; a new tagged error missing from `VmWorkflowError` or from `vmWorkflowErrorResponders`; a workflow failure modeled as a thrown Error or null; and a PR that adds a VM endpoint in plain code and defers the migration. Pass for routes that run `runVmRoute(program, { request, onError })`, cron and account-deletion callers on `runVmWorkflow`, plain code outside the VM control plane, and existing code only touched incidentally.
     - path: "**/Package.swift"
       instructions: |
         Apply the cmux custom Swift lint rules in `.github/review-bot-rules/`, especially the concurrency modernization, actor isolation, blocking runtime, package boundary, and architectural rethink rules.

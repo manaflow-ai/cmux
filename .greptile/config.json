@@ -174,7 +174,7 @@
     },
     {
       "id": "cmux-no-test-debug-seam-in-production-source",
-      "rule": "Flag Swift files under a production Sources path (matching **/Sources/** and not under **/Tests/**) that add a test-only or debug-only seam: a #if DEBUG (or other test-build-guarded) extension/member exposing internal state only for tests or a debugger with no production caller, a member named like debug…/…ForTesting/…ForTests/testOnly…/…TestHook/…TestSeam/_test…, or visibility widened together with a wrapper accessor added so a test can call it. Prefer observing internal state from the test target via @testable import after widening private to internal, or isolating a genuinely debug-only facility in a dedicated debug file or folder (canonical fix: cmux PR 6452). Pass for #if DEBUG blocks that gate real product behavior, scaffolding inside Tests/ or a test-support module, and existing seams not worsened by the PR.",
+      "rule": "Flag Swift files under a production Sources path (matching **/Sources/** and not under **/Tests/**) that add a test-only or debug-only seam: a #if DEBUG (or other test-build-guarded) extension/member exposing internal state only for tests or a debugger with no production caller, a member named like debug\u2026/\u2026ForTesting/\u2026ForTests/testOnly\u2026/\u2026TestHook/\u2026TestSeam/_test\u2026, or visibility widened together with a wrapper accessor added so a test can call it. Prefer observing internal state from the test target via @testable import after widening private to internal, or isolating a genuinely debug-only facility in a dedicated debug file or folder (canonical fix: cmux PR 6452). Pass for #if DEBUG blocks that gate real product behavior, scaffolding inside Tests/ or a test-support module, and existing seams not worsened by the PR.",
       "scope": [
         "**/Sources/**/*.swift"
       ],
@@ -249,8 +249,17 @@
       "severity": "high"
     },
     {
+      "id": "cmux-cloud-vm-effect-boundary",
+      "rule": "Flag Cloud VM routes under web/app/api/vm that run their own database or provider I/O, use Effect.runPromise/Effect.provide/runVmWorkflow in a handler, keep isVm*Error predicate chains, add a tagged error without a VmWorkflowError union and vmWorkflowErrorResponders entry, model a workflow failure as a thrown Error or null, or add a VM endpoint in plain code and defer the Effect migration. Routes must run programs through runVmRoute with an onError overrides table.",
+      "scope": [
+        "web/app/api/vm/**",
+        "web/services/vms/**"
+      ],
+      "severity": "high"
+    },
+    {
       "id": "cmux-remote-relay-authorization",
-      "rule": "Apply .github/review-bot-rules/remote-relay-authorization.md (GHSA-9vmv-3hjw-j28c). The cmux ssh relay credential lives on the remote host, so treat relay clients as compromised: flag any v2 method added to the RemoteRelayCommandPolicy allowlist without a per-method security analysis (command execution on local objects, mutation of non-owned objects, local state reads), any acceptance of command-bearing params (initial_command, command, tmux_start_command, pane_start_command) through the relay on any method, new workspace/surface/tab ID param names not added to the policy's scoped key sets, and any weakening of the deny-by-default shape (prefix-allowing method families, skipping the non-UUID ref denial, passing unmapped IDs through). Require allow/deny coverage in RemoteCLIRelayPolicyTests.",
+      "rule": "Apply .github/review-bot-rules/remote-relay-authorization.md (GHSA-9vmv-3hjw-j28). The cmux ssh relay credential lives on the remote host, so treat relay clients as compromised: flag any v2 method added to the RemoteRelayCommandPolicy allowlist without a per-method security analysis (command execution on local objects, mutation of non-owned objects, local state reads), any acceptance of command-bearing params (initial_command, command, tmux_start_command, pane_start_command) through the relay on any method, new workspace/surface/tab ID param names not added to the policy's scoped key sets, and any weakening of the deny-by-default shape (prefix-allowing method families, skipping the non-UUID ref denial, passing unmapped IDs through). Require allow/deny coverage in RemoteCLIRelayPolicyTests.",
       "scope": [
         "Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/**",
         "Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayPolicyTests.swift",
