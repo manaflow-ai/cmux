@@ -94,7 +94,7 @@ def run_case(args, case, axis, start, end, output):
         "--session", args.session, "--from", *map(str, start), "--to", *map(str, end),
         "--out", str(output),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=55)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=55, check=False)
     evidence = {"command": command, "returncode": result.returncode,
                 "stdout": result.stdout, "stderr": result.stderr, "before": before}
     direction = 1 if end[0 if axis == "horizontal" else 1] > start[0 if axis == "horizontal" else 1] else -1
@@ -139,13 +139,28 @@ def main():
     try:
         for axis in ("horizontal", "vertical"):
             case = plan[axis]
-            cmux_command(args, "select-workspace", "--workspace", case["workspace"])
             for iteration in range(2):
                 for reverse in (False, True):
                     label = f"{axis}-{iteration + 1}-{'reverse' if reverse else 'forward'}"
                     start, end = (case["to"], case["from"]) if reverse else (case["from"], case["to"])
-                    evidence = run_case(args, case, axis, start, end, args.out_dir / f"{label}.json")
-                    report["cases"].append({"name": label, **evidence})
+                    evidence = {"name": label, "passed": False}
+                    report["cases"].append(evidence)
+                    try:
+                        if iteration == 0 and not reverse:
+                            cmux_command(args, "select-workspace", "--workspace", case["workspace"])
+                        evidence.update(run_case(args, case, axis, start, end, args.out_dir / f"{label}.json"))
+                    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                        evidence.update({
+                            "command": error.cmd,
+                            "returncode": getattr(error, "returncode", None),
+                            "error": str(error),
+                            # TimeoutExpired may carry bytes even with text=True.
+                            **{name: value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+                               for name, value in (("stdout", error.stdout), ("stderr", error.stderr))},
+                        })
+                    except Exception as error:
+                        evidence["error"] = str(error)
+                        raise
                     assert evidence["passed"], f"{label} failed: {evidence}"
         report["passed"] = True
     finally:
