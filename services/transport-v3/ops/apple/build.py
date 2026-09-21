@@ -176,7 +176,7 @@ def main():
         headers.mkdir()
         shutil.copy2(generated/'CmuxV3NativeFFI.h', headers)
         shutil.copy2(generated/'CmuxV3NativeFFI.modulemap', headers/'module.modulemap')
-        libraries = [('macos-arm64_x86_64', target/profile/'libcmux_v3_ffi.dylib')]
+        libraries = [('macos-arm64_x86_64', target/profile/'libcmux_v3_ffi.dylib', True)]
         if not args.mac_only:
             triples = ['aarch64-apple-darwin','x86_64-apple-darwin','aarch64-apple-ios','aarch64-apple-ios-sim']
             run('rustup', 'target', 'add', '--toolchain', '1.98.1', *triples, env=env)
@@ -186,14 +186,13 @@ def main():
             mac.parent.mkdir()
             run('lipo', '-create', *(str(target/t/profile/'libcmux_v3_ffi.dylib') for t in triples[:2]), '-output', str(mac), env=env)
             libraries = [
-                ('macos-arm64_x86_64', mac),
-                ('ios-arm64', target/triples[2]/profile/'libcmux_v3_ffi.dylib'),
-                ('ios-arm64-simulator', target/triples[3]/profile/'libcmux_v3_ffi.dylib'),
+                ('macos-arm64_x86_64', mac, True),
+                ('ios-arm64', target/triples[2]/profile/'libcmux_v3_ffi.dylib', False),
+                ('ios-arm64-simulator', target/triples[3]/profile/'libcmux_v3_ffi.dylib', False),
             ]
         output = stage/'CmuxV3NativeFFI.xcframework'
         frameworks = []
-        for identifier, library in libraries:
-            versioned = identifier.startswith('macos-')
+        for identifier, library, versioned in libraries:
             framework = create_framework(
                 stage,
                 identifier,
