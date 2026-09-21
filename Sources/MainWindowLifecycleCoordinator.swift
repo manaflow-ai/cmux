@@ -23,7 +23,7 @@ final class MainWindowLifecycleCoordinator {
         (token: UUID, task: Task<Void, Never>)?
     @ObservationIgnored
     private var windowlessRouteFreezeTasks:
-        [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
+        [UUID: (token: UUID, task: Task<Void, Never>, retryWhenWorkerCompletes: Bool)] = [:]
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesBindings:
         [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
@@ -32,9 +32,6 @@ final class MainWindowLifecycleCoordinator {
         [SurfaceResumeBindingIndex.PanelKey: Int64]?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
-    @ObservationIgnored
-    private var windowlessRecoveryRetryWindowIds: Set<UUID> = []
-
     deinit {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
         windowlessRecoveryResumeIndexesTask?.cancel()
@@ -159,7 +156,6 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesWorkerTask?.task.cancel()
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
         windowlessRecoveryTTYDeviceBindings = nil
-        windowlessRecoveryRetryWindowIds.removeAll(keepingCapacity: false)
     }
 
     /// Retains a timed-out process scan until its synchronous worker really exits.
@@ -189,15 +185,14 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesWorkerTask != nil
     }
 
-    /// Records that a route must be retried when a timed-out worker drains.
-    func markWindowlessRouteFreezeRetryNeeded(windowId: UUID) {
-        windowlessRecoveryRetryWindowIds.insert(windowId)
-    }
-
     /// Consumes all retry requests after the shared worker has completed.
     func consumeWindowlessRouteFreezeRetries() -> [UUID] {
-        let windowIds = Array(windowlessRecoveryRetryWindowIds)
-        windowlessRecoveryRetryWindowIds.removeAll(keepingCapacity: false)
+        let windowIds = windowlessRouteFreezeTasks.compactMap { windowId, entry in
+            entry.retryWhenWorkerCompletes ? windowId : nil
+        }
+        for windowId in windowIds {
+            windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+        }
         return windowIds
     }
 
@@ -211,13 +206,30 @@ final class MainWindowLifecycleCoordinator {
         token: UUID
     ) {
         windowlessRouteFreezeTasks[windowId]?.task.cancel()
-        windowlessRouteFreezeTasks[windowId] = (token: token, task: task)
+        windowlessRouteFreezeTasks[windowId] = (
+            token: token,
+            task: task,
+            retryWhenWorkerCompletes: false
+        )
     }
 
     /// Drops a completed deferred freeze task without touching a replacement task.
-    func releaseWindowlessRouteFreezeTask(windowId: UUID, token: UUID) {
+    func releaseWindowlessRouteFreezeTask(
+        windowId: UUID,
+        token: UUID,
+        retryWhenWorkerCompletes: Bool = false
+    ) {
         guard windowlessRouteFreezeTasks[windowId]?.token == token else { return }
-        windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+        if retryWhenWorkerCompletes {
+            guard let entry = windowlessRouteFreezeTasks[windowId] else { return }
+            windowlessRouteFreezeTasks[windowId] = (
+                token: entry.token,
+                task: entry.task,
+                retryWhenWorkerCompletes: true
+            )
+        } else {
+            windowlessRouteFreezeTasks.removeValue(forKey: windowId)
+        }
     }
 
     /// Cancels and forgets the deferred freeze for one route.

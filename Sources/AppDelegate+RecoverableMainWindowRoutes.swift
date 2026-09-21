@@ -400,16 +400,16 @@ extension AppDelegate {
         let task = Task { @MainActor [weak self, weak route] in
             var shouldRetryWhenWorkerCompletes = false
             defer {
+                let workerIsRunning = self?.mainWindowLifecycleCoordinator
+                    .isWindowlessRecoveryResumeIndexesWorkerRunning() == true
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
-                    token: taskToken
+                    token: taskToken,
+                    retryWhenWorkerCompletes: shouldRetryWhenWorkerCompletes && workerIsRunning
                 )
                 if shouldRetryWhenWorkerCompletes, let self {
-                    if self.mainWindowLifecycleCoordinator
-                        .isWindowlessRecoveryResumeIndexesWorkerRunning() {
-                        self.mainWindowLifecycleCoordinator
-                            .markWindowlessRouteFreezeRetryNeeded(windowId: windowId)
-                    } else if let route = self.mainWindowLifecycleCoordinator
+                    if !workerIsRunning,
+                       let route = self.mainWindowLifecycleCoordinator
                         .orphanedRoute(windowId: windowId),
                               route.window == nil,
                               route.frozenWindowSnapshot == nil {
@@ -487,6 +487,7 @@ extension AppDelegate {
             // Windowless teardown is irreversible. A timeout or incomplete
             // process scan leaves the live route intact for a later retry.
             guard let resumeIndexes,
+                  resumeIndexes.isFresh,
                   resumeIndexes.restorableAgentIndex.isComplete else {
                 shouldRetryWhenWorkerCompletes = true
                 return

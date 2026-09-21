@@ -29,5 +29,11 @@ extension Workspace {
               ),
               terminal.surface.surface != nil else { return }
         _ = terminal.sendInputResult(input)
+        if var binding = surfaceResumeBindingsByPanelId[panelId] {
+            // A replayed startup selector is the explicit settle signal for a
+            // process-detected restore with no command callback.
+            binding.clearRestoredProcessDetectionObservation()
+            surfaceResumeBindingsByPanelId[panelId] = binding
+        }
     }
 }

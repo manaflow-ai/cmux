@@ -3,6 +3,10 @@ import Foundation
 struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
+    /// Whether this value came from a new off-main process/filesystem capture.
+    /// Cached indexes may remain useful for ordinary persistence but can never
+    /// authorize irreversible windowless-route teardown.
+    let isFresh: Bool
 
     static func load(
         homeDirectory: String? = nil,
@@ -116,7 +120,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
     ) -> ProcessDetectedResumeIndexes {
         ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: .empty
+            surfaceResumeBindingIndex: .empty,
+            isFresh: false
         )
     }
 
@@ -138,7 +143,11 @@ struct ProcessDetectedResumeIndexes: Sendable {
             await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
         }
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
-            return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .unavailable)
+            return ProcessDetectedResumeIndexes(
+                restorableAgentIndex: .unavailable,
+                surfaceResumeBindingIndex: .unavailable,
+                isFresh: true
+            )
         }
         let capturedAt = processSnapshot.sampledAt.timeIntervalSince1970
         let restorableAgentIndex: RestorableAgentSessionIndex
@@ -172,7 +181,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding)),
+            isFresh: true
         )
     }
 }

@@ -436,7 +436,7 @@ extension DockSplitStore {
             liveOwnerNoticeInput
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
-            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
+            bindingLaunch?.initialInput != nil ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||

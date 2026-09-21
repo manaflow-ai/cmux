@@ -4777,7 +4777,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false,
         preserveManualRestoreBackupOnMissingPrimary: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringStartupTransition(
             isStartupSessionRestorePending: !didAttemptStartupSessionRestore,
@@ -4813,7 +4814,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let snapshotBuildResult = buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         )
         guard let snapshot = snapshotBuildResult.snapshot else {
             let preserveManualRestoreBackup =
@@ -5089,7 +5091,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
         )
     }
 
@@ -5174,7 +5177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex,
+            freezeWindowlessRoutes: false
         )
     }
 
@@ -5318,26 +5322,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func buildSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> AppSessionSnapshot? {
         buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: suppliedRestorableAgentIndex,
-            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         ).snapshot
     }
 
     private func buildSessionSnapshotResult(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        freezeWindowlessRoutes: Bool = true
     ) -> (snapshot: AppSessionSnapshot?, didRemoveCrashDiagnosticData: Bool) {
         // Snapshot capture must not perform a cold hook-store/process scan on main.
         // Nil keeps cold windowless owners live until their asynchronous freeze resolves.
         let restorableAgentIndex = suppliedRestorableAgentIndex
         let routes = orderedSessionRouteSnapshots(
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+            freezeWindowlessRoutes: freezeWindowlessRoutes
         )
         guard !routes.isEmpty else { return (nil, false) }
         var windows: [SessionWindowSnapshot] = []

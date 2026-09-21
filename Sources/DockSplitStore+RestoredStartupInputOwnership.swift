@@ -18,6 +18,12 @@ extension DockSplitStore {
                       ),
                       terminal.surface.surface != nil else { return }
                 _ = terminal.sendInputResult(input)
+                if var binding = self.surfaceResumeBindingsByPanelId[panelId] {
+                    // A replayed startup selector is the explicit settle signal
+                    // for a process-detected restore with no command callback.
+                    binding.clearRestoredProcessDetectionObservation()
+                    self.surfaceResumeBindingsByPanelId[panelId] = binding
+                }
             }
         }
     }
