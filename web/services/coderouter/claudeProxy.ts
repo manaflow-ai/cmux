@@ -377,6 +377,7 @@ function stickyKey(identity: RouteTokenIdentity): string {
  * request. A response the proxy cannot move past (last account, or attempt
  * budget spent) is returned as-is so the client sees the real upstream error.
  */
+// oxlint-disable-next-line complexity -- Account routing keeps provider failover, stream probing, cooldown, and deadline transitions atomic.
 async function routeWithFailover(
   dependencies: ClaudeProxyDependencies,
   identity: RouteTokenIdentity,

@@ -179,6 +179,7 @@ export const proxyCodexRequest = createCodexResponsesProxy({
   cooldown: markAccountCooldown,
 });
 
+// oxlint-disable-next-line complexity -- Routing keeps authentication, refresh, capacity, and deadline transitions in one request boundary.
 async function proxyCodexRequestWith(
   dependencies: CodexResponsesDependencies,
   runtime: CodexResponsesRuntime,
@@ -696,6 +697,7 @@ async function coolDownCapacityAccount(
  * avoids replaying partial generations or consuming an upstream stream that
  * the caller still needs to read.
  */
+// oxlint-disable-next-line complexity -- The bounded probe must preserve stream bytes while classifying SSE/NDJSON and cancellation outcomes.
 async function probeCodexCapacity(
   response: Response,
   signal: AbortSignal,
@@ -886,6 +888,7 @@ function classifyCodexNdjsonPrefix(
   return { kind: "waiting" };
 }
 
+// oxlint-disable-next-line complexity -- Provider error payloads are recursively inspected without scanning generated output text.
 function codexCapacityFailureCodeFromPayload(value: unknown, errorContext = false): CodexCapacityFailureCode | undefined {
   if (!value || typeof value !== "object") return undefined;
   const object = value as Record<string, unknown>;
@@ -950,6 +953,7 @@ function isCodexOutputPayload(value: unknown): boolean {
   return type.endsWith(".delta");
 }
 
+// oxlint-disable-next-line complexity -- Retry hints have several provider payload shapes that must remain explicit.
 function retryAfterFromCodexPayload(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;
   const object = value as Record<string, unknown>;
