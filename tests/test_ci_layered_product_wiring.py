@@ -178,9 +178,12 @@ class LayeredWorkflowTests(unittest.TestCase):
                                              CMUX_LAYER_RESTORED="true", CMUX_DERIVED_DATA_PATH=str(root / "derived")), capture_output=True)
             self.assertEqual(result.returncode, 71)
             calls = (root / "calls").read_text().splitlines()
-            self.assertEqual(len(calls), 2)
-            self.assertIn("restore-warning-log", calls[0])
-            self.assertIn("swift_warning_budget.py --log", calls[1])
+            warning_log = next(i for i, call in enumerate(calls) if "restore-warning-log" in call)
+            warning_budget = next(i for i, call in enumerate(calls) if "swift_warning_budget.py --log" in call)
+            receipt = next(i for i, call in enumerate(calls) if "app_host_consumer_receipt.py restore" in call)
+            self.assertLess(warning_log, warning_budget)
+            self.assertLess(warning_budget, receipt)
+            self.assertIn("--outcome failure", calls[receipt])
 
 
 if __name__ == "__main__":
