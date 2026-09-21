@@ -226,9 +226,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("      actions: write", self.router)
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
-        self.assertIn('actions/runs/{args.run_id}', self.driver if False else ROUTE.read_text())
-        self.assertIn('"source_run_sha_mismatch"', ROUTE.read_text())
-        self.assertIn('"source_run_pr_mismatch"', ROUTE.read_text())
+        route_text = ROUTE.read_text()
+        self.assertIn('actions/runs/{args.run_id}', route_text)
+        self.assertIn('"source_run_sha_mismatch"', route_text)
+        self.assertIn('"source_run_pr_mismatch"', route_text)
         self.assertNotIn("actions: write", self.ci)
         route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
             "  macos-compile-admission:", 1
@@ -265,6 +266,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("python3 scripts/swift_warning_budget.py", admission)
         self.assertIn("python3 tests/test_cli_version_memory_guard.py", admission)
         self.assertIn("python3 tests/test_cli_contract_help.py", admission)
+        self.assertIn("python3 tests/test_cli_config_doctor.py", admission)
         self.assertIn("macos-compile-admission-metrics-", admission)
         self.assertIn('"classification": classification', admission)
 
