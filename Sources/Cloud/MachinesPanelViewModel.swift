@@ -95,7 +95,7 @@ final class MachinesPanelViewModel: ObservableObject {
 
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
-    private var statsTask: Task<Void, Never>?
+    var statsTask: Task<Void, Never>?
     private var resourceUpdatesTask: Task<Void, Never>?
     private let resourceStats: VMResourceStatsStore?
     private var machineIndexByID: [String: Int] = [:]
@@ -122,11 +122,11 @@ final class MachinesPanelViewModel: ObservableObject {
     private var createChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
-    private static let statsInterval: Duration = .seconds(20)
+    static let statsInterval: Duration = .seconds(20)
 
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
-    private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
+    let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
     private var awaitingCatalogScope = false
 
     init(
@@ -299,23 +299,6 @@ final class MachinesPanelViewModel: ObservableObject {
         refreshTree(force: forceTree)
     }
     func refreshMachine(_ machine: SurfaceMachineID) { machineRefreshes.refresh(machine) }
-    /// Samples machines advertising stats support. Sleeping machines report
-    /// `asleep` without being woken, so polling never costs the user anything.
-    /// Older servers omitting the flag retain the desktop-only polling policy
-    /// through capability decoding; explicit support overrides that fallback.
-    func refreshStats() {
-        guard CloudMachinesFeature.isEnabled, let client = VMClient.shared else { return }
-        statsTask?.cancel()
-        let ids = machines.filter { $0.capabilities.stats }.map(\.id)
-        statsTask = Task {
-            await withTaskGroup(of: Void.self) { group in
-                for id in ids {
-                    group.addTask { _ = try? await client.stats(id: id) }
-                }
-            }
-        }
-    }
-
     /// Read the shared owner's current snapshot, never a delayed poll's raw result.
     private func applyResourceStats(machineIDs: Set<String>?) {
         guard CloudMachinesFeature.isEnabled, let resourceStats else { return }
@@ -541,7 +524,7 @@ final class MachinesPanelViewModel: ObservableObject {
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
             machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
-            lastLimits = page.limits
+            lastLimits = page.limits; CloudFleetPageCache.shared.record(page)
             scheduleFreeAccessTransition()
             refreshStats()
             refreshUsage()

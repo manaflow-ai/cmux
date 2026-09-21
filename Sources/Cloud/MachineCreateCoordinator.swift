@@ -31,7 +31,7 @@ final class MachineCreateCoordinator {
         selectWorkspace: { workspaceID, request in
             MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
         },
-        cancelCreatedMachine: { CloudVMActionLauncher.shared.destroyMachineBestEffort($0) },
+        cancelCreatedMachine: { InProcessMachineCreateLauncher.destroyMachineBestEffort($0) },
         cancelOperation: { operation in
             guard let workspaceID = operation.request.presentationWorkspaceID else { return }
             NewMachineSheetPresenter.closeReservedWorkspace(workspaceID)
@@ -46,6 +46,9 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var launches: [UUID: CancellableLaunch] = [:]
     @ObservationIgnored private var handles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
     @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
+    /// The operation whose launcher is being invoked right now, for the duration of
+    /// that synchronous call: an in-process launcher keys its create on it.
+    @ObservationIgnored private(set) var launchingOperationID: UUID?
     @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
     @ObservationIgnored private let selectWorkspace: SelectWorkspace
     @ObservationIgnored private let cancelCreatedMachine: @MainActor (String) -> Void
@@ -98,7 +101,15 @@ final class MachineCreateCoordinator {
     /// Registers the pending projection before any process, auth, or API work starts.
     @discardableResult
     func start(_ request: MachineCreateRequest, cancellableLaunch: @escaping CancellableLaunch) -> Bool {
-        run(reserve(request, launch: cancellableLaunch), launch: cancellableLaunch)
+        startOperation(request, cancellableLaunch: cancellableLaunch) != nil
+    }
+
+    /// The same, returning the operation so a caller can await its receipt later
+    /// (``awaitWorkspaceID(operationID:)``) without holding the launch turn open.
+    @discardableResult
+    func startOperation(_ request: MachineCreateRequest, cancellableLaunch: @escaping CancellableLaunch) -> UUID? {
+        let attempt = reserve(request, launch: cancellableLaunch)
+        return run(attempt, launch: cancellableLaunch) ? attempt.operationID : nil
     }
 
     private func reserve(_ request: MachineCreateRequest, launch: @escaping CancellableLaunch) -> CloudMachineCreateAttempt {
@@ -132,6 +143,31 @@ final class MachineCreateCoordinator {
                     return
                 }
                 if !run(attempt, launch: cancellableLaunch) { resumeWaiter(id, workspaceID: nil) }
+            }
+        }, onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancel(id)
+                self?.resumeWaiter(id, workspaceID: nil)
+            }
+        })
+    }
+
+    /// Waits for a running operation's exact receipt: nil once it fails, is cancelled,
+    /// or has already finished. Cancelling the wait cancels the operation, as
+    /// ``startAndAwaitWorkspaceID(_:cancellableLaunch:)`` does; one waiter per operation.
+    func awaitWorkspaceID(operationID id: UUID) async -> UUID? {
+        guard !Task.isCancelled, operation(id: id)?.isRunning == true, workspaceWaiters[id] == nil else { return nil }
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                guard operation(id: id)?.isRunning == true, workspaceWaiters[id] == nil else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                workspaceWaiters[id] = continuation
+                if Task.isCancelled {
+                    cancel(id)
+                    resumeWaiter(id, workspaceID: nil)
+                }
             }
         }, onCancel: {
             Task { @MainActor [weak self] in
@@ -190,6 +226,8 @@ final class MachineCreateCoordinator {
         if isRetry, !request.isBaseSetup, let machineID {
             arguments = ["vm", "open", machineID] + (request.presentationWorkspaceID.map { ["--workspace", $0.uuidString] } ?? []) + ["--focus", "false"]
         }
+        let previousLaunching = launchingOperationID
+        launchingOperationID = attempt.operationID
         let handle = launch(arguments, { [weak self] chunk in
             guard let self else { return }
             self.apply(self.lifecycle.receive(chunk, from: attempt))
@@ -202,6 +240,7 @@ final class MachineCreateCoordinator {
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
+        launchingOperationID = previousLaunching
         guard let handle else {
             let failure = isRetry ? String(localized: "machines.new.error.launch", defaultValue: "cmux could not start the create command. Sign in and try again.") : nil
             apply(lifecycle.refuse(attempt, retryFailure: failure))
