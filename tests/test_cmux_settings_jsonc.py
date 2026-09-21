@@ -337,7 +337,7 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
 
             self.assertEqual(config.read_text(encoding="utf-8"), external)
 
-    def test_atomic_commit_preserves_edit_that_wins_before_exchange(self) -> None:
+    def test_atomic_commit_retains_recovery_when_writer_wins_exchange_race(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
             original_text = '{"app":{"appearance":"dark"}}\n'
@@ -346,75 +346,79 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             config.write_text(original_text, encoding="utf-8")
             original = helper.current_revision(config)
             real_exchange = helper.exchange_paths
-            injected = False
+            exchanges = 0
 
             def exchange_after_external_edit(left: Path, right: Path) -> None:
-                nonlocal injected
-                if not injected:
-                    injected = True
+                nonlocal exchanges
+                exchanges += 1
+                if exchanges == 1:
                     right.write_text(external_text, encoding="utf-8")
                 real_exchange(left, right)
 
-            with (
-                mock.patch.object(
-                    helper,
-                    "exchange_paths",
-                    side_effect=exchange_after_external_edit,
-                ),
-                self.assertRaisesRegex(
-                    SystemExit,
-                    "cmux config changed while preparing the edit",
-                ),
+            with mock.patch.object(
+                helper,
+                "exchange_paths",
+                side_effect=exchange_after_external_edit,
             ):
-                helper.atomic_write_text(
-                    config,
-                    candidate_text,
-                    expected_revision=original,
-                )
+                with self.assertRaisesRegex(
+                    SystemExit,
+                    "cmux config changed during publication; recovery retained at",
+                ) as raised:
+                    helper.atomic_write_text(
+                        config,
+                        candidate_text,
+                        expected_revision=original,
+                    )
 
-            self.assertTrue(injected)
-            self.assertEqual(config.read_text(encoding="utf-8"), external_text)
+            self.assertEqual(exchanges, 1)
+            self.assertEqual(config.read_text(encoding="utf-8"), candidate_text)
+            recovery_path = Path(
+                str(raised.exception).split("recovery retained at ", 1)[1]
+            )
+            self.assertEqual(
+                recovery_path.read_text(encoding="utf-8"),
+                external_text,
+            )
+            recovery_path.unlink()
 
-    def test_atomic_recovery_preserves_later_external_edit(self) -> None:
+    def test_atomic_recovery_never_attempts_a_second_exchange(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
             original_text = '{"app":{"appearance":"dark"}}\n'
-            first_external = '{"app":{"appearance":"external-one"}}\n'
-            later_external = '{"app":{"appearance":"external-two"}}\n'
+            external_text = '{"app":{"appearance":"external"}}\n'
             candidate_text = '{"app":{"appearance":"light"}}\n'
             config.write_text(original_text, encoding="utf-8")
             original = helper.current_revision(config)
             real_exchange = helper.exchange_paths
             exchanges = 0
 
-            def exchange_with_external_edits(left: Path, right: Path) -> None:
+            def count_exchange(left: Path, right: Path) -> None:
                 nonlocal exchanges
                 exchanges += 1
                 if exchanges == 1:
-                    right.write_text(first_external, encoding="utf-8")
-                elif exchanges == 2:
-                    right.write_text(later_external, encoding="utf-8")
+                    right.write_text(external_text, encoding="utf-8")
                 real_exchange(left, right)
 
-            with (
-                mock.patch.object(
-                    helper,
-                    "exchange_paths",
-                    side_effect=exchange_with_external_edits,
-                ),
-                self.assertRaisesRegex(
+            with mock.patch.object(helper, "exchange_paths", side_effect=count_exchange):
+                with self.assertRaisesRegex(
                     SystemExit,
-                    "cmux config changed while preparing the edit",
-                ),
-            ):
-                helper.atomic_write_text(
-                    config,
-                    candidate_text,
-                    expected_revision=original,
-                )
+                    "recovery retained at",
+                ) as raised:
+                    helper.atomic_write_text(
+                        config,
+                        candidate_text,
+                        expected_revision=original,
+                    )
 
-            self.assertGreaterEqual(exchanges, 2)
-            self.assertEqual(config.read_text(encoding="utf-8"), later_external)
+            self.assertEqual(exchanges, 1)
+            recovery_path = Path(
+                str(raised.exception).split("recovery retained at ", 1)[1]
+            )
+            self.assertEqual(
+                recovery_path.read_text(encoding="utf-8"),
+                external_text,
+            )
+            recovery_path.unlink()
 
     def test_helper_applies_after_shared_writer_lock_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
