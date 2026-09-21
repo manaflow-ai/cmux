@@ -45,7 +45,8 @@ describe("mobile devices dashboard", () => {
       </NextIntlClientProvider>,
     );
     expect(html).toContain("Fixture team");
-    expect(html).toContain("Team scope active");
+    expect(html).toContain("Team: Fixture team");
+    expect(html).not.toContain("Team scope active");
     expect(html).not.toContain("mobile-devices-team");
     expect(html).not.toContain("<select");
   });
