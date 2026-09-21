@@ -1547,6 +1547,20 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "steps.upload-products.outputs.artifact-digest" in admission
     assert "product_contract: ${{ steps.product-key.outputs.key }}" in admission
+    for output in (
+        "artifact_schema",
+        "source_identity",
+        "build_identity",
+        "platform_class",
+        "product_architecture",
+        "sdk_generation",
+        "toolchain_generation",
+        "build_configuration",
+        "product_schema",
+        "producer_run_attempt",
+    ):
+        assert f"{output}:" in admission
+    assert "CMUX_PRODUCT_RUNNER" not in admission
     assert "node_product_cache.py seed" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
@@ -1558,8 +1572,12 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
     assert "needs.macos-compile-admission.outputs.artifact_digest" in app_host
     assert "node_product_cache.py acquire" in app_host
+    assert "peer_artifact_source.py fetch" in app_host
     assert "node_product_cache.py finalize" in app_host
     assert "steps.node-products.outputs.hit != 'true'" in app_host
+    assert "steps.peer-products.outputs.hit != 'true'" in app_host
+    assert app_host.index("node_product_cache.py acquire") < app_host.index("peer_artifact_source.py fetch")
+    assert app_host.index("peer_artifact_source.py fetch") < app_host.index("restore-r2-artifact.py")
     assert "restore-app-host-test-product.sh" in app_host
     assert "EXPECTED_SHA256" in app_host
     assert "-xctestrun" in app_host
