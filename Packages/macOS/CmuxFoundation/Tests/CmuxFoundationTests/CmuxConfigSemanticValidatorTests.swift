@@ -125,6 +125,22 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(contains(result, path: "$.width", message: "must be a multiple of 20"))
     }
 
+    @Test("rejects near-multiples beyond division rounding error")
+    func rejectsNearMultipleBeyondRoundingError() {
+        let validator = CmuxConfigSemanticValidator(scope: .global)
+        let result = validator.validateObject(
+            ["width": 20.00000000000001],
+            schema: [
+                "type": "object",
+                "properties": ["width": ["type": "number", "multipleOf": 20]],
+                "additionalProperties": false,
+            ],
+            path: "$",
+            tolerateUnknownProperties: false
+        )
+        #expect(contains(result, path: "$.width", message: "must be a multiple of 20"))
+    }
+
     @Test("future schema versions tolerate unknown additions but still validate known fields")
     func futureSchemaCompatibility() throws {
         let futureExtension = try issues([
