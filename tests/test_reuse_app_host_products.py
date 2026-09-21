@@ -134,6 +134,53 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
+    def test_malformed_api_fields_are_normal_misses(self):
+        cases = (
+            ("consumer_head", "consumer_revision_invalid"),
+            ("producer_head", "producer_revision_invalid"),
+            ("digest", "artifact_digest_missing"),
+            ("size", "artifact_size_invalid"),
+        )
+        for name, expected in cases:
+            with self.subTest(name=name):
+                report = {}
+                if name == "consumer_head":
+                    old = self.api.consumer_run["head_sha"]
+                    self.api.consumer_run["head_sha"] = None
+                elif name == "producer_head":
+                    old = self.api.run["head_sha"]
+                    self.api.run["head_sha"] = None
+                elif name == "digest":
+                    old = self.api.artifact["digest"]
+                    self.api.artifact["digest"] = None
+                else:
+                    old = self.api.artifact["size_in_bytes"]
+                    self.api.artifact["size_in_bytes"] = None
+                try:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    self.assertIn(expected, report["miss_reasons"])
+                    self.assertFalse(self.consumer.exists())
+                finally:
+                    if name == "consumer_head":
+                        self.api.consumer_run["head_sha"] = old
+                    elif name == "producer_head":
+                        self.api.run["head_sha"] = old
+                    elif name == "digest":
+                        self.api.artifact["digest"] = old
+                    else:
+                        self.api.artifact["size_in_bytes"] = old
+
+    def test_malformed_receipt_revision_is_a_normal_miss(self):
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        receipt["revision"] = None
+        (root / reuse.RECEIPT).write_text(json.dumps(receipt))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
     def test_corrupt_archive_never_populates_consumer(self):
         self.api.archive.write_bytes(b'corrupt')
         self.assertFalse(self.restore_reuse())
@@ -188,13 +235,18 @@ class ReuseProducts(TestProductHandoff):
         self.api.artifact["name"] = reuse.PREFIX + reuse.key(self.contract) + "-1"
         self.seal()
         report = {}
-        self.assertTrue(self.restore_reuse(
-            current_run="13", current_attempt="2", revision="abc123", report=report))
+        with mock.patch.object(
+                reuse.time, "monotonic",
+                side_effect=[100.0, 101.0, 102.0, 104.0, 105.0, 108.0, 109.0]):
+            self.assertTrue(self.restore_reuse(
+                current_run="13", current_attempt="2", revision="abc123", report=report))
         self.assertEqual(report["reason"], "hit")
         self.assertEqual(report["compile_seconds_avoided"], 600.0)
-        self.assertGreaterEqual(report["transfer_seconds"], 0)
-        self.assertGreaterEqual(report["restore_seconds"], 0)
-        self.assertGreater(report["macos_runner_minutes_saved"], 0)
+        self.assertEqual(report["lookup_seconds"], 1.0)
+        self.assertEqual(report["transfer_seconds"], 2.0)
+        self.assertEqual(report["restore_seconds"], 3.0)
+        self.assertEqual(report["total_reuse_seconds"], 9.0)
+        self.assertEqual(report["macos_runner_minutes_saved"], 9.85)
 
     def test_oversize_compressed_artifact_is_rejected_without_download(self):
         with mock.patch.object(reuse, 'MAX_ARCHIVE_BYTES', 1), \
