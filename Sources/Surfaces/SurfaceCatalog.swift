@@ -1399,8 +1399,8 @@ final class SurfaceCatalog {
     /// Observers get at most one notification per main-runloop turn: a burst of upserts
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
-    fileprivate var changeNotificationPending = false
-    fileprivate var pendingChangedMachines: Set<SurfaceMachineID> = []
+    var changeNotificationPending = false
+    var pendingChangedMachines: Set<SurfaceMachineID> = []
 
 
 }

@@ -2437,10 +2437,14 @@ struct ContentView: View {
 
         sidebarSelectionState.selection = .tabs
         if fileExplorerStore.provider is any RemoteFileExplorerProvider {
+            let expectedRootIdentity = fileExplorerStore.workspaceRootIdentity
             Task { [weak workspace, fileExplorerStore] in
                 guard let workspace else { return }
                 do {
-                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
+                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(
+                        path: filePath,
+                        expectedWorkspaceRootIdentity: expectedRootIdentity
+                    )
                     _ = workspace.openFileSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],

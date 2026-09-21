@@ -96,10 +96,14 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         }
         if fileExplorerStore.provider is any RemoteFileExplorerProvider {
             let store = fileExplorerStore
+            let expectedRootIdentity = store.workspaceRootIdentity
             Task { [weak workspace, weak store] in
                 guard let workspace, let store else { return }
                 do {
-                    let localURL = try await store.materializeRemoteFileForPreview(path: filePath)
+                    let localURL = try await store.materializeRemoteFileForPreview(
+                        path: filePath,
+                        expectedWorkspaceRootIdentity: expectedRootIdentity
+                    )
                     _ = workspace.openFileSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],

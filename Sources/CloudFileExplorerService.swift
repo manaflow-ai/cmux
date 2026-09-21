@@ -99,7 +99,10 @@ byte_limit = 1048576
 query = sys.argv[1]
 root = sys.argv[2]
 rg_args = sys.argv[3:]
-process = subprocess.Popen(["rg", *rg_args, "--", query, root], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+try:
+    process = subprocess.Popen(["rg", *rg_args, "--", query, root], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+except OSError:
+    sys.exit(75)
 count = 0
 written = 0
 limited = False

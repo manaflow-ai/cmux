@@ -884,13 +884,17 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
-    func materializeRemoteFileForPreview(path: String) async throws -> URL {
+    func materializeRemoteFileForPreview(
+        path: String,
+        expectedWorkspaceRootIdentity: UUID? = nil
+    ) async throws -> URL {
         // `DisableFileTransfer` (MDM): a preview copies the file off the remote
         // host onto this Mac, which is a cmux-mediated download.
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
         }
-        guard let remoteProvider = provider as? any RemoteFileExplorerProvider else {
+        guard expectedWorkspaceRootIdentity == nil || workspaceRootIdentity == expectedWorkspaceRootIdentity,
+              let remoteProvider = provider as? any RemoteFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }
         let cacheURL = Self.remotePreviewCacheURL(
@@ -899,6 +903,11 @@ final class FileExplorerStore: ObservableObject {
         )
         await Self.pruneRemotePreviewCache(excluding: cacheURL)
         try await remoteProvider.downloadFile(path: path, to: cacheURL)
+        guard expectedWorkspaceRootIdentity == nil ||
+              (workspaceRootIdentity == expectedWorkspaceRootIdentity && provider === remoteProvider) else {
+            try? FileManager.default.removeItem(at: cacheURL)
+            throw FileExplorerError.providerUnavailable
+        }
         await Self.pruneRemotePreviewCache(excluding: cacheURL)
         return cacheURL
     }
@@ -1186,8 +1195,13 @@ final class FileExplorerStore: ObservableObject {
                 total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             }
             var retainedCount = fileURLs.count
+            let evictionCutoff = Date().addingTimeInterval(-60 * 60)
             for url in ordered where retainedCount > 32 || totalBytes > 32 * 1_024 * 1_024 {
                 guard url != protectedURL else { continue }
+                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                // Keep recent files available to open preview tabs; stale entries are
+                // evicted once they are outside the active preview window.
+                guard modified < evictionCutoff else { continue }
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 try? FileManager.default.removeItem(at: url)
                 totalBytes = max(0, totalBytes - size)
