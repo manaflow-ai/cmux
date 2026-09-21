@@ -141,6 +141,23 @@ class ReleaseProductReuseTests(unittest.TestCase):
         provenance = json.loads((self.consumer / "Build/Products" / reuse.PROVENANCE).read_text())
         self.assertEqual(provenance["artifact_id"], 42)
 
+    def test_product_digest_ignores_symlink_permission_bits(self):
+        app = self.producer / Path(reuse.APP_REL)
+        link = app / "Contents/Frameworks/Test.framework/Versions/Current"
+        baseline = reuse.product_digest(app)
+        original_lstat = Path.lstat
+
+        def lstat(path):
+            metadata = original_lstat(path)
+            if path == link:
+                values = list(metadata)
+                values[0] = (metadata.st_mode & ~0o777) | 0o600
+                return type(metadata)(values)
+            return metadata
+
+        with mock.patch.object(Path, "lstat", autospec=True, side_effect=lstat):
+            self.assertEqual(reuse.product_digest(app), baseline)
+
     def test_source_mismatch_forces_rebuild(self):
         self.assert_rebuild_for_contract_change(
             lambda value: value.__setitem__("source_revision", "9" * 40)
