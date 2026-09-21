@@ -51,6 +51,26 @@ struct MobileTerminalByteTeeAppendCostTests {
         )
     }
 
+    @Test func replayWindowContentAndSequenceSurviveCompaction() {
+        let tee = MobileTerminalByteTee.shared
+        let surfaceID = UUID()
+        defer { tee.dropSurface(surfaceID: surfaceID) }
+        // A patterned stream long enough to cross the compaction boundary,
+        // so the optimization is proven to change cost, not content.
+        var stream = Data()
+        var pattern: UInt8 = 0
+        while stream.count < 700 * 1024 {
+            let chunk = Data(repeating: pattern, count: 4_096)
+            tee.debugPublishForTesting(surfaceID: surfaceID, data: chunk)
+            stream.append(chunk)
+            pattern = pattern &+ 1
+        }
+        let handout = tee.replayState(surfaceID: surfaceID)
+        #expect(handout?.seq == UInt64(stream.count))
+        #expect(handout?.data.count == 256 * 1024)
+        #expect(handout?.data == stream.suffix(256 * 1024))
+    }
+
     @Test func replayHandoutDoesNotTaxSubsequentAppends() {
         let tee = MobileTerminalByteTee.shared
         let surfaceID = UUID()
