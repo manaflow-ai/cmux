@@ -485,8 +485,7 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         let originalActiveSelection = activeManager.selectedTabId
         let originalSidebarCount = sidebarManager.tabs.count
 
-        createWorkspaceAtEndFromSidebar(
-            appDelegate: app,
+        app.createWorkspaceAtEndFromSidebar(
             windowId: sidebarWindowId,
             tabManager: sidebarManager
         )
