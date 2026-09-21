@@ -15,7 +15,7 @@ final class SurfaceCatalog {
     /// Exact remote tabs get separate materialization lanes; nil retains resource-wide reuse.
     private struct MaterializationKey: Hashable {
         let resource: SurfaceResourceID
-        let remoteTabID: String?
+        let remoteTabID: String?; let workspaceID: UUID?
 
         var machine: SurfaceMachineID { resource.machine }
     }
@@ -304,7 +304,7 @@ final class SurfaceCatalog {
         }
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
-        updateCloudDirectoryMetadata(on: machine)
+        updateCloudDirectoryMetadata(on: machine); if let state = cloudStates[machine] { cloudWorkspaceRenameService.reconcileRemoteState(machine: machine, state: state, catalog: self, observation: cloudStateObservations[machine] ?? .current) }
         notifyChange(for: machine)
         return true
     }
@@ -643,7 +643,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
-        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID)
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, workspaceID: reuseInWorkspace)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
             // An explicit remote view is a placement identity. Reusing a pane
@@ -668,10 +668,9 @@ final class SurfaceCatalog {
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
-        // Workspace-scoped reuse missed: an in-flight materialization bound elsewhere
-        // must not be adopted either (it would land — and focus — in that other
-        // workspace), so scoped calls go straight to a fresh materialization.
-        if reuseExisting, reuseInWorkspace == nil {
+        // The materialization key includes the optional workspace, so scoped
+        // opens coalesce only with other opens for that same workspace.
+        if reuseExisting {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(
@@ -821,6 +820,7 @@ final class SurfaceCatalog {
             if let existing = projections.first(where: {
                 $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
+                    && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)
@@ -1326,9 +1326,9 @@ final class SurfaceCatalog {
     /// becomes live as soon as the provider reports the resource again (a cloud terminal
     /// after the link reconnects); local resources are re-registered by the local provider
     /// with the same panel-derived key, so they resolve immediately.
-    func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
+    func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) { var wokenMachines = Set<SurfaceMachineID>()
         for record in records {
-            if resources[record.resource] != nil {
+            if resources[record.resource] != nil { wokenMachines.insert(record.resource.machine)
                 pendingRestoredProjections.remove(panelID: record.panelID)
                 insertSupersedingLocalPlaceholder(SurfaceProjection(
                     resource: record.resource,
@@ -1346,6 +1346,7 @@ final class SurfaceCatalog {
         for record in records {
             notifyChange(for: record.resource.machine)
         }
+        for machine in wokenMachines { providers[machine]?.projectionsRestored() }
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {

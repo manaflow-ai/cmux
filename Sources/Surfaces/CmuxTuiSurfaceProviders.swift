@@ -1548,6 +1548,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             await self.refreshCurrentGraph(force: false)
         }
     }
+    func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation)

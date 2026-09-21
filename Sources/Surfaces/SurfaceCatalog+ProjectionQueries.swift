@@ -8,7 +8,7 @@ extension SurfaceCatalog {
         for workspaceID in Set(changed.map(\.workspaceID)) {
             updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
             let machines = Set(projections.filter { $0.workspaceID == workspaceID }.map { $0.resource.machine })
-            projectionMachinesByWorkspace[workspaceID] = machines
+            if machines.isEmpty { projectionMachinesByWorkspace.removeValue(forKey: workspaceID) } else { projectionMachinesByWorkspace[workspaceID] = machines }
         }
         for machine in Set(changed.map { $0.resource.machine }) {
             projectionVersions[machine, default: 0] &+= 1
