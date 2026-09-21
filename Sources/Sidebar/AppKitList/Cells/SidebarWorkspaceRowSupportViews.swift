@@ -550,7 +550,7 @@ final class SidebarRowPullRequestLine: NSView {
         if clickable {
             titleButton.configure(
                 title: title, font: font, color: color, underlined: true,
-                toolTip: String(format: String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open %1$@ #%2$lld"), display.label, Int64(display.number)),
+                toolTip: String(localized: "sidebar.pullRequest.openTooltipGeneric", defaultValue: "Open pull request"),
                 onClick: onOpen
             )
         } else {
