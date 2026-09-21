@@ -1788,7 +1788,13 @@ final class cmuxUITests: XCTestCase {
     func testDisconnectedTerminalComposerStaysAboveSafeArea() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
-        let app = try launchConnectedApp(port: port)
+        let app = try launchConnectedApp(
+            port: port,
+            launchArguments: [
+                "-dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId",
+                "connections.v2",
+            ]
+        )
         defer { app.terminate() }
 
         XCTAssertTrue(
