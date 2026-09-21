@@ -82,6 +82,11 @@ def contract() -> dict:
         raise ValueError("Package.resolved is missing")
     value.update({
         "product": "unsigned-release-app-v1",
+        # pull_request checkouts build refs/pull/<n>/merge while Actions exposes
+        # workflow_run.head_sha as the PR branch commit. Bind both identities:
+        # the branch revision authenticates the producer before download and
+        # the inherited tree binds the exact synthetic merge checkout bytes.
+        "source_revision": required_env("CMUX_RELEASE_SOURCE_REVISION", r"[0-9a-f]{40}"),
         "configuration": "Release",
         "release_architectures": archs,
         "package_resolved_sha256": sha256_file(package_resolved),
@@ -325,8 +330,8 @@ def producer_for(api, artifact: dict, value: dict, current_run: str, current_att
     head = run.get("head_sha", "")
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         raise ValueError("invalid producer revision")
-    if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-        raise ValueError("producer source tree mismatch")
+    if head != value["source_revision"]:
+        raise ValueError("producer source revision mismatch")
     jobs: list[dict] = []
     for page in range(1, 4):
         batch = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")["jobs"]
