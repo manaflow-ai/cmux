@@ -1545,6 +1545,9 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "for scheme in cmux cmux-unit cmux-numeric-locale; do" in compile_script
     assert "actions/cache@27d5ce7" in admission or "uses: ./.github/actions/cache-restore" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
+    assert "steps.upload-products.outputs.artifact-digest" in admission
+    assert "product_contract: ${{ steps.product-key.outputs.key }}" in admission
+    assert "node_product_cache.py seed" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
     assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
@@ -1553,6 +1556,10 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "      - macos-compile-admission" in app_host
     assert "test-without-building" in app_host
     assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
+    assert "needs.macos-compile-admission.outputs.artifact_digest" in app_host
+    assert "node_product_cache.py acquire" in app_host
+    assert "node_product_cache.py finalize" in app_host
+    assert "steps.node-products.outputs.hit != 'true'" in app_host
     assert "restore-app-host-test-product.sh" in app_host
     assert "EXPECTED_SHA256" in app_host
     assert "-xctestrun" in app_host
@@ -1623,6 +1630,18 @@ def test_linux_preflight_allows_unrouted_job_skip() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "web-typecheck: skipped" in result.stdout
+
+
+def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
+    for job_name in [
+        "app-host-unit-tests",
+        "macos-compile-admission",
+        "tests-build-and-lag",
+    ]:
+        block = workflow_job_block(job_name)
+        assert "CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}" in block
+        assert "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}" in block
+        assert "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}" in block
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:

@@ -147,8 +147,24 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertFalse(self.store.entry(self.identity.key()).exists())
         self.assertFalse(self.store.fill(self.identity.key()).exists())
 
+    def test_publication_keeps_staging_writable_until_atomic_rename(self):
+        real_rename = os.rename
+        saw_publish = []
+
+        def checked_rename(source, destination):
+            source = Path(source)
+            destination = Path(destination)
+            if source.parent == self.root / "staging":
+                saw_publish.append(True)
+                self.assertTrue(source.stat().st_mode & 0o200)
+            return real_rename(source, destination)
+
+        with mock.patch.object(cache.os, "rename", side_effect=checked_rename):
+            self.publish()
+        self.assertEqual(saw_publish, [True])
+
     def test_interrupted_publication_staging_is_ignored(self):
-        junk = self.root / "staging" / "interrupted"
+        junk = self.root / "staging" / f"{self.identity.key()}.interrupted"
         junk.mkdir()
         (junk / cache.OBJECT_NAME).write_bytes(b"partial")
         destination = Path(self.temp.name) / "interrupted-destination"
@@ -156,6 +172,10 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertTrue(result["fill"])
         self.assertFalse(result["hit"])
         self.assertTrue(junk.exists())
+        reclaimed = cache.reclaim(self.store, 10**9)
+        self.assertEqual(reclaimed["staging_reclaims"], 1)
+        self.assertEqual(reclaimed["staging_reclaimed_bytes"], len(b"partial"))
+        self.assertFalse(junk.exists())
 
     def test_concurrent_missing_consumers_coalesce_on_one_fill(self):
         first_dest = Path(self.temp.name) / "first"
@@ -186,6 +206,85 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertFalse(observed["fill"])
         self.assertGreater(observed["waited_seconds"], 0)
         self.assertEqual((second_dest / cache.ARCHIVE_NAME).read_bytes(), self.archive.read_bytes())
+
+    def test_seven_consumer_persistent_node_fanout_uses_one_transfer(self):
+        owner_destination = Path(self.temp.name) / "fanout-owner"
+        consumer_destinations = [
+            Path(self.temp.name) / f"fanout-consumer-{index}"
+            for index in range(6)
+        ]
+        results = [None] * len(consumer_destinations)
+
+        with mock.patch.dict(
+            os.environ,
+            {"CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE": "r2"},
+        ):
+            owner = cache.acquire(
+                self.store,
+                self.identity,
+                owner_destination,
+                wait=1,
+            )
+            self.assertTrue(owner["fill"])
+
+            def waiter(index):
+                results[index] = cache.acquire(
+                    self.store,
+                    self.identity,
+                    consumer_destinations[index],
+                    wait=3,
+                )
+
+            threads = [
+                threading.Thread(target=waiter, args=(index,))
+                for index in range(len(consumer_destinations))
+            ]
+            for thread in threads:
+                thread.start()
+            time.sleep(0.1)
+
+            published = cache.finalize(
+                self.store,
+                self.identity,
+                self.archive,
+                token=owner["token"],
+                source_class="r2",
+                restore_succeeded=True,
+                provider_metadata=lambda _: self.provider(),
+            )
+            self.assertEqual(published["status"], "published")
+
+            for thread in threads:
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+
+            for result, destination in zip(results, consumer_destinations):
+                self.assertIsNotNone(result)
+                self.assertTrue(result["hit"], result)
+                self.assertGreater(result["waited_seconds"], 0)
+                completed = cache.finalize(
+                    self.store,
+                    self.identity,
+                    destination / cache.ARCHIVE_NAME,
+                    lease_token=result["lease"],
+                    restore_succeeded=True,
+                )
+                self.assertEqual(completed["status"], "verified-hit")
+
+        stats = json.loads((self.root / "state/stats.json").read_text())
+        state = json.loads(self.store.state(self.identity.key()).read_text())
+        archive_bytes = self.archive.stat().st_size
+        snapshot = cache._snapshot(self.store, stats)
+
+        self.assertEqual(stats["lookups"], 7)
+        self.assertEqual(stats["fill_owners"], 1)
+        self.assertEqual(stats["hits"], 6)
+        self.assertEqual(stats["bytes_avoided_r2"], archive_bytes * 6)
+        self.assertEqual(stats["bytes_avoided_github"], 0)
+        self.assertEqual(snapshot["local_hit_rate"], round(6 / 7, 4))
+        self.assertEqual(snapshot["disk_bytes"], archive_bytes)
+        self.assertEqual(snapshot["eviction_rate"], 0)
+        self.assertEqual(state["verified_restore_count"], 7)
 
     def test_consumer_crash_stale_fill_can_be_reclaimed(self):
         token, _ = self.reserve()
@@ -280,15 +379,37 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertFalse(self.store.fill(self.identity.key()).exists())
         self.assertFalse(self.store.entry(self.identity.key()).exists())
 
-    def test_eviction_skips_an_object_while_its_lock_is_in_use(self):
+    def test_eviction_skips_an_object_while_restore_lease_is_active(self):
         self.publish()
-        with self.store.lock(self.identity.key(), exclusive=False):
-            result = cache.reclaim(self.store, 0)
-            self.assertEqual(result["evicted_objects"], 0)
-            self.assertTrue(self.store.entry(self.identity.key()).exists())
+        destination = Path(self.temp.name) / "leased"
+        hit = cache.acquire(self.store, self.identity, destination, wait=0)
+        self.assertTrue(hit["hit"])
+        self.assertTrue(hit["lease"])
+        result = cache.reclaim(self.store, 0)
+        self.assertEqual(result["evicted_objects"], 0)
+        self.assertTrue(self.store.entry(self.identity.key()).exists())
+        cache.finalize(
+            self.store,
+            self.identity,
+            destination / cache.ARCHIVE_NAME,
+            lease_token=hit["lease"],
+            restore_succeeded=True,
+        )
         result = cache.reclaim(self.store, 0)
         self.assertEqual(result["evicted_objects"], 1)
         self.assertFalse(self.store.entry(self.identity.key()).exists())
+
+    def test_consumer_crash_lease_expires_before_reclamation(self):
+        self.publish()
+        destination = Path(self.temp.name) / "crashed-consumer"
+        hit = cache.acquire(self.store, self.identity, destination, wait=0)
+        lease_path = self.store.lease(self.identity.key(), hit["lease"])
+        lease = json.loads(lease_path.read_text())
+        lease["deadline_epoch"] = time.time() - 1
+        lease_path.write_text(json.dumps(lease))
+        result = cache.reclaim(self.store, 0)
+        self.assertEqual(result["evicted_objects"], 1)
+        self.assertFalse(lease_path.exists())
 
     def test_hit_and_verified_restore_update_bounded_measurement(self):
         self.publish(source="r2")
@@ -300,6 +421,7 @@ class NodeProductCacheTests(unittest.TestCase):
             self.store,
             self.identity,
             destination / cache.ARCHIVE_NAME,
+            lease_token=hit["lease"],
             restore_succeeded=True,
         )
         self.assertEqual(complete["status"], "verified-hit")
