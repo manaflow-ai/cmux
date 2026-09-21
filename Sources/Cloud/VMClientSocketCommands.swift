@@ -232,9 +232,9 @@ extension TerminalController {
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
-                await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
-                return Self.socketWorkerVMSummaryPayload(vm)
+                let created = try await VMClient.shared.createMachine(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(created.summary, attach: created.attach, scope: scope)
+                return Self.socketWorkerVMSummaryPayload(created.summary)
             }
         case "vm.base_open":
             let name = Self.socketWorkerString(params["name"])
@@ -593,33 +593,21 @@ extension TerminalController {
                         "session": "cmux",
                         "trusted_carrier": deviceFingerprint == CloudTuiClientPaths.carrierDeviceMarker,
                     ]
+                } else if let cached = await registry.cachedCreateAttach(machineID: vmId), cached.trustedCarrier {
+                    // Created in this process moments ago: the create response already
+                    // proved the route and the trusted listener, so no attach-endpoint call.
+                    payload = Self.cmuxRemoteInfoPayload(cachedAttach: cached)
                 } else {
                     let endpoint = try await VMClient.shared.openCmuxRemote(
                         id: vmId,
                         deviceFingerprint: deviceFingerprint,
                         clientCapabilities: clientCapabilities
                     )
-                    payload = [
-                        "transport": "cmux-remote",
-                        "route": endpoint.route,
-                        "token": endpoint.token,
-                        "expires_at_unix": endpoint.expiresAtUnix,
-                        "session": endpoint.session,
-                        "trusted_carrier": endpoint.trustedCarrier,
-                    ]
-                    if let build = endpoint.daemonBuild {
-                        var raw: [String: Any] = [:]
-                        if let commit = build.commit { raw["commit"] = commit }
-                        if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
-                        if let version = build.version { raw["version"] = version }
-                        payload["daemon_build"] = raw
-                    }
-                    if let addresses = endpoint.networkAddresses {
-                        payload["network_addresses"] = [
-                            "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
-                            "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
-                        ]
-                    }
+                    payload = Self.cmuxRemoteInfoPayload(
+                        route: endpoint.route, token: endpoint.token, expiresAtUnix: endpoint.expiresAtUnix,
+                        session: endpoint.session, trustedCarrier: endpoint.trustedCarrier,
+                        daemonBuild: endpoint.daemonBuild, networkAddresses: endpoint.networkAddresses
+                    )
                 }
                 // External clients pin the hub and use the same address race as app links.
                 let route = payload["route"] as? String ?? ""

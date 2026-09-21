@@ -110,4 +110,101 @@ struct CloudPrivateRouteSelectionTests {
             )
         }
     }
+
+    // MARK: - Fresh machine dial
+
+    @Test func freshDialOffsetsStartFastAndStopAtTheBudget() {
+        let offsets = CloudMachineLinkManager.freshDialOffsets(budget: .seconds(8))
+        #expect(Array(offsets.prefix(8)) == [
+            .zero, .milliseconds(150), .milliseconds(300), .milliseconds(500),
+            .milliseconds(800), .milliseconds(1200), .milliseconds(1600), .milliseconds(2000)
+        ])
+        #expect(offsets.count > 8)
+        #expect(offsets.last.map { $0 <= .seconds(8) } == true)
+        #expect(offsets == offsets.sorted())
+        #expect(CloudMachineLinkManager.freshDialOffsets(budget: .milliseconds(500))
+                == [.zero, .milliseconds(150), .milliseconds(300), .milliseconds(500)])
+    }
+
+    /// Records dial attempts and repairs from `@Sendable` closures.
+    private final class DialLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedRoutes: [String] = []
+        private var storedRepairs = 0
+        var routes: [String] { lock.withLock { storedRoutes } }
+        var repairs: Int { lock.withLock { storedRepairs } }
+        func dialed(_ route: String) -> Int {
+            lock.withLock {
+                storedRoutes.append(route)
+                return storedRoutes.count
+            }
+        }
+        func repaired() { lock.withLock { storedRepairs += 1 } }
+    }
+
+    @Test func freshDialRetriesUntilTheDaemonAnswersWithoutTouchingTheControlPlane() async throws {
+        let log = DialLog()
+        let connected = try await manager().connectFreshMachine(
+            machineID: "vm-fresh", route: "ws://10.16.0.7:1337/v1/link", session: "cloud",
+            budget: .seconds(2), attemptTimeout: .milliseconds(50),
+            repair: { log.repaired(); return nil },
+            dial: { route, _ in
+                guard log.dialed(route) >= 3 else { throw CloudMachineLink.LinkError.timedOut }
+                return CloudMachineLink.Connected(socketPath: "/tmp/fresh.sock", session: "cloud")
+            }
+        )
+        #expect(connected == CloudMachineLink.Connected(socketPath: "/tmp/fresh.sock", session: "cloud"))
+        #expect(log.routes.count == 3)
+        #expect(log.repairs == 0)
+    }
+
+    @Test func exhaustedBudgetRepairsThroughTheControlPlaneAndDialsOnceMore() async throws {
+        let log = DialLog()
+        let repairedRoute = "ws://10.16.0.8:1337/v1/link"
+        let connected = try await manager().connectFreshMachine(
+            machineID: "vm-fresh", route: "ws://10.16.0.7:1337/v1/link", session: "cloud",
+            budget: .milliseconds(300), attemptTimeout: .milliseconds(50),
+            repair: { log.repaired(); return repairedRoute },
+            dial: { route, _ in
+                _ = log.dialed(route)
+                guard route == repairedRoute else { throw CloudMachineLink.LinkError.timedOut }
+                return CloudMachineLink.Connected(socketPath: "/tmp/repaired.sock", session: "cloud")
+            }
+        )
+        #expect(connected.socketPath == "/tmp/repaired.sock")
+        #expect(log.repairs == 1)
+        #expect(log.routes == Array(repeating: "ws://10.16.0.7:1337/v1/link", count: 3) + [repairedRoute])
+    }
+
+    @Test func aFailedRepairDialSurfacesTheLastLinkError() async throws {
+        let log = DialLog()
+        await #expect(throws: CloudMachineLink.LinkError.self) {
+            try await manager().connectFreshMachine(
+                machineID: "vm-fresh", route: "ws://10.16.0.7:1337/v1/link", session: "cloud",
+                budget: .milliseconds(150), attemptTimeout: .milliseconds(50),
+                repair: { log.repaired(); return nil },
+                dial: { route, _ in
+                    _ = log.dialed(route)
+                    throw CloudMachineLink.LinkError.timedOut
+                }
+            )
+        }
+        #expect(log.repairs == 1)
+        #expect(log.routes.count == 3, "two budgeted attempts, then exactly one more after the repair")
+    }
+
+    @Test func freshDialFailsFastWithoutAClientOrARoute() async {
+        let started = ContinuousClock.now
+        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
+            try await manager().connectFreshMachine(
+                machineID: "vm-fresh", route: "ws://10.16.0.7:1337/v1/link", session: "cloud"
+            )
+        }
+        await #expect(throws: CloudMachineLinkManager.ManagerError.self) {
+            try await manager().connectFreshMachine(machineID: "vm-fresh", route: nil, session: "cloud", dial: { _, _ in
+                CloudMachineLink.Connected(socketPath: "/unused", session: "cloud")
+            })
+        }
+        #expect(ContinuousClock.now - started < .seconds(2), "preflight failures never enter the retry schedule")
+    }
 }

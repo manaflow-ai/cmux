@@ -130,12 +130,25 @@ struct MachineRowActions {
     /// `arguments` is the `cmux vm new …` invocation the New Machine sheet
     /// built (kind, size, name). Failures come back through `onCompletion`
     /// so the sheet can show them inline instead of a detached alert.
+    /// The sheet's own create (and its retry, `vm open <id> --workspace …`)
+    /// runs in-process, keyed on `operationID`; Base setup and every other
+    /// invocation keep the bundled CLI.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
+        operationID: UUID? = nil,
         onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
         onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
+        if let operationID, InProcessMachineCreateLauncher.parse(arguments: arguments) != nil {
+            return InProcessMachineCreateLauncher.start(
+                arguments: arguments,
+                operationID: operationID,
+                onOutput: onOutput,
+                onCompletion: onCompletion,
+                onCancellationReady: onCancellationReady
+            )
+        }
         // `vm new` mints a fresh machine with an ephemeral home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(

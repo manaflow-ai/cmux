@@ -648,7 +648,7 @@ struct VMCmuxRemoteEndpoint {
 
     let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
-    struct DaemonBuild {
+    struct DaemonBuild: Equatable, Sendable {
         let commit: String?
         let remoteProtocol: Int?
         let version: String?
@@ -734,16 +734,16 @@ actor VMClient {
         )
     }
 
-    private static let createTimeoutSeconds: TimeInterval = 16 * 60
+    static let createTimeoutSeconds: TimeInterval = 16 * 60
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
-    private let auth: AuthCoordinator
+    let auth: AuthCoordinator
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
     nonisolated let resourceStats: VMResourceStatsStore
-    private let machineCache: CloudMachineCache
+    let machineCache: CloudMachineCache
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
@@ -1159,7 +1159,7 @@ actor VMClient {
 
     /// A valid `kind` string → the kind; anything else → nil so the image
     /// heuristic decides.
-    private static func decodeKind(_ raw: Any?) -> VMMachineKind? {
+    static func decodeKind(_ raw: Any?) -> VMMachineKind? {
         guard let raw = raw as? String else { return nil }
         return VMMachineKind(rawValue: raw.lowercased())
     }
@@ -1212,51 +1212,6 @@ actor VMClient {
             throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
         }
         return result
-    }
-
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
-        return try await withOperation(.create, foreground: true) {
-            var body: [String: Any] = [:]
-            if let image { body["image"] = image }
-            if let kind { body["kind"] = kind.rawValue }
-            if let provider { body["provider"] = provider }
-            if persistentHome { body["persistentHome"] = true }
-            if perMachineHome { body["perMachineHome"] = true }
-            if let memoryMb { body["memoryMb"] = memoryMb }
-            if let displayName { body["displayName"] = displayName }
-            // The CLI owns key stability across command retries. VMClient only forwards the
-            // key so the backend can short-circuit duplicate paid provider creates.
-            let headers = ["Idempotency-Key": idempotencyKey]
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm",
-                jsonBody: body,
-                extraHeaders: headers,
-                timeoutSeconds: Self.createTimeoutSeconds
-            )
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            guard let id = obj["id"] as? String,
-                  let providerValue = obj["provider"] as? String,
-                  let imageValue = obj["image"] as? String
-            else {
-                throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
-            }
-            // Preserve the server timestamp on idempotent replays and under local clock skew.
-            // Fall back to the local clock only for older servers that omit it.
-            let serverCreatedAt = (obj["createdAt"] as? Int64)
-                ?? Int64((obj["createdAt"] as? Double) ?? 0)
-            let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-            let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-            var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
-            summary.kind = Self.decodeKind(obj["kind"])
-            summary.capabilities = VMCapabilities(vmResponse: obj)
-            summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            machineCache.record(hasAnyMachine: true)
-            return summary
-        }
     }
 
     /// Opens (creating on first use) the persistent Base machine. `kind` only
