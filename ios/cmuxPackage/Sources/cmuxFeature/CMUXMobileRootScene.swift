@@ -443,7 +443,6 @@ public struct CMUXMobileRootScene: View {
         )
         #endif
     }
-
     @MainActor
     private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
         let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
@@ -479,7 +478,6 @@ public struct CMUXMobileRootScene: View {
             }
         )
     }
-
     @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,

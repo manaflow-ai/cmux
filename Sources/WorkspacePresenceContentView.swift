@@ -5,7 +5,9 @@ extension ContentView {
     /// selected workspace and the right-sidebar projection.
     func syncWorkspacePresenceScope() {
         AppDelegate.shared?.workspacePresenceController.setActiveWorkspaceScope(
-            WorkspacePresenceScope.identifier(for: tabManager.selectedWorkspace)
+            WorkspacePresenceScope.identifier(
+                for: AppDelegate.shared?.currentScriptableMainWindow()?.tabManager.selectedWorkspace
+            )
         )
     }
 }
