@@ -172,6 +172,15 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
            let path = normalizedValue(env["PATH"]) {
             selected["PATH"] = path
         }
+        if normalizedKind == "claude" {
+            // Subrouter's resume marker and the wrapper's launch-bound copy are
+            // exact command text, never a URL or credential. They cross into
+            // the durable restore record only as an agreeing pair, so a marker
+            // inherited from an ancestor `sr claude` session proves nothing.
+            selected.merge(SubrouterClaudeResumeRouting().capturedEnvironment(in: env)) { _, marker in
+                marker
+            }
+        }
         return selected
     }
 
