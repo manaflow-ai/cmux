@@ -105,8 +105,7 @@ extension CMUXCLI {
                 candidates[workspaceID] = path
             }
         }
-        guard candidates.count == 1, let (workspaceID, candidatePath) = candidates.first,
-              pullRequestWorkspacePathBelongsToRepository(candidatePath, root: root) else {
+        guard candidates.count == 1, let workspaceID = candidates.keys.first else {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.pr.error.ambiguousWorkspace",
                 defaultValue: "cmux pr: could not identify the caller workspace; run it inside a cmux terminal or pass --workspace <id|ref|index>"
