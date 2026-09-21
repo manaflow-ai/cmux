@@ -46,6 +46,7 @@ export class DurableTaskStore {
   private readonly records = new Map<string, DurableTaskRecord>();
   private writeChain: Promise<void> = Promise.resolve();
   private dirty = false;
+  private writeInFlight = false;
 
   constructor(path: string, options: DurableTaskStoreOptions = {}) {
     this.path = path;
@@ -85,9 +86,10 @@ export class DurableTaskStore {
   /** Wait until all currently queued journal writes have reached disk. */
   async flush(): Promise<void> {
     for (;;) {
-      if (this.dirty) this.beginWrite();
-      await this.writeChain;
-      if (!this.dirty) return;
+      if (this.dirty && !this.writeInFlight) this.beginWrite();
+      const currentWrite = this.writeChain;
+      await currentWrite;
+      if (!this.dirty && !this.writeInFlight) return;
     }
   }
 
@@ -119,37 +121,51 @@ export class DurableTaskStore {
   }
 
   private beginWrite(): void {
-    if (!this.path || !this.dirty) return;
+    if (!this.path || !this.dirty || this.writeInFlight) return;
+
+    // Snapshot only when the previous filesystem write has settled. Mutations
+    // that arrive while a write is in flight only set dirty=true; they do not
+    // repeatedly sort/clone the full journal or queue one snapshot per event.
+    // A successful write drains those mutations into one latest follow-up
+    // snapshot. This gives streaming event bursts backpressure without timers.
     this.dirty = false;
+    this.writeInFlight = true;
     const payload: StoreFile = {
       version: STORE_VERSION,
       tasks: this.list(),
     };
-    this.writeChain = this.writeChain
-      .catch(() => {})
-      .then(async () => {
-        const directory = dirname(this.path);
-        await mkdir(directory, { recursive: true });
-        const tmp = join(directory, `${basename(this.path)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+
+    const write = async () => {
+      const directory = dirname(this.path);
+      await mkdir(directory, { recursive: true });
+      const tmp = join(directory, `${basename(this.path)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+      try {
+        await writeFile(tmp, JSON.stringify(payload) + "\n", "utf8");
+        await rename(tmp, this.path);
+      } finally {
+        // rename removes tmp on success; a failed write should not leave
+        // unbounded junk behind.
         try {
-          await writeFile(tmp, JSON.stringify(payload) + "\n", "utf8");
-          await rename(tmp, this.path);
-        } finally {
-          // rename removes tmp on success; a failed write should not leave
-          // unbounded junk behind.
-          try {
-            await unlink(tmp);
-          } catch {
-            // Best effort cleanup only.
-          }
+          await unlink(tmp);
+        } catch {
+          // Best effort cleanup only.
         }
-      })
-      .catch((error) => {
+      }
+    };
+
+    this.writeChain = write().then(
+      () => {
+        this.writeInFlight = false;
+        if (this.dirty) this.beginWrite();
+      },
+      (error) => {
         // Keep a failed snapshot dirty so a later flush or mutation can retry.
-        // Do not clear a newer dirty flag set while this write was pending.
+        // Do not automatically spin on a persistent filesystem failure.
+        this.writeInFlight = false;
         this.dirty = true;
         throw error;
-      });
+      },
+    );
   }
 }
 

@@ -63,6 +63,32 @@ test("persists, reloads, bounds, and removes task state", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("mutations arriving during a write collapse into the latest durable snapshot", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "cmux-task-store-coalesce-"));
+  const path = join(dir, "tasks.json");
+  try {
+    const store = new DurableTaskStore(path, { maxEvents: 100 });
+    const record = fixture() as unknown as DurableTaskRecord;
+    store.upsert(record);
+
+    for (let index = 0; index < 100; index += 1) {
+      store.upsert({
+        ...record,
+        updatedAt: 100 + index,
+        events: [{ kind: "status", text: `event-${index}` }],
+      });
+    }
+    await store.flush();
+
+    const disk = JSON.parse(await readFile(path, "utf8"));
+    expect(disk.tasks).toHaveLength(1);
+    expect(disk.tasks[0].updatedAt).toBe(199);
+    expect(disk.tasks[0].events).toEqual([{ kind: "status", text: "event-99" }]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 function fixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: "task-1", conversationId: "conversation-1", provider: "codex",
