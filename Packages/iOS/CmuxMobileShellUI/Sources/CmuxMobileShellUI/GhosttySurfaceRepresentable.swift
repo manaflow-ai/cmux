@@ -1025,8 +1025,90 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
-        private func stopMountedTasks() {
-            let releasesViewport = outputTask != nil || viewportReportScheduler != nil
+        private func noteViewportReportAttempt(
+            _ report: TerminalViewportReportScheduler.Report
+        ) {
+            viewportLeaseHeld = true
+            let changedGrid =
+                lastViewportRetryColumns != report.columns ||
+                lastViewportRetryRows != report.rows
+            guard changedGrid else { return }
+            cancelViewportReportRetry(resetBackoff: true)
+            lastViewportRetryColumns = report.columns
+            lastViewportRetryRows = report.rows
+            MobileDebugLog.anchormux(
+                "zoom.viewport.retry_budget_new_grid grid=\(report.columns)x\(report.rows)"
+            )
+        }
+
+        private func cancelViewportReportRetry(resetBackoff: Bool) {
+            viewportReportRetryGeneration &+= 1
+            viewportReportRetryTask?.cancel()
+            viewportReportRetryTask = nil
+            if resetBackoff {
+                viewportReportRetryBackoff.reset()
+            }
+        }
+
+        private func scheduleViewportReportRetry(
+            surfaceView: GhosttySurfaceView,
+            reason: String
+        ) {
+            guard viewportReportRetryTask == nil else {
+                MobileDebugLog.anchormux(
+                    "zoom.viewport.retry_coalesced reason=\(reason)"
+                )
+                return
+            }
+            guard let delay = viewportReportRetryBackoff.nextDelay() else {
+                surfaceView.markViewportReportRetryExhausted()
+                MobileDebugLog.anchormux(
+                    "zoom.viewport.retry_exhausted reason=\(reason) "
+                        + "attempts=\(viewportReportRetryBackoff.attemptsScheduled)"
+                )
+                return
+            }
+            viewportReportRetryGeneration &+= 1
+            let retryGeneration = viewportReportRetryGeneration
+            let outputGeneration = outputTaskGeneration
+            let attempt = viewportReportRetryBackoff.attemptsScheduled
+            let clock = viewportReportRetryClock
+            MobileDebugLog.anchormux(
+                "zoom.viewport.retry_scheduled reason=\(reason) "
+                    + "attempt=\(attempt)/\(TerminalViewportRetryBackoff.relayDelays.count) "
+                    + "delay=\(String(describing: delay))"
+            )
+            viewportReportRetryTask = Task { @MainActor [weak self, weak surfaceView] in
+                defer {
+                    guard let self,
+                          self.viewportReportRetryGeneration == retryGeneration else {
+                        return
+                    }
+                    self.viewportReportRetryTask = nil
+                }
+                do {
+                    try await clock.sleep(for: delay, tolerance: nil)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      let surfaceView,
+                      self.viewportReportRetryGeneration == retryGeneration,
+                      self.outputTaskGeneration == outputGeneration,
+                      self.terminalPresentationIsActive,
+                      self.surfaceView === surfaceView,
+                      surfaceView.window != nil else {
+                    return
+                }
+                MobileDebugLog.anchormux(
+                    "zoom.viewport.retry_fire reason=\(reason) attempt=\(attempt)"
+                )
+                surfaceView.retryViewportReport()
+            }
+        }
+
+        private func stopMountedTasks(releaseViewport: Bool = false) {
             let ownerID = outputConsumerOwnerID
             outputConsumerOwnerID = nil
             outputTaskGeneration &+= 1
@@ -1063,11 +1145,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
             }
             activeViewportPolicy = .natural
-            if releasesViewport {
+            cancelViewportReportRetry(resetBackoff: releaseViewport)
+            if releaseViewport, viewportLeaseHeld {
+                viewportLeaseHeld = false
+                lastViewportRetryColumns = nil
+                lastViewportRetryRows = nil
                 store?.clearTerminalViewport(surfaceID: surfaceID)
                 #if DEBUG
                 releaseGateUIProbe?.terminalDidUnmount(surfaceID: surfaceID)
                 #endif
+                MobileDebugLog.anchormux(
+                    "zoom.viewport.lease_release surface=\(surfaceID)"
+                )
+            } else if viewportLeaseHeld {
+                MobileDebugLog.anchormux(
+                    "zoom.viewport.lease_preserve surface=\(surfaceID)"
+                )
             }
         }
 
