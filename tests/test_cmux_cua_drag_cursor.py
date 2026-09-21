@@ -17,11 +17,16 @@ from pathlib import Path
 
 
 class Point(ctypes.Structure):
+    """CoreGraphics screen point returned by CGEventGetLocation."""
+
     _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
 
 
 class NativePointer:
+    """Observe the WindowServer pointer independently of the helper's feed."""
+
     def __init__(self):
+        """Bind the native pointer location and button-state read APIs."""
         self.cg = ctypes.CDLL(
             "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"
         )
@@ -37,6 +42,7 @@ class NativePointer:
         self.cf.CFRelease.argtypes = [ctypes.c_void_p]
 
     def snapshot(self):
+        """Return the current global position and physical left-button state."""
         event = self.cg.CGEventCreate(None)
         if not event:
             raise RuntimeError("CGEventCreate failed")
@@ -52,14 +58,23 @@ class NativePointer:
 
 
 def read_feed(path, session):
+    """Read a session observation, treating malformed visible records as unavailable."""
     try:
         state = json.loads(path.read_text())
     except (OSError, ValueError):
         return None
-    return state if state.get("session") == session else None
+    if not isinstance(state, dict) or state.get("session") != session:
+        return None
+    if state.get("visible") and not all(
+        type(state.get(key)) in (int, float) and math.isfinite(state[key])
+        for key in ("x", "y")
+    ):
+        return None
+    return state
 
 
 def verify(samples, result):
+    """Require sustained native motion, a visible aligned feed, and confirmed release."""
     assert result.returncode == 0, result.stderr or result.stdout
     assert '"isError":true' not in result.stdout.replace(" ", ""), result.stdout
     held = [sample for sample in samples if sample["pointer"]["pressed"]]
@@ -102,6 +117,7 @@ def verify(samples, result):
 
 
 def main():
+    """Record and verify one real drag on a caller-supplied isolated Mac window."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--driver", required=True)
     parser.add_argument("--socket", required=True)

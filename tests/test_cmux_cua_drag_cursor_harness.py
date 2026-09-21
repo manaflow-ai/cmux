@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import test_cmux_cua_drag_cursor as harness
+import test_cmux_cua_divider_drags as divider
 
 
 class CursorFeedTests(unittest.TestCase):
@@ -59,6 +60,52 @@ class CursorFeedTests(unittest.TestCase):
             trace = json.loads(output.read_text())
             self.assertGreaterEqual(len(trace["samples"]), 2)
             self.assertTrue(all(sample["feed"] is None for sample in trace["samples"]))
+
+
+class DividerGeometryTests(unittest.TestCase):
+    """A moving cursor is insufficient proof that a pane divider actually moved."""
+
+    @staticmethod
+    def layout(axis, position=400):
+        """Create a two-pane layout with a one-point divider and fixed outer size."""
+        first = {"x": 0, "y": 0, "width": 800, "height": 800}
+        second = dict(first)
+        coordinate, size = ("x", "width") if axis == "horizontal" else ("y", "height")
+        first[size] = position
+        second[coordinate] = position + 1
+        second[size] = 799 - position
+        return {"workspace_id": "workspace", "panes": [
+            {"id": "first", "pixel_frame": first},
+            {"id": "second", "pixel_frame": second},
+        ]}
+
+    def test_both_axes_and_directions_resize_adjacent_panes(self):
+        """Accept real opposing size changes while preserving the container."""
+        for axis in ("horizontal", "vertical"):
+            for direction in (-1, 1):
+                with self.subTest(axis=axis, direction=direction):
+                    result = divider.verify_resize(self.layout(axis), self.layout(axis, 400 + direction * 80), axis, direction)
+                    self.assertEqual(result["first_pane_delta"], direction * 80)
+                    self.assertEqual(result["second_pane_delta"], -direction * 80)
+
+    def test_no_resize_or_wrong_direction_fails(self):
+        """Reject successful input acknowledgements without the requested resize."""
+        for axis in ("horizontal", "vertical"):
+            for position in (400, 320):
+                with self.subTest(axis=axis, position=position), self.assertRaises(AssertionError):
+                    divider.verify_resize(self.layout(axis), self.layout(axis, position), axis, 1)
+
+    def test_replaced_pane_or_detached_neighbor_fails(self):
+        """Reject geometry changes caused by different panes or a broken split."""
+        before = self.layout("horizontal")
+        after = self.layout("horizontal", 480)
+        after["panes"][1]["id"] = "replacement"
+        with self.assertRaises(AssertionError):
+            divider.verify_resize(before, after, "horizontal", 1)
+        after = self.layout("horizontal", 480)
+        after["panes"][1]["pixel_frame"]["x"] += 50
+        with self.assertRaises(AssertionError):
+            divider.verify_resize(before, after, "horizontal", 1)
 
 
 if __name__ == "__main__":
