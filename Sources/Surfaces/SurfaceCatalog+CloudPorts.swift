@@ -282,13 +282,15 @@ extension CmuxTuiSurfaceProvider {
         machine: SurfaceMachineID,
         scannedPorts: [Int]?,
         previousResources: [SurfaceResource],
-        privateAddress: String?
+        privateAddress: String?,
+        displayPortsOwned: Bool = false
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
                     $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
+                        && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
                 }
                 .map { ($0.id, $0) }
         )
@@ -309,6 +311,7 @@ extension CmuxTuiSurfaceProvider {
         return scannedPorts
             .filter { (port: Int) in
                 (1...65_535).contains(port) && seen.insert(port).inserted
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(port))
             }
             .sorted(by: <)
             .map { (port: Int) -> SurfaceResource in

@@ -64,14 +64,14 @@ extension BrowserPanel {
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
         guard let preferred, var components = URLComponents(url: target, resolvingAgainstBaseURL: false),
               let saved = URLComponents(url: preferred, resolvingAgainstBaseURL: false) else { return target }
-        components.path = saved.path.isEmpty ? components.path : saved.path
+        if !saved.percentEncodedPath.isEmpty { components.percentEncodedPath = saved.percentEncodedPath }
         if isDisplay {
             let allowed = Set(["path", "autoconnect", "resize", "reconnect", "reconnect_delay"])
             let safeItems = (saved.queryItems ?? []).filter { allowed.contains($0.name.lowercased()) }
             if !safeItems.isEmpty { components.queryItems = safeItems }
         } else {
-            components.query = saved.query
-            components.fragment = saved.fragment
+            components.percentEncodedQuery = saved.percentEncodedQuery
+            components.percentEncodedFragment = saved.percentEncodedFragment
         }
         return components.url ?? target
     }
@@ -82,6 +82,17 @@ extension BrowserPanel {
             on: target,
             isDisplay: cloudResourceForDuplication?.kind == .display
         )
+    }
+
+    @discardableResult
+    func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
+        guard let provider = SurfaceCatalog.shared.machines.values.first(where: {
+            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }) else {
+            return false
+        }
+        return provider.configureBrowser(self, url: url)
     }
 
     /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.

@@ -11,6 +11,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import socketserver
@@ -255,14 +256,14 @@ class DisplayService:
         except OSError:
             pass
 
-    def recover_processes(self, number):
+    def recover_processes(self, number, runtime):
         self.processes[number] = []
         self.named_processes[number] = {}
         uid = str(os.getuid())
         for name in ("openbox", "tint2", "vncconfig"):
-            marker = f"cmux-display-{number}-{name}"
+            marker = str(Path(runtime) / "bin" / f"cmux-display-{number}-{name}")
             try:
-                pattern = rf"(^|/| ){marker}([[:space:]]|$)"
+                pattern = rf"^{re.escape(marker)}(?:[[:space:]]|$)"
                 output = subprocess.check_output(["pgrep", "-u", uid, "-f", pattern], text=True)
                 pid = int(output.splitlines()[0])
             except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
@@ -270,7 +271,8 @@ class DisplayService:
             self.track_process(number, name, OwnedProcess(pid))
         try:
             output = subprocess.check_output(
-                ["pgrep", "-u", uid, "-f", rf"(?:Xvnc|Xtigervnc).*:{number}(?:\s|$)"],
+                ["pgrep", "-u", uid, "-f",
+                 rf"^(?:.*\/)?(?:Xvnc|Xtigervnc).*:{number}.*-rfbport\s+{5900 + number}(?:\s|$)"],
                 text=True
             )
             pid = int(output.splitlines()[0])
@@ -342,7 +344,7 @@ class DisplayService:
         if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
         if rfb_is_ready and number not in self.named_processes:
-            self.recover_processes(number)
+            self.recover_processes(number, runtime)
         if not rfb_is_ready:
             self.terminate(number)
             rfb_port = 5900 + number
@@ -401,9 +403,10 @@ class DisplayService:
         self.terminate(number)
 
     def snapshot(self):
+        primary_state = "running" if ready(1) else "unavailable"
         with self.lock:
             return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
-                    "displays": [descriptor(1, "running" if ready(1) else "unavailable")]
+                    "displays": [descriptor(1, primary_state)]
                     + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
 
     def handle(self, request):

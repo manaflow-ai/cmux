@@ -38,10 +38,13 @@ extension SurfaceCatalog {
     }
 
     func validateOwnership(of resources: [SurfaceResourceID], at destination: SurfaceDestination) throws {
-        let workspace = cloudWorkspaceRenameService.environment.workspace(destination.workspaceID)
-            ?? Workspace.liveWorkspace(id: destination.workspaceID)
-        if let policy = workspace?.surfaceOwnershipPolicy,
-           let rejection = ownershipRejection(for: resources, policy: policy) { throw rejection }
+        guard let workspace = cloudWorkspaceRenameService.environment.workspace(destination.workspaceID)
+                ?? Workspace.liveWorkspace(id: destination.workspaceID) else {
+            throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
+        }
+        if let rejection = ownershipRejection(for: resources, policy: workspace.surfaceOwnershipPolicy) {
+            throw rejection
+        }
     }
 
     /// Provider work may suspend. Check the live destination again before its

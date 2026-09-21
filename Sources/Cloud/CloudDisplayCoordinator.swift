@@ -8,6 +8,7 @@ import Observation
 final class CloudDisplayCoordinator {
     private let execute: @MainActor (String, Int) async throws -> VMExecResult
     private(set) var snapshot: CloudGuestDisplaySnapshot?
+    private(set) var lastValidatedSnapshot: CloudGuestDisplaySnapshot?
     private(set) var isAvailable = false
     private var generation: UInt64 = 0
     private var requestID: UUID?
@@ -19,6 +20,7 @@ final class CloudDisplayCoordinator {
     }
 
     var canCreate: Bool { isAvailable && (snapshot?.canCreate == true || requestID != nil) && creation == nil }
+    var displaySnapshot: CloudGuestDisplaySnapshot? { snapshot ?? lastValidatedSnapshot }
 
     func refresh() async {
         guard creation == nil else { return }
@@ -34,6 +36,7 @@ final class CloudDisplayCoordinator {
                 let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
                 guard let self, token == self.generation, !Task.isCancelled else { return }
                 self.snapshot = snapshot
+                self.lastValidatedSnapshot = snapshot
                 self.isAvailable = true
             } catch {
                 guard let self, token == self.generation else { return }
@@ -70,6 +73,7 @@ final class CloudDisplayCoordinator {
             try Task.checkCancellation()
             guard let self, self.generation == token else { throw CancellationError() }
             self.snapshot = snapshot
+            self.lastValidatedSnapshot = snapshot
             guard response.exitCode == 0, snapshot.error == nil, snapshot.created != nil else {
                 throw SurfaceCatalogError.unsupported(String(localized: "cloud.display.creationFailed", defaultValue: "The new display could not start. Refresh Displays, then retry. Existing displays are unchanged."))
             }
@@ -97,6 +101,7 @@ final class CloudDisplayCoordinator {
         creation?.cancel()
         creation = nil
         snapshot = nil
+        lastValidatedSnapshot = nil
         requestID = nil
         isAvailable = false
     }

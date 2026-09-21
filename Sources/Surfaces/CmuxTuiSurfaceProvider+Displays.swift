@@ -8,7 +8,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     var displayResources: [SurfaceResource] {
-        if let snapshot = displayCoordinator.snapshot {
+        if let snapshot = displayCoordinator.displaySnapshot {
             return snapshot.displays.map { $0.resource(on: machine, address: info.privateAddress) }
         }
         return [CmuxTuiSnapshotParser.display(machine: machine,

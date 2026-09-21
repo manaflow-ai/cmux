@@ -204,6 +204,7 @@ final class CloudBrowserAccessState {
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
+        desktopConnected = false
         startDeadline()
         loaded = false
         trace("route_ready")

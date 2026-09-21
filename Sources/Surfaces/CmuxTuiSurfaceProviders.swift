@@ -266,7 +266,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     machine: machine,
                     scannedPorts: scannedPorts,
                     previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress
+                    privateAddress: summary.preferredPrivateAddress,
+                    displayPortsOwned: hasDesktop
                 )
                 resources = resourcesWithPendingCreations(parsed, state: cloudState)
             } else {
@@ -275,7 +276,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     machine: machine,
                     scannedPorts: scannedPorts,
                     previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress
+                    privateAddress: summary.preferredPrivateAddress,
+                    displayPortsOwned: hasDesktop
                 ))
                 appendMissingResources(preservedNonPortResources, to: &fallback)
                 resources = resourcesWithPendingCreations(fallback, state: nil)
@@ -744,7 +746,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             machine: machine,
             scannedPorts: ports,
             previousResources: catalog.authoritativeSnapshot.resources(on: machine),
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            displayPortsOwned: summary.resolvedKind.hasDesktop
         )
     }
 

@@ -3244,7 +3244,9 @@ final class BrowserPanel: Panel, ObservableObject {
                             && !self.cloudAccess.owns($0)
                     } == true
                 if leavingCloudRoute {
-                    self.leaveCloudResourceForLocalNavigation()
+                    if let url = webView.url, self.rebindCloudRouteIfNeeded(to: url) == false {
+                        self.leaveCloudResourceForLocalNavigation()
+                    }
                 } else {
                     self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
                 }
@@ -5408,6 +5410,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        var leaveCloudRouteAfterValidation = false
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
@@ -5418,7 +5421,7 @@ final class BrowserPanel: Panel, ObservableObject {
             provider.configureBrowser(self, url: url)
             return nil
         } else {
-            leaveCloudResourceForLocalNavigation()
+            leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
         }
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
@@ -5436,6 +5439,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 onNavigationStarted: onNavigationStarted
             )
             return nil
+        }
+        if leaveCloudRouteAfterValidation {
+            leaveCloudResourceForLocalNavigation()
         }
         return navigateWithoutInsecureHTTPPrompt(
             request: request,

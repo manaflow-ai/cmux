@@ -1755,7 +1755,8 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// image's internal 8080 listener.
     /// Guest display slots use these private RFB/noVNC ports; they are owned by
     /// the display catalog and must never become generic forwarded-port rows.
-    static let internalPorts: Set<Int> = Set([22, 1337, 8080] + Array(5901...5916) + Array(6901...6916))
+    static let internalPorts: Set<Int> = [22, 1337, 8080]
+    static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
     static let desktopPort = 6901
 

@@ -99,6 +99,10 @@ extension CmuxTuiSurfaceProvider {
             browser.cloudAccess.showUnavailable(String(localized: "browser.error.urlAllowlist.userMessage", defaultValue: "This URL is not allowed by the embedded-browser URL policy."))
             return false
         }
+        if let existing = catalog.projectionRecord(forPanel: browser.id), existing.resource != resourceID {
+            catalog.endProjections(panelID: browser.id, reason: .replaced)
+            catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
+        }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
         browser.webView.stopLoading()
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
