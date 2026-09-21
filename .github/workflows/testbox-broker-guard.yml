@@ -40,7 +40,8 @@ jobs:
           echo "TESTBOX_GUARD_PYTHON=$RUNNER_TEMP/testbox-guard-venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Validate Blacksmith Testbox broker trust boundary
-        run: "$TESTBOX_GUARD_PYTHON" tests/test_ci_testbox_broker_guard.py
+        run: |
+          "$TESTBOX_GUARD_PYTHON" tests/test_ci_testbox_broker_guard.py
 
       - name: Validate receipt-bound cleanup ownership check
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
