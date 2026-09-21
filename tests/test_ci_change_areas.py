@@ -1819,6 +1819,21 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
+def test_cli_guard_matrix_runs_independent_slow_contracts_in_parallel() -> None:
+    block = workflow_job_block("workflow-guard-cli-scripts", GUARD_WORKFLOW)
+
+    assert "name: workflow-guard-cli-scripts / ${{ matrix.group }}" in block
+    assert "group: [tui-resolution, profiling]" in block
+    assert (
+        "- name: Validate cmux-tui client commit resolution\n"
+        "        if: ${{ matrix.group == 'tui-resolution' }}"
+    ) in block
+    assert (
+        "- name: Validate cmux profiling support scripts\n"
+        "        if: ${{ matrix.group == 'profiling' }}"
+    ) in block
+
+
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
     assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
