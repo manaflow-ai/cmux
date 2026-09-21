@@ -71,7 +71,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     }
 
     public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.dismiss()
+        coordinator.dismiss(resetPresentation: false)
     }
 
     /// Bridges popover lifecycle between AppKit's `NSPopover` and the SwiftUI binding.
@@ -171,18 +171,18 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
         }
 
-        func dismiss() {
+        func dismiss(resetPresentation: Bool = true) {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
             guard let popover = self.popover else {
-                isPresented = false
+                if resetPresentation { isPresented = false }
                 return
             }
             closingPopover = popover
             if group != nil { popover.animates = false }
             popover.performClose(nil)
             self.popover = nil
-            isPresented = false
+            if resetPresentation { isPresented = false }
         }
 
         public func popoverWillClose(_ notification: Notification) {
