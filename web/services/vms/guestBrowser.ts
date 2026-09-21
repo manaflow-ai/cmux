@@ -104,7 +104,7 @@ export function guestBrowserInstallCommand(): string {
     `chmod ${mode} "$cmux_browser_tmp" && mv -f "$cmux_browser_tmp" '${path}'`,
   ]);
   const install = [
-    "mkdir -p /usr/local/bin /usr/local/share/applications /etc/profile.d /etc/cmux /etc/fish/conf.d",
+    "mkdir -p /usr/local/bin /usr/local/share/applications /etc/profile.d /etc/cmux /etc/fish/conf.d /etc/zsh",
     ...writes,
     `for cmux_rc in /etc/bash.bashrc /etc/zsh/zshenv; do [ -f "$cmux_rc" ] || continue; grep -Fqx '${browserShellSource}' "$cmux_rc" || printf '\\n%s\\n' '${browserShellSource}' >> "$cmux_rc"; done`,
     guestBrowserMimeReconcileCommand,
