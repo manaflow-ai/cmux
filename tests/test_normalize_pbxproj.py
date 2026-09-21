@@ -37,6 +37,42 @@ class NormalizeProjectTests(unittest.TestCase):
                     # Normalizing must never change which duplicate definition wins.
                     self.assertEqual(path.read_text(), contents)
 
+    def test_rejects_malformed_project_syntax_before_normalizing(self) -> None:
+        cases = {
+            "missing semicolon": "FILE1 = {isa = PBXFileReference; path = Example.swift };",
+            "missing equals": "FILE1 {isa = PBXFileReference; };",
+            "missing array comma": "GROUP1 = {children = (FILE1 FILE2); };",
+            "unclosed dictionary": "FILE1 = {isa = PBXFileReference;",
+            "unterminated string": 'FILE1 = {path = "Example.swift; };',
+            "unterminated comment": "/* FILE1 = {isa = PBXFileReference; };",
+            "trailing content": "FILE1 = {isa = PBXFileReference; };\n} ; extra = value;",
+        }
+        for name, objects in cases.items():
+            contents = project(objects)
+            for args in [(), ("--check",)]:
+                with self.subTest(name=name, args=args), tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / "project.pbxproj"
+                    path.write_text(contents)
+                    result = self.run_normalizer(path, *args)
+                    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                    self.assertIn("syntax", result.stderr)
+                    self.assertIn("line", result.stderr)
+                    self.assertEqual(path.read_text(), contents)
+
+    def test_accepts_nested_values_and_escaped_shell_script_punctuation(self) -> None:
+        contents = project(r'''
+        SCRIPT1 = {
+            isa = PBXShellScriptBuildPhase;
+            shellScript = "echo \"hello; ({})\"\n# $PATH";
+            settings = {FLAGS = ("a,b", "quoted \"string\"", /usr/bin); };
+        };
+''')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "project.pbxproj"
+            path.write_text(contents)
+            result = self.run_normalizer(path, "--check")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_rejects_colliding_build_files_despite_different_comments(self) -> None:
         identifier = "C1B1810000000000000005"
         self.assert_rejected(
