@@ -63,6 +63,7 @@ jobs:
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
       # A degraded cache must lose to a cold build instead of stalling this
       # latency-sensitive lane for actions/cache's ten-minute default.
       SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
@@ -590,6 +591,8 @@ jobs:
           slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
           bundle_id="dev.cmux.ios.$slug"
           display_name="cmux DEV $BUILD_TAG"
+          # Stamp only the host target; extension identity is derived from CMUX_DEV_TAG.
+          sed -i '' "s/^PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios$/PRODUCT_BUNDLE_IDENTIFIER = $bundle_id/" ios/Config/Shared.xcconfig
           # This archive is installed on a physical device. Its localhost is
           # the phone, not the tagged Mac or runner, so Debug device builds use
           # staging unless the dispatcher supplies an explicit reachable URL.
@@ -626,7 +629,7 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$archive" \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
-            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            MARKETING_VERSION=1.0.5 CURRENT_PROJECT_VERSION=1 \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
             CMUX_DEV_TAG="$BUILD_TAG" \
@@ -654,7 +657,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
-            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            MARKETING_VERSION=1.0.5 CURRENT_PROJECT_VERSION=1 \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
             CMUX_DEV_TAG="$BUILD_TAG" \
