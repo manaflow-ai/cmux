@@ -1156,6 +1156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var saveWorkspaceActionTasks: [UUID: Task<Void, Never>] = [:]
     /// The app-managed Cloud tunnel (see `AppDelegate+CloudTunnel.swift`).
     var cloudTunnelCoordinator: CloudTunnelCoordinator?
+    var cloudVPNSetupWindowController: CloudVPNSetupWindowController?
     var cloudOperations: CloudOperationRecorder?
     var cloudDiagnosticsWindowController: NSWindowController?
     /// The in-flight sign-out teardown of that tunnel, so a second sign-out
@@ -2548,18 +2549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
         }
-        let cloudUploader = CloudTelemetryUploader(
-            auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
-        )
-        let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
-            coordinator?.authenticatedSessionIdentity
-        })
-        self.cloudOperations = cloudOperations
-        let cloudTunnel = makeCloudTunnelCoordinator()
-        cloudTunnelCoordinator = cloudTunnel
-        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = cloudTunnel
-        VMClient.bootstrap(auth: auth.coordinator, operations: cloudOperations)
-        TerminalController.shared.cloudTunnel = cloudTunnel
+        let cloudOperations = configureCloudServices(auth: auth)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         CoderouterClient.bootstrap(auth: auth.coordinator)

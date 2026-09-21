@@ -1,6 +1,1756 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.vpn.setup.address.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To open a service from another app, bind it to 0.0.0.0 or the machine’s private address. Services bound only to 127.0.0.1 remain accessible inside cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Maschine hat eine eigene private IP. Zwei Maschinen können beide Port 3000 verwenden, etwa 10.40.0.10:3000 und 10.40.0.11:3000. Klicken Sie nach dem Verbinden mit der rechten Maustaste auf einen Cloud-Port und wählen Sie URL der privaten Adresse kopieren. Diese Adressen sind privat und keine öffentlichen Freigabelinks."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque machine a sa propre IP privée. Deux machines peuvent utiliser le port 3000, par exemple 10.40.0.10:3000 et 10.40.0.11:3000. Après connexion, faites un clic droit sur un port Cloud et choisissez Copier l’URL de l’adresse privée. Ces adresses sont privées, ce ne sont pas des liens publics de partage."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada máquina tiene su propia IP privada. Dos máquinas pueden usar el puerto 3000, como 10.40.0.10:3000 y 10.40.0.11:3000. Después de conectar, haz clic derecho en un puerto Cloud y elige Copiar URL de dirección privada. Estas direcciones son privadas, no enlaces públicos para compartir."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各マシンには個別のプライベートIPがあります。2台のマシンがどちらもポート3000を使えます（例：10.40.0.10:3000と10.40.0.11:3000）。接続後にCloudポートを右クリックし、「プライベートアドレスURLをコピー」を選びます。これらはプライベートアドレスで、公開共有リンクではありません。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台机器都有自己的私有 IP。两台机器可以同时使用端口 3000，例如 10.40.0.10:3000 和 10.40.0.11:3000。连接后右键点击 Cloud 端口，选择“复制私有地址 URL”。这些地址是私有地址，不是公开分享链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台機器都有自己的私有 IP。兩台機器可以同時使用連接埠 3000，例如 10.40.0.10:3000 和 10.40.0.11:3000。連線後對 Cloud 連接埠按右鍵，選擇「複製私有位址 URL」。這些位址是私有位址，不是公開分享連結。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 머신에는 고유한 비공개 IP가 있습니다. 두 머신 모두 포트 3000을 사용할 수 있습니다(예: 10.40.0.10:3000 및 10.40.0.11:3000). 연결 후 Cloud 포트를 오른쪽 클릭하고 비공개 주소 URL 복사를 선택하세요. 이 주소는 비공개이며 공개 공유 링크가 아닙니다."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لكل جهاز عنوان IP خاص به. يمكن لجهازين استخدام المنفذ 3000، مثل 10.40.0.10:3000 و10.40.0.11:3000. بعد الاتصال، انقر بزر الماوس الأيمن على منفذ Cloud واختر نسخ رابط العنوان الخاص. هذه عناوين خاصة وليست روابط مشاركة عامة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaka mašina ima svoju privatnu IP adresu. Dvije mašine mogu koristiti port 3000, na primjer 10.40.0.10:3000 i 10.40.0.11:3000. Nakon povezivanja kliknite desnim dugmetom na Cloud port i izaberite Kopiraj URL privatne adrese. Ovo su privatne adrese, a ne javne veze za dijeljenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver maskine har sin egen private IP. To maskiner kan begge bruge port 3000, f.eks. 10.40.0.10:3000 og 10.40.0.11:3000. Højreklik på en Cloud-port efter tilslutning, og vælg Kopiér URL til privat adresse. Adresserne er private, ikke offentlige delelinks."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni macchina ha il proprio IP privato. Due macchine possono usare entrambe la porta 3000, ad esempio 10.40.0.10:3000 e 10.40.0.11:3000. Dopo la connessione fai clic destro su una porta Cloud e scegli Copia URL indirizzo privato. Sono indirizzi privati, non link pubblici."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីននីមួយៗមាន IP ឯកជនផ្ទាល់ខ្លួន។ ម៉ាស៊ីនពីរអាចប្រើច្រក 3000 ដូចគ្នា ឧទាហរណ៍ 10.40.0.10:3000 និង 10.40.0.11:3000។ បន្ទាប់ពីភ្ជាប់ ចុចខាងស្តាំលើច្រក Cloud ហើយជ្រើស ចម្លង URL អាសយដ្ឋានឯកជន។ ទាំងនេះជាអាសយដ្ឋានឯកជន មិនមែនតំណចែករំលែកសាធារណៈទេ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver maskin har sin egen private IP. To maskiner kan bruke port 3000, for eksempel 10.40.0.10:3000 og 10.40.0.11:3000. Høyreklikk en Cloud-port etter tilkobling og velg Kopier URL for privat adresse. Adressene er private, ikke offentlige delingslenker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Każda maszyna ma własny prywatny adres IP. Dwie maszyny mogą używać portu 3000, na przykład 10.40.0.10:3000 i 10.40.0.11:3000. Po połączeniu kliknij prawym przyciskiem port Cloud i wybierz Kopiuj URL prywatnego adresu. To prywatne adresy, nie publiczne linki udostępniania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada máquina tem seu próprio IP privado. Duas máquinas podem usar a porta 3000, por exemplo 10.40.0.10:3000 e 10.40.0.11:3000. Depois de conectar, clique com o botão direito em uma porta Cloud e escolha Copiar URL do endereço privado. Esses endereços são privados, não links públicos de compartilhamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У каждой машины свой частный IP. Две машины могут использовать порт 3000, например 10.40.0.10:3000 и 10.40.0.11:3000. После подключения щёлкните правой кнопкой мыши порт Cloud и выберите Скопировать URL частного адреса. Это частные адреса, а не публичные ссылки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แต่ละเครื่องมี IP ส่วนตัวของตนเอง สองเครื่องสามารถใช้พอร์ต 3000 ได้ เช่น 10.40.0.10:3000 และ 10.40.0.11:3000 หลังเชื่อมต่อ คลิกขวาที่พอร์ต Cloud แล้วเลือกคัดลอก URL ที่อยู่ส่วนตัว ที่อยู่เหล่านี้เป็นส่วนตัว ไม่ใช่ลิงก์สาธารณะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her makinenin kendi özel IP’si vardır. İki makine 3000 bağlantı noktasını kullanabilir; örneğin 10.40.0.10:3000 ve 10.40.0.11:3000. Bağlandıktan sonra bir Cloud portuna sağ tıklayın ve Özel Adres URL’sini Kopyala’yı seçin. Bunlar özel adreslerdir, herkese açık paylaşım bağlantıları değildir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожна машина має власну приватну IP-адресу. Дві машини можуть використовувати порт 3000, наприклад 10.40.0.10:3000 і 10.40.0.11:3000. Після підключення клацніть правою кнопкою миші порт Cloud і виберіть Копіювати URL приватної адреси. Це приватні адреси, а не публічні посилання для спільного доступу."
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbrechen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلغاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkaži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuller"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះបង់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avbryt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anuluj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยกเลิก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İptal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect Cloud VPN"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VPN verbinden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecter le VPN Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar VPN de Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPNに接続"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 Cloud VPN"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接 Cloud VPN"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN 연결"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توصيل VPN الخاص بـ Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poveži Cloud VPN"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbind Cloud VPN"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connetti VPN Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្ជាប់ Cloud VPN"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble til Cloud VPN"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połącz z Cloud VPN"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectar Cloud VPN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключить Cloud VPN"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อ Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN’e bağlan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключити Cloud VPN"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectada"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povezano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbundet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានភ្ជាប់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilkoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อมต่อแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключено"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trennen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "断开连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中斷連線"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 해제"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekini vezu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afbryd"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnetti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្តាច់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koble fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozłącz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desconectar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัดการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantıyı kes"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Від’єднати"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.entry.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional private IP access for other apps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionaler Zugriff auf private IPs für andere Apps"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès facultatif aux IP privées pour les autres apps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso opcional a IP privadas para otras apps"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのアプリからプライベートIPへアクセスする任意の設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为其他应用提供可选的私有 IP 访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為其他 App 提供選用的私有 IP 存取"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱의 비공개 IP 접근을 위한 선택 설정"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصول اختياري إلى عناوين IP الخاصة للتطبيقات الأخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcionalni pristup privatnim IP adresama za druge aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfri privat IP-adgang for andre apps"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso facoltativo agli IP privati per altre app"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលប្រើ IP ឯកជនសម្រាប់កម្មវិធីផ្សេងៗជាជម្រើស"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valgfri privat IP-tilgang for andre apper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcjonalny dostęp innych aplikacji do prywatnych adresów IP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso opcional a IPs privados para outros apps"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необязательный доступ других приложений к частным IP"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึง IP ส่วนตัวสำหรับแอปอื่นแบบไม่บังคับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer uygulamalar için isteğe bağlı özel IP erişimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Необов’язковий доступ інших програм до приватних IP"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs attention"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktion erforderlich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Action requise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requiere atención"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要处理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要處理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조치 필요"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب إجراءً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna pažnja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver opmærksomhed"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede attenzione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការការយកចិត្តទុកដាក់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krever handling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga uwagi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer atenção"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется действие"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องดำเนินการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İlgilenilmeli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібна увага"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivada"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已關閉"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "꺼짐"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متوقف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выключено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимкнено"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.openUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN setup is unavailable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VPN-Einrichtung ist nicht verfügbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration du VPN Cloud est indisponible"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración de VPN de Cloud no está disponible"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN設定は利用できません"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN 设置不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用 Cloud VPN 設定"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN 설정을 사용할 수 없습니다"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد VPN الخاص بـ Cloud غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podešavanje Cloud VPN-a nije dostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN-opsætning er ikke tilgængelig"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configurazione VPN Cloud non è disponibile"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំ Cloud VPN មិនអាចប្រើបាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN-oppsett er ikke tilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja Cloud VPN jest niedostępna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configuração do Cloud VPN não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка Cloud VPN недоступна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตั้งค่า Cloud VPN ไม่พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN kurulumu kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування Cloud VPN недоступне"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.permission.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabling cmux VPN adds a VPN configuration for your Cloud network. macOS may ask you to approve its network extension in System Settings."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die VPN-Software ist in cmux enthalten. Sie brauchen keine weitere App. macOS kann bei der Genehmigung Ihr Passwort oder Touch ID verlangen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le logiciel VPN est inclus dans cmux. Aucune autre app n’est nécessaire. macOS peut demander votre mot de passe ou Touch ID lors de l’autorisation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El software VPN está incluido en cmux. No necesitas otra app. macOS puede solicitar tu contraseña o Touch ID durante la autorización."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPNソフトウェアはcmuxに含まれています。別のアプリは不要です。承認時にmacOSがパスワードまたはTouch IDを求めることがあります。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已包含 VPN 软件，无需其他应用。批准时，macOS 可能要求您输入密码或使用触控 ID。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已包含 VPN 軟體，不需要其他 App。核准時，macOS 可能要求您輸入密碼或使用 Touch ID。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN 소프트웨어는 cmux에 포함되어 있습니다. 다른 앱은 필요하지 않습니다. 승인 시 macOS에서 암호 또는 Touch ID를 요청할 수 있습니다."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "برنامج VPN مضمن في cmux. لا تحتاج إلى تطبيق آخر. قد يطلب macOS كلمة المرور أو Touch ID أثناء الموافقة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN softver je uključen u cmux. Nije potrebna druga aplikacija. macOS može zatražiti lozinku ili Touch ID tokom odobravanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN-softwaren er inkluderet i cmux. Du behøver ingen anden app. macOS kan bede om din adgangskode eller Touch ID under godkendelsen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il software VPN è incluso in cmux. Non serve un’altra app. macOS potrebbe chiedere la password o Touch ID durante l’autorizzazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី VPN មាននៅក្នុង cmux។ អ្នកមិនត្រូវការកម្មវិធីផ្សេងទៀតទេ។ macOS អាចស្នើពាក្យសម្ងាត់ ឬ Touch ID ក្នុងពេលអនុម័ត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN-programvaren er inkludert i cmux. Du trenger ingen annen app. macOS kan be om passord eller Touch ID under godkjenningen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oprogramowanie VPN jest zawarte w cmux. Nie potrzebujesz innej aplikacji. macOS może poprosić o hasło lub Touch ID podczas zatwierdzania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O software VPN vem incluído no cmux. Você não precisa de outro app. O macOS pode pedir sua senha ou Touch ID durante a aprovação."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN-программа уже входит в cmux. Другие приложения не нужны. Во время подтверждения macOS может запросить пароль или Touch ID."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซอฟต์แวร์ VPN รวมอยู่ใน cmux แล้ว ไม่ต้องใช้แอปอื่น macOS อาจขอรหัสผ่านหรือ Touch ID ระหว่างการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN yazılımı cmux içinde bulunur. Başka bir uygulama gerekmez. macOS onay sırasında parolanızı veya Touch ID’yi isteyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Програмне забезпечення VPN входить до cmux. Інша програма не потрібна. Під час схвалення macOS може попросити пароль або Touch ID."
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.status.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private network status"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status des privaten Netzwerks"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "État du réseau privé"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado de la red privada"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワークの状態"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私有网络状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私有網路狀態"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비공개 네트워크 상태"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الشبكة الخاصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status privatne mreže"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for privat netværk"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato della rete privata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពបណ្តាញឯកជន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for privat nettverk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stan sieci prywatnej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status da rede privada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояние частной сети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะเครือข่ายส่วนตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel ağ durumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стан приватної мережі"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-VPN"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN de Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドVPN"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端 VPN"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端 VPN"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 VPN"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شبكة Cloud الخاصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VPN Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud VPN"
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This copy of cmux does not include a signed VPN extension. Use a cmux release with Cloud VPN support. Cloud terminals, Ports, and Desktop remain available without the VPN."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese cmux-Version enthält keine signierte VPN-Erweiterung. Verwenden Sie eine cmux-Version mit Cloud-VPN-Unterstützung. Cloud-Terminals, Ports und Desktop bleiben ohne VPN verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette copie de cmux ne contient pas d’extension VPN signée. Utilisez une version de cmux qui prend en charge le VPN Cloud. Les terminaux Cloud, Ports et Bureau restent disponibles sans VPN."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta copia de cmux no incluye una extensión VPN firmada. Usa una versión de cmux compatible con VPN de Cloud. Los terminales Cloud, Puertos y Escritorio siguen disponibles sin VPN."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このcmuxには署名済みのVPN機能拡張が含まれていません。Cloud VPN対応のcmuxリリースを使用してください。Cloudのターミナル、ポート、デスクトップはVPNなしでも使えます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 副本未包含已签名的 VPN 扩展。请使用支持 Cloud VPN 的 cmux 版本。Cloud 终端、端口和桌面无需 VPN 仍可使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 副本未包含已簽署的 VPN 延伸功能。請使用支援 Cloud VPN 的 cmux 版本。Cloud 終端機、連接埠和桌面不需要 VPN 仍可使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux에는 서명된 VPN 확장이 포함되어 있지 않습니다. Cloud VPN을 지원하는 cmux 릴리스를 사용하세요. Cloud 터미널, 포트 및 데스크탑은 VPN 없이도 사용할 수 있습니다."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتضمن هذه النسخة من cmux امتداد VPN موقعًا. استخدم إصدار cmux يدعم VPN الخاص بـ Cloud. تظل طرفيات Cloud والمنافذ وسطح المكتب متاحة بدون VPN."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova kopija cmux-a nema potpisani VPN dodatak. Koristite cmux izdanje sa Cloud VPN podrškom. Cloud terminali, portovi i radna površina ostaju dostupni bez VPN-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-kopi indeholder ikke en signeret VPN-udvidelse. Brug en cmux-udgave med Cloud VPN-understøttelse. Cloud-terminaler, porte og skrivebord er stadig tilgængelige uden VPN."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa copia di cmux non include un’estensione VPN firmata. Usa una versione di cmux con supporto Cloud VPN. Terminali Cloud, porte e desktop restano disponibili senza VPN."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ច្បាប់នេះមិនមានផ្នែកបន្ថែម VPN ដែលបានចុះហត្ថលេខាទេ។ ប្រើកំណែ cmux ដែលគាំទ្រ Cloud VPN។ Terminal, Ports និង Desktop របស់ Cloud នៅតែប្រើបានដោយគ្មាន VPN។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne cmux-kopien har ingen signert VPN-utvidelse. Bruk en cmux-versjon med Cloud VPN-støtte. Cloud-terminaler, porter og skrivebord er tilgjengelige uten VPN."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta kopia cmux nie zawiera podpisanego rozszerzenia VPN. Użyj wydania cmux z obsługą Cloud VPN. Terminale Cloud, porty i pulpit pozostają dostępne bez VPN."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cópia do cmux não inclui uma extensão VPN assinada. Use uma versão do cmux com suporte a Cloud VPN. Terminais Cloud, portas e área de trabalho continuam disponíveis sem VPN."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этой копии cmux нет подписанного VPN-расширения. Используйте выпуск cmux с поддержкой Cloud VPN. Cloud-терминалы, порты и рабочий стол доступны без VPN."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux รุ่นนี้ไม่มีส่วนขยาย VPN ที่ลงนามแล้ว ใช้รุ่น cmux ที่รองรับ Cloud VPN เทอร์มินัล Cloud พอร์ต และเดสก์ท็อปยังใช้ได้โดยไม่ต้องมี VPN"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu cmux kopyasında imzalı VPN uzantısı bulunmuyor. Cloud VPN destekli bir cmux sürümü kullanın. Cloud terminalleri, portlar ve masaüstü VPN olmadan da kullanılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця копія cmux не містить підписаного VPN-розширення. Використовуйте випуск cmux із підтримкою Cloud VPN. Cloud-термінали, порти й робочий стіл доступні без VPN."
+          }
+        }
+      }
+    },
+    "cloud.vpn.setup.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En espera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대기 중"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد الانتظار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čekanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oczekiwanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування"
+          }
+        }
+      }
+    },
     "machines.workspace.noMachines": {
       "extractionState": "manual",
       "localizations": {

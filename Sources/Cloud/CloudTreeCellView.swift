@@ -77,7 +77,8 @@ final class CloudTreeCellView: NSTableCellView {
         }()
         displayHost.isHidden = status != nil
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
+            CloudTreeRowContentView(kind: node.kind, style: style,
+                openVPNSetup: { portAction(.setupVPN, node.machine) })
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
@@ -193,13 +194,14 @@ final class CloudTreeCellView: NSTableCellView {
     }
 }
 
-/// A hosting view that is invisible to hit testing, so the outline row beneath
-/// it owns selection, drag, double-click, and the context menu.
+/// Ordinary content leaves events to the outline; the native VPN help button
+/// retains its own click, keyboard, and accessibility action.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // The outline owns all ordinary row interaction. Returning nil here is
-        // what keeps a header click from being swallowed by the SwiftUI host.
-        return nil
+        // AppKit owns coordinate conversion; only the native help control
+        // intercepts a hit. Labels still leave selection and expansion to the outline.
+        guard let hit = super.hitTest(point), hit is CloudVPNHelpButton else { return nil }
+        return hit
     }
 }
 

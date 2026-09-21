@@ -59,7 +59,10 @@ struct CloudPortsVPNAffordanceTests {
         #expect(actions == [.setupVPN])
         cell.configure(node: CloudTreeNode(id: "browsers", kind: .browsersGroup(machine: .cloud("test"))),
             machineActions: machineActions(), nodeActions: nodeActions())
-        #expect(button.isHidden, "Reusing a Ports cell cannot leak VPN controls into another section")
+        cell.layoutSubtreeIfNeeded()
+        #expect(descendants(of: cell).allSatisfy {
+            $0.accessibilityIdentifier() != "CloudPortsVPNHelpButton" || $0.isHiddenOrHasHiddenAncestor
+        }, "Reusing a Ports cell cannot leak VPN controls into another section")
     }
 
     @Test("Unrequested discovery offers refresh independently of VPN setup")

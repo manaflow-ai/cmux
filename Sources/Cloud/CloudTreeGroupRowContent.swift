@@ -6,6 +6,7 @@ struct CloudTreeGroupRowContent: View {
     let title: String
     let count: Int?
     let style: CloudTreeStyle
+    var openVPNSetup: (() -> Void)? = nil
 
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
@@ -22,6 +23,10 @@ struct CloudTreeGroupRowContent: View {
                         .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
                         .foregroundStyle(.tertiary)
                 }
+            }
+            if let openVPNSetup {
+                CloudVPNHelpButtonView(openSetup: openVPNSetup)
+                    .frame(width: 24, height: 24)
             }
             Spacer(minLength: 0)
         }

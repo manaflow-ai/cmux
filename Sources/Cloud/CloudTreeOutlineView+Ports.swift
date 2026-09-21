@@ -8,9 +8,7 @@ extension CloudTreeOutlineView.Coordinator {
         case .none: break
         case .refresh: nodeActions.refreshMachine(machineID)
         case .setupVPN:
-            Task { @MainActor in
-                _ = await AppDelegate.shared?.cloudTunnelCoordinator?.beginUp(pin: true)
-            }
+            AppDelegate.shared?.openCloudVPNSetupWindow()
         case .openMachine, .openShell: openMachine(machine)
         }
     }
