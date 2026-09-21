@@ -87,6 +87,34 @@ class ProductPublicationTests(unittest.TestCase):
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
         self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
 
+    def test_app_host_consumers_do_not_prepare_build_toolchains(self):
+        app_host = self.workflow["jobs"]["app-host-unit-tests"]
+        step_names = [step["name"] for step in app_host["steps"]]
+        run_text = "\n".join(step.get("run", "") for step in app_host["steps"])
+
+        # The admission artifact contains the app, test bundles, linked runtime
+        # products, and PackageFrameworks. Consumer shards should launch tests,
+        # not recreate producer inputs or build an independent package product.
+        for name in (
+            "Capture Ghostty revision",
+            "Cache GhosttyKit.xcframework",
+            "Download pre-built GhosttyKit.xcframework",
+            "Install Rust",
+            "Run Ghostty split-theme appearance regression",
+        ):
+            self.assertNotIn(name, step_names)
+        self.assertNotIn("CmuxTerminalCore-Package", run_text)
+        self.assertNotIn("build-for-testing", run_text)
+
+        # CmuxTerminalCore package coverage remains a real required gate in the
+        # package lane, so deleting the app-host rebuild cannot erase the tests.
+        package_job = self.workflow["jobs"]["swift-package-tests"]
+        package_run = next(
+            step["run"] for step in package_job["steps"]
+            if step.get("name") == "Run Swift package unit tests"
+        )
+        self.assertIn("CmuxTerminalCore", package_run)
+
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
         for name in ("Compile app-host test product", "Validate Swift warning budget",
