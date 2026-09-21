@@ -554,6 +554,40 @@ for regression in \
   fi
 done
 
+# A caller-supplied maximum allowance is authoritative. The wrapper may fill
+# the missing enable/default options, but it must not append a later maximum.
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/caller-timeout-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/caller-timeout-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/caller-timeout-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/caller-timeout-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" \
+    test -maximum-test-execution-time-allowance 120 \
+    >"$TMP_DIR/caller-timeout-output.log" 2>&1
+caller_timeout_status=$?
+set -e
+
+if [ "$caller_timeout_status" -ne 0 ] \
+  || [ "$(grep -Fxc -- '-maximum-test-execution-time-allowance' "$TMP_DIR/caller-timeout-xcodebuild-args.log" || true)" -ne 1 ] \
+  || ! awk '
+    previous == "-maximum-test-execution-time-allowance" && $0 == "120" { found = 1 }
+    { previous = $0 }
+    END { exit found ? 0 : 1 }
+  ' "$TMP_DIR/caller-timeout-xcodebuild-args.log"; then
+  cat "$TMP_DIR/caller-timeout-output.log"
+  cat "$TMP_DIR/caller-timeout-xcodebuild-args.log" 2>/dev/null || true
+  echo "FAIL: wrapper must preserve the caller-supplied maximum test allowance"
+  exit 1
+fi
+
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
@@ -602,6 +636,11 @@ if find "$RUNNER_TEMP_DIR" -maxdepth 1 \
   -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-2.meta' -print -quit \
   | grep -q .; then
   echo "FAIL: blocked retry created a second attempt artifact"
+  exit 1
+fi
+if find "$RUNNER_TEMP_DIR" -maxdepth 1 -name 'cmux-app-host-xcodebuild-*-pid-$-*' -print -quit \
+  | grep -q .; then
+  echo "FAIL: per-invocation artifact stem contains a literal dollar sign instead of the process id"
   exit 1
 fi
 
