@@ -429,11 +429,17 @@ struct ConversationSidebarView: View {
             )
         }
 
+        // SessionIndexStore maintains its filter snapshot when the indexed
+        // source changes. Keep provider-menu construction on that bounded
+        // snapshot instead of rescanning expanded history during every body
+        // evaluation; live rows are added separately for newly-running agents.
+        let cachedHistoryAgents = store.agentFilterOptions.compactMap {
+            SessionAgent(rawValue: $0.id)
+        }
         let providerOptions = projection.providerFilterOptions(
             agents: (live + fallbackOpen).map(\.agent)
-                + store.entries.map(\.agent)
-                + expandedHistory.map(\.agent)
-                + searchResults.map(\.agent),
+                + cachedHistoryAgents
+                + store.agentOrder,
             preferredOrder: store.agentOrder,
             selectedProviderID: selectedProviderID
         )
