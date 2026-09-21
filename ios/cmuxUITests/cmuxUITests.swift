@@ -7324,6 +7324,23 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceDetailToolbarDoesNotOverflowWithChangesChip() async throws {
+        let server = try MobileSyncMockHostServer(advertisesWorkspaceChanges: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+
+        XCTAssertTrue(
+            app.buttons["MobileChangesButton"].waitForExistence(timeout: 8),
+            "The workspace changes action must be visible in the detail bar."
+        )
+        assertToolbarOverflowButtonDoesNotExist(in: app)
+        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].exists)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
         let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
@@ -10444,6 +10461,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
     private let advertisesWorkspaceMetadata: Bool
+    private let advertisesWorkspaceChanges: Bool
     private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
@@ -10532,6 +10550,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
         advertisesWorkspaceMetadata: Bool = false,
+        advertisesWorkspaceChanges: Bool = false,
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
@@ -10546,6 +10565,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
         self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
+        self.advertisesWorkspaceChanges = advertisesWorkspaceChanges
         self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
@@ -11074,6 +11094,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "mobile.workspace.changes.summary":
+            result = workspaceChangesSummaryResult(params: params)
         case "caffeine.status":
             result = ["enabled": caffeineEnabled]
         case "caffeine.set":
@@ -11161,6 +11183,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
         if advertisesWorkspaceMetadata {
             capabilities.append("workspace.metadata.v1")
+        }
+        if advertisesWorkspaceChanges {
+            capabilities.append("workspace.changes.v1")
         }
         if advertisesCaffeineControl {
             capabilities.append("caffeine.control.v1")
@@ -11370,6 +11395,24 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                             "is_focused": terminal.id == selectedTerminalID,
                         ] as [String: Any]
                     },
+                ] as [String: Any]
+            },
+        ]
+    }
+
+    private func workspaceChangesSummaryResult(params: [String: Any]) -> [String: Any] {
+        let workspaceIDs = params["workspace_ids"] as? [String] ?? []
+        return [
+            "summaries": workspaceIDs.map { workspaceID in
+                [
+                    "workspace_id": workspaceID,
+                    "is_repo": true,
+                    "repo_root": "/Users/test/cmux",
+                    "branch": "main",
+                    "base_ref": "origin/main",
+                    "files_changed": 461,
+                    "additions": 461,
+                    "deletions": 65,
                 ] as [String: Any]
             },
         ]
