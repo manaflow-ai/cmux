@@ -139,6 +139,34 @@ def inventory(derived):
     return sorted(directories, key=lambda e: e["path"]), sorted(entries, key=lambda e: e["path"])
 
 
+def resolve_link(path, table):
+    entry = table[path]
+    target = entry.get("target")
+    if not target or target.startswith("/"):
+        raise ValueError(f"absolute/empty product link: {path}")
+    pending = list(PurePosixPath(path).parent.parts) + target.split("/")
+    resolved, visited = [], set()
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if len(resolved) <= 2:
+                raise ValueError(f"escaping product link: {path}")
+            resolved.pop()
+            continue
+        resolved.append(part)
+        current = "/".join(resolved)
+        nested = table.get(current, {}).get("target")
+        if nested is not None:
+            if current in visited or len(visited) >= 40 or nested.startswith("/"):
+                raise ValueError(f"cyclic/absolute product link: {path}")
+            visited.add(current)
+            resolved.pop()
+            pending = nested.split("/") + pending
+    return valid_path("/".join(resolved))
+
+
 def validate_tree(directories, entries):
     table = {}
     for entry in directories + entries:
@@ -156,29 +184,7 @@ def validate_tree(directories, entries):
         if path != ROOT and (str(PurePosixPath(path).parent) not in table or "type" in table[str(PurePosixPath(path).parent)]):
             raise ValueError(f"non-directory product ancestor: {path}")
         if entry.get("type") == "symlink":
-            pending = list(PurePosixPath(path).parent.parts) + entry["target"].split("/")
-            if not entry["target"] or entry["target"].startswith("/"):
-                raise ValueError(f"absolute/empty product link: {path}")
-            resolved, visited = [], set()
-            while pending:
-                part = pending.pop(0)
-                if part in ("", "."):
-                    continue
-                if part == "..":
-                    if len(resolved) <= 2:
-                        raise ValueError(f"escaping product link: {path}")
-                    resolved.pop()
-                    continue
-                resolved.append(part)
-                current = "/".join(resolved)
-                target = table.get(current, {}).get("target")
-                if target is not None:
-                    if current in visited or len(visited) >= 40 or target.startswith("/"):
-                        raise ValueError(f"cyclic/absolute product link: {path}")
-                    visited.add(current)
-                    resolved.pop()
-                    pending = target.split("/") + pending
-            valid_path("/".join(resolved))
+            resolve_link(path, table)
         elif "type" in entry and entry["type"] != "file":
             raise ValueError(f"unsupported manifest entry: {path}")
 
@@ -260,6 +266,7 @@ def verify_manifest(manifest, directory, expected, selected=None):
     entries = [entry for layer in manifest["layers"] for entry in layer["entries"]]
     validate_tree(directories, entries)
     directory_table = {x["path"]: x for x in directories}
+    full_table = {x["path"]: x for x in directories + entries}
     selected_directories = set()
     selected_entries = []
     for layer in manifest["layers"]:
@@ -297,6 +304,12 @@ def verify_manifest(manifest, directory, expected, selected=None):
             raise ValueError(f"missing archive entries: {layer['name']}")
         selected_entries.extend(layer["entries"])
     subset_directories = [entry for entry in directories if entry["path"] in selected_directories]
+    subset_paths = {entry["path"] for entry in subset_directories + selected_entries}
+    for entry in selected_entries:
+        if entry.get("type") == "symlink":
+            resolved = resolve_link(entry["path"], full_table)
+            if resolved in full_table and resolved not in subset_paths:
+                raise ValueError(f"selected layers break product symlink closure: {entry['path']}")
     validate_tree(subset_directories, selected_entries)
     return subset_directories, sorted(selected_entries, key=lambda entry: entry["path"])
 
