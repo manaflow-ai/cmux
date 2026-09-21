@@ -68,6 +68,6 @@ dbTest("journal binding rejects stale generation, machine, account and lineage b
 
 dbTest("schema enforces one runtime per VM and positive placement generations", async () => {
   const placement = await fixture();
-  await expect(db`insert into cloud_runtimes (owner_team_id, machine_id) values (${owner}, ${placement.machineId})`).rejects.toMatchObject({ code: '23505' });
-  await expect(db`update cloud_runtimes set placement_generation = 0 where id = ${placement.runtimeId}`).rejects.toMatchObject({ code: '23514' });
+  await expect(Promise.resolve(db`insert into cloud_runtimes (owner_team_id, machine_id) values (${owner}, ${placement.machineId})`)).rejects.toMatchObject({ code: '23505' });
+  await expect(Promise.resolve(db`update cloud_runtimes set placement_generation = 0 where id = ${placement.runtimeId}`)).rejects.toMatchObject({ code: '23514' });
 });
