@@ -1621,6 +1621,19 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 
+def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
+    app_host = workflow_job_block("app-host-unit-tests")
+
+    assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
+    assert "- name: Collect app-host failure diagnostics" in app_host
+    assert "- name: Upload app-host failure diagnostics" in app_host
+    assert "cmux-app-host-xcodebuild-*.meta" in app_host
+    assert "cmux-app-host-xcresults" in app_host
+    assert ".local/state/cmux/crash" in app_host
+    assert "Library/Logs/DiagnosticReports" in app_host
+    assert "if: ${{ failure() }}" in app_host
+
+
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
@@ -1815,6 +1828,10 @@ def run_focused_app_host_step(
             ROOT / "scripts/ci/require_selected_test_execution.sh",
             ci_scripts / "require_selected_test_execution.sh",
         )
+        shutil.copy2(
+            ROOT / "scripts/ci/run-and-capture.sh",
+            ci_scripts / "run-and-capture.sh",
+        )
         outcomes_file = root / "outcomes"
         outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
         counter = root / "invocations"
@@ -1881,20 +1898,15 @@ esac
         return result, invocations
 
 
-def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
-    # The close suite crashes once and passes on its rerun; the isolated focus
-    # and placement suites then pass, for four invocations in total.
-    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
+def test_remote_tmux_mirror_gate_keeps_a_crash_red_without_rerunning() -> None:
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass"])
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert invocations == 4, result.stdout
-    assert "rerunning the suite once" in result.stdout
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
-    assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
+    assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
+def test_remote_tmux_mirror_gate_keeps_an_assertion_failure_red() -> None:
     result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
 
     assert result.returncode == 65, result.stdout + result.stderr
@@ -1902,11 +1914,14 @@ def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
     assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
-    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
+def test_remote_tmux_mirror_gate_runs_each_suite_once_on_success() -> None:
+    result, invocations = run_focused_app_host_step(["pass", "pass", "pass"])
 
-    assert result.returncode == 65, result.stdout + result.stderr
-    assert invocations == 2, result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 3, result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests") == 1
 
 
 def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:
