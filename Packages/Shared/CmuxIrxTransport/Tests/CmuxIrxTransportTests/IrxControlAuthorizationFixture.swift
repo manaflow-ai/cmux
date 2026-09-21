@@ -52,7 +52,7 @@ struct IrxControlAuthorizationFixture: Sendable {
         }
         do {
             let connection = try await client.connect(
-                addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+                addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol().alpnData)
             let clientConnection = IrxConnection(connection: connection, role: .dialer, journal: journal)
             let (_, clientControl) = try await IrxAdmission().performClient(
                 connection: clientConnection, grantJWS: "control-test-grant", journal: journal)
