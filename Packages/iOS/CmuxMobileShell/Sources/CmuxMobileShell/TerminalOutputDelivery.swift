@@ -17,7 +17,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case theme(MobileTerminalRenderGridFrame)
     }
 
-    let receivedAtNanos = DispatchTime.now().uptimeNanoseconds
+    let receivedAtNanos: UInt64
 
     private var payload: Payload
     var replacementScope: ReplacementScope?
@@ -63,8 +63,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replacementScope: ReplacementScope? = nil,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         endSequence: UInt64? = nil,
-        requiresVerifiedReplay: Bool = false
+        requiresVerifiedReplay: Bool = false,
+        receivedAtNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
+        self.receivedAtNanos = receivedAtNanos
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
@@ -76,6 +78,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         theme frame: MobileTerminalRenderGridFrame,
         requiresVerifiedReplay: Bool = false
     ) {
+        self.receivedAtNanos = DispatchTime.now().uptimeNanoseconds
         self.payload = .theme(frame)
         self.replacementScope = .terminalTheme
         self.viewportPolicy = nil
@@ -90,6 +93,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         requiresVerifiedReplay: Bool = false
     ) {
+        self.receivedAtNanos = DispatchTime.now().uptimeNanoseconds
         self.payload = .renderGrid(frame)
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
@@ -128,15 +132,28 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         guard case .renderGrid(let frame) = payload else { return nil }
         return frame
     }
+
+    /// Raw PTY bytes that can share one renderer apply with adjacent raw output.
+    var rawBytesForBatching: Data? {
+        guard case .bytes(let bytes) = payload,
+              replacementScope == nil,
+              viewportPolicy == nil,
+              !requiresVerifiedReplay else {
+            return nil
+        }
+        return bytes
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
-/// Raw byte chunks are nonreplaceable barriers. Render-grid chunks that repaint
+/// Raw byte chunks preserve ordering against other delivery kinds, while adjacent
+/// raw backlog may share one bounded renderer apply. Render-grid chunks that repaint
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
     static let maxPendingDeliveries = 128
+    static let maxRawByteBatchByteCount = 64 * 1_024
     private var inFlight = false
     private var inFlightDelivery: TerminalOutputDelivery?
     private var pending: [TerminalOutputDelivery] = []
@@ -184,8 +201,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
             pendingHeadIndex = 0
             return nil
         }
-        let next = pending[pendingHeadIndex]
-        pendingHeadIndex += 1
+        let next = takeNextPendingDelivery()
         inFlightDelivery = next
         compactPendingStorageIfNeeded()
         return next
@@ -236,6 +252,43 @@ struct TerminalOutputDeliveryQueue: Sendable {
             return
         }
         pending.append(delivery)
+    }
+
+    /// Removes the next pending delivery, batching adjacent plain raw PTY bytes.
+    private mutating func takeNextPendingDelivery() -> TerminalOutputDelivery {
+        let first = pending[pendingHeadIndex]
+        pendingHeadIndex += 1
+        guard let firstBytes = first.rawBytesForBatching else {
+            return first
+        }
+
+        var batchEndIndex = pendingHeadIndex
+        var totalByteCount = firstBytes.count
+        while batchEndIndex < pending.count,
+              let candidateBytes = pending[batchEndIndex].rawBytesForBatching,
+              totalByteCount + candidateBytes.count <= Self.maxRawByteBatchByteCount {
+            totalByteCount += candidateBytes.count
+            batchEndIndex += 1
+        }
+        guard batchEndIndex > pendingHeadIndex else {
+            return first
+        }
+
+        var bytes = Data()
+        bytes.reserveCapacity(totalByteCount)
+        bytes.append(firstBytes)
+        var endSequence = first.endSequence
+        for index in pendingHeadIndex..<batchEndIndex {
+            bytes.append(pending[index].bytes)
+            endSequence = pending[index].endSequence
+        }
+        pendingHeadIndex = batchEndIndex
+        return TerminalOutputDelivery(
+            bytes: bytes,
+            replaceable: false,
+            endSequence: endSequence,
+            receivedAtNanos: first.receivedAtNanos
+        )
     }
 
     private mutating func compactPendingStorageIfNeeded() {
