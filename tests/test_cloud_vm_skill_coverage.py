@@ -40,7 +40,7 @@ SKILL_FILES = [
     SKILL_DIR / "agents" / "openai.yaml",
     BUNDLED_SKILL,
 ]
-
+SKILL_FILES.extend(path for path in sorted(SKILL_DIR.rglob("*.md")) if path not in SKILL_FILES)
 # Verbs the dispatcher accepts but the usage line deliberately omits.
 USAGE_LINE_INTERNAL = {"ssh-attach"}
 
