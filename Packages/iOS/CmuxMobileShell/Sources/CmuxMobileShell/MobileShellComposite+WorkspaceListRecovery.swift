@@ -164,7 +164,19 @@ extension MobileShellComposite {
         forMacDeviceID macDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> UUID {
+        let requestedScope = macDeviceID.map {
+            (macDeviceID: $0, instanceTag: instanceTag)
+        } ?? workspaceListRecoveryTarget
         if workspaceListRecoveryActive {
+            let activeScopeMatches = workspaceListRecoveryOwnerID == requestedScope?.macDeviceID
+                && workspaceListRecoveryOwnerInstanceTag == requestedScope?.instanceTag
+            guard activeScopeMatches else {
+                cancelWorkspaceListRecovery()
+                return prepareWorkspaceListRecovery(
+                    forMacDeviceID: requestedScope?.macDeviceID,
+                    instanceTag: requestedScope?.instanceTag
+                )
+            }
             let recoveryGeneration = workspaceListRecoveryGeneration
             workspaceListRecoveryPreparedGeneration = recoveryGeneration
             if pullToRefreshTask != nil,
@@ -174,6 +186,15 @@ extension MobileShellComposite {
             return recoveryGeneration
         }
         if pullToRefreshTask != nil {
+            let pullScopeMatches = pullToRefreshOwnerID == requestedScope?.macDeviceID
+                && pullToRefreshOwnerInstanceTag == requestedScope?.instanceTag
+            guard pullScopeMatches else {
+                cancelWorkspaceListRecovery()
+                return prepareWorkspaceListRecovery(
+                    forMacDeviceID: requestedScope?.macDeviceID,
+                    instanceTag: requestedScope?.instanceTag
+                )
+            }
             let recoveryGeneration = pullToRefreshRecoveryGeneration
                 ?? pullToRefreshGeneration
             pullToRefreshRecoveryGeneration = recoveryGeneration
@@ -191,9 +212,7 @@ extension MobileShellComposite {
         workspaceListRecoveryPreparedGeneration = recoveryGeneration
         workspaceListRecoveryActive = true
         workspaceListRecoveryGeneration = recoveryGeneration
-        let recoveryScope = macDeviceID.map {
-            (macDeviceID: $0, instanceTag: instanceTag)
-        } ?? workspaceListRecoveryTarget
+        let recoveryScope = requestedScope
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
         workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
         workspaceListRecoveryConnectionGeneration = connectionGeneration

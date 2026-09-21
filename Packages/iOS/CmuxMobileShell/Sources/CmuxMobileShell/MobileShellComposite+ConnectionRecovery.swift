@@ -294,6 +294,17 @@ extension MobileShellComposite {
         guard let attempt else { return }
         if workspaceListRecoveryActive,
            workspaceListRecoveryWaitingForConnectionAttempt {
+            let currentRecoveryTarget = workspaceListRecoveryTarget
+            let recoveryOwnerMatches = currentRecoveryTarget?.macDeviceID
+                    == workspaceListRecoveryOwnerID
+                && currentRecoveryTarget?.instanceTag
+                    == workspaceListRecoveryOwnerInstanceTag
+            guard workspaceListRecoveryConnectionGeneration == connectionGeneration,
+                  recoveryOwnerMatches else {
+                workspaceListRecoveryWaitingForConnectionAttempt = false
+                workspaceListRecoveryConnectionAttemptID = nil
+                return
+            }
             workspaceListRecoveryConnectionAttemptID = attempt.id
             workspaceListRecoveryWaitingForConnectionAttempt = false
         }
