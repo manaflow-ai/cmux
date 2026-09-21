@@ -3,7 +3,7 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Tabs } from "@base-ui-components/react/tabs";
 import { useFormatter, useNow, useTranslations } from "next-intl";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "../../../../i18n/navigation";
 import { Modal } from "../../components/modal";
 import { CopyButton } from "../vault/copy-button";
@@ -35,6 +35,20 @@ export type SharedAccountsState =
   | { readonly kind: "migrationPending" }
   | { readonly kind: "notConfigured" }
   | { readonly kind: "error" };
+
+type CoderouterApiKeySummary = {
+  readonly id: string;
+  readonly keyPrefix: string;
+  readonly label: string;
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+};
+
+type IssuedCoderouterApiKey = Pick<
+  CoderouterApiKeySummary,
+  "id" | "keyPrefix" | "label" | "createdAt"
+> & { readonly key: string };
 
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
@@ -160,7 +174,231 @@ export function CoderouterAccountsSection({
       )}
 
       {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
+      <CoderouterApiKeysSection teamId={teamId} canManage={canManage} />
     </section>
+  );
+}
+
+function CoderouterApiKeysSection({
+  teamId,
+  canManage,
+}: {
+  readonly teamId: string;
+  readonly canManage: boolean;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const format = useFormatter();
+  const now = useNow();
+  const [keys, setKeys] = useState<readonly CoderouterApiKeySummary[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const [issued, setIssued] = useState<IssuedCoderouterApiKey | null>(null);
+
+  const fetchKeys = useCallback(async (): Promise<readonly CoderouterApiKeySummary[]> => {
+    const response = await fetch("/api/coderouter/api-keys", {
+      headers: { "x-cmux-team-id": teamId },
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("api key list failed");
+    const body = await response.json() as { keys?: CoderouterApiKeySummary[] };
+    if (!Array.isArray(body.keys)) throw new Error("api key list malformed");
+    return body.keys;
+  }, [teamId]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      setKeys(await fetchKeys());
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchKeys]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchKeys()
+      .then((nextKeys) => {
+        if (active) {
+          setKeys(nextKeys);
+          setLoadError(false);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLoadError(true);
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [fetchKeys]);
+
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (status.state === "submitting") return;
+    const form = event.currentTarget;
+    const label = String(new FormData(form).get("apiKeyLabel") ?? "").trim();
+    setStatus({ state: "submitting" });
+    try {
+      const response = await fetch("/api/coderouter/api-keys", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
+        body: JSON.stringify({ label }),
+      });
+      if (!response.ok) {
+        setStatus({ state: "error", message: response.status === 403 ? t("teamAccessError") : t("apiKeyCreateError") });
+        return;
+      }
+      const created = await response.json() as IssuedCoderouterApiKey;
+      if (!created.key || !created.id) throw new Error("api key response malformed");
+      form.reset();
+      setIssued(created);
+      setStatus(idleStatus);
+      await load();
+    } catch {
+      setStatus({ state: "error", message: t("apiKeyCreateError") });
+    }
+  };
+
+  return (
+    <section className="mt-4 border-t border-border pt-4">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">{t("apiKeysTitle")}</h3>
+          <p className="mt-1 max-w-2xl text-xs text-muted">{t("apiKeysDescription")}</p>
+        </div>
+        {keys ? <span className="font-mono text-[11px] text-muted">{t("apiKeysCount", { count: keys.length })}</span> : null}
+      </div>
+
+      {issued ? (
+        <div className="mb-2 border border-foreground p-3">
+          <div className="text-sm font-medium">{t("apiKeySecretTitle")}</div>
+          <p className="mt-1 text-xs text-muted">{t("apiKeySecretBody")}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border border-border px-3 py-2">
+            <code className="min-w-0 break-all font-mono text-xs text-foreground">{issued.key}</code>
+            <CopyButton value={issued.key} label={t("apiKeyCopy")} copiedLabel={t("apiKeyCopied")} />
+          </div>
+        </div>
+      ) : null}
+
+      {loading && !keys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {loadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
+          <span>{t("apiKeysLoadError")}</span>
+          <button type="button" className={buttonClass} onClick={() => void load()} disabled={loading}>{t("apiKeysRetry")}</button>
+        </div>
+      ) : null}
+      {keys && keys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
+      {keys && keys.length > 0 ? (
+        <div className="border border-border">
+          <div className="hidden grid-cols-[1.1fr_1fr_1.3fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+            <div>{t("apiKeyPrefixColumn")}</div>
+            <div>{t("labelColumn")}</div>
+            <div>{t("apiKeyStatusColumn")}</div>
+            <div className="text-right">{canManage ? t("actionsColumn") : ""}</div>
+          </div>
+          <ul className="divide-y divide-border">
+            {[...keys].reverse().map((key) => {
+              const created = new Date(key.createdAt);
+              const lastUsed = key.lastUsedAt ? new Date(key.lastUsedAt) : null;
+              const statusText = key.revokedAt ? t("apiKeyRevoked") : t("stateActive");
+              const statusDetail = lastUsed
+                ? t("apiKeyLastUsed", { at: format.relativeTime(lastUsed, now) })
+                : t("neverUsed");
+              return (
+                <li key={key.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.1fr_1fr_1.3fr_auto] md:items-center md:gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-1 text-xs text-muted md:hidden">{t("apiKeyPrefixColumn")}</div>
+                    <code className="font-mono text-xs">{key.keyPrefix}</code>
+                  </div>
+                  <div className="min-w-0 truncate text-muted">
+                    <div className="mb-1 text-xs text-muted md:hidden">{t("labelColumn")}</div>
+                    {key.label || t("unlabeledAccount")}
+                  </div>
+                  <div className="min-w-0 text-xs">
+                    <div className="mb-1 text-muted md:hidden">{t("apiKeyStatusColumn")}</div>
+                    <div className={key.revokedAt ? "text-muted" : "text-foreground"}>{statusText}</div>
+                    <div className="mt-0.5 text-muted">{t("apiKeyCreatedAt", { at: format.dateTime(created, { dateStyle: "medium" }) })} · {statusDetail}</div>
+                  </div>
+                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void load()} /> : null}</div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <form onSubmit={create} className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="min-w-56 flex-1">
+            <span className="mb-1 block text-xs text-muted">{t("labelField")}</span>
+            <input name="apiKeyLabel" required maxLength={80} autoComplete="off" className={inputClass} placeholder={t("apiKeyLabelPlaceholder")} />
+          </label>
+          <button type="submit" disabled={status.state === "submitting"} className={primaryButtonClass}>
+            {status.state === "submitting" ? t("creatingApiKeyAction") : t("createApiKeyAction")}
+          </button>
+          {status.state === "error" && status.message ? <span role="alert" className="w-full text-xs text-foreground">{status.message}</span> : null}
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+function ApiKeyRevokeAction({
+  teamId,
+  keyId,
+  onRevoked,
+}: {
+  readonly teamId: string;
+  readonly keyId: string;
+  readonly onRevoked: () => void;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState(false);
+  const revoke = async () => {
+    if (pending) return;
+    setPending(true);
+    setError(false);
+    try {
+      const response = await fetch(`/api/coderouter/api-keys/${encodeURIComponent(keyId)}`, {
+        method: "DELETE",
+        headers: { "x-cmux-team-id": teamId },
+      });
+      if (!response.ok) {
+        setError(true);
+        return;
+      }
+      setOpen(false);
+      onRevoked();
+    } catch {
+      setError(true);
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <div>
+      <button type="button" className={buttonClass} onClick={() => setOpen(true)} disabled={pending}>
+        {pending ? t("revokingApiKeyAction") : t("revokeApiKeyAction")}
+      </button>
+      {error ? <p role="alert" className="mt-1 text-xs text-foreground">{t("apiKeyRevokeError")}</p> : null}
+      <Modal open={open} onOpenChange={setOpen}>
+        <Dialog.Title className="text-left text-sm font-medium">{t("revokeApiKeyConfirmTitle")}</Dialog.Title>
+        <Dialog.Description className="mt-2 text-left text-xs text-muted">{t("revokeApiKeyConfirmBody")}</Dialog.Description>
+        <div className="mt-5 flex justify-end gap-2">
+          <Dialog.Close className={buttonClass}>{t("cancelAction")}</Dialog.Close>
+          <button type="button" onClick={() => void revoke()} className={primaryButtonClass}>{t("revokeApiKeyAction")}</button>
+        </div>
+      </Modal>
+    </div>
   );
 }
 
