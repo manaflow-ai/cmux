@@ -7,40 +7,27 @@ import Foundation
 // "is this terminal open somewhere?" has one answer and closing a pane never destroys a
 // remote resource. Pure values here; the owner is `SurfaceCatalog`.
 
-/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id;
-/// `.device` is another Mac signed into the same account (one tagged app instance).
+/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id.
 enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
     case local
     case cloud(String)
-    case device(SurfaceDeviceInstanceID)
 
     var description: String {
         switch self {
         case .local: return "local"
         case .cloud(let id): return id
-        case .device(let instance): return instance.wireValue
         }
     }
 
-    /// Wire form: `"local"`, the cloud machine id, or `device:<uuid>@<tag>`.
+    /// Wire form: `"local"` or the machine id.
     var rawValue: String { description }
 
-    /// `"local"` and the `device:` prefix are reserved; everything else is a cloud
-    /// machine id, exactly as before devices existed.
     init(rawValue: String) {
-        if rawValue == "local" {
-            self = .local
-        } else if let instance = SurfaceDeviceInstanceID(wireValue: rawValue) {
-            self = .device(instance)
-        } else {
-            self = .cloud(rawValue)
-        }
+        self = rawValue == "local" ? .local : .cloud(rawValue)
     }
 
     var isLocal: Bool { if case .local = self { return true } else { return false } }
     var cloudMachineID: String? { if case .cloud(let id) = self { return id } else { return nil } }
-    var deviceInstance: SurfaceDeviceInstanceID? { if case .device(let instance) = self { return instance } else { return nil } }
-    var isDevice: Bool { deviceInstance != nil }
 }
 
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
@@ -1598,19 +1585,11 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
 }
 
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
-/// Device workspaces (another Mac's sidebar) additionally carry the cwd, unread
-/// count, and pin state the Mac sidebar shows; cloud workspaces leave them nil.
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
     var name: String
     var index: Int
     var focused: Bool
-    /// The workspace's presented working directory, when the provider reports one.
-    var detail: String? = nil
-    /// The remote sidebar's unread badge count, when the provider reports one.
-    var unreadCount: Int? = nil
-    /// Whether the workspace is pinned on its machine, when the provider reports it.
-    var isPinned: Bool? = nil
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
@@ -1733,107 +1712,12 @@ enum SurfacePlacement: String, Codable, Sendable {
     case tab
 }
 
-/// What a provider knows about its machine, for the tree header.
-struct SurfaceMachineInfo: Hashable, Codable, Sendable {
-    var id: SurfaceMachineID
-    var name: String
-    /// `running`, `standby`, … for cloud machines; `running` for the local Mac.
-    var status: String
-    var image: String?
-    var hasDesktop: Bool
-    var memoryMb: Int?
-    var diskMb: Int?
-    var linkState: SurfaceLinkState
-    var linkError: String?
-    var cpuPercent: Double?
-    var memoryUsedMb: Int?
-    var diskUsedMb: Int?
-    /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
-    /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
-    var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
-    /// The machine's address on its owner's private network (v4 preferred),
-    /// reachable through the WireGuard tunnel. nil for the local Mac and for
-    /// machines created before private networking.
-    var privateAddress: String? = nil
-    /// Account presence for another Mac instance; nil for local and Cloud machines.
-    var presence: SurfaceDevicePresence? = nil
-    /// The authoritative demand-driven port scan state for Cloud machines.
-    var portDiscoveryState: CloudPortDiscoveryState = .notRequested
-
-    init(
-        id: SurfaceMachineID,
-        name: String,
-        status: String,
-        image: String?,
-        hasDesktop: Bool,
-        memoryMb: Int?,
-        diskMb: Int?,
-        linkState: SurfaceLinkState,
-        linkError: String?,
-        cpuPercent: Double?,
-        memoryUsedMb: Int?,
-        diskUsedMb: Int?,
-        remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
-        privateAddress: String? = nil,
-        presence: SurfaceDevicePresence? = nil,
-        portDiscoveryState: CloudPortDiscoveryState = .notRequested
-    ) {
-        self.id = id; self.name = name; self.status = status; self.image = image
-        self.hasDesktop = hasDesktop; self.memoryMb = memoryMb; self.diskMb = diskMb
-        self.linkState = linkState; self.linkError = linkError; self.cpuPercent = cpuPercent
-        self.memoryUsedMb = memoryUsedMb; self.diskUsedMb = diskUsedMb
-        self.remoteWorkspaces = remoteWorkspaces; self.privateAddress = privateAddress
-        self.presence = presence; self.portDiscoveryState = portDiscoveryState
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
-        case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress, presence
-        case portDiscoveryState
-    }
-
-    init(from decoder: any Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decode(SurfaceMachineID.self, forKey: .id)
-        name = try values.decode(String.self, forKey: .name)
-        status = try values.decode(String.self, forKey: .status)
-        image = try values.decodeIfPresent(String.self, forKey: .image)
-        hasDesktop = try values.decode(Bool.self, forKey: .hasDesktop)
-        memoryMb = try values.decodeIfPresent(Int.self, forKey: .memoryMb)
-        diskMb = try values.decodeIfPresent(Int.self, forKey: .diskMb)
-        linkState = try values.decode(SurfaceLinkState.self, forKey: .linkState)
-        linkError = try values.decodeIfPresent(String.self, forKey: .linkError)
-        cpuPercent = try values.decodeIfPresent(Double.self, forKey: .cpuPercent)
-        memoryUsedMb = try values.decodeIfPresent(Int.self, forKey: .memoryUsedMb)
-        diskUsedMb = try values.decodeIfPresent(Int.self, forKey: .diskUsedMb)
-        remoteWorkspaces = try values.decodeIfPresent([SurfaceRemoteWorkspace].self, forKey: .remoteWorkspaces)
-        privateAddress = try values.decodeIfPresent(String.self, forKey: .privateAddress)
-        presence = try values.decodeIfPresent(SurfaceDevicePresence.self, forKey: .presence)
-        portDiscoveryState = try values.decodeIfPresent(CloudPortDiscoveryState.self, forKey: .portDiscoveryState) ?? .notRequested
-    }
-
-    func encode(to encoder: any Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(id, forKey: .id); try values.encode(name, forKey: .name); try values.encode(status, forKey: .status)
-        try values.encodeIfPresent(image, forKey: .image); try values.encode(hasDesktop, forKey: .hasDesktop)
-        try values.encodeIfPresent(memoryMb, forKey: .memoryMb); try values.encodeIfPresent(diskMb, forKey: .diskMb)
-        try values.encode(linkState, forKey: .linkState); try values.encodeIfPresent(linkError, forKey: .linkError)
-        try values.encodeIfPresent(cpuPercent, forKey: .cpuPercent); try values.encodeIfPresent(memoryUsedMb, forKey: .memoryUsedMb)
-        try values.encodeIfPresent(diskUsedMb, forKey: .diskUsedMb); try values.encodeIfPresent(remoteWorkspaces, forKey: .remoteWorkspaces)
-        try values.encodeIfPresent(privateAddress, forKey: .privateAddress); try values.encodeIfPresent(presence, forKey: .presence)
-        try values.encode(portDiscoveryState, forKey: .portDiscoveryState)
-    }
-}
-
 enum SurfaceLinkState: String, Codable, Sendable {
     case connected
     case connecting
     case asleep
     case unavailable
     case error
-    /// Another Mac that the presence service reports offline (app quit, asleep, or
-    /// unreachable); its last known tree stays listed until it comes back.
-    case offline
     /// The local Mac needs no link.
     case notApplicable = "n/a"
 }
