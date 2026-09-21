@@ -917,8 +917,12 @@ final class FileExplorerStore: ObservableObject {
         for manager in AppDelegate.shared?.liveWorkspaceIdentityTabManagers() ?? [] {
             for workspace in manager.tabs {
                 for panel in workspace.panels.values {
-                    guard let preview = panel as? FilePreviewPanel else { continue }
-                    paths.insert(URL(fileURLWithPath: preview.filePath).standardizedFileURL)
+                    if let preview = panel as? FilePreviewPanel {
+                        paths.insert(URL(fileURLWithPath: preview.filePath).standardizedFileURL)
+                    }
+                    if let markdown = panel as? MarkdownPanel {
+                        paths.insert(URL(fileURLWithPath: markdown.filePath).standardizedFileURL)
+                    }
                 }
             }
         }
