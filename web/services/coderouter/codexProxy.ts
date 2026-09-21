@@ -722,7 +722,8 @@ async function probeCodexCapacity(
       total += next.value.byteLength;
       text += decoder.decode(next.value, { stream: true });
       const verdict = classifyCodexCapacityPrefix(text, format);
-      if (verdict.kind === "capacity" || (format !== "ndjson" && isCodexCapacityText(text))) {
+      const unstructuredCapacity = verdict.kind === "waiting" && format !== "ndjson" && isCodexCapacityText(text);
+      if (verdict.kind === "capacity" || unstructuredCapacity) {
         await reader.cancel();
         return verdict.kind === "capacity"
           ? verdict
@@ -736,7 +737,8 @@ async function probeCodexCapacity(
     }
     text += decoder.decode();
     const finalVerdict = classifyCodexCapacityPrefix(format === "ndjson" ? text : `${text}\n\n`, format, true);
-    if (finalVerdict.kind === "capacity" || (format !== "ndjson" && isCodexCapacityText(text))) {
+    const unstructuredCapacity = finalVerdict.kind === "waiting" && format !== "ndjson" && isCodexCapacityText(text);
+    if (finalVerdict.kind === "capacity" || unstructuredCapacity) {
       await reader.cancel();
       return finalVerdict.kind === "capacity"
         ? finalVerdict
@@ -840,11 +842,11 @@ function classifyCodexCapacityPrefix(
     } catch {
       continue;
     }
-    const failureCode = codexCapacityFailureCode(JSON.stringify(parsed));
+    if (isCodexOutputPayload(parsed)) return { kind: "output" };
+    const failureCode = codexCapacityFailureCodeFromPayload(parsed);
     if (failureCode) {
       return { kind: "capacity", failureCode, retryAfterMs: retryAfterFromCodexPayload(parsed) };
     }
-    if (isCodexOutputPayload(parsed)) return { kind: "output" };
   }
   return { kind: "waiting" };
 }
@@ -865,13 +867,38 @@ function classifyCodexNdjsonPrefix(
     } catch {
       continue;
     }
-    const failureCode = codexCapacityFailureCode(JSON.stringify(parsed));
+    if (isCodexOutputPayload(parsed)) return { kind: "output" };
+    const failureCode = codexCapacityFailureCodeFromPayload(parsed);
     if (failureCode) {
       return { kind: "capacity", failureCode, retryAfterMs: retryAfterFromCodexPayload(parsed) };
     }
-    if (isCodexOutputPayload(parsed)) return { kind: "output" };
   }
   return { kind: "waiting" };
+}
+
+function codexCapacityFailureCodeFromPayload(value: unknown, errorContext = false): CodexCapacityFailureCode | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const object = value as Record<string, unknown>;
+  const type = typeof object.type === "string" ? object.type : undefined;
+  const errorLike = errorContext || type?.toLowerCase() === "error" || type?.toLowerCase().endsWith(".error") ||
+    "error" in object || "codex_error_info" in object;
+  for (const candidate of [object.type, object.code, object.codex_error_info]) {
+    if (typeof candidate === "string") {
+      const failureCode = codexCapacityFailureCode(candidate);
+      if (failureCode) return failureCode;
+    }
+  }
+  if (errorLike && typeof object.message === "string") {
+    const failureCode = codexCapacityFailureCode(object.message);
+    if (failureCode) return failureCode;
+  }
+  for (const [key, candidate] of Object.entries(object)) {
+    if (typeof candidate === "object" && candidate !== null) {
+      const failureCode = codexCapacityFailureCodeFromPayload(candidate, errorLike || key === "error");
+      if (failureCode) return failureCode;
+    }
+  }
+  return undefined;
 }
 
 function isCodexCapacityPayload(value: unknown): boolean {
