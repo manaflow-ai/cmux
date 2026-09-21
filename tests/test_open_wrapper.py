@@ -41,6 +41,7 @@ def run_wrapper(
     bash_bin: str = "/bin/bash",
     extra_env: dict[str, str] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
+    """Run Resources/bin/open with faked system_open/cmux/defaults and return its dispatch."""
     with tempfile.TemporaryDirectory(prefix="cmux-open-wrapper-test-") as td:
         tmp = Path(td)
         wrapper = tmp / "open"
@@ -604,6 +605,7 @@ def test_local_non_html_file_passthrough(failures: list[str]) -> None:
 
 
 def _run_multibyte_argument(bash_bin: str) -> tuple[list[str], list[str], int, str]:
+    """Run the wrapper on a Japanese filename argument under a UTF-8 locale."""
     filename = "日本語.pdf"
     return run_wrapper(
         args=[filename],
@@ -620,8 +622,7 @@ def _run_multibyte_argument(bash_bin: str) -> tuple[list[str], list[str], int, s
 
 
 def test_multibyte_filename_argument_does_not_crash_default_bash(failures: list[str]) -> None:
-    # Sanity baseline on the bash this test suite normally runs under. A
-    # non-html local file should simply pass through to system open.
+    """Sanity baseline: a multibyte filename passes through unchanged on /bin/bash."""
     filename = "日本語.pdf"
     open_log, cmux_log, code, stderr = _run_multibyte_argument("/bin/bash")
     expect(
@@ -644,13 +645,15 @@ def test_multibyte_filename_argument_does_not_crash_default_bash(failures: list[
 def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
     failures: list[str],
 ) -> None:
-    # Regression test for a SIGSEGV in Resources/bin/open's trim() and
-    # related helpers: some bash builds crash in their multibyte-aware
-    # glob/pattern matcher when a case statement or pattern-removal
-    # expansion runs against a non-ASCII argument (e.g. a Japanese
-    # filename) under a UTF-8 locale. This only reproduces on a bash build
-    # with that bug, so it is a no-op (documented, not failed) when none is
-    # installed on the machine running this test.
+    """Regression test for the trim()/case-statement multibyte SIGSEGV.
+
+    Some bash builds crash in their multibyte-aware glob/pattern matcher
+    when a case statement or pattern-removal expansion runs against a
+    non-ASCII argument (e.g. a Japanese filename) under a UTF-8 locale.
+    This only reproduces on a bash build with that bug, so it is a no-op
+    (documented, not failed) when none is installed on the machine running
+    this test.
+    """
     alternates = discover_alternate_bash_binaries()
     if not alternates:
         print(
@@ -711,6 +714,7 @@ def test_punycode_whitelist_matches_unicode_url(failures: list[str]) -> None:
 
 
 def main() -> int:
+    """Run every open-wrapper regression test and report aggregate pass/fail."""
     failures: list[str] = []
     test_toggle_disabled_passthrough(failures)
     test_toggle_disabled_case_insensitive_passthrough(failures)
