@@ -164,11 +164,13 @@ extension MobileShellComposite {
         workspaceListRecoveryGeneration = recoveryGeneration
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
         workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
+        workspaceListRecoveryConnectionGeneration = connectionGeneration
         defer {
             if workspaceListRecoveryGeneration == recoveryGeneration {
                 workspaceListRecoveryActive = false
                 workspaceListRecoveryOwnerID = nil
                 workspaceListRecoveryOwnerInstanceTag = nil
+                workspaceListRecoveryConnectionGeneration = nil
             }
         }
         let diagnosticStartedAt = appDiagnosticNow()
@@ -242,9 +244,13 @@ extension MobileShellComposite {
         let pullMatches = pullToRefreshTask != nil
             && pullToRefreshOwnerID == macDeviceID
             && pullToRefreshOwnerInstanceTag == instanceTag
+        let currentRecoveryTarget = workspaceListRecoveryTarget
         let recoveryMatches = workspaceListRecoveryActive
             && workspaceListRecoveryOwnerID == macDeviceID
             && workspaceListRecoveryOwnerInstanceTag == instanceTag
+            && workspaceListRecoveryConnectionGeneration == connectionGeneration
+            && currentRecoveryTarget?.macDeviceID == macDeviceID
+            && currentRecoveryTarget?.instanceTag == instanceTag
         if ownerScoped && !pullMatches && !recoveryMatches {
             return
         }
@@ -260,6 +266,7 @@ extension MobileShellComposite {
             workspaceListRecoveryActive = false
             workspaceListRecoveryOwnerID = nil
             workspaceListRecoveryOwnerInstanceTag = nil
+            workspaceListRecoveryConnectionGeneration = nil
             connectionRecoveryOwner.cancel()
             connectionRecoveryAttemptDeadlineTask?.cancel()
             connectionRecoveryAttemptDeadlineTask = nil
