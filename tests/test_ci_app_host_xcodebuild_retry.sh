@@ -76,6 +76,25 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "assertion-then-success" ]; then
+    sequence_file="${CMUX_MOCK_XCODEBUILD_SEQUENCE_FILE:?missing mock sequence file}"
+    sequence_attempt=1
+    if [ -r "$sequence_file" ]; then
+      sequence_attempt=$(( $(cat "$sequence_file") + 1 ))
+    fi
+    printf '%s\n' "$sequence_attempt" >"$sequence_file"
+    if [ "$sequence_attempt" -eq 1 ]; then
+      echo "Test Suite 'Selected tests' started at 2026-09-21 00:00:00."
+      echo "Test Case '-[cmuxTests.ExampleTests testExample]' started."
+      echo "/tmp/ExampleTests.swift:1: error: -[cmuxTests.ExampleTests testExample] : XCTAssertTrue failed"
+      echo "Executed 1 test, with 1 failure (0 unexpected)"
+      echo "Failed to establish communication with the test runner"
+      exit 65
+    fi
+    echo 'cmux DEV message = "socket.listener.start"'
+    echo "Executed 1 test, with 0 failures (0 unexpected)"
+    exit 0
+  fi
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
@@ -527,4 +546,55 @@ for regression in \
   fi
 done
 
-echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_TAG=sticky-retry \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/sticky-retry-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/sticky-retry-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/sticky-retry-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/sticky-retry-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=assertion-then-success \
+  CMUX_MOCK_XCODEBUILD_SEQUENCE_FILE="$TMP_DIR/sticky-retry-sequence" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/sticky-retry-output.log" 2>&1
+sticky_retry_status=$?
+set -e
+
+if [ "$sticky_retry_status" -ne 65 ]; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: an assertion-bearing attempt must remain red, got $sticky_retry_status"
+  exit 1
+fi
+if [ "$(cat "$TMP_DIR/sticky-retry-sequence")" -ne 1 ]; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: wrapper launched a later green attempt after test execution"
+  exit 1
+fi
+if grep -Fq "Retrying app-host xcodebuild after" "$TMP_DIR/sticky-retry-output.log" \
+  || ! grep -Fq "retry blocked after test execution evidence" "$TMP_DIR/sticky-retry-output.log"; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: sticky failure retry decision was not reported"
+  exit 1
+fi
+metadata_path="$(find "$RUNNER_TEMP_DIR" -maxdepth 1 \
+  -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-1.meta' -print -quit)"
+if [ -z "$metadata_path" ] || ! grep -Fxq "attempt=1" "$metadata_path" \
+  || ! grep -Fxq "arg=test" "$metadata_path"; then
+  cat "${metadata_path:-/dev/null}" 2>/dev/null || true
+  echo "FAIL: wrapper must retain per-invocation attempt metadata"
+  exit 1
+fi
+if find "$RUNNER_TEMP_DIR" -maxdepth 1 \
+  -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-2.meta' -print -quit \
+  | grep -q .; then
+  echo "FAIL: blocked retry created a second attempt artifact"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries only before test execution"
