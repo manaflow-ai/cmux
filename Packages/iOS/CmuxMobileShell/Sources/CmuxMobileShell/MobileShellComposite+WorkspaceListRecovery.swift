@@ -142,7 +142,133 @@ extension MobileShellComposite {
     /// UI-facing recover action for the workspace list when it is showing an
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
-    public func reconnectOrRefresh() async {
+    /// The exact Mac pairing that a workspace-list recovery action will use.
+    /// The target prefers a visible unavailable workspace, then a uniquely
+    /// connected workspace Mac, followed by the connected and foreground Mac
+    /// identities. Empty targets mean no reconnectable pairing is available.
+    public var workspaceListRecoveryTarget: (macDeviceID: String, instanceTag: String?)? {
+        workspaceListReconnectTarget()
+            ?? workspaceListConnectedRefreshTarget()
+            ?? connectedMacDeviceID.map {
+                (macDeviceID: $0, instanceTag: connectedMacInstanceTag)
+            }
+            ?? foregroundMacDeviceID.map {
+                (macDeviceID: $0, instanceTag: activeMacInstanceTag)
+            }
+    }
+
+    /// Reserves the recovery token used by the empty-state Retry action.
+    /// Cancellation passes this token back so a stale row cannot cancel a
+    /// later retry for another Mac.
+    public func prepareWorkspaceListRecovery(
+        forMacDeviceID macDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) -> UUID {
+        let requestedScope = macDeviceID.map {
+            (macDeviceID: $0, instanceTag: instanceTag)
+        } ?? workspaceListRecoveryTarget
+        if workspaceListRecoveryActive {
+            let activeScopeMatches = workspaceListRecoveryOwnerID == requestedScope?.macDeviceID
+                && workspaceListRecoveryOwnerInstanceTag == requestedScope?.instanceTag
+            guard activeScopeMatches else {
+                cancelWorkspaceListRecovery()
+                return prepareWorkspaceListRecovery(
+                    forMacDeviceID: requestedScope?.macDeviceID,
+                    instanceTag: requestedScope?.instanceTag
+                )
+            }
+            let recoveryGeneration = workspaceListRecoveryGeneration
+            workspaceListRecoveryPreparedGeneration = recoveryGeneration
+            if pullToRefreshTask != nil,
+               pullToRefreshRecoveryGeneration == nil {
+                pullToRefreshRecoveryGeneration = recoveryGeneration
+            }
+            return recoveryGeneration
+        }
+        if pullToRefreshTask != nil {
+            let pullScopeMatches = pullToRefreshOwnerID == requestedScope?.macDeviceID
+                && pullToRefreshOwnerInstanceTag == requestedScope?.instanceTag
+            guard pullScopeMatches else {
+                cancelWorkspaceListRecovery()
+                return prepareWorkspaceListRecovery(
+                    forMacDeviceID: requestedScope?.macDeviceID,
+                    instanceTag: requestedScope?.instanceTag
+                )
+            }
+            let recoveryGeneration = pullToRefreshRecoveryGeneration
+                ?? pullToRefreshGeneration
+            pullToRefreshRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryPreparedGeneration = recoveryGeneration
+            workspaceListRecoveryActive = true
+            workspaceListRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryOwnerID = pullToRefreshOwnerID
+            workspaceListRecoveryOwnerInstanceTag = pullToRefreshOwnerInstanceTag
+            workspaceListRecoveryConnectionGeneration = connectionGeneration
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+            return recoveryGeneration
+        }
+        let recoveryGeneration = UUID()
+        workspaceListRecoveryPreparedGeneration = recoveryGeneration
+        workspaceListRecoveryActive = true
+        workspaceListRecoveryGeneration = recoveryGeneration
+        let recoveryScope = requestedScope
+        workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
+        workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
+        workspaceListRecoveryConnectionGeneration = connectionGeneration
+        workspaceListRecoveryConnectionAttemptID = nil
+        workspaceListRecoveryWaitingForConnectionAttempt = !connectionRecoveryOwner.isActive
+        return recoveryGeneration
+    }
+
+    /// Runs the prepared Retry operation, or creates a normal recovery token
+    /// when the caller is pull-to-refresh or another non-row entry point.
+    public func runPreparedWorkspaceListRecovery() async {
+        guard !Task.isCancelled else { return }
+        let recoveryGeneration = workspaceListRecoveryPreparedGeneration
+        workspaceListRecoveryPreparedGeneration = nil
+        await reconnectOrRefresh(recoveryGeneration: recoveryGeneration)
+    }
+
+    /// Performs the workspace-list recovery for the supplied prepared token,
+    /// or starts a fresh token for pull-to-refresh and other callers.
+    public func reconnectOrRefresh(recoveryGeneration requestedGeneration: UUID? = nil) async {
+        guard !Task.isCancelled else { return }
+        if requestedGeneration == nil, workspaceListRecoveryActive {
+            // Pull-to-refresh and other unprepared entry points coalesce onto
+            // the retry already owning the shell. A second unscoped recovery
+            // must not replace its token while the first operation is live.
+            return
+        }
+        let recoveryGeneration = requestedGeneration ?? UUID()
+        if let requestedGeneration,
+           workspaceListRecoveryActive,
+           workspaceListRecoveryGeneration != requestedGeneration {
+            return
+        }
+        if !workspaceListRecoveryActive
+            || workspaceListRecoveryGeneration != recoveryGeneration {
+            let recoveryScope = workspaceListRecoveryTarget
+            workspaceListRecoveryActive = true
+            workspaceListRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
+            workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
+            workspaceListRecoveryConnectionGeneration = connectionGeneration
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = !connectionRecoveryOwner.isActive
+        }
+        workspaceListRecoveryPreparedGeneration = nil
+        defer {
+            if workspaceListRecoveryGeneration == recoveryGeneration {
+                workspaceListRecoveryActive = false
+                workspaceListRecoveryOwnerID = nil
+                workspaceListRecoveryOwnerInstanceTag = nil
+                workspaceListRecoveryConnectionGeneration = nil
+                workspaceListRecoveryConnectionAttemptID = nil
+                workspaceListRecoveryWaitingForConnectionAttempt = false
+                workspaceListRecoveryPreparedGeneration = nil
+            }
+        }
         let diagnosticStartedAt = appDiagnosticNow()
         let diagnosticCorrelationID = foregroundMacDeviceID
         recordAppEvent(
@@ -201,6 +327,60 @@ extension MobileShellComposite {
             return
         }
         _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+    }
+
+    /// Cancels the user-visible workspace-list recovery operation. The UI owns
+    /// the waiting task, while the shell owns the reconnect and pull-to-refresh
+    /// tasks that can outlive that waiter.
+    public func cancelWorkspaceListRecovery(
+        forMacDeviceID macDeviceID: String? = nil,
+        instanceTag: String? = nil,
+        expectedGeneration: UUID? = nil,
+        ownerScoped: Bool = false
+    ) {
+        let pullMatches = pullToRefreshTask != nil
+            && pullToRefreshOwnerID == macDeviceID
+            && pullToRefreshOwnerInstanceTag == instanceTag
+            && (expectedGeneration == nil
+                || pullToRefreshRecoveryGeneration == expectedGeneration)
+        let generationMatches = expectedGeneration == nil
+            || workspaceListRecoveryGeneration == expectedGeneration
+        let recoveryMatches = workspaceListRecoveryActive
+            && workspaceListRecoveryOwnerID == macDeviceID
+            && workspaceListRecoveryOwnerInstanceTag == instanceTag
+            && generationMatches
+        let recoveryOwnerAttemptMatches = workspaceListRecoveryConnectionAttemptID != nil
+            && workspaceListRecoveryConnectionAttemptID == connectionRecoveryOwner.activeAttempt?.id
+        if ownerScoped && !pullMatches && !recoveryMatches {
+            return
+        }
+        if !ownerScoped || pullMatches {
+            pullToRefreshTask?.cancel()
+            pullToRefreshTask = nil
+            pullToRefreshGeneration = UUID()
+            pullToRefreshOwnerID = nil
+            pullToRefreshOwnerInstanceTag = nil
+            pullToRefreshRecoveryGeneration = nil
+        }
+        if !ownerScoped || recoveryMatches {
+            workspaceListRecoveryGeneration = UUID()
+            workspaceListRecoveryActive = false
+            workspaceListRecoveryOwnerID = nil
+            workspaceListRecoveryOwnerInstanceTag = nil
+            workspaceListRecoveryConnectionGeneration = nil
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+            workspaceListRecoveryPreparedGeneration = nil
+            if !ownerScoped || recoveryOwnerAttemptMatches {
+                connectionRecoveryOwner.cancel()
+                if isReconnectingStoredMac {
+                    invalidateStoredMacReconnectAttempt()
+                }
+                applyConnectionRecoveryOwnerState()
+                connectionRecoveryAttemptDeadlineTask?.cancel()
+                connectionRecoveryAttemptDeadlineTask = nil
+            }
+        }
     }
 
     private func refreshConnectedWorkspaceContent() async {

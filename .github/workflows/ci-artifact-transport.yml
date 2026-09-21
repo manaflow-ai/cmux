@@ -7,6 +7,9 @@ on:
       - .github/workflows/ci.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/node_product_cache.py
+      - scripts/ci/restore-app-host-test-product.sh
+      - tests/test_node_product_cache.py
       - scripts/ci/verify-r2-canary.py
       - scripts/ci/r2-canary-cloudflare.py
       - tests/test_ci_r2_canary.py
@@ -18,6 +21,9 @@ on:
       - .github/workflows/ci-artifact-transport.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/node_product_cache.py
+      - scripts/ci/restore-app-host-test-product.sh
+      - tests/test_node_product_cache.py
       - scripts/ci/verify-r2-canary.py
       - scripts/ci/r2-canary-cloudflare.py
       - tests/test_ci_r2_canary.py
@@ -44,6 +50,7 @@ jobs:
           node-version: '24'
       - name: Test transport and fallback
         run: |
+          python3 tests/test_node_product_cache.py
           python3 tests/test_ci_r2_artifact.py
           python3 tests/test_ci_r2_canary.py
       - name: Install local Worker test tools
