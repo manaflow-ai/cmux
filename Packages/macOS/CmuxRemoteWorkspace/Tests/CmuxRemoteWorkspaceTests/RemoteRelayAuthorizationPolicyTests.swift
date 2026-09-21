@@ -70,7 +70,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
 
         #expect(policy.validate(
-            method: "surface.split",
+            method: "surface.send_text",
             parameters: [
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,
@@ -84,7 +84,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
 
         #expect(policy.validate(
-            method: "surface.split",
+            method: "surface.send_text",
             parameters: [
                 "workspace_id": workspaceID.uuidString,
                 "surface_id": surfaceID.uuidString,
@@ -98,7 +98,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
-    @Test("workspace.current returns an exact owner selector requirement")
+    @Test("workspace.current requires an exact owner selector")
     func currentRequiresWorkspaceID() {
         let policy = RemoteRelayAuthorizationPolicy()
         let owner = UUID()
@@ -111,6 +111,28 @@ struct RemoteRelayAuthorizationPolicyTests {
             code: "remote_relay_workspace_denied",
             message: "Relay method requires an explicit workspace selector"
         ))
+    }
+
+    @Test("relay notification delivery is confined to the targeted method")
+    func notificationCreateCannotUseRehomingPath() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        #expect(policy.validate(
+            method: "notification.create",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay method is not permitted"
+        ))
+        #expect(policy.validate(
+            method: "notification.create_for_target",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
     }
 
     @Test("respawn planner quotes remote directories and classifies transports")
