@@ -25,10 +25,18 @@ import Network
 /// above), so a caller can't `await` into actor isolation without breaking
 /// that shared, production protocol.
 final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @unchecked Sendable {
+    /// Caps how much unacknowledged outgoing data one stream may have queued
+    /// with `DispatchIO` at once. `writeStream` is fire-and-forget and the
+    /// caller keeps receiving regardless of write completion, so without a
+    /// bound a peer that accepts but never reads lets a local client queue
+    /// unlimited memory here.
+    private static let maxPendingWriteBytes = 4 * 1024 * 1024
+
     private let localForwardPort: Int
     private let ioQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-stream-io", qos: .userInitiated)
     private let stateLock = NSLock()
     private var openStreams: [String: DispatchIO] = [:]
+    private var pendingWriteBytesByStream: [String: Int] = [:]
 
     init(localForwardPort: Int) {
         self.localForwardPort = localForwardPort
@@ -59,10 +67,33 @@ final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @uncheck
         guard let io = stream(for: streamID) else {
             throw RemoteTmuxError.unreachable("browser proxy stream \(streamID) is not open")
         }
+        try reservePendingWriteBytes(streamID: streamID, count: data.count)
         let dispatchData = data.withUnsafeBytes { DispatchData(bytes: $0) }
         // Fire-and-forget: a write failure means the peer is gone, which the
         // read side's `attachStream` event loop reports as EOF/error too.
-        io.write(offset: 0, data: dispatchData, queue: ioQueue) { _, _, _ in }
+        io.write(offset: 0, data: dispatchData, queue: ioQueue) { [weak self] done, _, _ in
+            guard done else { return }
+            self?.releasePendingWriteBytes(streamID: streamID, count: data.count)
+        }
+    }
+
+    private func reservePendingWriteBytes(streamID: String, count: Int) throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        let pending = pendingWriteBytesByStream[streamID, default: 0]
+        guard pending + count <= Self.maxPendingWriteBytes else {
+            throw RemoteTmuxError.unreachable(
+                "browser proxy stream \(streamID) exceeded \(Self.maxPendingWriteBytes) pending write bytes"
+            )
+        }
+        pendingWriteBytesByStream[streamID] = pending + count
+    }
+
+    private func releasePendingWriteBytes(streamID: String, count: Int) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let pending = pendingWriteBytesByStream[streamID] else { return }
+        pendingWriteBytesByStream[streamID] = max(0, pending - count)
     }
 
     func attachStream(
@@ -91,6 +122,7 @@ final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @uncheck
     func closeStream(streamID: String) {
         stateLock.lock()
         let io = openStreams.removeValue(forKey: streamID)
+        pendingWriteBytesByStream.removeValue(forKey: streamID)
         stateLock.unlock()
         io?.close(flags: .stop)
     }
