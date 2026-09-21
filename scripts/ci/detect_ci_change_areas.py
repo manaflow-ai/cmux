@@ -57,12 +57,21 @@ def is_other_workflow_config(path: str) -> bool:
     return path.startswith(".github/workflows/") or path == ".github/actionlint.yaml"
 
 
+CI_CONTROL_PLANE_ONLY = frozenset({
+    "scripts/ci/persistent_mac_route.py",
+})
+
+
 def forces_all_areas(path: str) -> bool:
-    ci_script_prefix = "scripts/ci/"
-    is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
-    if is_direct_ci_python:
-        is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
-    return path in {CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH} or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+    # Only the product-area router itself and its caller force every product
+    # lane. Reusable guard workflow and unrelated CI implementation changes are
+    # validated by their owning Linux guards instead of masquerading as web/app
+    # source changes.
+    return path in {
+        CI_WORKFLOW_PATH,
+        "scripts/ci/detect_ci_change_areas.py",
+        "tests/test_ci_change_areas.py",
+    }
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
@@ -239,6 +248,8 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
+    if path in CI_CONTROL_PLANE_ONLY:
+        return True
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
     # workflow. Packages/iOS stays macOS-relevant because the desktop app
     # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
