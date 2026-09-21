@@ -12,14 +12,21 @@ const key = `github/manaflow-ai/cmux/123/${digest}.zip`;
 
 // Faults live outside the production Worker. The wrapper delegates to the real
 // R2 binding after a service-controlled gate, including the actual streaming put.
+const coreWrapper = `
+import { artifactHandler, ArtifactImport } from "./index.js";
+export { ArtifactImport };
+export default { fetch: artifactHandler };
+`;
+
 const faultWrapper = `
-import broker, { ArtifactImport as ProductionImport } from "./index.js";
+import { artifactHandler, ArtifactImport as ProductionImport } from "./index.js";
 export class ArtifactImport extends ProductionImport {
   constructor(ctx, env) {
     const bucket = {};
     for (const method of ["head", "get", "put"]) {
       bucket[method] = async (...args) => {
-        await env.R2_FAULT.fetch("http://fault/" + method + "/start");
+        const fault = await env.R2_FAULT.fetch("http://fault/" + method + "/start");
+        if (!fault.ok) throw new Error("injected R2 failure");
         try { return await env.ARTIFACTS[method](...args); }
         finally { await env.R2_FAULT.fetch("http://fault/" + method + "/settled"); }
       };
@@ -27,10 +34,10 @@ export class ArtifactImport extends ProductionImport {
     super(ctx, { ...env, ARTIFACTS: bucket });
   }
 }
-export default broker;
+export default { fetch: artifactHandler };
 `;
 
-function r2Gate(method) {
+function r2Gate(method, fail = false) {
   let release, entered;
   const pending = new Promise((resolve) => { release = resolve; });
   const started = new Promise((resolve) => { entered = resolve; });
@@ -51,7 +58,7 @@ function r2Gate(method) {
           state.settled++;
         }
       }
-      return new Response("ok");
+      return new Response("ok", { status: fail && actual === method && phase === "start" ? 503 : 200 });
     },
   };
 }
@@ -60,13 +67,11 @@ async function fixture(t, options = {}) {
   const state = { downloads: 0, api: 0, private: false, failed: false, corrupt: false, ...options };
   const bundled = new URL("../.test-dist/index.js", import.meta.url);
   const mf = new Miniflare(convertV4MiniflareOptions({
-    ...(options.r2Gate ? {
-      modules: [
-        { type: "ESModule", path: new URL("../.test-dist/fault-wrapper.js", import.meta.url).pathname, contents: faultWrapper },
-        { type: "ESModule", path: bundled.pathname, contents: readFileSync(bundled, "utf8") },
-      ],
-      serviceBindings: { R2_FAULT: options.r2Gate.fetch },
-    } : { modules: true, scriptPath: bundled.pathname }),
+    modules: [
+      { type: "ESModule", path: new URL(options.r2Gate ? "../.test-dist/fault-wrapper.js" : "../.test-dist/core-wrapper.js", import.meta.url).pathname, contents: options.r2Gate ? faultWrapper : coreWrapper },
+      { type: "ESModule", path: bundled.pathname, contents: readFileSync(bundled, "utf8") },
+    ],
+    ...(options.r2Gate ? { serviceBindings: { R2_FAULT: options.r2Gate.fetch } } : {}),
     compatibilityDate: "2026-09-20", compatibilityFlags: ["nodejs_compat"],
     bindings: { GITHUB_ARTIFACT_TOKEN: "server-only-token", IMPORT_TIMEOUT_MS: String(options.timeoutMs || 150_000) },
     r2Buckets: ["ARTIFACTS"],
@@ -85,13 +90,16 @@ async function fixture(t, options = {}) {
       state.api++;
       const root = "/repos/manaflow-ai/cmux";
       if (url.pathname === root) return Response.json({ full_name: "manaflow-ai/cmux", private: state.private });
-      if (url.pathname === `${root}/actions/artifacts/123`) return Response.json({
-        id: 123, name: `app-host-products-v1-${"a".repeat(64)}-1`, expired: false,
-        digest: `sha256:${digest}`, size_in_bytes: bytes.length, workflow_run: { id: 456 },
-      });
+      if (url.pathname === `${root}/actions/artifacts/123`) {
+        if (state.apiFailure) return new Response("provider unavailable", { status: 503 });
+        return Response.json({
+          id: 123, name: `app-host-products-v1-${"a".repeat(64)}-1`, expired: Boolean(state.expired),
+          digest: `sha256:${state.wrongDigest ? "f".repeat(64) : digest}`, size_in_bytes: bytes.length, workflow_run: { id: 456 },
+        });
+      }
       if (url.pathname === `${root}/actions/runs/456`) return Response.json({
         path: state.wrongWorkflow ? ".github/workflows/other.yml" : ".github/workflows/ci.yml",
-        event: "pull_request", head_repository: { full_name: "manaflow-ai/cmux" },
+        event: "pull_request", head_repository: { full_name: state.wrongProducer ? "someone/cmux" : "manaflow-ai/cmux" },
         run_attempt: 1, status: "in_progress", conclusion: null,
       });
       if (url.pathname === `${root}/actions/runs/456/attempts/1/jobs`) return Response.json({ jobs: [{
@@ -133,7 +141,7 @@ test("R2 rejects corrupt bytes and a later retry can fill the same immutable key
   assert.equal(state.downloads, 2);
 });
 
-for (const option of ["failed", "wrongWorkflow", "badRedirect", "private"]) {
+for (const option of ["failed", "wrongWorkflow", "wrongProducer", "expired", "wrongDigest", "apiFailure", "badRedirect", "private"]) {
   test(`rejects ${option} provenance without importing bytes`, async (t) => {
     const { mf, state } = await fixture(t, { [option]: true });
     assert.equal((await mf.dispatchFetch(`https://broker.example${path}`)).status, 502);
@@ -141,6 +149,17 @@ for (const option of ["failed", "wrongWorkflow", "badRedirect", "private"]) {
     assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
   });
 }
+
+
+test("R2 write failure returns a miss and leaves no cached object", async (t) => {
+  const gate = r2Gate("put", true);
+  gate.release();
+  const { mf, state } = await fixture(t, { r2Gate: gate });
+  const response = await mf.dispatchFetch(`https://broker.example${path}`);
+  assert.equal(response.status, 502);
+  assert.equal(state.downloads, 1);
+  assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
+});
 
 test("other repositories and client writes never reach authenticated GitHub", async (t) => {
   const { mf, state } = await fixture(t);
