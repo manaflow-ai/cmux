@@ -69,6 +69,7 @@ public final class MobileIrohReleaseGateTerminalSession {
                 group.addTask {
                     try await withTaskCancellationHandler {
                         await submitTask.value
+                        try Task.checkCancellation()
                         for try await _ in proof {
                             try Task.checkCancellation()
                             return
