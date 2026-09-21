@@ -9,10 +9,7 @@ use libp2p::{PeerId, Stream, StreamProtocol};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{mpsc, oneshot, watch, OwnedSemaphorePermit, Semaphore};
@@ -287,7 +284,6 @@ impl Context {
         let pending_data = Arc::new(Mutex::new(HashMap::<u64, Reply>::new()));
         let receive_stopped = CancellationToken::new();
         let read_stop = receive_stopped.clone();
-        let sent_finish = Arc::new(AtomicBool::new(false));
         let guard = Arc::new(Guard {
             context: self.clone(),
             scope,
@@ -317,7 +313,6 @@ impl Context {
             task,
             received_finish: false,
             receive_stopped,
-            sent_finish,
         }
     }
 }
@@ -406,7 +401,6 @@ pub struct Session {
     task: tokio::task::JoinHandle<()>,
     received_finish: bool,
     receive_stopped: CancellationToken,
-    sent_finish: Arc<AtomicBool>,
 }
 enum Incoming {
     Data(Bytes),
@@ -427,7 +421,6 @@ impl Session {
             guard: self.guard.clone(),
             abort: self.task.abort_handle(),
             receive_stopped: self.receive_stopped.clone(),
-            sent_finish: self.sent_finish.clone(),
         }
     }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
@@ -493,7 +486,6 @@ pub struct SessionSender {
     guard: Arc<Guard>,
     abort: tokio::task::AbortHandle,
     receive_stopped: CancellationToken,
-    sent_finish: Arc<AtomicBool>,
 }
 impl SessionSender {
     pub fn is_closed(&self) -> bool {
@@ -532,15 +524,8 @@ impl SessionSender {
     /// Send an ordered FIN. This does not abort the stream, so the peer may
     /// continue sending its own final bytes in the reverse direction.
     pub async fn finish(&self) -> Result<(), Error> {
-        if self.sent_finish.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
         let (tx, rx) = oneshot::channel();
-        let result = self.command(Outbound::Finish(tx), rx).await;
-        if result.is_err() {
-            self.sent_finish.store(false, Ordering::Release);
-        }
-        result
+        self.command(Outbound::Finish(tx), rx).await
     }
 
     async fn send_data(&self, bytes: Bytes, acknowledged: bool) -> Result<(), Error> {
@@ -548,9 +533,6 @@ impl SessionSender {
             return Err(Error::Protocol);
         }
         self.guard.check()?;
-        if self.sent_finish.load(Ordering::Acquire) {
-            return Err(Error::Closed);
-        }
         let (tx, rx) = oneshot::channel();
         self.command(
             Outbound::Data {
