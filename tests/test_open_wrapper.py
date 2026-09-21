@@ -38,6 +38,8 @@ def run_wrapper(
     fail_urls: list[str] | None = None,
     local_files: list[str] | None = None,
     python_bin: str | None = None,
+    bash_bin: str = "/bin/bash",
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-open-wrapper-test-") as td:
         tmp = Path(td)
@@ -179,8 +181,11 @@ exit 0
         else:
             env.pop("FAKE_CMUX_FAIL_URLS", None)
 
+        if extra_env:
+            env.update(extra_env)
+
         result = subprocess.run(
-            ["/bin/bash", str(wrapper), *args],
+            [bash_bin, str(wrapper), *args],
             cwd=tmp,
             env=env,
             capture_output=True,
@@ -194,6 +199,34 @@ exit 0
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def discover_alternate_bash_binaries() -> list[str]:
+    """Find bash builds other than the default /bin/bash.
+
+    Some third-party bash builds (observed with MacPorts bash 5.3.9 on
+    macOS 15) crash with SIGSEGV in their multibyte-aware glob/pattern
+    matcher when a case statement or ${var%pattern}/${var#pattern}
+    expansion is evaluated against a non-ASCII argument under a UTF-8
+    locale. /bin/bash (Apple's bundled bash 3.2) does not reproduce this,
+    so this regression test only has teeth on a machine that also has one
+    of these alternate builds installed.
+    """
+    candidates = [
+        "/opt/local/bin/bash",
+        "/usr/local/bin/bash",
+        "/opt/homebrew/bin/bash",
+    ]
+    which_bash = shutil.which("bash")
+    if which_bash and which_bash not in candidates:
+        candidates.append(which_bash)
+
+    found = []
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK) and str(path) != "/bin/bash":
+            found.append(str(path))
+    return found
 
 
 def test_toggle_disabled_passthrough(failures: list[str]) -> None:
@@ -570,6 +603,89 @@ def test_local_non_html_file_passthrough(failures: list[str]) -> None:
     expect(open_log == [filename], f"local non-html file: expected system open [{filename}], got {open_log}", failures)
 
 
+def _run_multibyte_argument(bash_bin: str) -> tuple[list[str], list[str], int, str]:
+    filename = "日本語.pdf"
+    return run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        bash_bin=bash_bin,
+        extra_env={
+            "LANG": "ja_JP.UTF-8",
+            "LC_CTYPE": "ja_JP.UTF-8",
+            "LC_ALL": "",
+        },
+    )
+
+
+def test_multibyte_filename_argument_does_not_crash_default_bash(failures: list[str]) -> None:
+    # Sanity baseline on the bash this test suite normally runs under. A
+    # non-html local file should simply pass through to system open.
+    filename = "日本語.pdf"
+    open_log, cmux_log, code, stderr = _run_multibyte_argument("/bin/bash")
+    expect(
+        code == 0,
+        f"multibyte filename (/bin/bash): wrapper exited {code}: {stderr}",
+        failures,
+    )
+    expect(
+        cmux_log == [],
+        f"multibyte filename (/bin/bash): cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [filename],
+        f"multibyte filename (/bin/bash): expected system open [{filename}], got {open_log}",
+        failures,
+    )
+
+
+def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
+    failures: list[str],
+) -> None:
+    # Regression test for a SIGSEGV in Resources/bin/open's trim() and
+    # related helpers: some bash builds crash in their multibyte-aware
+    # glob/pattern matcher when a case statement or pattern-removal
+    # expansion runs against a non-ASCII argument (e.g. a Japanese
+    # filename) under a UTF-8 locale. This only reproduces on a bash build
+    # with that bug, so it is a no-op (documented, not failed) when none is
+    # installed on the machine running this test.
+    alternates = discover_alternate_bash_binaries()
+    if not alternates:
+        print(
+            "note: no alternate bash build found (e.g. MacPorts /opt/local/bin/bash); "
+            "skipping multibyte-argument crash repro (see cmux issue for the original "
+            "SIGSEGV report under MacPorts bash 5.3.9)."
+        )
+        return
+
+    filename = "日本語.pdf"
+    for bash_bin in alternates:
+        open_log, cmux_log, code, stderr = _run_multibyte_argument(bash_bin)
+        expect(
+            code != -11 and code != 139,
+            f"multibyte filename ({bash_bin}): wrapper crashed with SIGSEGV "
+            f"(exit {code}): {stderr}",
+            failures,
+        )
+        expect(
+            code == 0,
+            f"multibyte filename ({bash_bin}): wrapper exited {code}: {stderr}",
+            failures,
+        )
+        expect(
+            cmux_log == [],
+            f"multibyte filename ({bash_bin}): cmux should not be called, got {cmux_log}",
+            failures,
+        )
+        expect(
+            open_log == [filename],
+            f"multibyte filename ({bash_bin}): expected system open [{filename}], got {open_log}",
+            failures,
+        )
+
+
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
     url = "https://xn--bcher-kva.example/path"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -617,6 +733,8 @@ def main() -> int:
     test_non_file_scheme_html_passthrough(failures)
     test_mailto_html_passthrough(failures)
     test_local_non_html_file_passthrough(failures)
+    test_multibyte_filename_argument_does_not_crash_default_bash(failures)
+    test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
 
