@@ -6,6 +6,7 @@ Regression tests for Resources/bin/open.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -689,6 +690,46 @@ def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
         )
 
 
+def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> None:
+    """Static guard for the multibyte SIGSEGV fix.
+
+    CI does not provision a bash build affected by the crash (see
+    test_multibyte_filename_argument_does_not_crash_alternate_bash_builds,
+    which is a no-op there), so a dynamic repro alone would not catch someone
+    later dropping the mitigation. This checks the actual fix -- `export
+    LC_ALL=C` positioned before the wrapper's first argument-scanning `case`
+    statement -- is still present in the script source, independent of which
+    bash build runs the test.
+    """
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+
+    lc_all_match = re.search(r"^export LC_ALL=C\s*$", source, re.MULTILINE)
+    expect(
+        lc_all_match is not None,
+        "expected 'export LC_ALL=C' in Resources/bin/open to force byte-wise "
+        "glob/pattern matching (see the multibyte SIGSEGV fix)",
+        failures,
+    )
+    if lc_all_match is None:
+        return
+
+    arg_scan_match = re.search(r'^for arg in "\$@"; do', source, re.MULTILINE)
+    expect(
+        arg_scan_match is not None,
+        "expected the wrapper's arg-scanning loop ('for arg in \"$@\"; do') to still exist",
+        failures,
+    )
+    if arg_scan_match is None:
+        return
+
+    expect(
+        lc_all_match.start() < arg_scan_match.start(),
+        "'export LC_ALL=C' must be set before the wrapper starts case/pattern "
+        "matching against arguments, or the multibyte SIGSEGV fix has no effect",
+        failures,
+    )
+
+
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
     url = "https://xn--bcher-kva.example/path"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -739,6 +780,7 @@ def main() -> int:
     test_local_non_html_file_passthrough(failures)
     test_multibyte_filename_argument_does_not_crash_default_bash(failures)
     test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(failures)
+    test_wrapper_forces_c_locale_before_arg_processing(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
 
