@@ -491,12 +491,7 @@ struct RemoteTmuxMirrorTargetingTests {
                 .compactMap { workspace.panelIdFromSurfaceId($0.id) }
             #expect(browserPaneTabs == [browserPanel.id])
 
-            // Already at the 2-pane cap: splitting again is refused rather
-            // than opening a third pane, regardless of origin pane (the cap
-            // alone rules out splitting the browser pane itself too — a
-            // mirror's only pane before this split exists is always the
-            // tab-strip pane, so there is no separate "wrong origin" state
-            // to construct here).
+            // At the two-pane cap, neither origin may create another split.
             #expect(workspace.newBrowserSplit(from: panelIds[1], orientation: .horizontal) == nil)
             #expect(workspace.newBrowserSplit(from: browserPanel.id, orientation: .horizontal) == nil)
         }

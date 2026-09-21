@@ -41,11 +41,10 @@ extension Workspace {
     /// invalidating them — so without this, every browser tab on this host
     /// would keep being handed the same stale, now-unreachable endpoint.
     /// ``RemoteTmuxBrowserProxyRegistry/invalidateAndRebuild(connectionHash:)``
-    /// preserves the host's existing retainers (unlike `releaseHost`, which
-    /// would drop every OTHER mirror workspace's retention on this same
-    /// host), and no-ops when nothing on this host has ever opened a
-    /// browser, so calling this from every mirror workspace sharing the host
-    /// that just reconnected is safe — merely redundant.
+    /// preserves the host's existing retainers — see its doc — and no-ops
+    /// when nothing on this host has ever opened a browser, so calling this
+    /// from every mirror workspace sharing the host that just reconnected is
+    /// safe — merely redundant.
     func remoteTmuxBrowserProxyDidReconnect() {
         guard isRemoteTmuxMirror, let host = remoteTmuxBrowserProxyHost else { return }
         AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.invalidateAndRebuild(connectionHash: host.connectionHash)

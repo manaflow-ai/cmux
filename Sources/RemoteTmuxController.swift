@@ -88,9 +88,6 @@ final class RemoteTmuxController {
     /// the topology publication immediately after `new-session`; two establish disappearance.
     var pendingMultiplexNewSessionMisses: [String: Int] = [:]
 
-    init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
-        self.newSessionEnvironment = newSessionEnvironment
-
     /// Ssh-tmux's local browser-preview proxy (one forward per host,
     /// refcounted by mirror workspace). Acquired lazily on first browser
     /// preview, never at mirror creation. Feeds both the sibling browser tab
@@ -98,11 +95,10 @@ final class RemoteTmuxController {
     /// (`Workspace.newBrowserSplit`) via `ensureRemoteTmuxBrowserProxyForward()`.
     let browserProxyRegistry: RemoteTmuxBrowserProxyRegistry
 
+    init(newSessionEnvironment: RemoteTmuxNewSessionEnvironment = .live) {
+        self.newSessionEnvironment = newSessionEnvironment
         browserProxyRegistry = RemoteTmuxBrowserProxyRegistry()
         browserProxyRegistry.transportProvider = { [weak self] host in
-            // Falls back to a fresh transport (rather than force-unwrapping)
-            // only if the controller has already been deallocated, which
-            // can't happen in practice since it owns the registry.
             self?.transport(for: host) ?? RemoteTmuxSSHTransport(host: host)
         }
         browserProxyRegistry.existingTransport = { [weak self] host in
@@ -1248,10 +1244,7 @@ final class RemoteTmuxController {
             sessionName: sessionName
         )
         _ = removeSessionMirror(forKey: entry.key)
-        // See `detachMirrorWorkspaceKeptOpenLocally` — same reasoning applies
-        // to a user-initiated close: without this, a sibling mirror still on
-        // this host keeps its browser proxy retained by this now-gone
-        // workspace's id forever.
+        // Release retention as in `detachMirrorWorkspaceKeptOpenLocally`.
         browserProxyRegistry.release(workspaceID: workspaceId)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)

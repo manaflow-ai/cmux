@@ -37,8 +37,7 @@ actor RemoteTmuxSSHTransport {
     ///   - controlPersistSeconds: idle lifetime of the shared master.
     ///   - dynamicForwardCommand: argv construction and stderr classification
     ///     for `-O forward`/`-O cancel`, injected so tests can substitute
-    ///     their own (stateless, but constructable per the repository's
-    ///     no-ambient-global-state policy rather than a static namespace).
+    ///     their own.
     init(
         host: RemoteTmuxHost,
         sshExecutablePath: String = RemoteTmuxHost.defaultSSHExecutablePath(),

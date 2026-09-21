@@ -187,11 +187,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
             }
         }
         sessions[session.id] = (session, sessionQueue)
-        // `session.start()` performs the SOCKS handshake/dial synchronously
-        // on whatever queue it's given; dispatching it onto the session's
-        // own dedicated queue (not `queue`) keeps a slow or hung second hop
-        // from blocking `newConnectionHandler` for every other connection
-        // this listener accepts.
+        // On the session's own queue, not `queue` — see `sessions`.
         sessionQueue.async {
             session.start()
         }
