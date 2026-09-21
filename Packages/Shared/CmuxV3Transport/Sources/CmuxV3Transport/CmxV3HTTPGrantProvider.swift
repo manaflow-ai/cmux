@@ -20,11 +20,13 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         public let signingKey: CmxV3SigningKey
         public let accessToken: @Sendable () async throws -> String
         public let userID: @Sendable () async throws -> String
+        public let metadata: CmxV3DeviceMetadata?
 
         public init(origin: URL, audience: String, team: String, deviceID: String,
                     signingKey: CmxV3SigningKey,
                     accessToken: @escaping @Sendable () async throws -> String,
-                    userID: @escaping @Sendable () async throws -> String) throws {
+                    userID: @escaping @Sendable () async throws -> String,
+                    metadata: CmxV3DeviceMetadata? = nil) throws {
             guard origin.scheme?.lowercased() == "https" || origin.host == "127.0.0.1" || origin.host == "localhost" else {
                 throw CmxV3HTTPGrantError.insecureOrigin
             }
@@ -35,7 +37,7 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
             }
             guard !audience.isEmpty, !team.isEmpty, !deviceID.isEmpty else { throw CmxV3HTTPGrantError.invalidConfiguration }
             self.origin = origin; self.audience = audience; self.team = team; self.deviceID = deviceID
-            self.signingKey = signingKey; self.accessToken = accessToken; self.userID = userID
+            self.signingKey = signingKey; self.accessToken = accessToken; self.userID = userID; self.metadata = metadata
         }
     }
 
@@ -56,8 +58,8 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         return response
     }
 
-    public func enroll(peerID: String, deviceID: UUID, addresses: [String] = []) async throws {
-        let payload = EnrollmentPayload(team: configuration.team, deviceID: deviceID, addresses: addresses)
+    public func enroll(peerID: String, deviceID: UUID, addresses: [String] = [], metadata: CmxV3DeviceMetadata? = nil) async throws {
+        let payload = EnrollmentPayload(team: configuration.team, deviceID: deviceID, addresses: addresses, metadata: metadata ?? configuration.metadata)
         let response: EnrollmentResponse = try await post(
             "/v3/enroll",
             body: Signed(request: payload, proof: try await proof(path: "/v3/enroll", payload: payload))
@@ -146,7 +148,8 @@ private struct EnrollmentPayload: Codable {
     let team: String
     let deviceID: UUID
     let addresses: [String]
-    enum CodingKeys: String, CodingKey { case team; case deviceID = "device_id"; case addresses }
+    let metadata: CmxV3DeviceMetadata?
+    enum CodingKeys: String, CodingKey { case team; case deviceID = "device_id"; case addresses; case metadata }
 }
 private struct EnrollmentResponse: Decodable { let peer: String }
 private struct AuthorizationPayload: Codable {

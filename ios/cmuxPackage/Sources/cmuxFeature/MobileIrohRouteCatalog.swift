@@ -51,31 +51,14 @@ public actor MobileIrohRouteCatalog {
         return true
     }
     @discardableResult
-    func replaceV3(with directory: CmxV3Directory, scope: UInt64) -> Bool {
+    func replaceV3(with directory: CmxV3Directory, scope: UInt64, compatibleWith policy: MobileMacBuildCompatibilityPolicy = .official) -> Bool {
         guard activeScope == scope else { return false }
-        let pairable = directory.devices.filter { $0.active && !$0.addresses.isEmpty }
+        let candidates = MobileV3DiscoveryProvider.candidates(from: directory, preferredTag: "", compatibleWith: policy)
         var routes: [String: [String: [CmxAttachRoute]]] = [:]
-        var candidates: [MobileDiscoveredIrohMac] = []
-        for device in pairable {
-            guard let identity = try? CmxV3PeerIdentity(peerID: device.peerID, addresses: device.addresses),
-                  let route = try? CmxAttachRoute(
-                    id: "v3-" + device.deviceID,
-                    kind: .v3,
-                    endpoint: .v3Peer(identity),
-                    priority: Self.preferredRoutePriority
-                  ) else { continue }
-            let tag = "default"
-            let mac = CmxMacAppInstanceIdentity(macDeviceID: device.deviceID, instanceTag: tag)
-            routes[mac.macDeviceID, default: [:]][tag, default: []].append(route)
-            candidates.append(MobileDiscoveredIrohMac(
-                deviceID: mac.macDeviceID,
-                displayName: nil,
-                instanceTag: tag,
-                routes: [route],
-                lastSeenAt: Date(),
-                capabilities: ["transport-v3"],
-                clientNamespace: "mac:v3"
-            ))
+        for candidate in candidates {
+            let mac = CmxMacAppInstanceIdentity(macDeviceID: candidate.deviceID, instanceTag: candidate.instanceTag)
+            guard let tag = mac.instanceTag else { continue }
+            routes[mac.macDeviceID, default: [:]][tag, default: []].append(contentsOf: candidate.routes)
         }
         routesByMacDeviceID = routes
         liveMacs = candidates

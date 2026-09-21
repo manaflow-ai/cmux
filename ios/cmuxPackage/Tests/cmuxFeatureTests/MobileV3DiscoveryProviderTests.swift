@@ -13,7 +13,8 @@ func v3DirectoryProjectionDropsInactiveAndAddresslessDevices() throws {
         addresses: ["/ip4/203.0.113.10/tcp/4001/p2p/12D3KooWActive"],
         active: true,
         tags: [],
-        lease: CmxV3DirectoryLease(renewEverySeconds: 30)
+        lease: CmxV3DirectoryLease(renewEverySeconds: 30),
+        metadata: try CmxV3DeviceMetadata(platform: .mac, instanceTag: "default", displayName: "Mac", pairingEnabled: true, clientNamespace: "mac:com.cmuxterm.app")
     )
     let inactive = CmxV3DirectoryDevice(
         peerID: "12D3KooWInactive",
@@ -21,7 +22,8 @@ func v3DirectoryProjectionDropsInactiveAndAddresslessDevices() throws {
         addresses: ["/ip4/203.0.113.11/tcp/4001/p2p/12D3KooWInactive"],
         active: false,
         tags: [],
-        lease: CmxV3DirectoryLease(renewEverySeconds: 30)
+        lease: CmxV3DirectoryLease(renewEverySeconds: 30),
+        metadata: try CmxV3DeviceMetadata(platform: .mac, instanceTag: "default", displayName: "Mac", pairingEnabled: true, clientNamespace: "mac:com.cmuxterm.app")
     )
     let empty = CmxV3DirectoryDevice(
         peerID: "12D3KooWEmpty",
@@ -29,7 +31,8 @@ func v3DirectoryProjectionDropsInactiveAndAddresslessDevices() throws {
         addresses: [],
         active: true,
         tags: [],
-        lease: CmxV3DirectoryLease(renewEverySeconds: 30)
+        lease: CmxV3DirectoryLease(renewEverySeconds: 30),
+        metadata: try CmxV3DeviceMetadata(platform: .mac, instanceTag: "default", displayName: "Mac", pairingEnabled: true, clientNamespace: "mac:com.cmuxterm.app")
     )
     let directory = CmxV3Directory(team: "team", revision: 3, devices: [active, inactive, empty])
     let candidates = MobileV3DiscoveryProvider.candidates(from: directory, preferredTag: "default", now: Date(timeIntervalSince1970: 100))
@@ -48,7 +51,8 @@ func v3DirectoryProjectionPublishesRoutesToSharedCatalog() async throws {
         addresses: ["/ip4/203.0.113.12/tcp/4001/p2p/12D3KooWCatalog"],
         active: true,
         tags: [],
-        lease: CmxV3DirectoryLease(renewEverySeconds: 10)
+        lease: CmxV3DirectoryLease(renewEverySeconds: 10),
+        metadata: try CmxV3DeviceMetadata(platform: .mac, instanceTag: "default", displayName: "Mac", pairingEnabled: true, clientNamespace: "mac:com.cmuxterm.app")
     )
     let directory = CmxV3Directory(team: "team", revision: 1, devices: [device])
     let catalog = MobileIrohRouteCatalog()
@@ -72,7 +76,7 @@ func v3DirectoryProjectionRequiresMacMetadataAndPreservesActualBuildIdentity() a
         return try JSONDecoder().decode(CmxV3DirectoryDevice.self, from: JSONSerialization.data(withJSONObject: json))
     }
     let directory = CmxV3Directory(team: "team", revision: 1, devices: [
-        try device("host"), try device("phone", platform: "ios", pairing: false),
+        try device("host"), try device("phone", platform: "ios", pairing: false, namespace: "ios:dev.cmux.ios.v3dog"),
         try device("disabled", pairing: false), try device("other", tag: "other"),
         try device("release", tag: "default", namespace: "mac:com.cmuxterm.app")
     ])

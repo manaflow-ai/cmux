@@ -78,6 +78,53 @@ pub struct Enrollment {
     pub team: String,
     pub device_id: Uuid,
     pub addresses: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<DeviceMetadata>,
+}
+/// Signed discovery hints, never authorization roles or policy tags.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceMetadata {
+    pub platform: DevicePlatform,
+    pub instance_tag: String,
+    pub display_name: String,
+    pub pairing_enabled: bool,
+    pub client_namespace: String,
+}
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DevicePlatform {
+    Mac,
+    Ios,
+    Linux,
+    Windows,
+}
+impl DeviceMetadata {
+    pub fn valid(&self) -> bool {
+        let namespace_prefix = match self.platform {
+            DevicePlatform::Mac => "mac:",
+            DevicePlatform::Ios => "ios:",
+            DevicePlatform::Linux => "linux:",
+            DevicePlatform::Windows => "windows:",
+        };
+        !self.instance_tag.is_empty()
+            && self.instance_tag.len() <= 128
+            && self
+                .instance_tag
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.".contains(&c))
+            && !self.display_name.trim().is_empty()
+            && self.display_name.len() <= 256
+            && !self.display_name.chars().any(char::is_control)
+            && self.client_namespace.len() > namespace_prefix.len()
+            && self.client_namespace.len() <= 256
+            && self.client_namespace.starts_with(namespace_prefix)
+            && self
+                .client_namespace
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_.:".contains(&c))
+            && (!self.pairing_enabled || self.platform == DevicePlatform::Mac)
+    }
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

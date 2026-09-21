@@ -35,6 +35,7 @@ fn enrollment(team: &str) -> Signed<Enrollment> {
             team: team.into(),
             device_id: Uuid::new_v4(),
             addresses: vec![],
+            metadata: None,
         },
         proof: proof(),
     }
@@ -82,6 +83,7 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
             team: team.clone(),
             device_id: enroll.request.device_id,
             addresses: vec![],
+            metadata: None,
         },
         proof: proof(),
     };
@@ -222,4 +224,56 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
         .await
         .unwrap());
     assert!(!store.relay_events(&team, 0, 256).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+#[ignore = "requires CMUX_V3_TEST_DATABASE_URL, run explicitly in CI"]
+async fn postgres_enrollment_metadata_round_trips_and_refreshes_without_policy_privileges() {
+    let url = std::env::var("CMUX_V3_TEST_DATABASE_URL").unwrap();
+    let db = PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&url)
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&db).await.unwrap();
+    let store = Store(db);
+    let team = Uuid::new_v4().to_string();
+    let alice = identity(&team, "alice", false);
+    let host = peer();
+    let mut enrollment = enrollment(&team);
+    enrollment.request.metadata = Some(cmux_v3_control_server::DeviceMetadata {
+        platform: cmux_v3_control_server::DevicePlatform::Mac,
+        instance_tag: "v3dog".into(),
+        display_name: "Office Mac".into(),
+        pairing_enabled: true,
+        client_namespace: "mac:com.cmuxterm.app.debug.v3dog".into(),
+    });
+    store.enroll(&alice, &enrollment, host).await.unwrap();
+    let directory = store.directory(&alice).await.unwrap();
+    assert_eq!(directory["devices"][0]["metadata"]["instance_tag"], "v3dog");
+    assert_eq!(directory["devices"][0]["metadata"]["platform"], "mac");
+    assert_eq!(directory["devices"][0]["tags"], serde_json::json!([]));
+    enrollment.proof = proof();
+    enrollment
+        .request
+        .metadata
+        .as_mut()
+        .unwrap()
+        .pairing_enabled = false;
+    enrollment.request.metadata.as_mut().unwrap().display_name = "Renamed Mac".into();
+    store.enroll(&alice, &enrollment, host).await.unwrap();
+    let directory = store.directory(&alice).await.unwrap();
+    assert_eq!(
+        directory["devices"][0]["metadata"]["pairing_enabled"],
+        false
+    );
+    assert_eq!(
+        directory["devices"][0]["metadata"]["display_name"],
+        "Renamed Mac"
+    );
+    enrollment.proof = proof();
+    enrollment.request.metadata.as_mut().unwrap().instance_tag = "".into();
+    assert!(store.enroll(&alice, &enrollment, host).await.is_err());
+    let directory = store.directory(&alice).await.unwrap();
+    assert_eq!(directory["devices"][0]["metadata"]["instance_tag"], "v3dog");
 }

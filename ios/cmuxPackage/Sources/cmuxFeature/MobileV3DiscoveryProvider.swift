@@ -10,13 +10,15 @@ import Foundation
 public final class MobileV3DiscoveryProvider: MobileIrohMacDiscovering {
     private let runtime: MobileV3RuntimeComposition
     private let preferredTag: String
+    private let compatibilityPolicy: MobileMacBuildCompatibilityPolicy
     private let routeCatalog: MobileIrohRouteCatalog?
     private var scope: UInt64 = 0
     private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    public init(runtime: MobileV3RuntimeComposition, preferredTag: String = "default", routeCatalog: MobileIrohRouteCatalog? = nil) {
+    public init(runtime: MobileV3RuntimeComposition, preferredTag: String = "default", compatibilityPolicy: MobileMacBuildCompatibilityPolicy = .official, routeCatalog: MobileIrohRouteCatalog? = nil) {
         self.runtime = runtime
         self.preferredTag = preferredTag
+        self.compatibilityPolicy = compatibilityPolicy
         self.routeCatalog = routeCatalog
     }
 
@@ -33,19 +35,21 @@ public final class MobileV3DiscoveryProvider: MobileIrohMacDiscovering {
 
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         guard let directory = try? await runtime.directory() else { return [] }
-        let candidates = Self.candidates(from: directory, preferredTag: preferredTag)
+        let candidates = Self.candidates(from: directory, preferredTag: preferredTag, compatibleWith: compatibilityPolicy)
         scope &+= 1
         if let routeCatalog {
             await routeCatalog.activate(scope: scope)
-            _ = await routeCatalog.replaceV3(with: directory, scope: scope)
+            _ = await routeCatalog.replaceV3(with: directory, scope: scope, compatibleWith: compatibilityPolicy)
         }
         for observer in observers.values { observer.yield(()) }
         return candidates
     }
 
-    static func candidates(from directory: CmxV3Directory, preferredTag: String, now: Date = Date()) -> [MobileDiscoveredIrohMac] {
+    nonisolated static func candidates(from directory: CmxV3Directory, preferredTag: String, compatibleWith policy: MobileMacBuildCompatibilityPolicy = .official, now: Date = Date()) -> [MobileDiscoveredIrohMac] {
         directory.devices.compactMap { device -> MobileDiscoveredIrohMac? in
             guard device.active, !device.addresses.isEmpty,
+                  let metadata = device.metadata, metadata.platform == .mac, metadata.pairingEnabled,
+                  policy.allows(instanceTag: metadata.instanceTag, clientNamespace: metadata.clientNamespace),
                   let identity = try? CmxV3PeerIdentity(peerID: device.peerID, addresses: device.addresses),
                   let route = try? CmxAttachRoute(
                     id: "v3-\(device.deviceID)",
@@ -55,12 +59,12 @@ public final class MobileV3DiscoveryProvider: MobileIrohMacDiscovering {
                   ) else { return nil }
             return MobileDiscoveredIrohMac(
                 deviceID: device.deviceID,
-                displayName: nil,
-                instanceTag: preferredTag,
+                displayName: metadata.displayName,
+                instanceTag: metadata.instanceTag,
                 routes: [route],
                 lastSeenAt: now,
                 capabilities: ["transport-v3"],
-                clientNamespace: "mac:v3"
+                clientNamespace: metadata.clientNamespace
             )
         }
     }
