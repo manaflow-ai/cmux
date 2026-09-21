@@ -7,7 +7,9 @@ import datetime as dt
 import json
 import os
 from pathlib import Path
+import select
 import shutil
+import signal
 import statistics
 import subprocess
 import sys
@@ -260,21 +262,62 @@ def task_from_reservation(
     )
 
 
-def wait_for_warmer_lease(state: Path, slot: str, process: subprocess.Popen[str], timeout: float = 180.0) -> bool:
-    lease = state / "slots" / slot / "lease.json"
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            return False
-        if lease.exists():
+def wait_for_warmer_ready(fd: int, timeout: float = 180.0) -> bool:
+    """Wait for the helper-owned readiness pipe without filesystem polling."""
+    ready, _, _ = select.select([fd], [], [], timeout)
+    if not ready:
+        return False
+    try:
+        return os.read(fd, 1) == b"1"
+    except OSError:
+        return False
+
+
+def clear_owned_warmer_state(state: Path, slot: str, pid: int) -> None:
+    """Remove benchmark-owned stale warmer markers after its process exits."""
+    lease_path = state / "slots" / slot / "lease.json"
+    try:
+        lease = json.loads(lease_path.read_text())
+    except (OSError, ValueError):
+        lease = {}
+    if lease.get("kind") == "warmer" and lease.get("pid") == pid:
+        lease_path.unlink(missing_ok=True)
+    (state / "warmer-preempt.fifo").unlink(missing_ok=True)
+
+
+def cleanup_warmer(
+    state: Path,
+    slot: str,
+    process: subprocess.Popen[str],
+) -> tuple[str, str]:
+    """Terminate the owned warmer and its native group after benchmark failure."""
+    if process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    try:
+        stdout, stderr = process.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+        inflight_path = state / "slots" / slot / "inflight.json"
+        try:
+            inflight = json.loads(inflight_path.read_text())
+        except (OSError, ValueError):
+            inflight = {}
+        pgid = inflight.get("process_group")
+        if isinstance(pgid, int) and pgid > 0:
             try:
-                value = json.loads(lease.read_text())
-                if value.get("kind") == "warmer":
-                    return True
-            except (OSError, ValueError):
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
                 pass
-        time.sleep(0.1)
-    return False
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        stdout, stderr = process.communicate()
+        inflight_path.unlink(missing_ok=True)
+    clear_owned_warmer_state(state, slot, process.pid)
+    return stdout, stderr
 
 
 def run_preemption(
@@ -285,24 +328,62 @@ def run_preemption(
     command: Sequence[str],
 ) -> dict[str, Any]:
     slot = "slot"
+    ready_r, ready_w = os.pipe()
     warmer_argv = [
         sys.executable, str(helper),
         "warm", "--machine-state", str(state), "--slot", slot,
         "--checkout", str(checkout), "--target", target,
+        "--ready-fd", str(ready_w),
         *command_tail(command),
     ]
-    warmer = subprocess.Popen(warmer_argv, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        warmer = subprocess.Popen(
+            warmer_argv,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            pass_fds=(ready_w,),
+            start_new_session=True,
+        )
+    finally:
+        os.close(ready_w)
     known_at = time.time()
-    if not wait_for_warmer_lease(state, slot, warmer):
-        stdout, stderr = warmer.communicate(timeout=30)
-        return {
-            "status": "skipped",
-            "reason": "warmer_finished_before_task_arrived",
-            "warmer_stdout": stdout[-4000:],
-            "warmer_stderr": stderr[-4000:],
-        }
-    task_result = task(helper, state, checkout, slot, target, "preempt-real-work", command, known_at=known_at)
-    stdout, stderr = warmer.communicate(timeout=120)
+    try:
+        if not wait_for_warmer_ready(ready_r):
+            stdout, stderr = cleanup_warmer(state, slot, warmer)
+            return {
+                "status": "skipped",
+                "reason": "warmer_finished_before_task_arrived",
+                "warmer_stdout": stdout[-4000:],
+                "warmer_stderr": stderr[-4000:],
+            }
+        try:
+            task_result = task(
+                helper,
+                state,
+                checkout,
+                slot,
+                target,
+                "preempt-real-work",
+                command,
+                known_at=known_at,
+            )
+        except BaseException:
+            cleanup_warmer(state, slot, warmer)
+            raise
+        try:
+            stdout, stderr = warmer.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = cleanup_warmer(state, slot, warmer)
+            return {
+                "status": "invalid",
+                "reason": "warmer_preemption_timeout",
+                "warmer_stdout": stdout[-4000:],
+                "warmer_stderr": stderr[-4000:],
+                "task": task_result,
+            }
+    finally:
+        os.close(ready_r)
     try:
         warm_result = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
@@ -310,6 +391,13 @@ def run_preemption(
     warm_result["_helper_exit"] = warmer.returncode
     if stderr:
         warm_result["_stderr"] = stderr[-4000:]
+    if warm_result.get("status") != "yielded":
+        return {
+            "status": "invalid",
+            "reason": "warmer_did_not_yield",
+            "warmer": warm_result,
+            "task": task_result,
+        }
     return {"status": "completed", "warmer": warm_result, "task": task_result}
 
 

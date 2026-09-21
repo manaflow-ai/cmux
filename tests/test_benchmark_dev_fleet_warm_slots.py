@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -57,6 +58,15 @@ class BenchmarkTest(unittest.TestCase):
         self.assertEqual(manifest["graph_change"]["commit"], self.graph)
         self.assertIn("source_only_change", manifest["cases"])
         self.assertIn("warmer_interrupted_by_real_work", manifest["cases"])
+
+    def test_wait_for_warmer_ready_uses_pipe_signal(self):
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, b"1")
+            self.assertTrue(bench.wait_for_warmer_ready(read_fd, timeout=0.1))
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
 
     def test_event_report_exposes_trial_metrics(self):
         path = self.root / "events.jsonl"

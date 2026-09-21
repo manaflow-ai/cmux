@@ -266,10 +266,32 @@ class WarmSlotTest(unittest.TestCase):
         )
 
     def test_toolchain_change_invalidates(self):
-        self.warm(self.base, env=fake_env(TOOLCHAIN_A))
+        first = self.warm(self.base, env=fake_env(TOOLCHAIN_A))
         planned = self.call("plan", *self.common(), "--target", self.base, env=fake_env(TOOLCHAIN_B))
         self.assertEqual(planned["decision"], "cold")
         self.assertEqual(planned["reason"], "toolchain_changed")
+        second = self.warm(self.base, env=fake_env(TOOLCHAIN_B))
+        self.assertEqual(second["status"], "warmed")
+        self.assertNotEqual(
+            first["generation"]["lineage_id"],
+            second["generation"]["lineage_id"],
+        )
+
+    def test_stale_foreground_pid_identity_does_not_block_warming(self):
+        foreground = self.state / "foreground"
+        foreground.mkdir(parents=True)
+        request = foreground / "stale.json"
+        request.write_text(json.dumps({
+            "schema_version": 1,
+            "task_id": "stale",
+            "target_commit": self.base,
+            "pid": os.getpid(),
+            "process_identity": "definitely-not-this-process",
+        }))
+        explained = self.call("explain", *self.common(), "--target", self.base)
+        self.assertEqual(explained["foreground_requests"][0]["state"], "stale")
+        warmed = self.warm(self.base)
+        self.assertEqual(warmed["status"], "warmed")
 
     def test_dirty_source_quarantines_warmer(self):
         self.warm(self.base)
@@ -286,6 +308,31 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(result["receipt"]["match_class"], "cold")
         self.assertTrue(result["receipt"]["cold_fallback"])
         self.assertIn("cold-tasks", result["receipt"]["derived_data_path"])
+
+    def test_same_checkout_serializes_different_slots(self):
+        slow = native_command(seconds=1.5)
+        first = subprocess.Popen(
+            [
+                sys.executable, str(HELPER), "task-run", *self.common("one"),
+                "--target", self.base, "--task-id", "one", "--", *slow,
+            ],
+            cwd=ROOT,
+            env=fake_env(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        lease = self.state / "slots/one/lease.json"
+        deadline = time.time() + 5
+        while time.time() < deadline and not lease.exists():
+            time.sleep(0.05)
+        self.assertTrue(lease.exists())
+        known = time.time()
+        second = self.task(self.base, task_id="two", slot="two", command=native_command())
+        stdout, stderr = first.communicate(timeout=10)
+        self.assertEqual(first.returncode, 0, msg=stderr + stdout)
+        self.assertGreater(second["receipt"]["task_known_to_build_start_seconds"], 0.5)
+        self.assertGreater(time.time() - known, 0.5)
 
     def test_machine_warmer_lock_and_visible_lease(self):
         slow = [
@@ -400,6 +447,22 @@ class WarmSlotTest(unittest.TestCase):
         )
         self.assertEqual(recovered["status"], "recovered")
         self.assertTrue(recovered["cold_lineage_required"])
+
+    def test_unreadable_inflight_recovers_to_cold_lineage(self):
+        self.warm(self.base)
+        slot = self.state / "slots/slot"
+        (slot / "inflight.json").write_text("{")
+        recovered = self.call(
+            "recover",
+            "--machine-state", str(self.state),
+            "--slot", "slot",
+            "--run-id", "repair-unreadable",
+        )
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertTrue(recovered["cold_lineage_required"])
+        self.assertTrue(recovered["unreadable_inflight"])
+        record = json.loads((slot / "slot.json").read_text())
+        self.assertTrue(record["generation"]["quarantined"])
 
     def test_corrupt_state_fails_closed(self):
         slot = self.state / "slots/slot"

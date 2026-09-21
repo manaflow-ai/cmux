@@ -15,7 +15,9 @@ import json
 import os
 from pathlib import Path
 import platform
+import select
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -25,7 +27,6 @@ import uuid
 from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
-POLL_SECONDS = 0.25
 TERM_GRACE_SECONDS = 10.0
 
 def now_iso() -> str:
@@ -167,6 +168,7 @@ def toolchain() -> dict[str, Any]:
 
 
 def alive(pid: int) -> bool:
+    """Return whether a process ID currently exists."""
     try:
         os.kill(pid, 0)
         return True
@@ -174,6 +176,29 @@ def alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+
+
+def process_identity(pid: int) -> str | None:
+    """Return a start-time identity used to reject PID reuse."""
+    try:
+        result = subprocess.run(
+            ["/bin/ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    value = " ".join(result.stdout.split())
+    return value or None
+
+
+def same_process(pid: int, identity: Any) -> bool:
+    """Validate both PID liveness and its recorded process-start identity."""
+    return isinstance(identity, str) and bool(identity) and process_identity(pid) == identity
 
 
 def group_alive(pgid: int) -> bool:
@@ -213,6 +238,9 @@ class Layout:
         self.logs = self.slot / "logs"
         self.warmer_lock = machine / "warmer.lock"
         self.foreground = machine / "foreground"
+        self.foreground_gate = machine / "foreground.lock"
+        self.preempt_fifo = machine / "warmer-preempt.fifo"
+        self.checkout_locks = machine / "checkout-locks"
         self.events = machine / "events.jsonl"
         self.events_lock = machine / "events.lock"
 
@@ -231,6 +259,20 @@ def locked(path: Path, blocking: bool = True) -> Iterator[None]:
             stream.close()
 
 
+def checkout_lock_path(layout: Layout, checkout: Path) -> Path:
+    """Return one machine-local lock path for a physical checkout."""
+    key = hashlib.sha256(str(checkout.resolve()).encode()).hexdigest()[:32]
+    return layout.checkout_locks / f"{key}.lock"
+
+
+@contextlib.contextmanager
+def warm_slot_lock(layout: Layout, checkout: Path) -> Iterator[None]:
+    """Acquire a slot and its checkout without waiting behind foreground work."""
+    with locked(layout.slot_lock, blocking=False):
+        with locked(checkout_lock_path(layout, checkout), blocking=False):
+            yield
+
+
 def event(layout: Layout, kind: str, **fields: Any) -> None:
     row = {"schema_version": SCHEMA, "event": kind, "at": now_iso(), "slot_id": layout.slot_id, **fields}
     with locked(layout.events_lock):
@@ -242,6 +284,7 @@ def event(layout: Layout, kind: str, **fields: Any) -> None:
 
 
 def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:
+    """Inspect diagnostic foreground request records outside the warmer hot path."""
     layout.foreground.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     for path in layout.foreground.glob("*.json"):
@@ -251,7 +294,7 @@ def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:
         except (OSError, ValueError, json.JSONDecodeError):
             rows.append({"state": "unreadable", "path": str(path)})
             continue
-        if pid > 0 and alive(pid):
+        if pid > 0 and same_process(pid, row.get("process_identity")):
             rows.append({**row, "state": "live", "path": str(path)})
         elif prune:
             path.unlink(missing_ok=True)
@@ -260,21 +303,46 @@ def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:
     return rows
 
 
+def signal_warmer(layout: Layout) -> bool:
+    """Notify the one machine warmer through its FIFO without PID signalling."""
+    try:
+        fd = os.open(layout.preempt_fifo, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+        return False
+    try:
+        os.write(fd, b"1")
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
 @contextlib.contextmanager
 def foreground_request(layout: Layout, task_id: str, target: str) -> Iterator[None]:
+    """Publish foreground demand and hold the machine gate for its lifetime."""
     layout.foreground.mkdir(parents=True, exist_ok=True)
+    layout.foreground_gate.parent.mkdir(parents=True, exist_ok=True)
+    gate = layout.foreground_gate.open("a+")
+    fcntl.flock(gate, fcntl.LOCK_SH)
     path = layout.foreground / f"{uuid.uuid4().hex}.json"
     atomic_json(path, {
         "schema_version": SCHEMA,
         "task_id": task_id,
         "target_commit": target,
         "pid": os.getpid(),
+        "process_identity": process_identity(os.getpid()),
         "requested_at": now_iso(),
     })
+    signal_warmer(layout)
     try:
         yield
     finally:
         path.unlink(missing_ok=True)
+        try:
+            fcntl.flock(gate, fcntl.LOCK_UN)
+        finally:
+            gate.close()
 
 
 def current_slot_lease(layout: Layout, prune_expired: bool = True) -> dict[str, Any] | None:
@@ -312,6 +380,7 @@ def visible_lease(
         "kind": kind,
         "owner": owner,
         "pid": os.getpid(),
+        "process_identity": process_identity(os.getpid()),
         "target_commit": target,
         "acquired_at": now_iso(),
         **extra,
@@ -320,6 +389,76 @@ def visible_lease(
         yield
     finally:
         layout.lease.unlink(missing_ok=True)
+
+
+def annotate_lease(layout: Layout, **fields: Any) -> None:
+    """Add durable native-run identity to the visible slot lease."""
+    try:
+        lease = read_json(layout.lease)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return
+    if lease:
+        lease.update(fields)
+        atomic_json(layout.lease, lease)
+
+
+def open_preempt_channel(layout: Layout) -> int:
+    """Create the machine-local FIFO used for task-first warmer cancellation."""
+    layout.preempt_fifo.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        info = layout.preempt_fifo.lstat()
+    except FileNotFoundError:
+        info = None
+    if info is not None:
+        if not stat.S_ISFIFO(info.st_mode):
+            raise RuntimeError("preempt_path_not_fifo")
+        layout.preempt_fifo.unlink()
+    os.mkfifo(layout.preempt_fifo, 0o600)
+    return os.open(layout.preempt_fifo, os.O_RDWR | os.O_NONBLOCK)
+
+
+def close_preempt_channel(layout: Layout, fd: int | None) -> None:
+    """Close and remove the warmer FIFO owned by this process."""
+    if fd is not None:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    layout.preempt_fifo.unlink(missing_ok=True)
+
+
+def consume_preempt(fd: int) -> bool:
+    """Drain a pending foreground preemption notification if one exists."""
+    ready, _, _ = select.select([fd], [], [], 0)
+    if not ready:
+        return False
+    consumed = False
+    while True:
+        try:
+            data = os.read(fd, 4096)
+        except BlockingIOError:
+            break
+        if not data:
+            break
+        consumed = True
+        if len(data) < 4096:
+            break
+    return consumed
+
+
+def notify_ready(fd: int | None) -> None:
+    """Signal an owning benchmark that the warmer lease is visible."""
+    if fd is None:
+        return
+    try:
+        os.write(fd, b"1")
+    except OSError:
+        pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 def generation(record: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -460,19 +599,40 @@ def run_native(
     operation: str,
     preemptible: bool,
     low_priority: bool,
+    preempt_fd: int | None = None,
 ) -> dict[str, Any]:
+    """Execute one native build with durable launch and event-driven cancellation."""
     log.parent.mkdir(parents=True, exist_ok=True)
     run_id = uuid.uuid4().hex
     started = time.time()
+    started_iso = dt.datetime.fromtimestamp(started, dt.timezone.utc).isoformat()
+    command_identity = digest({"argv": list(argv), "derived": env.get("CMUX_DERIVED_DATA")})
+    before = time.monotonic()
+
+    if preemptible and preempt_fd is not None and consume_preempt(preempt_fd):
+        return {
+            "run_id": run_id,
+            "outcome": "yielded",
+            "returncode": 130,
+            "wall_seconds": round(time.monotonic() - before, 6),
+            "swift_compile_count": 0,
+            "log": str(log),
+            "command_identity": command_identity,
+            "started_at": started_iso,
+            "force_killed": False,
+        }
+
     inflight = {
         "schema_version": SCHEMA,
         "run_id": run_id,
         "operation": operation,
         "helper_pid": os.getpid(),
+        "helper_process_identity": process_identity(os.getpid()),
         "child_pid": None,
         "process_group": None,
-        "started_at": dt.datetime.fromtimestamp(started, dt.timezone.utc).isoformat(),
-        "command_identity": digest({"argv": list(argv), "derived": env.get("CMUX_DERIVED_DATA")}),
+        "launch_guard": "pipe_v1",
+        "started_at": started_iso,
+        "command_identity": command_identity,
     }
     atomic_json(layout.inflight, inflight)
 
@@ -485,78 +645,172 @@ def run_native(
                 pass
         preexec = lower_priority
 
-    before = time.monotonic()
+    guard_r, guard_w = os.pipe()
+    launch_guard = (
+        "import os,sys\n"
+        "fd=int(sys.argv[1])\n"
+        "argv=sys.argv[2:]\n"
+        "token=os.read(fd,1)\n"
+        "os.close(fd)\n"
+        "if token != b'G':\n"
+        "    raise SystemExit(125)\n"
+        "os.execvpe(argv[0], argv, os.environ)\n"
+    )
     with log.open("wb") as stream:
-        proc = subprocess.Popen(
-            list(argv),
-            cwd=checkout,
-            env=env,
-            stdout=stream,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-            preexec_fn=preexec,
-        )
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, "-c", launch_guard, str(guard_r), *argv],
+                cwd=checkout,
+                env=env,
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                preexec_fn=preexec,
+                pass_fds=(guard_r,),
+            )
+        finally:
+            os.close(guard_r)
+
         inflight.update({"child_pid": proc.pid, "process_group": proc.pid})
-        atomic_json(layout.inflight, inflight)
-        yielded = False
-        forwarded: int | None = None
+        try:
+            atomic_json(layout.inflight, inflight)
+            annotate_lease(
+                layout,
+                native_run_id=run_id,
+                native_process_group=proc.pid,
+                native_launch_guard="pipe_v1",
+            )
+        except BaseException:
+            os.close(guard_w)
+            try:
+                proc.wait(timeout=TERM_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            layout.inflight.unlink(missing_ok=True)
+            raise
+
+        done = threading.Event()
+        yielded = threading.Event()
+        forwarded: list[int | None] = [None]
+        force_killed = [False]
+        force_threads: list[threading.Thread] = []
         prior: dict[int, Any] = {}
 
-        def forward(signum: int, _frame: Any) -> None:
-            nonlocal forwarded
-            forwarded = signum
+        def reap() -> None:
+            proc.wait()
+            done.set()
+
+        reaper = threading.Thread(target=reap, name=f"cmux-native-reap-{run_id[:8]}", daemon=True)
+
+        def force_after_grace() -> None:
+            if done.wait(TERM_GRACE_SECONDS):
+                return
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+                force_killed[0] = True
+            except ProcessLookupError:
+                pass
+
+        def request_termination(kind: str, signum: int | None = None) -> None:
+            if kind == "preempt":
+                yielded.set()
+            elif signum is not None:
+                forwarded[0] = signum
             try:
                 os.killpg(proc.pid, signal.SIGTERM)
             except ProcessLookupError:
-                pass
+                return
+            thread = threading.Thread(
+                target=force_after_grace,
+                name=f"cmux-native-kill-{run_id[:8]}",
+                daemon=True,
+            )
+            force_threads.append(thread)
+            thread.start()
+
+        def forward(signum: int, _frame: Any) -> None:
+            request_termination("signal", signum)
 
         if threading.current_thread() is threading.main_thread():
             for signum in (signal.SIGINT, signal.SIGTERM):
                 prior[signum] = signal.getsignal(signum)
                 signal.signal(signum, forward)
+
+        stop_r = stop_w = None
+        watcher = None
         try:
-            while proc.poll() is None:
-                if forwarded is not None or (preemptible and live_foreground(layout)):
-                    yielded = forwarded is None
-                    try:
-                        os.killpg(proc.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
-                    deadline = time.monotonic() + TERM_GRACE_SECONDS
-                    while proc.poll() is None and time.monotonic() < deadline:
-                        time.sleep(0.1)
-                    if proc.poll() is None:
-                        try:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    break
-                time.sleep(POLL_SECONDS)
-            returncode = proc.wait()
+            reaper.start()
+            try:
+                os.write(guard_w, b"G")
+            except BrokenPipeError:
+                pass
+            finally:
+                os.close(guard_w)
+
+            if preemptible and preempt_fd is not None:
+                stop_r, stop_w = os.pipe()
+
+                def watch_preempt() -> None:
+                    ready, _, _ = select.select([preempt_fd, stop_r], [], [])
+                    if stop_r in ready:
+                        return
+                    if preempt_fd in ready and consume_preempt(preempt_fd):
+                        request_termination("preempt")
+
+                watcher = threading.Thread(
+                    target=watch_preempt,
+                    name=f"cmux-native-preempt-{run_id[:8]}",
+                    daemon=True,
+                )
+                watcher.start()
+
+            done.wait()
         finally:
+            if stop_w is not None:
+                try:
+                    os.write(stop_w, b"1")
+                except OSError:
+                    pass
+                os.close(stop_w)
+            if watcher is not None:
+                watcher.join()
+            if stop_r is not None:
+                os.close(stop_r)
+            reaper.join()
+            for thread in force_threads:
+                thread.join()
             for signum, handler in prior.items():
                 signal.signal(signum, handler)
 
-    descendants = group_alive(proc.pid)
+    if (yielded.is_set() or forwarded[0] is not None) and group_alive(proc.pid):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+            force_killed[0] = True
+        except ProcessLookupError:
+            pass
+
+    descendants = False if force_killed[0] else group_alive(proc.pid)
     if descendants:
         outcome = "recovery_required"
-    elif forwarded is not None:
+    elif forwarded[0] is not None:
         outcome = "interrupted"
-    elif yielded:
+    elif yielded.is_set():
         outcome = "yielded"
     else:
-        outcome = "success" if returncode == 0 else "failed"
+        outcome = "success" if proc.returncode == 0 else "failed"
     if not descendants:
         layout.inflight.unlink(missing_ok=True)
     return {
         "run_id": run_id,
         "outcome": outcome,
-        "returncode": returncode,
+        "returncode": proc.returncode,
         "wall_seconds": round(time.monotonic() - before, 6),
         "swift_compile_count": swift_compile_count(log),
         "log": str(log),
-        "command_identity": inflight["command_identity"],
-        "started_at": inflight["started_at"],
+        "command_identity": command_identity,
+        "started_at": started_iso,
+        "force_killed": force_killed[0],
     }
 
 
@@ -574,11 +828,21 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
         warmer_lock.__enter__()
     except BlockingIOError:
         return {"status": "deferred", "reason": "warmer_already_running"}
+    preempt_fd: int | None = None
     try:
-        if live_foreground(layout):
-            return {"status": "deferred", "reason": "foreground_waiting"}
         try:
-            slot_lock = locked(layout.slot_lock, blocking=False)
+            preempt_fd = open_preempt_channel(layout)
+        except (OSError, RuntimeError) as error:
+            return {"status": "deferred", "reason": str(error)}
+        try:
+            gate = locked(layout.foreground_gate, blocking=False)
+            gate.__enter__()
+        except BlockingIOError:
+            return {"status": "deferred", "reason": "foreground_waiting"}
+        else:
+            gate.__exit__(None, None, None)
+        try:
+            slot_lock = warm_slot_lock(layout, checkout)
             slot_lock.__enter__()
         except BlockingIOError:
             return {"status": "deferred", "reason": "slot_leased"}
@@ -591,6 +855,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                     "lease": existing_lease,
                 }
             with visible_lease(layout, "warmer", args.owner, args.target):
+                notify_ready(args.ready_fd)
                 p = plan(layout, checkout, args.target)
                 try:
                     record = read_json(layout.record) or {"lineage_ordinal": -1}
@@ -605,7 +870,17 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                 if not native_available(p["toolchain"]):
                     return {"status": "deferred", "reason": "native_apple_toolchain_unavailable", "plan": p}
 
-                old_source = str(gen["source_commit"]) if gen and gen.get("warm_ready") is True else None
+                source_commit = str(gen.get("source_commit", "")) if gen else ""
+                reusable_source = bool(
+                    gen
+                    and gen.get("warm_ready") is True
+                    and not gen.get("quarantined")
+                    and gen.get("toolchain_fingerprint") == p["toolchain_fingerprint"]
+                    and source_commit
+                    and exists(checkout, source_commit)
+                    and ancestor(checkout, source_commit, args.target)
+                )
+                old_source = source_commit if reusable_source else None
                 try:
                     switch_from_warm(checkout, old_source, args.target) if old_source else switch_exact(checkout, args.target)
                     target_fp = input_fingerprint(checkout, args.target)
@@ -663,7 +938,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                 receipt.update(run_native(
                     layout, checkout, argv, env,
                     layout.logs / f"warm-{int(time.time())}-{args.target[:12]}.log",
-                    "warm", True, True,
+                    "warm", True, True, preempt_fd,
                 ))
                 receipt["disk_bytes_before"] = before_bytes
                 receipt["disk_bytes_after"] = disk_bytes(layout.cache)
@@ -714,6 +989,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
         finally:
             slot_lock.__exit__(None, None, None)
     finally:
+        close_preempt_channel(layout, preempt_fd)
         warmer_lock.__exit__(None, None, None)
 
 
@@ -731,7 +1007,7 @@ def task_base(args: argparse.Namespace) -> dict[str, Any]:
         return persist({"status": "cold", "reason": "invalid_lease_seconds"})
 
     with foreground_request(layout, args.task_id, args.authoritative_main):
-        with locked(layout.slot_lock):
+        with locked(layout.slot_lock), locked(checkout_lock_path(layout, checkout)):
             existing = current_slot_lease(layout)
             if existing:
                 if existing.get("kind") == "reserved-task" and existing.get("task_id") == args.task_id:
@@ -815,7 +1091,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
     warmer_at_known = bool(lease_at_known and lease_at_known.get("kind") == "warmer")
 
     with foreground_request(layout, args.task_id, args.target):
-        with locked(layout.slot_lock):
+        with locked(layout.slot_lock), locked(checkout_lock_path(layout, checkout)):
             reservation = current_slot_lease(layout)
             if reservation:
                 if reservation.get("kind") != "reserved-task":
@@ -899,7 +1175,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 run = run_native(
                     layout, checkout, argv, env,
                     layout.logs / f"task-{args.task_id}-{int(build_started)}.log",
-                    f"task:{args.task_id}", False, False,
+                    f"task:{args.task_id}", False, False, None,
                 )
                 receipt = {
                     "schema_version": SCHEMA,
@@ -988,12 +1264,31 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
     layout.slot.mkdir(parents=True, exist_ok=True)
     try:
         with locked(layout.slot_lock, blocking=False):
-            inflight = read_json(layout.inflight)
+            unreadable_inflight = False
+            try:
+                inflight = read_json(layout.inflight)
+            except (OSError, ValueError, json.JSONDecodeError):
+                unreadable_inflight = True
+                try:
+                    backup_lease = read_json(layout.lease) or {}
+                except (OSError, ValueError, json.JSONDecodeError):
+                    backup_lease = {}
+                backup_run = backup_lease.get("native_run_id")
+                backup_group = backup_lease.get("native_process_group")
+                if backup_run and backup_run != args.run_id:
+                    return {"status": "blocked", "reason": "run_id_mismatch", "expected_run_id": backup_run}
+                inflight = {
+                    "schema_version": SCHEMA,
+                    "run_id": args.run_id,
+                    "process_group": backup_group if isinstance(backup_group, int) else None,
+                    "launch_guard": backup_lease.get("native_launch_guard", "pipe_v1"),
+                    "unreadable": True,
+                }
             if not inflight:
                 lease = current_slot_lease(layout, prune_expired=False)
                 if lease and lease.get("kind") in {"warmer", "task"}:
                     pid = lease.get("pid")
-                    if isinstance(pid, int) and pid > 0 and alive(pid):
+                    if isinstance(pid, int) and pid > 0 and same_process(pid, lease.get("process_identity")):
                         return {"status": "blocked", "reason": "lease_owner_alive", "pid": pid}
                     layout.lease.unlink(missing_ok=True)
                     event(layout, "stale_active_lease_recovered", lease_id=lease.get("lease_id"), kind=lease.get("kind"))
@@ -1014,12 +1309,20 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
             atomic_json(layout.recovery / f"{args.run_id}.json", recovered)
             layout.inflight.unlink(missing_ok=True)
             layout.lease.unlink(missing_ok=True)
-            event(layout, "native_run_recovered", run_id=args.run_id, ambiguous_child_launch=not isinstance(pgid, int))
+            ambiguous = not isinstance(pgid, int)
+            event(
+                layout,
+                "native_run_recovered",
+                run_id=args.run_id,
+                ambiguous_child_launch=ambiguous,
+                unreadable_inflight=unreadable_inflight,
+            )
             return {
                 "status": "recovered",
                 "run_id": args.run_id,
                 "cold_lineage_required": True,
-                "ambiguous_child_launch": not isinstance(pgid, int),
+                "ambiguous_child_launch": ambiguous,
+                "unreadable_inflight": unreadable_inflight,
             }
     except BlockingIOError:
         return {"status": "blocked", "reason": "slot_leased"}
@@ -1070,6 +1373,7 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--target", required=True)
     p.add_argument("--owner", default="main-warmer")
     p.add_argument("--tag")
+    p.add_argument("--ready-fd", type=int)
     p.add_argument("command", nargs=argparse.REMAINDER)
 
     p = sub.add_parser("task-base")

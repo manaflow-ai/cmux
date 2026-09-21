@@ -29,7 +29,10 @@ Example layout:
 
     <machine-state>/
       warmer.lock
+      warmer-preempt.fifo
+      foreground.lock
       foreground/
+      checkout-locks/
       events.jsonl
       slots/<slot>/
         slot.lock
@@ -44,7 +47,8 @@ The contract is:
 
 - Every warm or task build owns slot.lock and publishes lease.json while it owns the slot. `task-base` also leaves a bounded durable reservation across branch creation; the build upgrades that same lease ID.
 - The physical machine has one warmer.lock, so at most one background warmer executes per Mac.
-- A task reservation or task build publishes a foreground request before waiting for slot.lock. A preemptible warmer sees that request, terminates its native process group, quarantines that lineage, and yields the slot.
+- A task reservation or task build holds a shared machine foreground gate before waiting for slot.lock. New foreground demand writes the warmer FIFO, so preemption is event-driven instead of polling request files.
+- Slots that point at the same physical checkout share a checkout lock across source switching and native execution. Separate slot checkouts can still proceed independently.
 - The warmer lowers its process priority with nice(15). Foreground task builds keep normal priority.
 - Dirty source quarantines a warm lineage. Source movement uses clean detached Git switches; the helper never runs git reset.
 - Xcode/toolchain changes make the prior generation cold.
@@ -53,7 +57,7 @@ The contract is:
 - A successful task build that consumed the shared warm lineage marks it warm_ready=false. The slot must be warmed back to main before it can advertise another task base.
 - Reservations expire after a bounded lease interval. An abandoned task can release its exact lease explicitly; mismatched task/lease IDs fail closed.
 
-The helper writes inflight.json before launching native work, then records the child process group. SIGINT/SIGTERM is forwarded to that process group. If the helper dies unexpectedly, later use refuses the slot until recover is called with the exact run id and the recorded process group is gone. Recovery quarantines the lineage; it never signals a possibly stale PID.
+The helper writes inflight.json before launching native work. A pipe launch guard keeps the child from executing the native command until its process group is durably recorded in both the in-flight record and visible lease. SIGINT/SIGTERM is forwarded to that group. If the helper dies unexpectedly, the guarded child exits before native exec or recover uses the exact recorded run/group identity. Recovery quarantines the lineage; diagnostic request records also carry process-start identity so PID reuse cannot keep a slot falsely busy.
 
 ## Conservative build-input classification
 
