@@ -58,7 +58,7 @@ final class CmuxFeatureFlags {
     #else
     nonisolated static let cloudMachinesDefault = false
     #endif
-    private static let conversationSidebarDefault = false
+    private nonisolated static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -730,7 +730,7 @@ final class CmuxFeatureFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
                 remoteValuesByKey[definition.key] = value
                 defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
-            } else if remoteValuesByKey[definition.key] == true {
+            } else if remoteValuesByKey[definition.key] != nil {
                 remoteValuesByKey.removeValue(forKey: definition.key)
                 defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }

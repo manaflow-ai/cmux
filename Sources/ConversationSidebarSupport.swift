@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 struct ConversationSidebarProjection {
@@ -167,10 +168,13 @@ struct ConversationSidebarProjection {
 }
 
 @MainActor
-final class ConversationSidebarRefreshScheduler: ObservableObject {
+@Observable
+final class ConversationSidebarRefreshScheduler {
     private final class PendingRefreshToken {}
 
+    @ObservationIgnored
     private var pendingTask: Task<Void, Never>?
+    @ObservationIgnored
     private var pendingToken: PendingRefreshToken?
 
     func schedule(_ operation: @escaping @MainActor () async -> Void) {
@@ -206,8 +210,7 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
     let store: SessionIndexStore
     @Binding var revision: UInt64
     @Binding var presentationAgentsByDirectory: [String: [String: SessionAgent]]
-    @State private var loadedDirectoryKeys: Set<String> = []
-    @StateObject private var refreshScheduler = ConversationSidebarRefreshScheduler()
+    @State private var refreshScheduler = ConversationSidebarRefreshScheduler()
     private let projection = ConversationSidebarProjection()
 
     func body(content: Content) -> some View {
@@ -245,10 +248,14 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
         let records = TerminalController.shared.agentChatTranscriptService?
             .sessionRecords(workspaceID: nil) ?? []
         let requiredDirectoryKeys = projection.livePresentationDirectoryKeys(for: records)
-        let missingDirectoryKeys = requiredDirectoryKeys.subtracting(loadedDirectoryKeys)
-        guard !missingDirectoryKeys.isEmpty else { return }
-
         var next = presentationAgentsByDirectory
+        let staleDirectoryKeys = Set(next.keys).subtracting(requiredDirectoryKeys)
+        for directoryKey in staleDirectoryKeys {
+            next.removeValue(forKey: directoryKey)
+        }
+        let missingDirectoryKeys = requiredDirectoryKeys.subtracting(next.keys)
+        guard !missingDirectoryKeys.isEmpty || !staleDirectoryKeys.isEmpty else { return }
+
         for directoryKey in missingDirectoryKeys.sorted() {
             let loaded = await SessionIndexStore.defaultAgentOrder(
                 workingDirectory: directoryKey.isEmpty ? nil : directoryKey
@@ -257,6 +264,5 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
             next[directoryKey] = projection.presentationAgentsByID(loaded.agents)
         }
         presentationAgentsByDirectory = next
-        loadedDirectoryKeys.formUnion(missingDirectoryKeys)
     }
 }
