@@ -1766,7 +1766,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(inlineButton.actionSourcePath, globalConfigURL.path)
         XCTAssertEqual(inlineButton.iconSourcePath, packURL.path)
         let builtInButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.terminal" })
-        XCTAssertNil(builtInButton.actionSourcePath)
+        XCTAssertEqual(builtInButton.actionSourcePath, globalConfigURL.path)
         XCTAssertEqual(builtInButton.iconSourcePath, packURL.path)
         let actionButton = try XCTUnwrap(store.surfaceTabBarButtons.first { $0.id == "personal.tests" })
         XCTAssertEqual(actionButton.actionSourcePath, globalConfigURL.path)
