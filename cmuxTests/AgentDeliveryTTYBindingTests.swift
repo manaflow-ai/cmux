@@ -460,7 +460,7 @@ extension AgentNotificationRegressionTests {
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
         ]
-        let result: V2CallResult
+        let result: TerminalController.V2CallResult
         if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
             let previousConnectionID = workspace.activeRemoteSessionControllerID
             let connectionID = previousConnectionID ?? UUID()
