@@ -24,7 +24,30 @@ extension MacComputerSnapshot {
         // The PHONE's own per-Mac connection (foreground or live secondary) — the
         // source of truth for the dot, distinct from presence.
         let connectionStatuses = store.macConnectionStatuses
-        var snapshots = store.displayPairedMacs.map { mac in
+        let storedPairingIDs = Set(store.displayPairedMacs.map(\.id))
+        let hiddenPairingIDs = Set(store.hiddenComputers.map(\.id))
+        // A broker directory row is authorized discovery input, not a paired
+        // row. Keep it ephemeral until the host authenticates, while making it
+        // visible here so the user can open its detail and enter a private path.
+        let directoryOnlyMacs = store.discoveredIrohMacs.compactMap { discovered -> MobilePairedMac? in
+            let instanceTag = discovered.instanceTag.isEmpty ? nil : discovered.instanceTag
+            let mac = MobilePairedMac(
+                macDeviceID: discovered.deviceID,
+                displayName: discovered.displayName,
+                routes: discovered.routes,
+                createdAt: discovered.lastSeenAt,
+                lastSeenAt: discovered.lastSeenAt,
+                isActive: false,
+                stackUserID: nil,
+                teamID: nil,
+                instanceTag: instanceTag
+            )
+            guard !storedPairingIDs.contains(mac.id),
+                  !hiddenPairingIDs.contains(mac.id) else { return nil }
+            return mac
+        }
+        var snapshots = (store.displayPairedMacs + directoryOnlyMacs).map { mac in
+            let isDirectoryOnly = !storedPairingIDs.contains(mac.id)
             let aliases = store.pairedMacAliasIDs(
                 for: mac.macDeviceID,
                 instanceTag: mac.instanceTag
@@ -79,7 +102,8 @@ extension MacComputerSnapshot {
                     for: mac.macDeviceID,
                     instanceTag: mac.instanceTag
                 ),
-                aliasIDs: aliases
+                aliasIDs: isDirectoryOnly ? [mac.id] : aliases,
+                isDirectoryOnly: isDirectoryOnly
             )
             snapshot.connectionMethod = method
             snapshot.routeKind = method.routeKind
