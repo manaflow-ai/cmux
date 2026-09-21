@@ -590,12 +590,12 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
-test("tagged macOS launches require a personal credential file by default", () => {
+test("tagged macOS launches require the shared agent profile by default", () => {
   const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
 
   assert.match(macReload, /tagged launches require authenticated dev credentials/u);
   assert.match(macReload, /cmuxterm-dev\.env.*cmux\.env/su);
-  assert.match(macReload, /AUTH_PROFILE="personal"/u);
+  assert.match(macReload, /AUTH_PROFILE="agent"/u);
 });
 
 test("bundle launches clear inherited tagged runtime state", () => {
