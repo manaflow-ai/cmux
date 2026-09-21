@@ -413,7 +413,21 @@ def check_truthful_broad_suites_leave_focused_gates() -> int:
     if stale:
         print(f"FAIL: truthful broad suites still have dedicated focused ownership: {stale}")
         return 1
-    print("PASS: truthful broad suites are owned by the measured shard batch")
+
+    discovered = {
+        selector.identifier.split("/", 2)[1]
+        for selector in helper.discover_selectors(ROOT / "cmuxTests")
+        if selector.identifier.startswith("cmuxTests/")
+    }
+    missing = sorted(folded - discovered)
+    if missing:
+        print(
+            "FAIL: folded suites are absent from broad shard discovery: "
+            f"{missing}"
+        )
+        return 1
+
+    print("PASS: truthful broad suites are discovered and owned by the measured shard batch")
     return 0
 
 
