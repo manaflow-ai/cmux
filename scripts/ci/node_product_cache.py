@@ -581,6 +581,11 @@ def acquire(
                 _state_update_locked(store, key, consumer_hit_count=1)
                 avoided = metadata["size"]
                 fallback = os.environ.get("CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE", "").strip()
+                if (
+                    os.environ.get("CMUX_ARTIFACT_PEER_URLS", "").strip()
+                    and os.environ.get("CMUX_ARTIFACT_PEER_TOKEN_FILE", "").strip()
+                ):
+                    fallback = "peer"
                 increments = {"hits": 1}
                 if fallback == "peer":
                     increments["bytes_avoided_peer"] = avoided
