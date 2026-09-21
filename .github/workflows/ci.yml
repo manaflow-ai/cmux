@@ -943,6 +943,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     needs:
       - changes
       - linux-preflight
@@ -1122,6 +1123,8 @@ jobs:
       - name: Restore compiled app-host test product
         env:
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_ARTIFACT_TRANSPORT_ROUTE: ${{ steps.r2-products.outputs.route }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
         run: scripts/ci/restore-app-host-test-product.sh
 
       - name: Prepare isolated app-host home
@@ -3064,6 +3067,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     needs:
       - changes
       - linux-preflight
@@ -3148,15 +3152,16 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.r2-products.outputs.hit != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_ARTIFACT_TRANSPORT_ROUTE: ${{ steps.r2-products.outputs.route }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
         run: scripts/ci/restore-app-host-test-product.sh
 
       - name: Run display UI regressions
