@@ -232,6 +232,20 @@ describe("codex responses proxy session routing", () => {
     expect(cooldowns).toEqual(["acct-capacity"]);
   });
 
+  test("does not fail over when output text contains a capacity marker", async () => {
+    const body = `data: ${JSON.stringify({
+      type: "response.output_text.delta",
+      delta: "the literal code is rate_limit_exceeded",
+    })}\n\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
   test("preserves complete NDJSON streams without failover", async () => {
     const body = `${[
       JSON.stringify({ type: "response.created" }),
