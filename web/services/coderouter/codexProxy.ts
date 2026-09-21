@@ -469,6 +469,20 @@ async function proxyCodexRequestWith(
     if (isStreamingResponse(upstream)) {
       const probed = await probeCodexCapacity(upstream, request.signal);
       if (probed.kind === "capacity") {
+        recordCoderouterSpan({
+          name: "capacity_failover",
+          startedAt: performance.now(),
+          error: "provider_capacity",
+          attributes: {
+            provider: "codex",
+            attempt: attempt + 1,
+            retry_after_ms: probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
+          },
+        });
+        addCoderouterBreadcrumb("routing", "Provider capacity; moving to another account", {
+          provider: "codex",
+          attempt: attempt + 1,
+        }, "warning");
         reportCoderouterFailure("provider_rate_limit", new Error("provider capacity"), {
           provider: "codex",
           capacity: true,
