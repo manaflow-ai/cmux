@@ -472,13 +472,9 @@ struct ConversationSidebarView: View {
         }
 
         isSearchInFlight = true
-        do {
-            try await ContinuousClock().sleep(for: .milliseconds(180))
-            try Task.checkCancellation()
-        } catch {
-            return
-        }
-
+        // `.task(id: searchText)` cancels the previous search when the query
+        // changes, so the store only receives the latest query without using a
+        // fixed sleep as synchronization.
         let outcome = await store.searchAllSessions(rawQuery: trimmed)
         guard !Task.isCancelled else { return }
         searchResults = outcome.entries

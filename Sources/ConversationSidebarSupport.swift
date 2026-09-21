@@ -173,28 +173,33 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
     @Binding var revision: UInt64
     @Binding var presentationAgentsByDirectory: [String: [String: SessionAgent]]
     @State private var loadedDirectoryKeys: Set<String> = []
+    @State private var pendingRefreshTask: Task<Void, Never>?
     private let projection = ConversationSidebarProjection()
 
     func body(content: Content) -> some View {
         content
             .task {
                 await refreshPresentationAgents()
-                let clock = ContinuousClock()
-                var lastRefresh = clock.now
                 for await _ in NotificationCenter.default.notifications(
                     named: .agentChatSessionRecordsDidChange
                 ) {
                     guard !Task.isCancelled else { return }
                     // Hook activity can emit several record invalidations per
-                    // turn (pre-tool, post-tool, and transcript updates). Keep
-                    // the projection bounded to at most one full rebuild per
-                    // debounce window while still reflecting the latest burst.
-                    let now = clock.now
-                    guard now - lastRefresh >= .milliseconds(150) else { continue }
-                    lastRefresh = now
-                    revision &+= 1
-                    await refreshPresentationAgents()
+                    // turn (pre-tool, post-tool, and transcript updates). A
+                    // cancellable trailing task coalesces the burst while
+                    // guaranteeing that the final state is eventually read.
+                    pendingRefreshTask?.cancel()
+                    pendingRefreshTask = Task { @MainActor in
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
+                        revision &+= 1
+                        await refreshPresentationAgents()
+                    }
                 }
+            }
+            .onDisappear {
+                pendingRefreshTask?.cancel()
+                pendingRefreshTask = nil
             }
             .task {
                 for await _ in NotificationCenter.default.notifications(
