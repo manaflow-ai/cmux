@@ -90,7 +90,7 @@ class ProductPublicationTests(unittest.TestCase):
     def test_app_host_consumers_do_not_prepare_build_toolchains(self):
         app_host = self.workflow["jobs"]["app-host-unit-tests"]
         step_names = [step["name"] for step in app_host["steps"]]
-        run_text = "\n".join(step.get("run", "") for step in app_host["steps"])
+        step_text = "\n".join(str(step) for step in app_host["steps"])
 
         # The admission artifact contains the app, test bundles, linked runtime
         # products, and PackageFrameworks. Consumer shards should launch tests,
@@ -103,8 +103,27 @@ class ProductPublicationTests(unittest.TestCase):
             "Run Ghostty split-theme appearance regression",
         ):
             self.assertNotIn(name, step_names)
-        self.assertNotIn("CmuxTerminalCore-Package", run_text)
-        self.assertNotIn("build-for-testing", run_text)
+        for producer_input in (
+            "./scripts/install-rust-ci.sh",
+            "./scripts/download-prebuilt-ghosttykit.sh",
+            "CmuxTerminalCore-Package",
+            "build-for-testing",
+            "swift test ",
+            "cargo build ",
+        ):
+            self.assertNotIn(producer_input, step_text)
+
+        local_actions = {
+            step["uses"] for step in app_host["steps"]
+            if step.get("uses", "").startswith("./")
+        }
+        self.assertEqual(
+            local_actions,
+            {
+                "./.github/actions/cache-restore",
+                "./.github/actions/download-test-product",
+            },
+        )
 
         # CmuxTerminalCore package coverage remains a real required gate in the
         # package lane, so deleting the app-host rebuild cannot erase the tests.
