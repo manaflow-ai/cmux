@@ -279,15 +279,23 @@ final class RemoteTmuxController {
     /// can mirror several sessions at once and there is no single unambiguous
     /// target for a caller-supplied name among them.
     func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager, workspaceName: String? = nil) {
-        for (offset, session) in unmirroredSessions(sessions, host: host).enumerated() {
+        // Track the first session that actually mirrors, not loop position: an
+        // earlier session can throw (caught below) or no-op (already mirrored,
+        // `mirrorSession` returns false), and workspaceName must land on the
+        // first real success rather than being silently dropped alongside it.
+        var appliedWorkspaceName = workspaceName == nil
+        for session in unmirroredSessions(sessions, host: host) {
             do {
-                try mirrorSession(
+                let mirrored = try mirrorSession(
                     host: host,
                     sessionName: session.name,
                     sessionId: Self.tmuxSessionNumericId(session.id),
                     into: manager,
-                    customTitle: offset == 0 ? workspaceName : nil
+                    customTitle: appliedWorkspaceName ? nil : workspaceName
                 )
+                if mirrored, !appliedWorkspaceName {
+                    appliedWorkspaceName = true
+                }
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session failed")
