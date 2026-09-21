@@ -109,7 +109,7 @@ def terminal_id(value):
 
 
 def find_existing_terminal():
-    result = tui("workspace", "list", "--json")
+    result = tui("terminal", "list", "--json")
     if result.returncode != 0:
         return None
     try:
