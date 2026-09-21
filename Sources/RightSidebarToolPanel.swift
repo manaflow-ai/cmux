@@ -21,6 +21,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
     private var rootSyncTask: Task<Void, Never>?
+    private var rootSyncGeneration: UInt64 = 0
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -64,6 +65,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     var displayIcon: String? { mode.symbolName }
 
     func reattach(to workspace: Workspace) {
+        rootSyncGeneration &+= 1
+        rootSyncTask?.cancel()
+        rootSyncTask = nil
         self.workspace = workspace
         observeWorkspaceRootChanges(workspace)
         syncWorkspaceRoot(from: workspace)
@@ -200,9 +204,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         )
         .sink { [weak self, weak workspace] _ in
             guard let self, let workspace, self.rootSyncTask == nil else { return }
+            self.rootSyncGeneration &+= 1
+            let generation = self.rootSyncGeneration
             self.rootSyncTask = Task { @MainActor [weak self, weak workspace] in
                 defer { self?.rootSyncTask = nil }
-                guard let self, let workspace else { return }
+                guard let self, let workspace,
+                      self.workspace === workspace,
+                      self.rootSyncGeneration == generation else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
         }

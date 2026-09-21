@@ -5,6 +5,10 @@ actor CloudFileExplorerService {
     private static let maxSearchResults = 500
     private static let maxPreviewBytes = 1_048_576
     private let commandRunner: any CloudFileExplorerCommandRunning
+    /// Serializes guest searches because the VM exec API cannot cancel a command
+    /// already accepted by the machine. The latest UI query waits behind the
+    /// bounded prior scan instead of creating overlapping ripgrep processes.
+    private var searchTail: Task<Void, Never>?
 
     /// Creates a service with the command transport used by one Cloud machine.
     init(commandRunner: any CloudFileExplorerCommandRunning) {
@@ -92,6 +96,27 @@ sys.stdout.write(base64.b64encode(data).decode("ascii"))
 
     /// Searches the remote root with a bounded ripgrep producer.
     func search(vmID: String, query: String, rootPath: String) async throws -> FileSearchSnapshot {
+        let predecessor = searchTail
+        let runner = commandRunner
+        let operation = Task.detached(priority: .userInitiated) {
+            await predecessor?.value
+            return try await Self.performSearch(
+                commandRunner: runner,
+                vmID: vmID,
+                query: query,
+                rootPath: rootPath
+            )
+        }
+        searchTail = Task { _ = await operation.result }
+        return try await operation.value
+    }
+
+    private static func performSearch(
+        commandRunner: any CloudFileExplorerCommandRunning,
+        vmID: String,
+        query: String,
+        rootPath: String
+    ) async throws -> FileSearchSnapshot {
         let script = #"""
 import subprocess, sys
 limit = 500

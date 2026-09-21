@@ -20,6 +20,19 @@ private final class CloudFileExplorerCommandRunnerFixture: CloudFileExplorerComm
     }
 }
 
+private actor SerialCloudSearchRunner: CloudFileExplorerCommandRunning {
+    private(set) var activeRequests = 0
+    private(set) var maximumActiveRequests = 0
+
+    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult {
+        activeRequests += 1
+        maximumActiveRequests = max(maximumActiveRequests, activeRequests)
+        try await Task.sleep(nanoseconds: 20_000_000)
+        activeRequests -= 1
+        return VMExecResult(exitCode: 1, stdout: "", stderr: "")
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct CloudFileExplorerBehaviorTests {
@@ -110,5 +123,15 @@ struct CloudFileExplorerBehaviorTests {
         #expect(snapshot.results.map(\.relativePath) == ["cloud.txt"])
         #expect(runner.calls.count == 1)
         #expect(runner.calls[0].vmID == "vivid-newt")
+    }
+
+    @Test
+    func cloudSearchesSerializeGuestExecWhenQueriesReplaceOneAnother() async throws {
+        let runner = SerialCloudSearchRunner()
+        let service = CloudFileExplorerService(commandRunner: runner)
+        async let first = service.search(vmID: "vivid-newt", query: "first", rootPath: "/home/cmux")
+        async let second = service.search(vmID: "vivid-newt", query: "second", rootPath: "/home/cmux")
+        _ = try await (first, second)
+        #expect(await runner.maximumActiveRequests == 1)
     }
 }
