@@ -46,6 +46,7 @@ def normalize_path(path: str) -> str:
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
+WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 
 
 def is_other_workflow_config(path: str) -> bool:
@@ -163,7 +164,7 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
     macos: set[str] = set()
     everywhere: set[str] = set()
     try:
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH):
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH):
             references = macos_job_test_references(Path(workflow_path).read_text(encoding="utf-8"))
             if references is None:
                 return None
