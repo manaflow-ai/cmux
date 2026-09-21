@@ -272,6 +272,28 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(selected["reason"], "warm_generation_stale")
         self.assertEqual(selected["distance_to_main"], 1)
 
+    def test_task_base_counts_only_first_parent_commits(self):
+        self.warm(self.base)
+
+        git(self.repo, "switch", "-q", "-c", "side", self.base)
+        for index in range(3):
+            (self.repo / f"side-{index}.txt").write_text(f"{index}\n")
+            git(self.repo, "add", f"side-{index}.txt")
+            git(self.repo, "commit", "-qm", f"side {index}")
+
+        git(self.repo, "switch", "-q", "-c", "authoritative", self.neutral)
+        git(self.repo, "merge", "--no-ff", "-qm", "merge side", "side")
+        authoritative = git(self.repo, "rev-parse", "HEAD")
+
+        self.assertGreater(warm_slot.distance(self.repo, self.base, authoritative), 2)
+        self.assertEqual(warm_slot.first_parent_distance(self.repo, self.base, authoritative), 2)
+        selected = self.call(
+            "task-base", *self.common(), "--authoritative-main", authoritative,
+            "--task-id", "merge-distance", "--max-main-distance", "2",
+        )
+        self.assertEqual(selected["status"], "warm_base")
+        self.assertEqual(selected["distance_to_main"], 2)
+
     def test_expired_reservation_releases_slot_to_warmer(self):
         self.warm(self.base)
         selected = self.call(
@@ -384,12 +406,22 @@ class WarmSlotTest(unittest.TestCase):
         while time.time() < deadline and not lease.exists():
             time.sleep(0.05)
         self.assertTrue(lease.exists())
-        known = time.time()
         second = self.task(self.base, task_id="two", slot="two", command=native_command())
         stdout, stderr = first.communicate(timeout=10)
         self.assertEqual(first.returncode, 0, msg=stderr + stdout)
-        self.assertGreater(second["receipt"]["task_known_to_build_start_seconds"], 0.5)
-        self.assertGreater(time.time() - known, 0.5)
+        self.assertEqual(second["status"], "success")
+
+        events = [
+            json.loads(line)
+            for line in (self.state / "events.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        finished = [
+            row["receipt"]["task_id"]
+            for row in events
+            if row.get("event") == "task_finished"
+        ]
+        self.assertEqual(finished[-2:], ["one", "two"])
 
     def test_machine_warmer_lock_and_visible_lease(self):
         slow = [
