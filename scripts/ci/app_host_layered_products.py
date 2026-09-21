@@ -61,6 +61,19 @@ def identity(value):
     return value
 
 
+def normalize_layers(value=None):
+    """Validate a requested subset while retaining canonical layer order."""
+    if value is None:
+        return LAYERS
+    selected = tuple(value)
+    if not selected or len(set(selected)) != len(selected) or any(layer not in LAYERS for layer in selected):
+        raise ValueError("invalid app-host layer selection")
+    canonical = tuple(layer for layer in LAYERS if layer in selected)
+    if selected != canonical:
+        raise ValueError("selected app-host layers must follow canonical order")
+    return canonical
+
+
 def owner(path):
     parts = PurePosixPath(path).parts[2:]
     if path.endswith(".xctestrun") or any(p.endswith((".xctest", ".xctestbundle")) for p in parts):
@@ -233,7 +246,8 @@ def pack(derived, output, current):
         publish(staging, output)
 
 
-def verify_manifest(manifest, directory, expected):
+def verify_manifest(manifest, directory, expected, selected=None):
+    selection = normalize_layers(selected)
     if type(manifest.get("version")) is not int or (manifest.get("schema"), manifest.get("version"), manifest.get("profile")) != (SCHEMA, 1, "app-host-full"):
         raise ValueError("unsupported layered product format/profile")
     if manifest.get("identity") != identity(expected):
@@ -241,16 +255,22 @@ def verify_manifest(manifest, directory, expected):
     if manifest.get("metadata_policy") != METADATA_POLICY or type(manifest["metadata_policy"]["version"]) is not int:
         raise ValueError("unsupported product metadata portability policy")
     if manifest.get("required_layers") != list(LAYERS) or [x.get("name") for x in manifest.get("layers", [])] != list(LAYERS):
-        raise ValueError("full signed product tree requires all four layers in canonical order")
+        raise ValueError("canonical product tree must declare all four layers in order")
     directories = manifest["directories"]
     entries = [entry for layer in manifest["layers"] for entry in layer["entries"]]
     validate_tree(directories, entries)
     directory_table = {x["path"]: x for x in directories}
+    selected_directories = set()
+    selected_entries = []
     for layer in manifest["layers"]:
         if layer["archive"] != layer["name"] + ".aar":
             raise ValueError("invalid layer archive name")
+        if type(layer.get("size")) is not int or layer["size"] <= 0 or not isinstance(layer.get("sha256"), str) or not re.fullmatch(r"[0-9a-f]{64}", layer["sha256"]):
+            raise ValueError(f"invalid canonical layer digest/size: {layer['name']}")
         if any(owner(entry["path"]) != layer["name"] for entry in layer["entries"]):
             raise ValueError(f"incorrect semantic layer ownership: {layer['name']}")
+        if layer["name"] not in selection:
+            continue
         archive = directory / layer["archive"]
         if archive.is_symlink() or not archive.is_file() or archive.stat().st_size != layer["size"] or digest(archive) != layer["sha256"]:
             raise ValueError(f"layer archive digest/size mismatch: {layer['name']}")
@@ -271,28 +291,33 @@ def verify_manifest(manifest, directory, expected):
                 raise ValueError(f"archive file size mismatch: {path}")
             if entry.get("type") == "file" and actual.get("SH2") != entry["sha256"]:
                 raise ValueError(f"archive file digest mismatch: {path}")
+            if actual["TYP"] == "D":
+                selected_directories.add(path)
         if not wanted.keys() <= seen:
             raise ValueError(f"missing archive entries: {layer['name']}")
-    return directories, entries
+        selected_entries.extend(layer["entries"])
+    subset_directories = [entry for entry in directories if entry["path"] in selected_directories]
+    validate_tree(subset_directories, selected_entries)
+    return subset_directories, sorted(selected_entries, key=lambda entry: entry["path"])
 
-
-def restore(manifest_path, destination, expected):
+def restore(manifest_path, destination, expected, selected=None):
+    selection = normalize_layers(selected)
     if destination.exists() or destination.is_symlink():
         raise ValueError("restore destination must not already exist")
     manifest = json.loads(manifest_path.read_text())
-    directories, entries = verify_manifest(manifest, manifest_path.parent, expected)
+    directories, entries = verify_manifest(manifest, manifest_path.parent, expected, selection)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".app-host-restore-", dir=destination.parent) as temporary:
         staging = Path(temporary) / "derived"
         staging.mkdir()
         for layer in manifest["layers"]:
-            run("aa", "extract", "-d", str(staging), "-i", str(manifest_path.parent / layer["archive"]))
+            if layer["name"] in selection:
+                run("aa", "extract", "-d", str(staging), "-i", str(manifest_path.parent / layer["archive"]))
         actual_directories, actual_entries = inventory(staging)
         if (portable_metadata(directories) != portable_metadata(actual_directories)
                 or portable_metadata(entries) != portable_metadata(actual_entries)):
             raise ValueError("reconstructed product content/metadata mismatch")
         publish(staging, destination)
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -300,10 +325,17 @@ def main():
     parser.add_argument("source", type=Path)
     parser.add_argument("destination", type=Path)
     parser.add_argument("--identity", type=Path, required=True)
+    parser.add_argument("--layers", help="comma-separated canonical subset for restore")
     args = parser.parse_args()
     try:
-        function = pack if args.command == "pack" else restore
-        function(args.source.resolve(), args.destination.absolute(), json.loads(args.identity.read_text()))
+        current = json.loads(args.identity.read_text())
+        if args.command == "pack":
+            if args.layers:
+                raise ValueError("pack always produces the canonical full layer set")
+            pack(args.source.resolve(), args.destination.absolute(), current)
+        else:
+            selected = tuple(args.layers.split(",")) if args.layers else None
+            restore(args.source.resolve(), args.destination.absolute(), current, selected)
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as error:
         parser.exit(1, f"app-host layers: {error}\n")
 
