@@ -124,17 +124,56 @@ struct ConversationSidebarProjection {
         return terms.allSatisfy { haystack.contains($0) }
     }
 
+    /// Provider filtering is keyed by the stable agent id rather than the
+    /// localized display name, so the selection remains valid when the
+    /// app language or a registered agent's presentation changes.
+    func providerFilterMatches(
+        agent: SessionAgent,
+        selectedProviderID: String?
+    ) -> Bool {
+        guard let selectedProviderID else { return true }
+        return agent.rawValue == selectedProviderID
+    }
+
+    /// Build the menu from the unfiltered snapshot so searching and filtering
+    /// cannot remove the current selection or other available providers.
+    func providerFilterOptions(
+        agents: [SessionAgent],
+        preferredOrder: [SessionAgent],
+        selectedProviderID: String?
+    ) -> [SessionAgent] {
+        var agentsByID = presentationAgentsByID(agents)
+        if let selectedProviderID, agentsByID[selectedProviderID] == nil,
+           let selected = preferredOrder.first(where: { $0.rawValue == selectedProviderID })
+                ?? SessionAgent(rawValue: selectedProviderID) {
+            agentsByID[selectedProviderID] = selected
+        }
+        var seen = Set<String>()
+        let ordered = preferredOrder.compactMap { agent -> SessionAgent? in
+            guard seen.insert(agent.rawValue).inserted else { return nil }
+            return agentsByID[agent.rawValue]
+        }
+        let remaining = agentsByID.values.filter { !seen.contains($0.rawValue) }
+            .sorted { $0.rawValue < $1.rawValue }
+        return ordered + remaining
+    }
+
     func visibleHistoryEntries(
         source: [SessionEntry],
         excludingOpenIDs openIDs: Set<String>,
-        limit: Int
+        limit: Int,
+        selectedProviderID: String? = nil
     ) -> (entries: [SessionEntry], hasMore: Bool) {
         guard limit > 0 else {
-            return ([], source.contains { !openIDs.contains(VaultLiveSessionKeys.key(for: $0)) })
+            return ([], source.contains {
+                !openIDs.contains(VaultLiveSessionKeys.key(for: $0))
+                    && providerFilterMatches(agent: $0.agent, selectedProviderID: selectedProviderID)
+            })
         }
         var entries: [SessionEntry] = []
         entries.reserveCapacity(min(limit, source.count))
-        for entry in source where !openIDs.contains(VaultLiveSessionKeys.key(for: entry)) {
+        for entry in source where !openIDs.contains(VaultLiveSessionKeys.key(for: entry))
+            && providerFilterMatches(agent: entry.agent, selectedProviderID: selectedProviderID) {
             if entries.count == limit {
                 return (entries, true)
             }

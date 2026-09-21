@@ -152,6 +152,72 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
+    func providerFilterUsesIdentityRatherThanPresentation() {
+        let registered = SessionAgent.registered(RegisteredSessionAgent(
+            id: "custom", name: "Claude Code"
+        ))
+        #expect(projection.providerFilterMatches(agent: .claude, selectedProviderID: nil))
+        #expect(projection.providerFilterMatches(agent: .codex, selectedProviderID: "codex"))
+        #expect(!projection.providerFilterMatches(agent: registered, selectedProviderID: "claude"))
+        #expect(projection.providerFilterMatches(agent: registered, selectedProviderID: "custom"))
+    }
+
+    @Test
+    func providerFilterAppliesBeforeHistoryPageLimitAndSentinel() {
+        let unrelated = sessionEntry(id: "unrelated", title: "other", modified: 50, agent: .claude)
+        let open = sessionEntry(id: "open", title: "open", modified: 40, agent: .codex)
+        let first = sessionEntry(id: "first", title: "first", modified: 30, agent: .codex)
+        let second = sessionEntry(id: "second", title: "second", modified: 20, agent: .codex)
+        let source = [unrelated, open, first, second]
+        let openIDs: Set<String> = [VaultLiveSessionKeys.key(for: open)]
+        let page = projection.visibleHistoryEntries(
+            source: source, excludingOpenIDs: openIDs, limit: 1,
+            selectedProviderID: "codex"
+        )
+        #expect(page.entries.map(\.id) == ["first"])
+        #expect(page.hasMore)
+
+        let expanded = projection.visibleHistoryEntries(
+            source: source, excludingOpenIDs: openIDs, limit: 2,
+            selectedProviderID: "codex"
+        )
+        #expect(expanded.entries.map(\.id) == ["first", "second"])
+        #expect(!expanded.hasMore)
+
+        let noMatches = projection.visibleHistoryEntries(
+            source: source, excludingOpenIDs: openIDs, limit: 0,
+            selectedProviderID: "grok"
+        )
+        #expect(noMatches.entries.isEmpty)
+        #expect(!noMatches.hasMore)
+        #expect(projection.visibleHistoryEntries(
+            source: source, excludingOpenIDs: openIDs, limit: 0,
+            selectedProviderID: "codex"
+        ).hasMore)
+    }
+
+    @Test
+    func providerOptionsIncludeLiveOnlyAgentsAndRetainAbsentSelection() {
+        let custom = SessionAgent.registered(RegisteredSessionAgent(
+            id: "custom", name: "Project Agent", iconAssetName: "AgentIcons/Pi"
+        ))
+        let options = projection.providerFilterOptions(
+            agents: [custom, .codex, custom, .claude],
+            preferredOrder: [.claude, .codex, .claude, .grok],
+            selectedProviderID: "grok"
+        )
+        #expect(options.map(\.rawValue) == ["claude", "codex", "grok", "custom"])
+        #expect(options.last == custom)
+
+        let refreshed = projection.providerFilterOptions(
+            agents: [.codex], preferredOrder: [.claude, .codex, custom],
+            selectedProviderID: "custom"
+        )
+        #expect(refreshed.map(\.rawValue) == ["codex", "custom"])
+        #expect(refreshed.last == custom)
+    }
+
+    @Test
     func historySectionRemainsReachableWhenInitialHistoryIsAllOpen() {
         let open = sessionEntry(id: "open", title: "open", modified: 20)
         let visible = projection.visibleHistoryEntries(
@@ -298,11 +364,12 @@ struct ConversationSidebarRegressionTests {
     private func sessionEntry(
         id: String,
         title: String,
-        modified: TimeInterval
+        modified: TimeInterval,
+        agent: SessionAgent = .claude
     ) -> SessionEntry {
         SessionEntry(
             id: id,
-            agent: .claude,
+            agent: agent,
             sessionId: id,
             title: title,
             cwd: "/Users/example/project",
