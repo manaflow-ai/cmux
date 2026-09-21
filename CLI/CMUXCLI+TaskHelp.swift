@@ -287,7 +287,7 @@ extension CMUXCLI {
         feed tui|clear
         themes [list|set|clear]
         reload-config
-        right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+        right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <validate|reload|select|open> [name]
         help
         """
@@ -355,7 +355,7 @@ extension CMUXCLI {
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]
-        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
+        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [set: --http-only] [...]"))
         browser storage <local|session> <get|set|clear> [...]
         browser tab <new|list|switch|close|<index>> [...]
         browser console <list|clear>

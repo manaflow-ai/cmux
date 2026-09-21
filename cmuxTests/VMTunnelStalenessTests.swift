@@ -22,7 +22,7 @@ struct VMTunnelStalenessTests {
             #expect(name.count <= 15, "WireGuard interface names are at most 15 characters")
         }
         let staging = VMTunnelManager(home: URL(fileURLWithPath: "/tmp/cmux-tunnel-scope", isDirectory: true), interfaceName: "cmux-staging")
-        #expect(staging.configURL.lastPathComponent == "cmux-staging.conf")
+        #expect(staging.configURL.lastPathComponent == "cmux-staging.browser.conf")
     }
 
     @Test("The completed config routes only this network's prefixes, so two tunnels can be up side by side")

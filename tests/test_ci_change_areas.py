@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
     "static-preflight",
     "workflow-guard-tests",
@@ -579,6 +580,11 @@ def linux_preflight_needs(
     results: dict[str, str] | None = None,
 ) -> dict[str, object]:
     route_outputs = {
+        "linux_guard_tests": "true",
+        "linux_guard_history": "true",
+        "linux_guard_cli": "true",
+        "linux_guard_source": "true",
+        "ghosttykit_release": "true",
         "macos": "true",
         "web": "true",
         "agent_session_web": "true",
@@ -997,12 +1003,44 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert 'tests["result"] not in {"success", "skipped"}' in block
 
 
-def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
-    block = workflow_job_block("web-typecheck")
+def test_web_typecheck_retries_native_tsgo_abort() -> None:
+    script = workflow_job_step_script("web-typecheck", "Typecheck")
 
-    assert "grep -Fq '[WebServer] $ tsgo --noEmit' \"$log\"" in block
-    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in block
-    assert "retrying once" in block
+    assert "bun run typecheck 2>&1 | tee \"$log\"" in script
+    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in script
+    assert "retrying once" in script
+    assert "bun run test:instant" not in script
+
+
+def test_ci_instant_navigation_owns_typecheck_once() -> None:
+    config = (ROOT / "web/playwright.instant.config.ts").read_text()
+    workflow = workflow_job_block("web-typecheck")
+    web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
+    assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
+    package_json = (ROOT / "web/package.json").read_text()
+    assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
+    assert '"test:instant:checked"' not in package_json
+
+    ci_typecheck = workflow.index("      - name: Typecheck")
+    ci_instant = workflow.index("      - name: Instant navigation tests")
+    assert ci_typecheck < ci_instant
+    # The only second invocation is the bounded retry owned by the Typecheck
+    # step; the Instant navigation step must never own a typecheck.
+    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
+    ci_instant_step = workflow[ci_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
+    assert "        env:" in ci_instant_step
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
+    assert "        run: bun run test:instant" in ci_instant_step
+
+    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_instant = web_validation.index("      - run: bun run test:instant")
+    assert validation_typecheck < validation_instant
+    assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
+    validation_instant_step = web_validation[validation_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in validation_instant_step
+    assert '        env:\n          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in validation_instant_step
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
@@ -1013,7 +1051,7 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
     assert early < package < upload
 
     script = workflow_job_step_script("macos-compile-admission", "Run early CLI binary smoke checks")
-    for failed_probe in ("version", "help", None, "missing-binary"):
+    for failed_probe in ("version", "help", "config-doctor", None, "missing-binary"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             derived = root / "derived with spaces"
@@ -1025,7 +1063,8 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
             (root / "tests").mkdir()
             trace = root / "probes.txt"
             for probe, filename in (("version", "test_cli_version_memory_guard.py"),
-                                    ("help", "test_cli_contract_help.py")):
+                                    ("help", "test_cli_contract_help.py"),
+                                    ("config-doctor", "test_cli_config_doctor.py")):
                 (root / "tests" / filename).write_text(
                     "import os,pathlib\n"
                     + "assert os.environ['CMUX_CLI_BIN'] == " + repr(str(cli)) + "\n"
@@ -1042,8 +1081,10 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 23 and invoked == ["version"]
             elif failed_probe == "help":
                 assert result.returncode == 23 and invoked == ["version", "help"]
+            elif failed_probe == "config-doctor":
+                assert result.returncode == 23 and invoked == ["version", "help", "config-doctor"]
             else:
-                assert result.returncode == 0 and invoked == ["version", "help"]
+                assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
@@ -1680,9 +1721,7 @@ def run_focused_app_host_step(
     ``fail`` (an assertion failure with the host alive, exit 65). Returns the
     step result and how many times the runner was invoked.
     """
-    script = workflow_job_step_script(
-        "app-host-unit-tests", step_name
-    )
+    script = workflow_job_step_script("app-host-unit-tests", step_name)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -1786,6 +1825,21 @@ def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
 
     assert result.returncode == 65, result.stdout + result.stderr
     assert invocations == 2, result.stdout
+
+
+def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:
+    for outcome in ("fail", "crash"):
+        result, invocations = run_focused_app_host_step(
+            [outcome, "pass"], "Run My Devices regressions"
+        )
+        assert result.returncode == 65, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+
+
+def test_devices_gate_accepts_successful_execution() -> None:
+    result, invocations = run_focused_app_host_step(["pass"], "Run My Devices regressions")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
 
 
 def test_global_search_gate_requires_nonempty_successful_execution() -> None:

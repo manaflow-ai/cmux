@@ -65,6 +65,20 @@ struct CurrentWorkCommandPaletteTests {
         #expect(!(subtitle.contains(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date"))))
     }
 
+    @Test
+    func testPullRequestSubtitleUsesTheLocalizedLabelFormat() {
+        var item = fixture()
+        item.pullRequests = [pullRequest(number: 123), pullRequest(number: 456)]
+
+        let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: true)
+        let format = String(localized: "cli.current.pullRequest", defaultValue: "PR: %@")
+        let expected = [123, 456].map { format.replacingOccurrences(of: "%@", with: "#\($0)") }
+
+        for label in expected {
+            #expect(subtitle.contains(label))
+        }
+    }
+
     private func fixture() -> CurrentWorkSnapshot.Item {
         let resource = SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "term_test").rawValue
         return .init(
@@ -75,6 +89,15 @@ struct CurrentWorkCommandPaletteTests {
             cwd: "/project", projectHints: [], repositoryHints: [], agents: [], attention: [], pullRequests: [],
             freshness: .init(state: "current", reason: nil, observedAt: "2026-09-20T00:00:00Z"),
             cursor: nil, receiptRefs: [], possibleHumanObligations: [], evidence: [], omitted: [:]
+        )
+    }
+
+    private func pullRequest(number: Int) -> CurrentWorkSnapshot.PullRequest {
+        let freshness = CurrentWorkSnapshot.Freshness(state: "current", reason: nil, observedAt: "2026-09-20T00:00:00Z")
+        let evidence = CurrentWorkSnapshot.Evidence(owner: "test", reference: "fixture", observedAt: freshness.observedAt)
+        return .init(
+            number: number, url: "https://github.com/manaflow-ai/cmux/pull/\(number)", label: "#\(number)",
+            status: "open", workspaceID: UUID(), freshness: freshness, evidence: evidence
         )
     }
 }
