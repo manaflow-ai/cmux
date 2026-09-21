@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import fcntl
 import json
 import os
@@ -186,6 +187,36 @@ def source_for_edit(path: Path, data: dict[str, Any]) -> str:
 
 
 _UNCONDITIONAL_REVISION = object()
+_RENAME_EXCHANGE = 0x2
+
+
+def exchange_paths(left: Path, right: Path) -> None:
+    """Atomically exchange two path entries on the supported host platforms."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    left_bytes = os.fsencode(left)
+    right_bytes = os.fsencode(right)
+    if sys.platform == "darwin":
+        rename = libc.renamex_np
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(left_bytes, right_bytes, _RENAME_EXCHANGE)
+    elif sys.platform.startswith("linux"):
+        rename = libc.renameat2
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(-100, left_bytes, -100, right_bytes, _RENAME_EXCHANGE)
+    else:
+        raise OSError(f"atomic config exchange is unsupported on {sys.platform}")
+
+    if result != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(right))
 
 
 def atomic_write_text(
@@ -195,28 +226,85 @@ def atomic_write_text(
     expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    candidate = text.encode("utf-8")
     with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
+        mode="wb", dir=path.parent, delete=False, suffix=".tmp"
     ) as tmp:
-        tmp.write(text)
+        tmp.write(candidate)
+        tmp.flush()
+        os.fsync(tmp.fileno())
         tmp_path = Path(tmp.name)
+
+    staging_contains_recovery = False
     try:
-        # Keep the source comparison adjacent to publication: temp-file
-        # creation can take time, and supported external editors do not
-        # participate in the cmux sidecar lock.
-        if expected_revision is not _UNCONDITIONAL_REVISION and current_revision(path) != expected_revision:
-            raise SystemExit("error: cmux config changed while preparing the edit; retry")
-        os.replace(tmp_path, path)
+        if expected_revision is _UNCONDITIONAL_REVISION:
+            os.replace(tmp_path, path)
+            return
+
+        if expected_revision is None:
+            try:
+                os.link(tmp_path, path)
+            except FileExistsError:
+                raise SystemExit(
+                    "error: cmux config changed while preparing the edit; retry"
+                )
+            tmp_path.unlink()
+            return
+
+        try:
+            current_mode = stat.S_IMODE(os.stat(path, follow_symlinks=False).st_mode)
+        except FileNotFoundError:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+        os.chmod(tmp_path, current_mode)
+
+        # Exchange publication and source capture in one filesystem operation.
+        # The previous live entry becomes tmp_path, so the revision comparison
+        # happens after publication without a check/replace race.
+        exchange_paths(tmp_path, path)
+        staging_contains_recovery = True
+        recovered = current_revision(tmp_path)
+        if recovered != expected_revision:
+            published = current_revision(path)
+            if (
+                published is not None
+                and published[0] == candidate
+                and current_revision(tmp_path) == recovered
+            ):
+                exchange_paths(tmp_path, path)
+                staging_contains_recovery = False
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+
+        published = current_revision(path)
+        if (
+            published is None
+            or published[0] != candidate
+            or current_revision(tmp_path) != expected_revision
+        ):
+            raise SystemExit(
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
+            )
+
+        tmp_path.unlink()
+        staging_contains_recovery = False
     finally:
-        if tmp_path.exists():
+        if tmp_path.exists() and not staging_contains_recovery:
             tmp_path.unlink()
 
 
-def atomic_write(path: Path, data: dict[str, Any]) -> None:
+def atomic_write(
+    path: Path,
+    data: dict[str, Any],
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
     write_path = resolved_write_path(path)
     encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    atomic_write_text(write_path, encoded)
-
+    atomic_write_text(write_path, encoded, expected_revision=expected_revision)
 
 def split_path(dotted: str) -> list[str]:
     if not dotted:
@@ -492,7 +580,11 @@ def cmd_open(args: argparse.Namespace) -> int:
     path = Path(args.file)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        atomic_write(path, {"$schema": SCHEMA_URL, "schemaVersion": 1})
+        atomic_write(
+            path,
+            {"$schema": SCHEMA_URL, "schemaVersion": 1},
+            expected_revision=None,
+        )
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if editor:
         try:
