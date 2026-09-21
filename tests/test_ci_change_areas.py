@@ -409,10 +409,10 @@ def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
     indirect = frozenset({"tests/test_guard_profile_owned.py"})
 
     linux_workflow = (
-        "name: Guards\\njobs:\\n  guard:\\n"
-        "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\\n"
-        "    steps:\\n"
-        "      - run: python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard\\n"
+        "name: Guards\njobs:\n  guard:\n"
+        "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+        "    steps:\n"
+        "      - run: python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard\n"
     )
     references = module.macos_job_test_references(linux_workflow, indirect)
     assert module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
