@@ -27,14 +27,29 @@ struct CloudTreeLayoutMetricsTests {
 
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
-        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)
-        #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
+        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 244)
+        #expect(metrics.titleWidth(rowWidth: 176, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
-    @Test("the content inset matches the former setup entry")
-    func referenceInsetIsTwelvePoints() {
-        #expect(metrics.referenceInset == 12)
+    @Test("the compact content inset keeps the established sidebar geometry")
+    func referenceInsetIsEightPoints() {
+        #expect(metrics.referenceInset == 8)
         #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
+    }
+
+    @Test("compact rows keep the established disclosure and icon grid")
+    func compactGeometryUsesEstablishedGrid() {
+        let style = CloudTreeStyle.compact
+        #expect(style.rowHeight == 24)
+        #expect(style.indentPerLevel == 8)
+        #expect(style.iconSlot == 2)
+        #expect(style.iconGap == 13)
+        #expect(style.rowGrid.disclosureSlot == 13)
+        #expect(style.rowGrid.disclosureGap == 2)
+        #expect(style.rowGrid.detailGap == 4)
+        #expect(style.rowGrid.trailingGap == 0)
+        #expect(style.rowGrid.trailingPadding == 8)
+        #expect(style.machineVerticalPadding == 0)
     }
 
 #if DEBUG
@@ -58,7 +73,7 @@ struct CloudTreeLayoutMetricsTests {
         #expect(reopened.metrics == settings.metrics)
         settings.metrics.disclosureGap = CloudSidebarDebugMetrics.default.disclosureGap
         #expect(settings.metrics.rowHeight == 32)
-        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 4)
+        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 2)
     }
 #endif
 }

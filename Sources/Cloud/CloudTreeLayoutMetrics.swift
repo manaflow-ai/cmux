@@ -11,7 +11,7 @@ struct CloudTreeLayoutMetrics: Equatable, Sendable {
     let referenceInset: CGFloat
 
     /// Creates Cloud tree geometry for the given content inset.
-    init(referenceInset: CGFloat = 12) {
+    init(referenceInset: CGFloat = 8) {
         self.referenceInset = max(0, referenceInset)
     }
 

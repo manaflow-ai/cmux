@@ -5,7 +5,7 @@ import SwiftUI
 struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
     var referenceInset: Double = 8
     var disclosureSlot: Double = 13
-    var disclosureGap: Double = 4
+    var disclosureGap: Double = 2
     /// Retained for saved tuning data; machine glyphs now use the shared iconSlot.
     var dotSlot: Double = 11
     var dotGap: Double = 4
