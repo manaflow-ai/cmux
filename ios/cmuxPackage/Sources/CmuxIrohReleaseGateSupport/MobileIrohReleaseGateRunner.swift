@@ -221,7 +221,7 @@ final class MobileIrohReleaseGateRunner {
                     // prove teardown. Restore the exact measured target before
                     // transport work, rather than relying on a stale selection
                     // or a compact-navigation side effect.
-                    store.selectedWorkspaceID = identity.workspace
+                    store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: identity.workspace)
                     store.selectedTerminalID = identity.surface
                     await Task.yield()
                     let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
@@ -256,6 +256,9 @@ final class MobileIrohReleaseGateRunner {
             },
             postReportReady: {
                 Self.postReportReadyNotification()
+            },
+            settleReadiness: {
+                try await ContinuousClock().sleep(for: .milliseconds(500))
             },
             timeout: configuration.soakProfile.map { .seconds($0.seconds + 180) }
                 ?? (configuration.scenario == .standard ? Self.standardTimeout : Self.extendedTimeout)
