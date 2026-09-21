@@ -23,6 +23,8 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let unreadIndicatorLeftShift: Double
     let unreadBadgeDiameter: Double
     let connectionStatus: MobileMacConnectionStatus
+    var workspaceOwnerID: String? = nil
+    var workspaceOwnerInstanceTag: String? = nil
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
     /// Changes chips keyed by the workspace's RPC identifier
@@ -68,6 +70,14 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
+    var cancelRefresh: (() -> Void)? = nil
+    var cancelRefreshOnDisappear: (() -> Void)? = nil
+    var beginRefresh: (() -> UUID?)? = nil
+    var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
+    var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
+    var emptyStateLayoutChanged: (() -> Void)? = nil
+    var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
+    var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)

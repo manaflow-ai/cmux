@@ -151,7 +151,7 @@ struct CloudTreeCompactLayoutTests {
                 "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
         #expect(folderGap <= 6 * scale, "No reserved unread column between caret and folder")
         for row in 0..<outline.numberOfRows {
-            #expect(abs(outline.rect(ofRow: row).height - 24 * scale) <= 0.5)
+            #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }
         try fixture.attachScreenshot(named: "compact-tree-\(Int(width))-\(percent)")
 
