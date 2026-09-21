@@ -1,37 +1,38 @@
 import AppKit
-import SwiftUI
 import Testing
 @testable import CmuxAppKitSupportUI
 
 @MainActor
 @Suite
 struct CmuxPopoverGroupTests {
-    @Test func groupedRootUsesNativeOpeningAnimation() {
-        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
-            isPresented: .constant(true), group: CmuxPopoverGroup()
+    @Test func groupedPickerCanOptIntoNativeOpeningAnimation() {
+        #expect(
+            CmuxPopoverPresentationAnimation.enabled.animates(
+                isGrouped: true,
+                reduceMotion: false
+            )
         )
-        #expect(coordinator.shouldAnimatePresentation(
-            reduceMotion: false, isSubmenu: false
-        ))
     }
 
-    @Test func groupedSubmenuRemainsImmediate() {
-        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
-            isPresented: .constant(true), group: CmuxPopoverGroup()
+    @Test func groupedPopoverDefaultsToImmediateOpening() {
+        #expect(
+            !CmuxPopoverPresentationAnimation.automatic.animates(
+                isGrouped: true,
+                reduceMotion: false
+            )
         )
-        #expect(!coordinator.shouldAnimatePresentation(
-            reduceMotion: false, isSubmenu: true
-        ))
     }
 
-    @Test(arguments: [false, true])
-    func reduceMotionDisablesOpeningAnimationForRootAndSubmenu(isSubmenu: Bool) {
-        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
-            isPresented: .constant(true), group: CmuxPopoverGroup()
-        )
-        #expect(!coordinator.shouldAnimatePresentation(
-            reduceMotion: true, isSubmenu: isSubmenu
-        ))
+    @Test(arguments: [
+        CmuxPopoverPresentationAnimation.automatic,
+        .enabled,
+        .disabled
+    ])
+    func reduceMotionDisablesEveryOpeningAnimation(
+        animation: CmuxPopoverPresentationAnimation
+    ) {
+        #expect(!animation.animates(isGrouped: false, reduceMotion: true))
+        #expect(!animation.animates(isGrouped: true, reduceMotion: true))
     }
 
     @Test func clicksInsideEitherMenuKeepBothOpen() {

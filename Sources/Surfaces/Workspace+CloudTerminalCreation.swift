@@ -67,6 +67,19 @@ extension Workspace {
         if let machineID = (panels[panelID] as? TerminalPanel)?.cloudAttachment?.machineID {
             return CloudTerminalSourcePlacement(machine: .cloud(machineID))
         }
+        // Legacy managed-Cloud SSH and transferred panels can be Cloud-owned
+        // without a catalog projection or manual-mirror attachment. Reuse the
+        // same owner resolver used by drag rejection; if its workspace binding
+        // is missing, the create route fails closed instead of repairing locally.
+        if let machine = machineOwningSurface(panelID), !machine.isLocal {
+            let remoteWorkspaceID = cloudVMBinding?.vmID == machine.cloudMachineID
+                ? cloudVMBinding?.remoteWorkspaceID
+                : nil
+            return CloudTerminalSourcePlacement(
+                machine: machine,
+                remoteWorkspaceID: remoteWorkspaceID
+            )
+        }
         return nil
     }
 
@@ -140,7 +153,7 @@ extension Workspace {
     /// The pane appears at once; the machine reports the terminal into it. A failure
     /// is shown in that pane instead of silently doing nothing, because the user's
     /// gesture otherwise looks dead.
-    private func routeCloudPaneTerminalCreate(
+    func routeCloudPaneTerminalCreate(
         source: CloudTerminalSourcePlacement,
         sourcePanelID: UUID?,
         destination: SurfaceDestination,

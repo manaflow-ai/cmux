@@ -124,7 +124,7 @@ struct SocketControlServerManagedPolicyTests {
         }
         try #require(server.reconfigure(accessMode: .cmuxOnly))
         #expect(await reading.value == nil)
-        reader.cancel()
+        await reader.cancelAndWait()
         // The connection owns its fd; neither generation revocation nor the
         // reader may close it and accidentally affect a reused descriptor.
         #expect(fcntl(connection.socket, F_GETFD) >= 0)

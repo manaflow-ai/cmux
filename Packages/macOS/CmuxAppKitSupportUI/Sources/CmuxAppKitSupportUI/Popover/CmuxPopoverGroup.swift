@@ -31,14 +31,9 @@ public final class CmuxPopoverGroup {
     /// Creates an independent dismissal group for one menu presentation.
     public init() {}
 
-    func parentID(for anchor: NSView) -> UUID? {
-        guard let window = anchor.window else { return nil }
-        return members.last { windows[$0.id]?() === window }?.id
-    }
-
     func register(popover: NSPopover, anchor: NSView) -> UUID {
         let id = UUID()
-        let parent = parentID(for: anchor)
+        let parent = members.last { windows[$0.id]?() === anchor.window }?.id
         let contains: (Int?, CGPoint) -> Bool = { [weak popover, weak anchor] windowNumber, point in
             if let window = popover?.contentViewController?.view.window,
                popover?.isShown == true,

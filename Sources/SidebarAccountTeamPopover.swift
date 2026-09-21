@@ -95,6 +95,7 @@ struct SidebarAccountMenuButton: View {
             isPresented: $isPopoverPresented,
             preferredEdge: .maxY,
             detachedGap: 4,
+            presentationAnimation: .enabled,
             group: popoverGroup
         ) {
             SidebarAccountPopover(
