@@ -26,21 +26,25 @@ struct NewMachineSheetPresenterTests {
         var page = VMListPage(vms: [], limits: VMPlanLimits(maxActiveVms: nil, planId: "pro", freeAccessWindowDays: 0))
         private(set) var presenter: NewMachineSheetPresenter!
 
+        // Weak, not unowned: the plan refresh a cached-plan open starts can resume
+        // after the test that owned this harness has returned.
         init() {
             presenter = NewMachineSheetPresenter(
                 coordinator: coordinator,
-                reserveWorkspace: { [unowned self] _, _ in
+                reserveWorkspace: { [weak self] _, _ in
+                    guard let self else { return nil }
                     let id = UUID()
                     reserved.append(id)
                     return id
                 },
-                presentSheet: { [unowned self] model, _ in presented.append(model) },
-                listPage: { [unowned self] in
+                presentSheet: { [weak self] model, _ in self?.presented.append(model) },
+                listPage: { [weak self] in
+                    guard let self else { return nil }
                     listPages += 1
                     if let listPageGate { _ = await listPageGate.result }
                     return page
                 },
-                prewarm: { [unowned self] in prewarms += 1 },
+                prewarm: { [weak self] in self?.prewarms += 1 },
                 launch: launches.cancellableLaunch
             )
         }
