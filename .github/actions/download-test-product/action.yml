@@ -34,17 +34,32 @@ runs:
         TRANSFER_OUTCOME: ${{ steps.download.outcome }}
         TRANSFER_ARTIFACT_ID: ${{ inputs.artifact-id }}
         TRANSFER_PATH: ${{ inputs.path }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         python3 - <<'PY'
         import json
         import os
         from pathlib import Path
+        import subprocess
+        import sys
         import time
 
         elapsed = max(0, round((time.monotonic_ns() - int(os.environ["TRANSFER_STARTED_NS"])) / 1_000_000_000, 3))
         archive = Path(os.environ["TRANSFER_PATH"]) / "app-host-products.aar"
         archive_bytes = archive.stat().st_size if archive.is_file() else None
         complete = os.environ["TRANSFER_OUTCOME"] == "success"
+        provider_bytes = None
+        try:
+            metadata = json.loads(subprocess.check_output(
+                ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/artifacts/{os.environ['TRANSFER_ARTIFACT_ID']}"],
+                text=True, timeout=20))
+            if metadata.get("id") == int(os.environ["TRANSFER_ARTIFACT_ID"]):
+                value = metadata.get("size_in_bytes")
+                if isinstance(value, int) and value > 0:
+                    provider_bytes = value
+        except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+            print(f"::warning::unable to read aggregate artifact byte count: {type(error).__name__}: {error}")
+
         record = {
             "artifact_id": os.environ["TRANSFER_ARTIFACT_ID"],
             "run_id": os.environ.get("GITHUB_RUN_ID"),
@@ -56,6 +71,7 @@ runs:
             "outcome": os.environ["TRANSFER_OUTCOME"],
             "elapsed_seconds": elapsed,
             "archive_bytes": archive_bytes,
+            "provider_bytes": provider_bytes,
             # Includes artifact lookup, download/retries, and outer ZIP extraction.
             # This is effective archive throughput, not raw network bandwidth.
             "effective_archive_mib_per_second": (
@@ -64,6 +80,15 @@ runs:
             ),
         }
         print("CMUX_TEST_PRODUCT_TRANSFER " + json.dumps(record, sort_keys=True))
+        if complete:
+            sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "scripts/ci"))
+            try:
+                import app_host_consumer_receipt as receipt
+                if provider_bytes is not None:
+                    receipt.add_transfer("github-aggregate", provider_bytes, provider_bytes, elapsed)
+                receipt.aggregate_hit("github-aggregate")
+            except (ImportError, OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                print(f"::warning::unable to update app-host consumer receipt: {type(error).__name__}: {error}")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
             summary.write("### Compiled test product transfer\n\n```json\n")
             summary.write(json.dumps(record, indent=2, sort_keys=True))
