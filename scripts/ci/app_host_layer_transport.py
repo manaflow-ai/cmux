@@ -361,33 +361,42 @@ def main():
     if args.mode == "restore-warning-log":
         restore_warning_log(args.path)
         return
-    identity = current_identity()
     if args.mode == "identity":
+        identity = current_identity()
         args.path.write_text(json.dumps(identity, sort_keys=True) + "\n")
         return
-    expected = producer(os.environ["GITHUB_REPOSITORY"], identity, os.environ["CMUX_RUN_HEAD_SHA"])
-    api = GitHub(expected["repository"])
     if args.mode == "publish-index":
+        identity = current_identity()
+        expected = producer(os.environ["GITHUB_REPOSITORY"], identity, os.environ["CMUX_RUN_HEAD_SHA"])
+        api = GitHub(expected["repository"])
         publish_index(api, args.path, json.loads(args.receipts.read_text()), identity, expected)
         return
     hit = False
     try:
+        identity = current_identity()
+        expected = producer(os.environ["GITHUB_REPOSITORY"], identity, os.environ["CMUX_RUN_HEAD_SHA"])
+        api = GitHub(expected["repository"])
         if not args.consumer:
             raise ValueError("layer restore requires a declared consumer")
         selected = required_layers(args.consumer)
+
         def assemble(manifest, destination, expected_identity, selection):
             identity_path = manifest.parent / "expected-identity.json"
             identity_path.write_text(json.dumps(expected_identity))
             subprocess.run([os.sys.executable, str(Path(__file__).with_name("app_host_layered_products.py")),
                             "restore", str(manifest), str(destination), "--identity", str(identity_path),
                             "--layers", ",".join(selection)], check=True)
+
         restore_remote(api, {"artifact_id": args.index_id, "artifact_digest": args.index_digest},
                        identity, expected, args.path, assemble, selected)
         hit = True
     except (KeyError, ValueError, TypeError, OSError, TimeoutError, subprocess.SubprocessError,
             zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:
         reason = f"layers:{type(error).__name__}:{error}"
-        consumer_receipt.append_fallback(reason)
+        try:
+            consumer_receipt.append_fallback(reason)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as receipt_error:
+            print(f"Consumer receipt update failed ({type(receipt_error).__name__}: {receipt_error}).")
         print(f"Layered product unavailable ({type(error).__name__}: {error}); using legacy aggregate.")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"hit={str(hit).lower()}\n")
