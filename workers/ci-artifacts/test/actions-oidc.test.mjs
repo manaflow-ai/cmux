@@ -72,7 +72,9 @@ for (const [name, overrides] of [
 test("rejects missing bearer identity, bad signature, and unavailable keys", async () => {
   await assert.rejects(authenticateActionsRequest(new Request("https://broker.example/"), keys, now));
   const signed = token();
-  const corrupted = signed.slice(0, -1) + (signed.endsWith("a") ? "b" : "a");
+  const [encodedHeader, encodedPayload, encodedSignature] = signed.split(".");
+  const corruptedSignature = (encodedSignature.startsWith("A") ? "B" : "A") + encodedSignature.slice(1);
+  const corrupted = `${encodedHeader}.${encodedPayload}.${corruptedSignature}`;
   await assert.rejects(authenticateActionsRequest(request(corrupted), keys, now));
   await assert.rejects(authenticateActionsRequest(request(), async () => new Response("down", { status: 503 }), now));
 });
