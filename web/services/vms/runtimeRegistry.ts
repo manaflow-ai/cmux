@@ -71,22 +71,25 @@ export function bindHiveRuntimeJournal(input: {
           !Number.isSafeInteger(input.placement.generation) || input.placement.generation < 1) {
         return false;
       }
-      const rows = await cloudDb().update(cloudRuntimes)
-        .set({ journalSessionId: input.journalSessionId })
-        .where(and(
-          eq(cloudRuntimes.id, input.placement.runtimeId),
-          eq(cloudRuntimes.ownerTeamId, input.ownerTeamId),
-          eq(cloudRuntimes.machineId, input.placement.machineId),
-          eq(cloudRuntimes.placementGeneration, input.placement.generation),
-          or(isNull(cloudRuntimes.journalSessionId), eq(cloudRuntimes.journalSessionId, input.journalSessionId)),
-          sql`exists (select 1 from ${cloudVms} where ${cloudVms.id} = ${cloudRuntimes.machineId}
-            and ${cloudVms.ownerTeamId} = ${cloudRuntimes.ownerTeamId}
-            and ${cloudVms.status} = 'running')`,
-        )).returning({ id: cloudRuntimes.id });
-      return rows.length === 1;
+      try {
+        const rows = await cloudDb().update(cloudRuntimes)
+          .set({ journalSessionId: input.journalSessionId })
+          .where(and(
+            eq(cloudRuntimes.id, input.placement.runtimeId),
+            eq(cloudRuntimes.ownerTeamId, input.ownerTeamId),
+            eq(cloudRuntimes.machineId, input.placement.machineId),
+            eq(cloudRuntimes.placementGeneration, input.placement.generation),
+            or(isNull(cloudRuntimes.journalSessionId), eq(cloudRuntimes.journalSessionId, input.journalSessionId)),
+            sql`exists (select 1 from ${cloudVms} where ${cloudVms.id} = ${cloudRuntimes.machineId}
+              and ${cloudVms.ownerTeamId} = ${cloudRuntimes.ownerTeamId}
+              and ${cloudVms.status} = 'running')`,
+          )).returning({ id: cloudRuntimes.id });
+        return rows.length === 1;
+      } catch (cause) {
+        if (postgresErrorCode(cause) === "23505") return false;
+        throw cause;
+      }
     },
-    catch: (cause) => postgresErrorCode(cause) === "23505"
-      ? false
-      : new VmDatabaseError({ operation: "bindHiveRuntimeJournal", cause }),
+    catch: (cause) => new VmDatabaseError({ operation: "bindHiveRuntimeJournal", cause }),
   });
 }
