@@ -212,8 +212,9 @@ final class CloudBrowserAccessState {
     }
 
     func didStart(url: URL?, navigationID: ObjectIdentifier? = nil) {
-        guard let url, owns(url), navigationURL != nil else { return }
+        guard let url, navigationURL != nil else { return }
         activeNavigationID = navigationID
+        guard owns(url) else { return }
         hasCommittedNavigation = false
         loaded = false
         error = nil

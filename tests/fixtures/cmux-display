@@ -184,6 +184,10 @@ class DisplayService:
                 pass
         self.named_processes.pop(number, None)
         self.terminate_websockify(number)
+        try:
+            (self.runtime / str(number) / "session.json").unlink()
+        except FileNotFoundError:
+            pass
 
     def terminate_websockify(self, number):
         process = self.websockify_processes.pop(number, None)
@@ -256,9 +260,21 @@ class DisplayService:
         except OSError:
             pass
 
-    def recover_processes(self, number, runtime):
+    def recover_processes(self, number, runtime, environment):
         self.processes[number] = []
         self.named_processes[number] = {}
+        session = Path(runtime) / "session.json"
+        try:
+            saved = json.loads(session.read_text())
+            dbus_pid = int(saved.get("pid", 0))
+            dbus = OwnedProcess(dbus_pid)
+            if dbus_pid > 1 and self.process_alive(dbus):
+                if saved.get("address"):
+                    environment["DBUS_SESSION_BUS_ADDRESS"] = saved["address"]
+                environment["DBUS_SESSION_BUS_PID"] = str(dbus_pid)
+                self.track_process(number, "dbus", dbus)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
         uid = str(os.getuid())
         for name in ("openbox", "tint2", "vncconfig"):
             marker = str(Path(runtime) / "bin" / f"cmux-display-{number}-{name}")
@@ -281,7 +297,7 @@ class DisplayService:
         if pid > 1:
             self.track_process(number, "xvnc", OwnedProcess(pid))
 
-    def start_dbus(self, number, environment):
+    def start_dbus(self, number, environment, runtime):
         bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, text=True, timeout=10,
@@ -297,6 +313,10 @@ class DisplayService:
             dbus_pid = 0
         if dbus_pid > 1:
             self.track_process(number, "dbus", OwnedProcess(dbus_pid))
+            (Path(runtime) / "session.json").write_text(json.dumps({
+                "pid": dbus_pid,
+                "address": environment.get("DBUS_SESSION_BUS_ADDRESS", "")
+            }))
 
     def start_session_components(self, number, environment, runtime):
         for executable, args in [
@@ -344,7 +364,7 @@ class DisplayService:
         if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
         if rfb_is_ready and number not in self.named_processes:
-            self.recover_processes(number, runtime)
+            self.recover_processes(number, runtime, environment)
         if not rfb_is_ready:
             self.terminate(number)
             rfb_port = 5900 + number
@@ -358,7 +378,7 @@ class DisplayService:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
             if not self.wait_for_port(rfb_port):
                 raise RuntimeError("Xvnc did not become ready")
-            self.start_dbus(number, environment)
+            self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
         elif number in self.named_processes:
             named = self.named_processes[number]
@@ -366,7 +386,7 @@ class DisplayService:
             if dbus is None or not self.process_alive(dbus):
                 for name in ("openbox", "tint2", "vncconfig"):
                     self.remove_process(number, name)
-                self.start_dbus(number, environment)
+                self.start_dbus(number, environment, runtime)
             self.start_session_components(number, environment, runtime)
         websockify_process = self.websockify_processes.get(number)
         if (websockify_process is None or not self.process_alive(websockify_process)
