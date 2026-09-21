@@ -96,7 +96,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
             with self.subTest(option=option):
                 result = self.run_cli(*self.request_args(), option, value)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(b"unknown option", result.stderr)
+                self.assertIn(b"unknown option", result.stderr.lower())
                 self.assertNotIn(b"glaeda", result.stderr.lower())
                 self.assertNotIn(b"socket", result.stderr.lower())
 
@@ -178,7 +178,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(path),
             )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"execution receipt", result.stderr.lower())
+        self.assertIn(b"canonical json", result.stderr.lower())
         self.assertNotIn(b"glaeda", result.stderr.lower())
 
     def test_observe_requires_real_json_booleans_for_zero_authority(self) -> None:
