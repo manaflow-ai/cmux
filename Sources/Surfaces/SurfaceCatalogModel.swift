@@ -7,27 +7,40 @@ import Foundation
 // "is this terminal open somewhere?" has one answer and closing a pane never destroys a
 // remote resource. Pure values here; the owner is `SurfaceCatalog`.
 
-/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id.
+/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id;
+/// `.device` is another Mac signed into the same account (one tagged app instance).
 enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
     case local
     case cloud(String)
+    case device(SurfaceDeviceInstanceID)
 
     var description: String {
         switch self {
         case .local: return "local"
         case .cloud(let id): return id
+        case .device(let instance): return instance.wireValue
         }
     }
 
-    /// Wire form: `"local"` or the machine id.
+    /// Wire form: `"local"`, the cloud machine id, or `device:<uuid>@<tag>`.
     var rawValue: String { description }
 
+    /// `"local"` and the `device:` prefix are reserved; everything else is a cloud
+    /// machine id, exactly as before devices existed.
     init(rawValue: String) {
-        self = rawValue == "local" ? .local : .cloud(rawValue)
+        if rawValue == "local" {
+            self = .local
+        } else if let instance = SurfaceDeviceInstanceID(wireValue: rawValue) {
+            self = .device(instance)
+        } else {
+            self = .cloud(rawValue)
+        }
     }
 
     var isLocal: Bool { if case .local = self { return true } else { return false } }
     var cloudMachineID: String? { if case .cloud(let id) = self { return id } else { return nil } }
+    var deviceInstance: SurfaceDeviceInstanceID? { if case .device(let instance) = self { return instance } else { return nil } }
+    var isDevice: Bool { deviceInstance != nil }
 }
 
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
@@ -1585,11 +1598,19 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
 }
 
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
+/// Device workspaces (another Mac's sidebar) additionally carry the cwd, unread
+/// count, and pin state the Mac sidebar shows; cloud workspaces leave them nil.
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
     var name: String
     var index: Int
     var focused: Bool
+    /// The workspace's presented working directory, when the provider reports one.
+    var detail: String? = nil
+    /// The remote sidebar's unread badge count, when the provider reports one.
+    var unreadCount: Int? = nil
+    /// Whether the workspace is pinned on its machine, when the provider reports it.
+    var isPinned: Bool? = nil
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
@@ -1712,12 +1733,41 @@ enum SurfacePlacement: String, Codable, Sendable {
     case tab
 }
 
+/// What a provider knows about its machine, for the tree header.
+struct SurfaceMachineInfo: Hashable, Codable, Sendable {
+    var id: SurfaceMachineID
+    var name: String
+    /// `running`, `standby`, … for cloud machines; `running` for the local Mac.
+    var status: String
+    var image: String?
+    var hasDesktop: Bool
+    var memoryMb: Int?
+    var diskMb: Int?
+    var linkState: SurfaceLinkState
+    var linkError: String?
+    var cpuPercent: Double?
+    var memoryUsedMb: Int?
+    var diskUsedMb: Int?
+    /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
+    /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
+    var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
+    /// The machine's address on its owner's private network (v4 preferred),
+    /// reachable through the WireGuard tunnel. nil for the local Mac and for
+    /// machines created before private networking.
+    var privateAddress: String? = nil
+    /// Account presence for another Mac's app instance; nil for local and cloud machines.
+    var presence: SurfaceDevicePresence? = nil
+}
+
 enum SurfaceLinkState: String, Codable, Sendable {
     case connected
     case connecting
     case asleep
     case unavailable
     case error
+    /// Another Mac that the presence service reports offline (app quit, asleep, or
+    /// unreachable); its last known tree stays listed until it comes back.
+    case offline
     /// The local Mac needs no link.
     case notApplicable = "n/a"
 }
