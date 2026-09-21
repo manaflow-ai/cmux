@@ -316,17 +316,14 @@ class WorkloadProfileTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 64)
             self.assertIn(b"structure", completed.stderr)
 
-    def test_comparison_rejects_toolchain_identity_observation_mismatch(self) -> None:
+    def test_result_validation_rejects_toolchain_identity_observation_mismatch(self) -> None:
         value = valid_result()
         value["toolchain"]["observations"]["python"] = "different"
-        with tempfile.TemporaryDirectory() as directory:
-            left = Path(directory) / "left.json"
-            right = Path(directory) / "right.json"
-            left.write_text(json.dumps(value), encoding="utf-8")
-            right.write_text(json.dumps(value), encoding="utf-8")
-            completed = self.command("compare", str(left), str(right))
-        self.assertEqual(completed.returncode, 64)
-        self.assertIn(b"toolchain identity is inconsistent", completed.stderr)
+        with self.assertRaisesRegex(
+            profile.ProfileError,
+            "toolchain identity is inconsistent",
+        ):
+            profile.validate_result_structure(value)
 
     def test_comparison_rejects_self_inconsistent_semantic_receipt(self) -> None:
         value = valid_result()
