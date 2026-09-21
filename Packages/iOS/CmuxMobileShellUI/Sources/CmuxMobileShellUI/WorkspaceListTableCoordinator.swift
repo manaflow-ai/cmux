@@ -1287,7 +1287,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 MobileWorkspaceListEmptyRow(
                     retry: configuration.refresh,
                     cancelRetry: configuration.cancelRefresh,
-                    onLayoutChange: configuration.emptyStateLayoutChanged
+                    onLayoutChange: configuration.emptyStateLayoutChanged,
+                    shouldCancelRetryOnDisappear: configuration.shouldCancelRefreshOnDisappear
                 )
             )
         }

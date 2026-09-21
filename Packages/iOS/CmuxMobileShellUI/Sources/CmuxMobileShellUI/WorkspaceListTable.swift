@@ -70,6 +70,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let refresh: (@Sendable () async -> Void)?
     var cancelRefresh: (() -> Void)? = nil
     var emptyStateLayoutChanged: (() -> Void)? = nil
+    var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)

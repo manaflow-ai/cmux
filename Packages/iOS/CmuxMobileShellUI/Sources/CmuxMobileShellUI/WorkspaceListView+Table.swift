@@ -83,6 +83,12 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
+        let emptyStateHost = host
+        let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                store.connectedHostName == emptyStateHost && store.workspaces.isEmpty
+            }
+        }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
@@ -158,7 +164,8 @@ extension WorkspaceListView {
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
             refresh: refresh,
-            cancelRefresh: cancelRefresh
+            cancelRefresh: cancelRefresh,
+            shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear
         )
     }
 }
