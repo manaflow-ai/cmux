@@ -850,6 +850,7 @@ struct ContentView: View {
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let devicesModel: DevicesPanelViewModel?
 
     @MainActor
     init(
@@ -857,9 +858,11 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        devicesModel: DevicesPanelViewModel? = nil
     ) {
         self.updateViewModel = updateViewModel
+        self.devicesModel = devicesModel
         self.windowId = windowId
         self.featureFlags = featureFlags ?? .shared
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
@@ -942,6 +945,8 @@ struct ContentView: View {
     @State private var sidebarResizerCursorStabilizer = MainActorRepeatingActionScheduler()
     @State private var isCommandPalettePresented = false
     @State private var commandPaletteQuery: String = ""
+    @State private var commandPaletteCurrentWorkSnapshot: CurrentWorkSnapshot?
+    @State private var commandPaletteCurrentWorkRevision = 0
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
@@ -1776,13 +1781,6 @@ struct ContentView: View {
         ))
     }
 
-    /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
-    /// minimal WindowGroup hosts can still need the reported safe area cancelled.
-    @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
-    /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
-    /// main windows use MainWindowHostingView and report zero.
-    @State private var hostingSafeAreaTop: CGFloat = 0
-
     private var currentIsMinimalMode: Bool {
         workspacePresentationModeRuntimeCache.isMinimalMode
     }
@@ -1899,8 +1897,7 @@ struct ContentView: View {
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
+            runtimeCache: workspacePresentationModeRuntimeCache
         ))
     }
 
@@ -1986,6 +1983,7 @@ struct ContentView: View {
 
     private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         return RightSidebarPanelView(
+            devicesModel: devicesModel,
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
@@ -2288,7 +2286,13 @@ struct ContentView: View {
         }
         schedulePortalGeometrySynchronize()
         updateSidebarResizerBandState()
-        syncTrafficLightInset(isMinimalMode: isMinimalMode)
+        // A visible sidebar already supplies the titlebar leading inset in
+        // both presentation modes. Avoid rewriting every workspace's Bonsplit
+        // appearance during a mode toggle; that would invalidate each mounted
+        // WorkspaceContentView even though no geometry changes.
+        if !sidebarState.isVisible {
+            syncTrafficLightInset(isMinimalMode: isMinimalMode)
+        }
     }
 
     private func applyTitlebarDebugChromeChange() {
@@ -2332,14 +2336,15 @@ struct ContentView: View {
         let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
         let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
         let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-        if abs(titlebarPadding - nextPadding) > 0.5 {
-            DispatchQueue.main.async {
-                titlebarPadding = nextPadding
+        // WindowAccessor can call this while SwiftUI is tracking the parent
+        // body. Read the leaf's observable metrics in the deferred update too,
+        // so native measurement does not subscribe ContentView to them.
+        DispatchQueue.main.async {
+            if abs(self.workspacePresentationModeRuntimeCache.titlebarPadding - nextPadding) > 0.5 {
+                self.workspacePresentationModeRuntimeCache.titlebarPadding = nextPadding
             }
-        }
-        if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-            DispatchQueue.main.async {
-                hostingSafeAreaTop = nextSafeAreaTop
+            if abs(self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
+                self.workspacePresentationModeRuntimeCache.hostingSafeAreaTop = nextSafeAreaTop
             }
         }
     }
@@ -5148,6 +5153,9 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
+            if commandPaletteCurrentWorkSnapshot != nil {
+                return String(localized: "commandPalette.currentWork.search", defaultValue: "Find current work")
+            }
             return commandPaletteSearchAllSurfaces
                 ? String(localized: "commandPalette.search.switcherPlaceholderAllSurfaces", defaultValue: "Search workspaces and surfaces")
                 : String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
@@ -5159,6 +5167,9 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
+            if commandPaletteCurrentWorkSnapshot != nil {
+                return String(localized: "commandPalette.currentWork.empty", defaultValue: "No work in this snapshot matches your search.")
+            }
             return commandPaletteSearchAllSurfaces
                 ? String(localized: "commandPalette.search.switcherEmptyAllSurfaces", defaultValue: "No workspaces or surfaces match your search.")
                 : String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
@@ -5667,6 +5678,12 @@ struct ContentView: View {
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
+        if commandPaletteCurrentWorkSnapshot != nil {
+            var hasher = Hasher()
+            hasher.combine("current-work")
+            hasher.combine(commandPaletteCurrentWorkRevision)
+            return hasher.finalize()
+        }
         let windowContexts = commandPaletteSwitcherWindowContexts()
         let fingerprintContexts = windowContexts.map { context in
             CommandPaletteSwitcherFingerprintContext(
@@ -5772,6 +5789,9 @@ struct ContentView: View {
     }
 
     private func commandPaletteSwitcherEntries(includeSurfaces: Bool) -> [CommandPaletteCommand] {
+        if let snapshot = commandPaletteCurrentWorkSnapshot {
+            return commandPaletteCurrentWorkEntries(snapshot: snapshot)
+        }
         let windowContexts = commandPaletteSwitcherWindowContexts()
         guard !windowContexts.isEmpty else { return [] }
 
@@ -5968,41 +5988,6 @@ struct ContentView: View {
             panelIds.append(panelId)
         }
         return panelIds
-    }
-
-    private func focusCommandPaletteSwitcherTarget(
-        windowId: UUID,
-        tabManager: TabManager,
-        workspaceId: UUID
-    ) {
-        // Switcher commands dismiss the palette after action dispatch.
-        // Defer focus mutation one turn so browser omnibar autofocus can run
-        // without being blocked by the palette-visibility guard.
-        DispatchQueue.main.async {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(
-                workspaceId,
-                suppressFlash: true,
-                dismissRestoredUnreadOnResume: true
-            )
-        }
-    }
-
-    private func focusCommandPaletteSwitcherSurfaceTarget(
-        windowId: UUID,
-        tabManager: TabManager,
-        workspaceId: UUID,
-        panelId: UUID
-    ) {
-        DispatchQueue.main.async {
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            tabManager.focusTab(
-                workspaceId,
-                surfaceId: panelId,
-                suppressFlash: true,
-                dismissRestoredUnreadOnResume: true
-            )
-        }
     }
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
@@ -7333,7 +7318,7 @@ struct ContentView: View {
             }
         }
 
-        var contributions: [CommandPaletteCommandContribution] = []
+        var contributions: [CommandPaletteCommandContribution] = [Self.commandPaletteFindWorkContribution()]
         contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
         contributions.append(contentsOf: Self.commandPaletteComputerUseContributions())
 
@@ -8565,6 +8550,13 @@ struct ContentView: View {
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.findWork") {
+            guard let service = AppDelegate.shared?.currentWorkQueryService() else {
+                NSSound.beep()
+                return
+            }
+            resetCommandPaletteListState(initialQuery: "", currentWork: service.read(limit: 100))
+        }
         let browserTarget = commandPaletteBrowserActionTarget
         let browserDispatcher = AppDelegate.shared.map {
             BrowserActionDispatcher(appDelegate: $0)
@@ -9922,7 +9914,9 @@ struct ContentView: View {
         resetCommandPaletteListState(initialQuery: initialQuery)
     }
 
-    private func resetCommandPaletteListState(initialQuery: String) {
+    private func resetCommandPaletteListState(initialQuery: String, currentWork: CurrentWorkSnapshot? = nil) {
+        commandPaletteCurrentWorkSnapshot = currentWork
+        commandPaletteCurrentWorkRevision &+= 1
         commandPaletteMode = .commands
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
@@ -10043,6 +10037,7 @@ struct ContentView: View {
         pruneCommandPaletteForkableAgentProbeResults()
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
+        commandPaletteCurrentWorkSnapshot = nil
         commandPaletteMode = .commands
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
@@ -11861,7 +11856,8 @@ struct VerticalTabsSidebar: View, Equatable {
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
             workspaces: renderContext.tabs,
-            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
+            debouncedInterval: Self.extensionSidebarObservationCoalesceInterval,
+            deliverInitialValue: !featureFlags.isAppKitSidebarListEnabled
         ) { workspaceId in
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
@@ -16029,7 +16025,7 @@ struct TabItemView: View, Equatable {
                     .transition(.opacity)
                 }
 
-                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.cloudWorkspaceLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7))
+                SidebarCloudWorkspaceBadgeView(label: detailVisibility.showsBranchDirectory ? workspaceSnapshot.remoteWorkspaceBadgeLabel : nil, pointSize: scaledFontSize(10), tint: activeSecondaryColor(0.7), symbol: workspaceSnapshot.remoteWorkspaceBadgeSymbol)
 
                 if isEditing {
                     SidebarInlineRenameField(

@@ -11,8 +11,6 @@ import Foundation
 /// callers fall back to the native block renderer.
 @MainActor
 final class MarkdownWebViewerAssets {
-    static let shared = MarkdownWebViewerAssets(bundle: .main)
-
     private let bundle: Bundle
     private var cache: [String: String] = [:]
     private var cachedShellHTML: String??
@@ -123,7 +121,7 @@ final class MarkdownWebViewerAssets {
     private nonisolated static func loadAsset(url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         if url.lastPathComponent.hasSuffix(".deflate") {
-            guard let inflated = MarkdownViewerAssetCompression.inflate(data) else { return nil }
+            guard let inflated = Data.inflateMarkdownViewerAsset(data) else { return nil }
             return String(data: inflated, encoding: .utf8)
         }
         return String(data: data, encoding: .utf8)

@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go รวม VM ที่บันทึกไว้สองเครื่อง รวมเครื่องที่กำลังทำงานด้วย",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "หากเราพบบัญชี โปรดตรวจสอบอีเมลเพื่อดูขั้นตอนถัดไป"
   },
@@ -387,14 +387,50 @@
       "revoked": "เพิกถอนแล้ว",
       "relaySettings": "การตั้งค่ารีเลย์",
       "relaySettingsDescription": "เลือกเซิร์ฟเวอร์รีเลย์ที่ทีมนี้ใช้ ป้อน URL หนึ่งรายการต่อบรรทัด",
-      "saveRelaySettings": "บันทึกการตั้งค่ารีเลย์"
+      "saveRelaySettings": "บันทึกการตั้งค่ารีเลย์",
+      "eyebrow": "คลาวด์ / อุปกรณ์",
+      "scopeActive": "กำลังแสดงทีมนี้",
+      "emptyTitle": "ยังไม่มีอุปกรณ์ที่เชื่อมต่อ",
+      "emptyDescription": "เมื่ออุปกรณ์ cmux จับคู่กับทีมนี้แล้ว อุปกรณ์จะแสดงที่นี่พร้อมแพลตฟอร์ม เวอร์ชัน และการควบคุมการเข้าถึง",
+      "revoking": "กำลังเพิกถอน…",
+      "registeredDevices": "อุปกรณ์ที่ลงทะเบียน",
+      "activeDevices": "อุปกรณ์ที่ใช้งานอยู่",
+      "directoryRevision": "รุ่นแก้ไขของรายการ",
+      "savingRelaySettings": "กำลังบันทึก…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "แชร์กับทีม",
       "makePrivate": "ตั้งเป็นส่วนตัว",
       "privateImportHint": "บัญชีใหม่เป็นส่วนตัว แชร์บัญชีเพื่อให้ Cloud VM ของทีมนี้ใช้งานได้",
       "description": "บัญชีที่แชร์พร้อมใช้งานสำหรับ Cloud VM ของทีมนี้ บัญชีส่วนตัวใช้ได้เฉพาะผู้ที่เพิ่มบัญชีนั้นเท่านั้น",
-      "cancelAction": "ยกเลิก"
+      "cancelAction": "ยกเลิก",
+      "apiKeysTitle": "คีย์ API",
+      "apiKeysDescription": "สร้างคีย์ระยะยาวสำหรับสคริปต์และเอเจนต์ ระบบจะแสดงความลับเพียงครั้งเดียว",
+      "apiKeysCount": "{count, plural, one {# คีย์} other {# คีย์}}",
+      "apiKeysLoading": "กำลังโหลดคีย์ API…",
+      "apiKeysLoadError": "โหลดคีย์ API ไม่ได้ โปรดลองอีกครั้งในเร็วๆ นี้",
+      "apiKeysRetry": "ลองอีกครั้ง",
+      "apiKeysEmptyBody": "ยังไม่มีคีย์ API สร้างคีย์เพื่อยืนยันตัวตนไคลเอนต์ CodeRouter",
+      "apiKeyPrefixColumn": "คีย์",
+      "apiKeyStatusColumn": "สถานะ",
+      "apiKeySecretTitle": "คัดลอกคีย์นี้ตอนนี้",
+      "apiKeySecretBody": "ความลับนี้จะแสดงเพียงครั้งเดียว",
+      "apiKeyCopy": "คัดลอกคีย์ API",
+      "apiKeyCopied": "คัดลอกแล้ว",
+      "apiKeyCreatedAt": "สร้างเมื่อ {at}",
+      "apiKeyLastUsed": "ใช้ล่าสุด {at}",
+      "apiKeyRevoked": "เพิกถอนแล้ว",
+      "apiKeyLabelPlaceholder": "เช่น CI หรือการผลิต",
+      "createApiKeyAction": "สร้างคีย์ API",
+      "creatingApiKeyAction": "กำลังสร้าง",
+      "apiKeyCreateError": "สร้างคีย์ API ไม่ได้",
+      "revokeApiKeyAction": "เพิกถอน",
+      "revokingApiKeyAction": "กำลังเพิกถอน",
+      "apiKeyRevokeError": "เพิกถอนคีย์ API ไม่ได้",
+      "revokeApiKeyConfirmTitle": "เพิกถอนคีย์ API นี้หรือไม่",
+      "apiKeyUsageDetail": "30 วันที่ผ่านมา: สำเร็จ {completions} ครั้ง · {tokens} โทเค็น ({input} เข้า / {output} ออก) · มูลค่าเทียบเท่า API {value}",
+      "apiKeyUsageUnavailable": "ไม่มีข้อมูลการใช้งาน",
+      "revokeApiKeyConfirmBody": "ไคลเอนต์ที่ใช้คีย์นี้จะยืนยันตัวตนไม่ได้ทันที"
     }
   },
   "community": {
@@ -1345,7 +1381,7 @@
       "plusButtonScreenshotAlt": "เมนูคลิกขวาของปุ่มบวกใน cmux แสดง Worktree Agents, New Terminal และ New Browser",
       "plusButtonScreenshotCaption": "เมนูคลิกขวาเรียงตามลำดับจาก ui.newWorkspace.contextMenu",
       "newWorkspaceButton": "แอ็กชันกำหนดเองของปุ่มบวก",
-      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator> หากไม่ได้ตั้งค่า เมนูจะแสดง cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) พร้อมปุ่มลัดปัจจุบัน รายการคลาวด์จะแสดงเมื่อเปิดใช้งาน Cloud Machines เท่านั้น",
+      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator> หากไม่ได้ตั้งค่า เมนูจะแสดง cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) พร้อมปุ่มลัดปัจจุบัน รายการคลาวด์จะแสดงเมื่อเปิดใช้งาน Cloud Machines เท่านั้น New Cloud Workspace จะใช้เครื่องของพื้นที่ทำงาน Cloud ที่เลือกครั้งล่าสุด แล้วจึงใช้เครื่องแรกในแถบด้านขวา ส่วน New Cloud Machine จะจัดเตรียมเครื่องโดยตั้งใจ",
       "newWorkspaceWorktreeNote": "ตัวอย่างนี้ทำให้การคลิกปุ่มบวกตามปกติรัน action <action>worktree-agents</action> คำสั่ง workspace จาก <commands>commands</commands> ใช้ terminal setup ที่มองเห็นได้เพื่อสร้าง Git <worktree>worktree</worktree> ก่อน Codex และ Claude เริ่มพร้อมกัน รอไฟล์ state เฉพาะ workspace แล้ว cd เข้า directory ที่สร้างขึ้นก่อน exec",
       "simpleCommands": "คำสั่งแบบง่าย",
       "simpleCommandsDesc": "คำสั่งแบบง่ายรันคำสั่ง shell ในเทอร์มินัลที่กำลังโฟกัสอยู่:",

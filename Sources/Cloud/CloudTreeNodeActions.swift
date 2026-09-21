@@ -2,6 +2,10 @@ import AppKit
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
+    /// Whether a device's menu should offer the explicit pairing flow.
+    var needsDevicePairing: @MainActor (SurfaceMachineID) -> Bool = { _ in false }
+    /// Hides this physical Mac in the sidebar without revoking its pairing.
+    var hideDevice: @MainActor (SurfaceMachineID) -> Void = { _ in }
     /// Project a resource into the selected local workspace.
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Project a resource while retaining the exact daemon tab placement that
@@ -46,6 +50,8 @@ struct CloudTreeNodeActions {
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
+    var setDeviceIncomingAccess: @MainActor (Bool) -> Void = { _ in }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -53,6 +59,7 @@ struct CloudTreeNodeActions {
 
     @MainActor
     static func bound(
+        navigationHost: CloudTerminalNavigationHost,
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
@@ -410,10 +417,13 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
-        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { label, operation in
+            run(label) { catalog in try await operation(catalog) }
+        }
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
             run: navigationRun,
+            host: navigationHost,
             operationController: operationController ?? AppDelegate.shared?.cloudWorkspaceOperationController
         )
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }

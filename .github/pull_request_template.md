@@ -1,3 +1,5 @@
+<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+
 ## Summary
 
 - What changed?
@@ -32,3 +34,5 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
+
+<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. -->

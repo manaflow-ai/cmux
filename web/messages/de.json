@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Diese Maschinengröße ist derzeit nicht verfügbar. Wählen Sie bis zu {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Wenn wir ein Konto gefunden haben, prüfe deine E-Mail auf die nächsten Schritte"
   },
@@ -387,14 +387,50 @@
       "revoked": "Entzogen",
       "relaySettings": "Relay-Einstellungen",
       "relaySettingsDescription": "Wähle die Relay-Server für dieses Team. Gib pro Zeile eine URL ein.",
-      "saveRelaySettings": "Relay-Einstellungen speichern"
+      "saveRelaySettings": "Relay-Einstellungen speichern",
+      "eyebrow": "Cloud / Geräte",
+      "scopeActive": "Dieses Team wird angezeigt",
+      "emptyTitle": "Noch keine verbundenen Geräte",
+      "emptyDescription": "Sobald ein cmux-Gerät mit diesem Team gekoppelt ist, erscheint es hier mit Plattform, Version und Zugriffsverwaltung.",
+      "revoking": "Zugriff wird entzogen…",
+      "registeredDevices": "Registrierte Geräte",
+      "activeDevices": "Aktive Geräte",
+      "directoryRevision": "Verzeichnisrevision",
+      "savingRelaySettings": "Wird gespeichert…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",
       "makePrivate": "Privat machen",
       "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
       "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
-      "cancelAction": "Abbrechen"
+      "cancelAction": "Abbrechen",
+      "apiKeysTitle": "API-Schlüssel",
+      "apiKeysDescription": "Erstellen Sie langlebige Schlüssel für Skripte und Agenten. Das Geheimnis wird einmal angezeigt.",
+      "apiKeysCount": "{count, plural, one {# Schlüssel} other {# Schlüssel}}",
+      "apiKeysLoading": "API-Schlüssel werden geladen…",
+      "apiKeysLoadError": "API-Schlüssel konnten nicht geladen werden. Versuchen Sie es bald erneut.",
+      "apiKeysRetry": "Erneut versuchen",
+      "apiKeysEmptyBody": "Noch keine API-Schlüssel. Erstellen Sie einen zur Authentifizierung eines CodeRouter-Clients.",
+      "apiKeyPrefixColumn": "Schlüssel",
+      "apiKeyStatusColumn": "Zustand",
+      "apiKeySecretTitle": "Diesen Schlüssel jetzt kopieren",
+      "apiKeySecretBody": "Dieses Geheimnis wird nicht erneut angezeigt.",
+      "apiKeyCopy": "API-Schlüssel kopieren",
+      "apiKeyCopied": "Kopiert",
+      "apiKeyCreatedAt": "erstellt {at}",
+      "apiKeyLastUsed": "zuletzt verwendet {at}",
+      "apiKeyRevoked": "Widerrufen",
+      "apiKeyLabelPlaceholder": "Zum Beispiel CI oder Produktion",
+      "createApiKeyAction": "API-Schlüssel erstellen",
+      "creatingApiKeyAction": "Wird erstellt",
+      "apiKeyCreateError": "API-Schlüssel konnte nicht erstellt werden.",
+      "revokeApiKeyAction": "Widerrufen",
+      "revokingApiKeyAction": "Wird widerrufen",
+      "apiKeyRevokeError": "API-Schlüssel konnte nicht widerrufen werden.",
+      "revokeApiKeyConfirmTitle": "Diesen API-Schlüssel widerrufen?",
+      "apiKeyUsageDetail": "letzte 30 Tage: {completions} Abschlüsse · {tokens} Tokens ({input} Eingabe / {output} Ausgabe) · {value} API-Äquivalent",
+      "apiKeyUsageUnavailable": "Nutzung nicht verfügbar",
+      "revokeApiKeyConfirmBody": "Clients mit diesem Schlüssel können sich sofort nicht mehr authentifizieren."
     }
   },
   "community": {
@@ -1343,7 +1379,7 @@
       "plusButtonScreenshotAlt": "Rechtsklickmenü des Plus-Buttons mit Worktree Agents, New Terminal und New Browser",
       "plusButtonScreenshotCaption": "Das Rechtsklickmenü folgt der Reihenfolge aus ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Benutzerdefinierte Aktionen für den Plus-Button",
-      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist.",
+      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist. New Cloud Workspace verwendet die Maschine des zuletzt ausgewählten Cloud-Arbeitsbereichs und danach die erste Maschine in der rechten Seitenleiste; New Cloud Machine erstellt bewusst eine neue Maschine.",
       "newWorkspaceWorktreeNote": "Dieses Beispiel lässt den normalen Plus-Klick die Aktion <action>worktree-agents</action> ausführen. Der Workspace-Befehl aus <commands>commands</commands> nutzt ein sichtbares Setup-Terminal, um zuerst den Git-<worktree>worktree</worktree> zu erstellen. Codex und Claude starten gleichzeitig, warten auf die workspace-spezifische Statusdatei und wechseln dann vor exec in das erstellte Verzeichnis.",
       "simpleCommands": "Einfache Befehle",
       "simpleCommandsDesc": "Ein einfacher Befehl führt einen Shell-Befehl im aktuell fokussierten Terminal aus:",

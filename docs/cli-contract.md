@@ -289,6 +289,10 @@ Auth subcommands:
 | `auth logout` | Clear the current session. |
 | `auth team list`, `auth team use <team-id>`, `auth team create <name>` | List teams, select one, or create one. |
 
+My Devices connects opted-in Macs on the same account through authenticated Iroh v2 sessions. It runs only while Cloud Machines is enabled. Fresh installations default to discovering other Macs, with access to this Mac off. The Cloud sidebar exposes **Discover other Macs** and **Allow access to this Mac** independently. Turning off incoming Mac access disconnects incoming Mac sessions; turning off discovery stops this installation’s outgoing device connections. Existing iPhone pairing remains separately opt-in. Turning Cloud Machines off stops My Devices discovery, connections, and hosting. My Devices requires no Tailscale setup, pairing link, or address entry.
+
+The corresponding preferences are `devices.discovery.enabled`, `devices.incomingAccess.enabled`, and `devices.sidebar.hiddenMacIDs`. Hiding a physical Mac affects its sidebar rows across build tags, preserves pairing and existing panes, and can be reversed in Computers settings. Use `surface ls`, `surface open`, and `surface new-terminal` for discovered Mac resources; the cloud-only `vm workspace` commands remain VM operations.
+
 VM subcommands:
 
 | Command | Contract |
@@ -580,8 +584,8 @@ Right sidebar commands:
 | --- | --- |
 | `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
 | `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud\|devices>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud`, `right-sidebar devices` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. `devices` (aliases `device`, `macs`) opens the same Cloud panel and reports `machines`. While Cloud Machines is enabled, the My Devices menu independently controls `devices.discovery.enabled` (Discover other Macs) and `devices.incomingAccess.enabled` (Make this Mac discoverable). |
 | `right-sidebar mode` | Print JSON with `visible` and `mode`. |
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |

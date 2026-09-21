@@ -314,12 +314,15 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
+        let deviceProjectionPanelIDs = Set((snapshot.surfaceProjections ?? [])
+            .filter { $0.resource.machine.isDevice }.map(\.panelID))
 
         for entry in leafEntries {
             restorePane(
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
+                deviceProjectionPanelIDs: deviceProjectionPanelIDs,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 restorableAgentIndex: restorableAgentIndex, cloudProjectionRecordsByPanelID: cloudProjectionRecordsByPanelID,
@@ -1344,6 +1347,7 @@ extension Workspace {
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        deviceProjectionPanelIDs: Set<UUID>,
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
@@ -1365,7 +1369,8 @@ extension Workspace {
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 restorableAgentIndex: restorableAgentIndex,
-                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId]
+                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId],
+                restoresDeviceProjection: deviceProjectionPanelIDs.contains(oldPanelId)
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1556,12 +1561,15 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        cloudProjectionRecord: SurfaceProjectionRecord? = nil
+        cloudProjectionRecord: SurfaceProjectionRecord? = nil,
+        restoresDeviceProjection: Bool = false
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
-        if cloudProjectionRecord?.resource.machine.isLocal == false,
-           let cloudProjectionRecord,
+        // Another Mac's terminal restores through the device link below, never
+        // through the Cloud VM reservation.
+        if let cloudProjectionRecord, !cloudProjectionRecord.resource.machine.isLocal,
+           !cloudProjectionRecord.resource.machine.isDevice, !restoresDeviceProjection,
            let restoredCloudPanelID = reserveRestoredCloudTerminalPane(
                snapshot: snapshot,
                projection: cloudProjectionRecord,
@@ -1574,6 +1582,9 @@ extension Workspace {
                     restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
+            if restoresDeviceProjection {
+                return restoreDeviceDisplayPanel(snapshot, in: paneId)
+            }
             let localTmuxStartCommand = sessionRestorePolicy
                 .localTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
             let snapshotRestorableAgent = localTmuxStartCommand == nil ? snapshot.terminal?.agent : nil
@@ -6681,6 +6692,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             mirror.onTerminalPanelRemoved = { [weak self] panel in
                 guard let self else { return }
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panel.id)
                 terminalFontSizeChangeCoordinator?
                     .terminalDidLeaveWorkspace(
                         panel,
@@ -7543,6 +7555,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        if let status = terminalPanel(for: surfaceId)?.deviceAttachment { return status.presentation }
         if let failure = cloudMaterializationFailures[surfaceId] {
             return Self.cloudMaterializationFailurePresentation(
                 detail: failure.detail,
@@ -9345,12 +9358,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
-        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
-            tabId: id,
+            id: panelID, tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
@@ -13006,7 +13019,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let forkedPanel,
            remoteStartupCommand != nil,
            let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            updateRemotePanelDirectoryWithMetadata(panelId: forkedPanel.id, directory: workingDirectory)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -14111,7 +14124,10 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
         // A remote tmux mirror tab reorder propagates to tmux window order.
-        guard isRemoteTmuxMirror else { return }
+        // Mirror transactions send their desired order explicitly. Their local
+        // mutations, including rollback and remote updates, must not echo it.
+        guard isRemoteTmuxMirror,
+              !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
         _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
@@ -14347,63 +14363,7 @@ extension Workspace: BonsplitDelegate {
             )
 #endif
             if !hasRealSurface {
-                let placeholderTabs = originalTabs.filter { panelIdFromSurfaceId($0.id) == nil }
-#if DEBUG
-                cmuxDebugLog(
-                    "split.placeholderRepair pane=\(originalPane.id.uuidString.prefix(5)) " +
-                    "action=reusePlaceholder placeholderCount=\(placeholderTabs.count)"
-                )
-#endif
-                if let replacementTab = placeholderTabs.first {
-                    // Keep the existing placeholder tab identity and replace only the panel mapping.
-                    // This avoids an extra create+close tab churn that can transiently render an
-                    // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
-
-                    let replacementPanel = TerminalPanel(
-                        workspaceId: id,
-                        context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                        configTemplate: inheritedConfig,
-                        portOrdinal: portOrdinal,
-                        additionalEnvironment: startupEnvironmentMergingWorkspaceEnvironment([:])
-                    )
-                    configureNewTerminalPanel(replacementPanel)
-                    panels[replacementPanel.id] = replacementPanel
-                    panelTitles[replacementPanel.id] = replacementPanel.displayTitle
-                    bindSurface(replacementTab.id, toPanelId: replacementPanel.id)
-
-                    bonsplitController.updateTab(
-                        replacementTab.id,
-                        title: replacementPanel.displayTitle,
-                        icon: .some(replacementPanel.displayIcon),
-                        iconImageData: .some(nil),
-                        kind: .some(SurfaceKind.terminal.rawValue),
-                        hasCustomTitle: false,
-                        isDirty: replacementPanel.isDirty,
-                        showsNotificationBadge: false,
-                        isLoading: false,
-                        isPinned: false
-                    )
-                    rememberTerminalConfigInheritanceSource(replacementPanel)
-                    publishCmuxSurfaceCreated(replacementPanel.id, paneId: originalPane, kind: "terminal", origin: "placeholder_repair", focused: false)
-
-                    for extraPlaceholder in placeholderTabs.dropFirst() {
-                        bonsplitController.closeTab(extraPlaceholder.id)
-                    }
-                } else {
-#if DEBUG
-                    cmuxDebugLog(
-                        "split.placeholderRepair pane=\(originalPane.id.uuidString.prefix(5)) " +
-                        "fallback=createTerminalAndDropPlaceholders"
-                    )
-#endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
-                    for tab in controller.tabs(inPane: originalPane) {
-                        if panelIdFromSurfaceId(tab.id) == nil {
-                            bonsplitController.closeTab(tab.id)
-                        }
-                    }
-                }
+                repairDraggedTabPlaceholder(in: originalPane, movedTabPane: newPane, orientation: orientation)
             }
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
@@ -14518,9 +14478,9 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .newCloudWorkspace:
-                _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudWorkspace")
+                _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudWorkspace")
             case .newCloudMachine:
-                _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudMachine")
+                _ = AppDelegate.shared?.performNewCloudMachineAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudMachine")
             case .mobileConnect:
                 // Audible feedback instead of a silent no-op when the managed
                 // policy suppresses the pairing chokepoint.
@@ -14748,6 +14708,12 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Capture the user's arrangement before deferred delivery: an incoming
+        // remote snapshot must not replace the intent while this event waits.
+        let deviceLayoutSnapshot = !deviceLayoutExternal
+            && cloudBindingState.projectedResources.values.contains(where: { $0.machine.isDevice })
+            ? deviceWorkspaceLayoutSnapshot() : nil
         geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
             guard let self else { return }
             self.tmuxLayoutSnapshot = snapshot
@@ -14759,6 +14725,8 @@ extension Workspace: BonsplitDelegate {
                 userInfo: [
                     GhosttyNotificationKey.tabId: self.id,
                     GhosttyNotificationKey.topologyChanged: topologyChanged,
+                    DeviceWorkspaceLayoutHost.externalGeometryKey: deviceLayoutExternal,
+                    DeviceWorkspaceLayoutHost.layoutGeometryKey: deviceLayoutSnapshot as Any,
                 ]
             )
             self.scheduleTerminalGeometryReconcile()

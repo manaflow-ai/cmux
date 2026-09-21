@@ -27,14 +27,29 @@ struct CloudTreeLayoutMetricsTests {
 
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
-        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 244)
-        #expect(metrics.titleWidth(rowWidth: 176, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
+        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)
+        #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
-    @Test("the content inset matches the tuned Cloud row default")
-    func referenceInsetIsEightPoints() {
-        #expect(metrics.referenceInset == 8)
+    @Test("the compact content inset keeps the established sidebar geometry")
+    func referenceInsetIsTwelvePoints() {
+        #expect(metrics.referenceInset == 12)
         #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
+    }
+
+    @Test("compact rows keep the established disclosure and icon grid")
+    func compactGeometryUsesEstablishedGrid() {
+        let style = CloudTreeStyle.compact
+        #expect(style.rowHeight == 22)
+        #expect(style.indentPerLevel == 10)
+        #expect(style.iconSlot == 16)
+        #expect(style.iconGap == 4)
+        #expect(style.rowGrid.disclosureSlot == 16)
+        #expect(style.rowGrid.disclosureGap == 2)
+        #expect(style.rowGrid.detailGap == 5)
+        #expect(style.rowGrid.trailingGap == 10)
+        #expect(style.rowGrid.trailingPadding == 12)
+        #expect(style.machineVerticalPadding == 2)
     }
 
 #if DEBUG

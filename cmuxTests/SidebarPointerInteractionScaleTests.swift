@@ -88,7 +88,13 @@ extension SidebarLazyLayoutScaleTests {
             at: pointerInWindow,
             window: harness.window
         ))
-        await Self.drainMainRunLoop(for: harness.window, iterations: 4)
+        // SwiftUI commits hover-driven row updates after the event callback.
+        // Wait for that observable work instead of assuming four turns suffice.
+        let hoverUpdated = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            harness.window.contentView?.layoutSubtreeIfNeeded()
+            return harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies > 0
+        }
+        #expect(hoverUpdated)
         let hoverFlipEvals = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
         #expect(
             (1...2).contains(hoverFlipEvals),

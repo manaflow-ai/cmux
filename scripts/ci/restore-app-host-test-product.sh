@@ -21,4 +21,3 @@ test -n "$framework_source"
 rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
-

@@ -780,7 +780,7 @@ actor VMClient {
             (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
         }
         return try await withOperation(.list, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/vm")
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let items = obj["vms"] as? [[String: Any]] else {
@@ -1666,8 +1666,7 @@ actor VMClient {
                     "POST",
                     path: "/api/vm/\(encodedID)/attach-endpoint",
                     jsonBody: body,
-                    timeoutSeconds: Self.attachTimeoutSeconds,
-                    retryTransientServiceUnavailable: true
+                    timeoutSeconds: 20
                 )
                 try ensureOK(http, data: data)
                 return try decodeJSONObject(data)
@@ -2272,7 +2271,7 @@ actor VMClient {
                     statusCode: http.statusCode,
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
                 ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2280,7 +2279,7 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
                 continue
             }
             // The private gateway has not forwarded this request yet. Every
@@ -2291,7 +2290,7 @@ actor VMClient {
                 retriesLeft -= 1
                 onRetry()
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
-                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
                 }
                 continue
             }
@@ -2359,8 +2358,8 @@ actor VMClient {
     ) -> TimeInterval? {
         guard statusCode == 429 else { return nil }
         return TimeInterval(
-            CmxRetryAfterPolicy.seconds(from: retryAfterHeader)
-                ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         )
     }
 

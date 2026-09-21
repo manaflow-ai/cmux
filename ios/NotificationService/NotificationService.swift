@@ -21,7 +21,7 @@ final class NotificationService: UNNotificationServiceExtension {
             return
         }
         suppressOnExpiration = true
-        guard let installation = try? PhonePushKeyStore.current(
+        guard let installation = try? PhonePushKeyMaterial.current(
             bundleID: Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios",
             accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         ) else {
@@ -38,13 +38,13 @@ final class NotificationService: UNNotificationServiceExtension {
             finishSuppressed(content)
             return
         }
-        guard PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
-              let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
+        guard PhonePushActiveAccountStore().current() == envelope.tuple.accountID,
+              let sender = PhonePushPeerKeyStore().pinnedDescriptor(for: envelope.tuple),
               let senderPublicKey = Optional(sender.publicKey) else {
             finishSuppressed(content)
             return
         }
-        guard let data = try? PhonePushCrypto.decrypt(
+        guard let data = try? PhonePushCrypto().decrypt(
             envelope: envelope,
             tuple: envelope.tuple,
             recipientInstallationID: installation.installationID,

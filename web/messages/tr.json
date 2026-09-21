@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Bu makine boyutu kullanılamıyor. En fazla {max} GiB seçin.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
   },
@@ -387,14 +387,50 @@
       "revoked": "İptal edildi",
       "relaySettings": "Aktarma ayarları",
       "relaySettingsDescription": "Bu ekibin kullandığı aktarma sunucularını seçin. Her satıra bir URL girin.",
-      "saveRelaySettings": "Aktarma ayarlarını kaydet"
+      "saveRelaySettings": "Aktarma ayarlarını kaydet",
+      "eyebrow": "bulut / cihazlar",
+      "scopeActive": "Bu takım gösteriliyor",
+      "emptyTitle": "Henüz bağlı cihaz yok",
+      "emptyDescription": "Bir cmux cihazı bu takımla eşleştirildiğinde platformu, sürümü ve erişim denetimleriyle birlikte burada görünür.",
+      "revoking": "Erişim iptal ediliyor…",
+      "registeredDevices": "Kayıtlı cihazlar",
+      "activeDevices": "Etkin cihazlar",
+      "directoryRevision": "Dizin revizyonu",
+      "savingRelaySettings": "Kaydediliyor…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Ekiple paylaş",
       "makePrivate": "Özel yap",
       "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın.",
       "description": "Paylaşılan hesaplar bu ekibin Cloud VM’leri tarafından kullanılabilir. Özel hesaplar yalnızca onları ekleyen kişi tarafından kullanılabilir.",
-      "cancelAction": "İptal"
+      "cancelAction": "İptal",
+      "apiKeysTitle": "API anahtarları",
+      "apiKeysDescription": "Komut dosyaları ve aracıların kullanması için uzun ömürlü anahtarlar oluşturun. Gizli değer yalnızca bir kez gösterilir.",
+      "apiKeysCount": "{count, plural, one {# anahtar} other {# anahtar}}",
+      "apiKeysLoading": "API anahtarları yükleniyor…",
+      "apiKeysLoadError": "API anahtarları yüklenemedi. Biraz sonra tekrar deneyin.",
+      "apiKeysRetry": "Tekrar dene",
+      "apiKeysEmptyBody": "Henüz API anahtarı yok. CodeRouter istemcisini doğrulamak için bir anahtar oluşturun.",
+      "apiKeyPrefixColumn": "Anahtar",
+      "apiKeyStatusColumn": "Durum",
+      "apiKeySecretTitle": "Bu anahtarı şimdi kopyalayın",
+      "apiKeySecretBody": "Bu gizli değer tekrar gösterilmeyecek.",
+      "apiKeyCopy": "API anahtarını kopyala",
+      "apiKeyCopied": "Kopyalandı",
+      "apiKeyCreatedAt": "oluşturulma {at}",
+      "apiKeyLastUsed": "son kullanım {at}",
+      "apiKeyRevoked": "İptal edildi",
+      "apiKeyLabelPlaceholder": "Örneğin CI veya üretim",
+      "createApiKeyAction": "API anahtarı oluştur",
+      "creatingApiKeyAction": "Oluşturuluyor",
+      "apiKeyCreateError": "API anahtarı oluşturulamadı.",
+      "revokeApiKeyAction": "İptal et",
+      "revokingApiKeyAction": "İptal ediliyor",
+      "apiKeyRevokeError": "API anahtarı iptal edilemedi.",
+      "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
+      "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
+      "apiKeyUsageUnavailable": "Kullanım verisi yok",
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
     }
   },
   "community": {
@@ -1343,7 +1379,7 @@
       "plusButtonScreenshotAlt": "cmux artı düğmesinin sağ tık menüsünde Worktree Agents, New Terminal ve New Browser görünüyor",
       "plusButtonScreenshotCaption": "Sağ tık menüsü ui.newWorkspace.contextMenu sırasını izler.",
       "newWorkspaceButton": "Artı düğmesi için özel eylemler",
-      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir. Ayarlanmadığında menü, geçerli kısayollarıyla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) öğelerini listeler. Bulut öğeleri yalnızca Cloud Machines etkin olduğunda görünür.",
+      "newWorkspaceButtonDesc": "Artı düğmesinin ne yaptığını geçersiz kılmak için <action>ui.newWorkspace.action</action> kullanın. Sıralı sağ tık menüsünü tanımlamak için <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (veya <rightClick>rightClick</rightClick> alias’ı) kullanın. Menü girdileri eylem ID’leri, eylem nesneleri veya <separator>{ \"type\": \"separator\" }</separator> olabilir. Ayarlanmadığında menü, geçerli kısayollarıyla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) öğelerini listeler. Bulut öğeleri yalnızca Cloud Machines etkin olduğunda görünür. New Cloud Workspace son seçilen Cloud çalışma alanının makinesini, ardından sağ kenar çubuğundaki ilk makineyi kullanır; New Cloud Machine ise bilerek bir makine sağlar.",
       "newWorkspaceWorktreeNote": "Bu örnek, normal artı tıklamasının <action>worktree-agents</action> eylemini çalıştırmasını sağlar. <commands>commands</commands> içindeki çalışma alanı komutu, önce Git <worktree>worktree</worktree> oluşturmak için görünür bir kurulum terminali kullanır. Codex ve Claude aynı anda başlar, çalışma alanına özgü durum dosyasını bekler ve sonra exec öncesinde oluşturulan dizine geçer.",
       "simpleCommands": "Basit komutlar",
       "simpleCommandsDesc": "Basit bir komut, o an odaklanılan terminalde bir shell komutu çalıştırır:",
