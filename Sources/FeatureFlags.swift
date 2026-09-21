@@ -53,6 +53,11 @@ final class CmuxFeatureFlags {
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
+    #if DEBUG
+    nonisolated static let cloudMachinesDefault = true
+    #else
+    nonisolated static let cloudMachinesDefault = false
+    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -592,10 +597,10 @@ final class CmuxFeatureFlags {
         guard let (bytes, response) = try? await session.bytes(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         if http.statusCode == 429 {
-            let seconds = CmxRetryAfterPolicy.seconds(
+            let seconds = CmxRetryAfterPolicy().seconds(
                 from: http,
-                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             await releaseControlRetryAfterGate.extend(by: seconds)
             return nil
         }

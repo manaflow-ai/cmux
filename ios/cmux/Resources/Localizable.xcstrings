@@ -28088,6 +28088,20 @@
         }
       }
     },
+    "mobile.settings.diagnostics.copyDebugInfo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Debug Information"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デバッグ情報をコピー"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Debug-Informationen kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier les informations de débogage"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ معلومات التصحيح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar información de depuración"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製除錯資訊"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制调试信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "디버그 정보 복사"}}
+      }
+    },
     "mobile.settings.diagnostics.footer": {
       "extractionState": "manual",
       "localizations": {

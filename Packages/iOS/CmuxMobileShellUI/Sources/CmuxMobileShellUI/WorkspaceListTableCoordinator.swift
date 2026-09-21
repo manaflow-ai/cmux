@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -56,6 +57,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     #if DEBUG
     /// The most recent configuration-update route, exposed to package tests.
     var lastPayloadApplyRoute: PayloadApplyRoute?
+    var releaseGateUIProbe: MobileReleaseGateUIProbe?
+    var releaseGateSnapshotter: MobileReleaseGateUISnapshot?
+    private var releaseGateRowTask: Task<Void, Never>?
     #endif
     /// The row whose swipe controls UIKit is currently presenting.
     private var editedItemID: String?
@@ -138,6 +142,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func detach() {
+        #if DEBUG
+        releaseGateRowTask?.cancel()
+        releaseGateRowTask = nil
+        #endif
         pendingContextMenuWorkspaceClose = nil
         deferredConfigurationDuringDrag = nil
         deferredConfigurationDuringScroll = nil
@@ -166,6 +174,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return
         }
         apply(configuration: next, in: tableView)
+        #if DEBUG
+        scheduleReleaseGateRows(in: tableView)
+        #endif
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -693,6 +704,51 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         heightCache.insert(exact, for: key, rowID: item.id)
         return exact
     }
+
+    #if DEBUG
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        scheduleReleaseGateRows(in: tableView)
+    }
+
+    private func scheduleReleaseGateRows(in tableView: UITableView) {
+        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows, releaseGateRowTask == nil else { return }
+        releaseGateRowTask = Task { @MainActor [weak self, weak tableView] in
+            // Run after UIKit applies the current row update. This is an actor
+            // handoff, not a timing delay or a surrogate for data readiness.
+            await Task.yield()
+            guard let self else { return }
+            defer { self.releaseGateRowTask = nil }
+            guard !Task.isCancelled, let tableView, tableView.window != nil else { return }
+            probe.revealWorkspace = { [weak self, weak tableView] rawID in
+                guard let self, let tableView, tableView.window != nil else { return }
+                let id = MobileWorkspacePreview.ID(rawValue: rawID)
+                if let indexPath = self.dataSource?.indexPath(where: { $0.workspaceID == id }) {
+                    if tableView.indexPathsForVisibleRows?.contains(indexPath) != true {
+                        tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+                        tableView.layoutIfNeeded()
+                    }
+                } else if let groupID = self.configuration.workspacesByID[id]?.groupID,
+                          self.configuration.groupsByID[groupID]?.isCollapsed == true {
+                    self.configuration.toggleGroupCollapsed?(groupID, false)
+                }
+            }
+            for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+                guard let id = self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID,
+                      let workspace = self.configuration.workspacesByID[id],
+                      !(workspace.terminals.isEmpty),
+                      (workspace.macConnectionStatus ?? self.configuration.connectionStatus) == .connected else { continue }
+                probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
+                    guard let self, let tableView, tableView.window != nil,
+                          tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
+                          self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID == id else { return false }
+                    self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
+                    self.tableView(tableView, didSelectRowAt: indexPath)
+                    return true
+                }
+            }
+        }
+    }
+    #endif
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)

@@ -23,6 +23,11 @@
       "message": "Cloud-VMs erfordern einen cmux Pro-Plan.",
       "action": "Führen Sie unter {upgradeUrl} ein Upgrade auf cmux Pro durch, um Cloud-VMs zu erstellen."
     },
+    "displayName": {
+      "title": "Ungültiger Maschinenname",
+      "message": "Maschinennamen müssen aus druckbarem Text mit höchstens {maxLength} Zeichen bestehen.",
+      "action": "Verwenden Sie einen kürzeren Namen ohne Steuerzeichen, oder lassen Sie ihn leer, um ihn zu löschen."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maschinen mit {memory} GiB benötigen cmux {plan}. Ihr Tarif unterstützt bis zu {max} GiB.",
@@ -35,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Diese Maschinengröße ist derzeit nicht verfügbar. Wählen Sie bis zu {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Wenn wir ein Konto gefunden haben, prüfe deine E-Mail auf die nächsten Schritte"
   },
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Bestätige deine E-Mail-Adresse, um fortzufahren",
     "emailUnverifiedBody": "Melde dich mit der ursprünglich verwendeten Methode an und bestätige deine E-Mail-Adresse, bevor du diese Anmeldemethode nutzt.",
+    "signupPendingBody": "Wenn du bereits ein Konto hast, melde dich mit der zuvor verwendeten Methode an. Wenn du gerade ein Konto erstellt hast, bestätige deine E-Mail-Adresse, bevor du dich anmeldest.",
     "genericTitle": "Anmeldung konnte nicht abgeschlossen werden",
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
     "backToSignIn": "Zur Anmeldung"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile Geräte"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,34 @@
         "loading": "Wird geladen…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile Geräte",
+      "description": "Verwalte den Zugriff auf deine verbundenen Computer, Telefone und Tablets.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
+      "teamSwitchError": "Das Team konnte nicht gewechselt werden. Versuche es erneut.",
+      "loading": "Geräte werden geladen…",
+      "empty": "Für dieses Team sind keine Geräte registriert.",
+      "unavailable": "Deine Geräte konnten nicht geladen werden. Aktualisiere die Seite und versuche es erneut.",
+      "retry": "Erneut versuchen",
+      "mutationError": "Die Geräteänderung konnte nicht abgeschlossen werden.",
+      "revoke": "Zugriff entziehen",
+      "deviceId": "Gerät",
       "revision": "Revision",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Entzogen",
+      "relaySettings": "Relay-Einstellungen",
+      "relaySettingsDescription": "Wähle die Relay-Server für dieses Team. Gib pro Zeile eine URL ein.",
+      "saveRelaySettings": "Relay-Einstellungen speichern",
+      "eyebrow": "Cloud / Geräte",
+      "scopeActive": "Dieses Team wird angezeigt",
+      "emptyTitle": "Noch keine verbundenen Geräte",
+      "emptyDescription": "Sobald ein cmux-Gerät mit diesem Team gekoppelt ist, erscheint es hier mit Plattform, Version und Zugriffsverwaltung.",
+      "revoking": "Zugriff wird entzogen…",
+      "registeredDevices": "Registrierte Geräte",
+      "activeDevices": "Aktive Geräte",
+      "directoryRevision": "Verzeichnisrevision",
+      "savingRelaySettings": "Wird gespeichert…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",
@@ -1335,7 +1352,7 @@
       "plusButtonScreenshotAlt": "Rechtsklickmenü des Plus-Buttons mit Worktree Agents, New Terminal und New Browser",
       "plusButtonScreenshotCaption": "Das Rechtsklickmenü folgt der Reihenfolge aus ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Benutzerdefinierte Aktionen für den Plus-Button",
-      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist.",
+      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist. New Cloud Workspace verwendet die Maschine des zuletzt ausgewählten Cloud-Arbeitsbereichs und danach die erste Maschine in der rechten Seitenleiste; New Cloud Machine erstellt bewusst eine neue Maschine.",
       "newWorkspaceWorktreeNote": "Dieses Beispiel lässt den normalen Plus-Klick die Aktion <action>worktree-agents</action> ausführen. Der Workspace-Befehl aus <commands>commands</commands> nutzt ein sichtbares Setup-Terminal, um zuerst den Git-<worktree>worktree</worktree> zu erstellen. Codex und Claude starten gleichzeitig, warten auf die workspace-spezifische Statusdatei und wechseln dann vor exec in das erstellte Verzeichnis.",
       "simpleCommands": "Einfache Befehle",
       "simpleCommandsDesc": "Ein einfacher Befehl führt einen Shell-Befehl im aktuell fokussierten Terminal aus:",

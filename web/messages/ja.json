@@ -172,6 +172,11 @@
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     },
+    "displayName": {
+      "title": "マシン名が無効です",
+      "message": "マシン名は {maxLength} 文字以内の表示可能なテキストにしてください。",
+      "action": "制御文字を含まない短い名前を使うか、空にして名前をクリアしてください。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
@@ -194,8 +199,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }}
-  ,
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -283,6 +288,7 @@
   "authError": {
     "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
     "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "signupPendingBody": "すでにアカウントをお持ちの場合は、以前に使用した方法でサインインしてください。新しくアカウントを作成した場合は、サインインする前にメールアドレスを確認してください。",
     "genericTitle": "サインインを完了できませんでした",
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
@@ -322,7 +328,7 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "mobileDevices": "モバイルデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -550,7 +556,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
+        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
       }
     },
     "testflight": {
@@ -597,23 +603,34 @@
         "leave": "TestFlightから退出"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "モバイルデバイス",
+      "description": "接続済みのコンピュータ、スマートフォン、タブレットへのアクセスを管理します。",
+      "team": "チーム",
+      "teamSwitchError": "チームを切り替えられませんでした。もう一度お試しください。",
+      "loading": "デバイスを読み込んでいます…",
+      "empty": "このチームには登録済みのデバイスがありません。",
+      "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
+      "retry": "もう一度試す",
+      "mutationError": "デバイスの変更を完了できませんでした。",
+      "revoke": "アクセスを取り消す",
+      "deviceId": "デバイス",
+      "revision": "リビジョン",
+      "status": "ステータス",
+      "active": "有効",
+      "revoked": "取り消し済み",
+      "relaySettings": "リレー設定",
+      "relaySettingsDescription": "このチームで使用するリレーサーバーを選択します。1 行に 1 つ URL を入力してください。",
+      "saveRelaySettings": "リレー設定を保存",
+      "eyebrow": "クラウド / デバイス",
+      "scopeActive": "このチームを表示中",
+      "emptyTitle": "接続済みのデバイスはまだありません",
+      "emptyDescription": "cmuxデバイスをこのチームとペアリングすると、プラットフォーム、バージョン、アクセス管理がここに表示されます。",
+      "revoking": "取り消し中…",
+      "registeredDevices": "登録済みデバイス",
+      "activeDevices": "有効なデバイス",
+      "directoryRevision": "一覧のリビジョン",
+      "savingRelaySettings": "保存中…"
     }
   },
   "vault": {
@@ -919,8 +936,8 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "マシンごとに最大 64 GB RAM",
-        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "無制限のワークスペースと iOS アプリ"
       ]
     },
     "team": {
@@ -1028,7 +1045,7 @@
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
           "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
           "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
@@ -1140,7 +1157,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -2554,7 +2571,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents、New Terminal、New Browser を表示している cmux プラスボタンの右クリックメニュー",
       "plusButtonScreenshotCaption": "右クリックメニューは ui.newWorkspace.contextMenu の順序に従います。",
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。新しい Cloud ワークスペースは最後に選択した Cloud ワークスペースのマシンを使い、そのマシンが現在のアカウントやチームで利用できない、または無効な場合は右側サイドバーの先頭のマシンを使います。New Cloud Machine はマシンを明示的に作成します。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",

@@ -692,7 +692,7 @@ extension DockSplitStore {
             return nil
         }
         panels[panel.id] = panel
-        let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
+        let title = snapshot.customTitle ?? snapshot.automaticTitleForRestore ?? panel.displayTitle
         let isAudioMuted = resolvedAudioMuted(for: panel)
         guard let tabId = bonsplitController.createTab(
             title: title,

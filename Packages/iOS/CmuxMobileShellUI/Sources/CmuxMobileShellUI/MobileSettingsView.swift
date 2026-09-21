@@ -76,7 +76,7 @@ struct MobileSettingsView: View {
     var body: some View {
         @Bindable var displaySettings = displaySettings
         #if DEBUG
-        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
         #endif
         return NavigationStack {
@@ -532,7 +532,10 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                MobileSettingsDiagnosticsSection()
+                MobileSettingsDiagnosticsSection(
+                    store: store,
+                    connectedHostName: connectedHostName
+                )
 
                 MobileSettingsLegalSupportSection()
 
@@ -588,7 +591,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -601,7 +604,7 @@ struct MobileSettingsView: View {
                         (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
-                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                        await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
@@ -649,7 +652,7 @@ struct MobileSettingsView: View {
         if let whatsNewCenter {
             return !whatsNewCenter.archivePages.isEmpty
         }
-        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
+        return !MobileWhatsNewCatalog().channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -869,13 +872,13 @@ struct MobileSettingsView: View {
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
             set: { newValue in
                 if let newValue, newValue != authManager.selectedTeamID {
-                    authManager.selectedTeamID = newValue
+                    Task { try? await authManager.selectTeam(id: newValue) }
                 }
             }
         )
@@ -915,14 +918,19 @@ struct MobileSettingsView: View {
 /// (simulator, browser, composer, lifecycle), and the connection diagnostics
 /// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
+    @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
+    let store: CMUXMobileShellStore?
+    let connectedHostName: String
     @State private var isPreparingExport = false
     @State private var logExportTask: Task<Void, Never>?
     @State private var logExportTaskID: UUID?
     @State private var presentationHost: UIViewController?
     @State private var exportErrorMessage: String?
+    @State private var didCopyDebugInformation = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -931,6 +939,21 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
+            Button {
+                copyDebugInformation()
+            } label: {
+                Label(
+                    didCopyDebugInformation
+                        ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                        : L10n.string(
+                            "mobile.settings.diagnostics.copyDebugInfo",
+                            defaultValue: "Copy Debug Information"
+                        ),
+                    systemImage: didCopyDebugInformation ? "checkmark" : "doc.on.clipboard"
+                )
+            }
+            .accessibilityIdentifier("MobileSettingsCopyDebugInformation")
+
             if appLog != nil {
                 Button {
                     startLogExport()
@@ -1079,6 +1102,33 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
             }
             await prepareLogExport()
+        }
+    }
+
+    @MainActor
+    private func copyDebugInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            email: authManager.currentUser?.primaryEmail,
+            hexclaveAuthID: authManager.currentUser?.id,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            analyticsClientID: analyticsClientID,
+            connectedHost: connectedHostName.isEmpty ? nil : connectedHostName,
+            connectionState: store.map { String(describing: $0.connectionState) },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopyDebugInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopyDebugInformation = false
         }
     }
 

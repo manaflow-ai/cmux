@@ -351,6 +351,27 @@ bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
 
+## Startup benchmarks
+
+`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
+lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
+scripts and only ever create, measure and delete their own resources:
+
+```bash
+cd web
+bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
+bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
+```
+
+The two SDK benchmarks read the provider credential the way the runtime does
+(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
+from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
+a sensitive (empty) value from the process environment, and sends its throwaway
+session only to the project's own https origin; a deployment that Vercel's API
+attributes to the project also needs `--allow-preview`, and any other https host
+`--allow-any-url`.
+
 ## Telemetry
 
 Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
@@ -472,31 +493,33 @@ The current port-preview and model-plane paths have different trust boundaries:
 
 ## In-VM cmux CLI and machine-to-machine links
 
-The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) atomically at
-create/attach heal (a devbox bake may later ship it preinstalled; that lands with its
-promotion): a POSIX shim over the machine's own cmux-tui
-binary. Local verbs use cmux-tui's grammar against
-the machine's daemon session; `cmux vm …` verbs talk to peer machines through cmux-remote
-existing grants in `~/.cmux/peers/<dst>.json`. Main replaced the enrollment-based Mac
-attach flow with a trusted private-network listener; this branch no longer provides the
-old Mac `vm link` broker. New peer-grant creation is not shipped here and must not be
-advertised as verified. No control-plane credential enters a VM.
+The driver installs `/usr/local/bin/cmux`, `coderouter`, and `cr` as aliases of
+one Rust facade (`cmux-tui/crates/cmux-cloud-cli`). The facade forwards the complete
+CodeRouter argument list to the official Rust core and local/peer commands to the
+guest adapter, which uses the machine's cmux-tui daemon. `cmux coderouter` and
+`cmux cr` use the same CodeRouter implementation as the top-level aliases.
 
-The guest consumes connection-ready events through private FIFOs and keeps a cancellable
-30-second readiness deadline using Bash's blocking `read -t` (Bash is installed in the
-machine image). It no longer rescans output files or sleeps between probes. Messages and
-help come from `guestCLI` in both web catalogs and select `LC_ALL`, `LC_MESSAGES`, then
-`LANG`; unknown locales use English.
+The facade and CodeRouter core are one checksum-pinned archive described by
+`guestCliDistribution.json`. Create and attach heal this distribution separately
+from the persistent terminal daemon, so a CLI upgrade does not restart terminals.
+Downloads must match the archive and executable checksums before aliases change.
+The adapter at `/usr/local/libexec/cmux-cloud-adapter` retains the existing cmux
+session grammar and Cloud extensions (`status`, `machines`, `models`, and `agent`).
+`usage` uses the official CodeRouter account/quota view; `machines` retains the
+VM spend view.
 
-日本語: この PR で追加した契約の説明は [README.ja.md](README.ja.md) を参照してください。
+CodeRouter loads the baked TLS origin without reading or writing a user login.
+Requests carry only the placeholder; the provider's outbound TLS rule injects
+the VM identity. The backend derives its team and pool from that identity.
+`add`, `remove`, and Claude account mutations use the same scope, including SQL
+checks on deletion and pool grants during import. VM imports are team-visible;
+private imports and credentials outside the assigned pool remain inaccessible.
+Login, logout, team switching, and cross-team transfers are unavailable in Cloud.
+`org current` and `org list` display only the VM's fixed team.
 
-The shim keeps the shared CLI contract for the operations that are safe to run from inside a
-machine: `cmux auth status [--json]` reports the local daemon, TLS reachability, and whether
-the VM-bound CodeRouter route was accepted; `cmux coderouter status|usage|models` reads the
-machine's own model plane; and `cmux coderouter agent <claude|codex|opencode|pi> …` (or the
-short `cmux agent …`) launches a preinstalled agent through that plane. A bare prompt is
-converted to the provider's one-shot form. `cmux auth login/logout` and account/upstream
-management remain host-owned, so the VM never needs a Stack session token.
+The initial integration pin is a development artifact from the official
+CodeRouter source, with source commits, test runs, and checksums recorded in the
+manifest. The standalone npm release continues to use that same source core.
 
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
