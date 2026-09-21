@@ -251,6 +251,22 @@ struct TerminalLetterboxGeometryTests {
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 0) == 0)
     }
 
+    @Test("captured device safe area wins when the window reports a stale zero")
+    func resolvedSafeAreaUsesCapturedInsetWhenWindowIsZero() {
+        // A retained disconnected terminal can be mounted beneath an
+        // edge-to-edge shell whose window reports zero, even though the
+        // terminal detail captured the phone's physical home-indicator inset
+        // before expanding its SwiftUI subtree. The dock must keep that
+        // positive captured inset so the composer does not sit on the edge.
+        #expect(
+            TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: 0,
+                windowInset: 0,
+                capturedInset: 34
+            ) == 34
+        )
+    }
+
     @Test("keyboard content movement cannot resize the terminal grid", arguments: [CGFloat(34), 9, 0, 59])
     func movingSurfaceKeepsOuterSafeArea(viewInset: CGFloat) {
         // The first Codex response moved the full-height surface by 25pt.
