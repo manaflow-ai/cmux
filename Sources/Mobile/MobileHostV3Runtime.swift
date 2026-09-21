@@ -22,8 +22,10 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
     private var authTask: Task<Void, Never>?
     private var activationTask: Task<Void, Never>?
     private var acceptTask: Task<Void, Never>?
+    private var revocationTask: Task<Void, Never>?
     private var acceptOperation: CmuxV3Native.Operation?
     private var endpoint: NativeEndpoint?
+    private var grants: CmxV3HTTPGrantProvider?
     private let eventLanes = MobileHostV3EventLaneRegistry()
     private var scope: AuthenticatedTeamScope?
     private var desiredScope: AuthenticatedTeamScope?
@@ -67,8 +69,11 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         acceptOperation = nil
         acceptTask?.cancel()
         acceptTask = nil
+        revocationTask?.cancel()
+        revocationTask = nil
         endpoint?.close()
         endpoint = nil
+        grants = nil
         Task { await eventLanes.removeAll() }
         scope = nil
         listenerState = MobileHostListenerState()
@@ -104,8 +109,11 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         acceptOperation = nil
         acceptTask?.cancel()
         acceptTask = nil
+        revocationTask?.cancel()
+        revocationTask = nil
         endpoint?.close()
         endpoint = nil
+        grants = nil
         scope = nil
         await eventLanes.removeAll()
         MobileHostPublicStatusCache.updateV3(peerID: nil)
@@ -205,6 +213,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
             throw Error.stale
         }
         self.endpoint = endpoint
+        self.grants = grants
         self.scope = next
         MobileHostPublicStatusCache.updateV3(peerID: endpoint.peerId(), addresses: addresses)
         MobileHostPublicStatusCache.updateV2DeviceID(deviceID.uuidString)
@@ -220,6 +229,24 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         acceptTask = Task { @MainActor [weak self, weak endpoint] in
             guard let self, let endpoint else { return }
             await self.acceptLoop(endpoint: endpoint, operation: operation, deviceID: deviceID, generation: token)
+        }
+        revocationTask = Task { @MainActor [weak self, weak endpoint] in
+            var sequence: Int64 = 0
+            while !Task.isCancelled {
+                do {
+                    guard let self, let grants = self.grants else { return }
+                    let events = try await grants.revocationEvents(afterSequence: sequence)
+                    for event in events.sorted(by: { $0.sequence < $1.sequence }) {
+                        guard event.sequence > sequence else { continue }
+                        try await endpoint?.applyRevocationUpdate(token: event.update)
+                        sequence = event.sequence
+                    }
+                } catch {
+                    // Retry from the last accepted cursor. Native admission
+                    // rejects gaps, so a stale or partial feed is fail-closed.
+                }
+                try? await Task.sleep(for: .seconds(5))
+            }
         }
     }
 
