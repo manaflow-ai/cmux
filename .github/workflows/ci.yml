@@ -2747,6 +2747,7 @@ jobs:
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --queue-seconds "$queue_seconds" \
             --execution-seconds "$execution_seconds" \
+            --observe-seconds 60 \
             --github-output "$GITHUB_OUTPUT"
           route_finished="$(python3 -c 'import time; print(time.monotonic())')"
           route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
