@@ -332,7 +332,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
@@ -817,6 +817,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(oldStart.timedOut, oldStart.stderr)
         XCTAssertEqual(oldStart.status, 0, oldStart.stderr)
 
+        let clearCommandStart = context.state.snapshot().count
         let clearStart = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
@@ -854,7 +855,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
-        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+        // The initial session may publish its own binding. After /clear, only
+        // the replacement session may publish, including during late old hooks.
+        let resumeBindingRequests = context.state.snapshot().dropFirst(clearCommandStart).compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else {
                 return nil
@@ -1244,7 +1247,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("set_agent_pid claude_code ") },
             "A fork SessionStart without an authoritative surface must not register its PID on a borrowed fallback pane, saw \(context.state.commands)"
         )
-        XCTAssertThrowsError(try readClaudeHookSession(childSessionId, context: context))
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(store["sessions"] as? [String: Any])
+        XCTAssertNil(sessions[childSessionId], "An unattributed fork must not acquire a fallback pane's session identity")
     }
 
     func testClaudeForkSessionStartUsesPayloadIdentityWithEqualsFlagForm() throws {
@@ -1970,7 +1976,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNil(
@@ -2099,13 +2105,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         defer { context.cleanup() }
 
         let sessionId = "same-process-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-nested-resume.jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
         startAgentHookMockServerAccepting(context: context)
 
         let parentPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
@@ -2119,7 +2128,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let childPrompt = runCodexHook(
             context: context,
             subcommand: "prompt-submit",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
@@ -2138,7 +2147,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let childStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(childStop.timedOut, childStop.stderr)
@@ -2161,7 +2170,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let parentStop = runCodexHook(
             context: context,
             subcommand: "stop",
-            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"parent-turn","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
             extraEnvironment: launchEnvironment
         )
         XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
@@ -3549,6 +3558,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(currentStop.status, 0, currentStop.stderr)
         let currentStopCommands = Array(context.state.commands.dropFirst(currentStopStart))
 
+        let terminalObservations = currentStopCommands.compactMap { command -> [String: Any]? in
+            let prefix = "agent_journal_append "
+            guard command.hasPrefix(prefix),
+                  let event = self.jsonObject(String(command.dropFirst(prefix.count))),
+                  event["kind"] as? String == "agent.idle.observed" else { return nil }
+            return event
+        }
+        XCTAssertEqual(terminalObservations.compactMap { ($0["attention"] as? [String: Any])?["turnIdentity"] as? String }, ["old-turn"])
+        XCTAssertTrue(terminalObservations.allSatisfy { ($0["attention"] as? [String: Any])?["notification"] == nil })
+
         XCTAssertTrue(
             currentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
             "A Stop after a missed prompt-submit must clear terminal stale turns and notify, saw \(currentStopCommands)"
@@ -3992,7 +4011,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
         let initialEnv = try XCTUnwrap(createParams["initial_env"] as? [String: String])
 
-        XCTAssertNil(configureParams["ssh_options"])
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        XCTAssertFalse(sshOptions.contains { $0.lowercased().hasPrefix("forwardagent") })
         XCTAssertEqual(initialEnv["SSH_AUTH_SOCK"], agentSocketPath)
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
@@ -4327,7 +4347,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        // Once `pty_bridge` has established the endpoint, only remote reconciliation
+        // may retire the lifecycle or release the surface (#12726); a fatal bridge
+        // status before READY therefore leaves the local surface for Reconnect.
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge"])
     }
 
     func testSSHPTYAttachExhaustedZeroOutputBridgeEOFReleasesSurface() throws {
@@ -4459,12 +4482,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertEqual(
             methods.filter { $0 != "workspace.remote.terminal_session_connected" && $0 != "workspace.remote.pty_resize" },
+            // Reconciliation answered that the session is still running, so the
+            // established lifecycle is retained for Reconnect (#12726): the
+            // attachment is detached, but neither `acknowledge_lifecycle` nor
+            // `pty_attach_end` is sent.
             [
                 "workspace.remote.pty_bridge",
                 "workspace.remote.pty_sessions",
                 "workspace.remote.pty_detach",
-                "workspace.remote.pty_sessions",
-                "workspace.remote.pty_attach_end",
             ]
         )
         // Immediate EOF may cancel the independent readiness and resize tasks.
@@ -5602,7 +5627,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
-        XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
+        // Once `pty_bridge` has established the endpoint, only remote reconciliation
+        // may retire the lifecycle or release the surface (#12726); a fatal bridge
+        // status before READY therefore leaves the local surface for Reconnect.
+        XCTAssertEqual(methods, ["workspace.remote.pty_bridge"])
     }
 
     func testSSHPTYAttachSessionNotFoundFailsAfterOneRespawnAttempt() throws {
@@ -5745,9 +5773,25 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertFalse(result.stdout.contains("No persisted SSH PTY sessions"), result.stdout)
-        XCTAssertTrue(result.stderr.contains("ssh-session-list failed for 1 remote workspace"), result.stderr)
-        XCTAssertTrue(result.stderr.contains("workspace:4"), result.stderr)
-        XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Remote PTY session state is unavailable"), result.stderr)
+
+        // Human output uses the safe summary; structured output retains the
+        // exact workspace and query failure for diagnostics.
+        let structured = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "ssh-session-list", "--all-workspaces"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(structured.timedOut, structured.stderr)
+        XCTAssertEqual(structured.status, 1, structured.stderr)
+        let payload = try XCTUnwrap(jsonObject(structured.stdout))
+        XCTAssertEqual((payload["sessions"] as? [[String: Any]])?.count, 0)
+        let errors = try XCTUnwrap(payload["errors"] as? [[String: Any]])
+        XCTAssertEqual(errors.count, 1)
+        let error = try XCTUnwrap(errors.first)
+        XCTAssertEqual(error["workspace_ref"] as? String, "workspace:4")
+        XCTAssertEqual(error["error"] as? String, "remote connection is not active")
     }
 
     func testSSHSessionCleanupAllReportsPartialFailures() throws {
@@ -8708,6 +8752,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
@@ -8804,7 +8852,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
             timeout: 5
         )
 
@@ -10291,7 +10339,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(decodedReusableStartupScript(from: try XCTUnwrap(createParams["initial_command"] as? String)))
     }
     private func decodedReusableStartupScript(from command: String) -> String? {
-        SSHStartupCommandTestSupport.decodedScript(in: command)
+        // A fresh terminal receives a script path; restored terminals
+        // carry the same generated script inline as base64.
+        if command.range(of: "^/[A-Za-z0-9_@%+=:,./-]+$", options: .regularExpression) != nil {
+            return try? String(contentsOfFile: command, encoding: .utf8)
+        }
+        if command.hasPrefix("'/"), command.hasSuffix("'") {
+            let path = String(command.dropFirst().dropLast())
+                .replacingOccurrences(of: "'\"'\"'", with: "'")
+            return try? String(contentsOfFile: path, encoding: .utf8)
+        }
+        return SSHStartupCommandTestSupport.decodedScript(in: command)
     }
     private func params(for method: String, in requests: [[String: Any]]) -> [String: Any]? {
         requests
