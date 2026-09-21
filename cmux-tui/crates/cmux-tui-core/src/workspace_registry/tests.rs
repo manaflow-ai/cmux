@@ -5536,6 +5536,26 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     assert!(registry.terminal_exit_snapshot(other.as_str()).unwrap().is_none());
 }
 
+#[test]
+fn checkpoint_content_rejects_trailing_compressed_members_and_bytes() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+
+    let mut second_member = blob.compressed.clone();
+    second_member.extend_from_slice(&blob.compressed);
+    assert!(
+        JournalContentBlob::verified(blob.reference.clone(), second_member).is_err(),
+        "a checkpoint blob must contain exactly one gzip member"
+    );
+
+    let mut trailing_bytes = blob.compressed.clone();
+    trailing_bytes.extend_from_slice(b"trailing");
+    assert!(
+        JournalContentBlob::verified(blob.reference, trailing_bytes).is_err(),
+        "a checkpoint blob must not contain trailing compressed bytes"
+    );
+}
+
 fn receipt_test_producer() -> JournalProducerManifest {
     JournalProducerManifest {
         producer_id: "receipt_test".into(),
