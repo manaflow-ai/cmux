@@ -55,6 +55,7 @@ BUILD_FLAGS = {
 
 
 def sha256_file(path: Path) -> str:
+    """Return the SHA-256 hex digest for a file without loading it whole."""
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -63,6 +64,7 @@ def sha256_file(path: Path) -> str:
 
 
 def required_env(name: str, pattern: str | None = None) -> str:
+    """Read a required environment value and optionally enforce a full regex."""
     value = os.environ.get(name, "").strip()
     if not value or (pattern and not re.fullmatch(pattern, value)):
         raise ValueError(f"missing or invalid {name}")
@@ -70,6 +72,7 @@ def required_env(name: str, pattern: str | None = None) -> str:
 
 
 def contract() -> dict:
+    """Build the exact Release product fingerprint contract for this consumer."""
     value = app_host_reuse.contract()
     archs = required_env("CMUX_RELEASE_ARCHS")
     if archs not in {"arm64", "arm64 x86_64"}:
@@ -99,6 +102,7 @@ def contract() -> dict:
 
 
 def product_digest(app: Path) -> str:
+    """Digest every app entry, preserving type, mode, path, bytes, and links."""
     if not app.is_dir():
         raise ValueError("Release app is missing")
     digest = hashlib.sha256()
@@ -128,6 +132,7 @@ def product_digest(app: Path) -> str:
 
 
 def seal(derived: Path, value: dict) -> dict:
+    """Write the producer receipt beside a freshly validated Release app."""
     app = derived / Path(APP_REL)
     root = derived / "Build/Products"
     root.mkdir(parents=True, exist_ok=True)
@@ -144,6 +149,7 @@ def seal(derived: Path, value: dict) -> dict:
 
 
 def pack(derived: Path, archive: Path) -> None:
+    """Package only the assembled unsigned Release app and its receipt."""
     app = derived / Path(APP_REL)
     receipt = derived / Path(RECEIPT_REL)
     if not app.is_dir() or not receipt.is_file():
@@ -155,6 +161,7 @@ def pack(derived: Path, archive: Path) -> None:
 
 
 def allowed_member(name: str) -> bool:
+    """Return whether an archive member stays within the Release product scope."""
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts:
         return False
@@ -164,6 +171,7 @@ def allowed_member(name: str) -> bool:
 
 
 def allowed_symlink(member_name: str, link_name: str) -> bool:
+    """Return whether a relative symlink resolves inside the restored app."""
     if PurePosixPath(link_name).is_absolute():
         return False
     target = posixpath.normpath(posixpath.join(posixpath.dirname(member_name), link_name))
@@ -172,6 +180,7 @@ def allowed_symlink(member_name: str, link_name: str) -> bool:
 
 
 def bounded_copy(source, output, limit: int) -> int:
+    """Copy a stream while enforcing a hard expanded-byte limit."""
     copied = 0
     while True:
         chunk = source.read(min(1024 * 1024, limit - copied + 1))
@@ -189,6 +198,7 @@ class BoundedReader:
         self.remaining = limit
 
     def read(self, size=-1):
+        """Read through the wrapped stream while enforcing its total byte cap."""
         size = self.remaining + 1 if size < 0 else min(size, self.remaining + 1)
         chunk = self.source.read(size)
         self.remaining -= len(chunk)
@@ -200,6 +210,7 @@ class BoundedReader:
 class BoundedTarInfo(tarfile.TarInfo):
     @classmethod
     def frombuf(cls, buf, encoding, errors):
+        """Reject oversized tar headers before tarfile can consume their bodies."""
         info = super().frombuf(buf, encoding, errors)
         if info.size > MAX_MEMBER_BYTES or (
             info.type in {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
@@ -210,6 +221,7 @@ class BoundedTarInfo(tarfile.TarInfo):
 
 
 def unpack(artifact_zip: Path, staging: Path, digest: str) -> None:
+    """Verify and safely extract one GitHub artifact into an isolated staging dir."""
     if artifact_zip.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("artifact archive is too large")
     if "sha256:" + sha256_file(artifact_zip) != digest:
@@ -276,6 +288,7 @@ def unpack(artifact_zip: Path, staging: Path, digest: str) -> None:
 
 
 def candidate_artifacts(api, value: dict) -> list[dict]:
+    """List a bounded set of GitHub artifacts with the exact Release key."""
     prefix = PREFIX + app_host_reuse.key(value) + "-"
     found: list[dict] = []
     for page in range(1, 4):
@@ -287,6 +300,7 @@ def candidate_artifacts(api, value: dict) -> list[dict]:
 
 
 def producer_for(api, artifact: dict, value: dict, current_run: str, current_attempt: int) -> tuple[dict, int]:
+    """Authenticate an artifact's workflow, attempt, source tree, and job result."""
     prefix = PREFIX + app_host_reuse.key(value) + "-"
     name = artifact.get("name", "")
     suffix = name[len(prefix):]
@@ -332,6 +346,7 @@ def producer_for(api, artifact: dict, value: dict, current_run: str, current_att
 
 
 def restore(api, value: dict, derived: Path, current_run: str, current_attempt: int) -> dict:
+    """Restore one exact compatible Release product or return a rebuild reason."""
     started = time.monotonic()
     artifacts = candidate_artifacts(api, value)
     if not artifacts:
@@ -395,6 +410,7 @@ def restore(api, value: dict, derived: Path, current_run: str, current_attempt: 
 
 
 def write_outputs(values: dict) -> None:
+    """Append scalar outputs for the surrounding GitHub Actions step."""
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in values.items():
             if isinstance(value, bool):
@@ -407,6 +423,7 @@ def write_outputs(values: dict) -> None:
 
 
 def main() -> None:
+    """Run the key, restore, seal, or pack command requested by CI."""
     if len(sys.argv) < 3:
         raise SystemExit("usage: reuse_release_product.py <key|restore|seal|pack> <derived-data> [archive]")
     mode = sys.argv[1]
