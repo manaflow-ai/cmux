@@ -34,6 +34,8 @@ public struct IrxJournalEvent: Sendable {
 public final class IrxJournal: @unchecked Sendable {
     public static let ringCapacity = 512
 
+    /// The append-only JSONL file this journal writes, when one was configured.
+    public let fileURL: URL?
     private let logger: Logger
     private let lock = NSLock()
     private let startedAt = DispatchTime.now()
@@ -52,6 +54,7 @@ public final class IrxJournal: @unchecked Sendable {
 
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
         logger = Logger(subsystem: subsystem, category: category)
+        fileURL = journalFileURL
         if let journalFileURL {
             let manager = FileManager.default
             try? manager.createDirectory(

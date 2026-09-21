@@ -36,9 +36,24 @@ struct DeviceLinkFailure: Equatable, Sendable {
 
     var isRetryable: Bool { kind == .transient }
 
+    /// The directory this Mac holds names no Mac-to-Mac admission rule, so
+    /// the host cannot have been told to admit it; no dial can change that.
+    static func controlPlaneOutdated() -> DeviceLinkFailure {
+        DeviceLinkFailure(
+            kind: .controlPlaneOutdated, code: DeviceLinkControlPlaneRules.macPeerInbound,
+            message: String(localized: "devices.link.error.controlPlaneOutdated", defaultValue: "The Devices service is out of date. Connections between Macs resume once it updates.")
+        )
+    }
+
     /// Maps a dial or session error to its failure class. `hostName` names the
     /// other Mac in refusals that are about that Mac's decision.
     static func classify(_ error: any Error, hostName: String) -> DeviceLinkFailure {
+        if let denial = error as? IrxAdmissionDenied {
+            return admission(denial.code, hostName: hostName)
+        }
+        if let error = error as? IrxMacPeerAuthorization.Failure {
+            return peerAuthorization(error)
+        }
         if let error = error as? DeviceRouteSelector.SelectionError {
             switch error {
             case .noRoutes:
@@ -79,8 +94,50 @@ struct DeviceLinkFailure: Equatable, Sendable {
         return DeviceLinkFailure(kind: .transient, code: "connection-failed", message: Self.connectionFailedMessage)
     }
 
+    /// The host's admission verdict travels in the QUIC close reason. Every
+    /// code is mapped here, so a new code cannot fall into the retry loop.
+    private static func admission(_ code: IrxCloseCode, hostName: String) -> DeviceLinkFailure {
+        switch code {
+        case .invalidGrant:
+            return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
+                format: String(localized: "devices.link.error.hostDenied", defaultValue: "%@ has not authorized this Mac. Update cmux on both Macs, then refresh."),
+                hostName
+            ))
+        case .grantExpired:
+            return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
+                format: String(localized: "devices.link.error.hostGrantExpired", defaultValue: "%@ no longer holds an authorization for this Mac. Refresh to try again."),
+                hostName
+            ))
+        case .revoked:
+            return DeviceLinkFailure(kind: .hostDenied, code: code.rawValue, message: String(
+                format: String(localized: "devices.link.error.hostRevoked", defaultValue: "%@ revoked this Mac’s access."),
+                hostName
+            ))
+        case .identityMismatch:
+            return DeviceLinkFailure(kind: .identity, code: code.rawValue, message: DeviceLinkError.identityMismatch.localizedDescription)
+        case .malformedHello, .protocolMismatch:
+            return DeviceLinkFailure(kind: .unsupported, code: code.rawValue, message: DeviceLinkError.malformedResponse("admission").localizedDescription)
+        case .admissionTimeout, .superseded, .userRequested, .hostShutdown, .keepaliveTimeout, .explicitRedial:
+            return DeviceLinkFailure(kind: .transient, code: code.rawValue, message: Self.connectionFailedMessage)
+        }
+    }
+
+    /// This Mac's own directory refused the dial before it left the machine.
+    private static func peerAuthorization(_ failure: IrxMacPeerAuthorization.Failure) -> DeviceLinkFailure {
+        switch failure {
+        case .staleDirectory:
+            return DeviceLinkFailure(kind: .transient, code: "stale-directory", message: String(localized: "devices.link.error.staleDirectory", defaultValue: "Waiting for the Devices directory to refresh…"))
+        case .unavailable:
+            return DeviceLinkFailure(kind: .transient, code: "peer-unavailable", message: String(localized: "devices.link.error.peerUnavailable", defaultValue: "This Mac is not accepting connections right now."))
+        case .revoked:
+            return DeviceLinkFailure(kind: .identity, code: "peer-revoked", message: String(localized: "devices.link.error.peerRevoked", defaultValue: "Access between these Macs was revoked. Sign in again on both Macs to restore it."))
+        case .identityMismatch:
+            return DeviceLinkFailure(kind: .identity, code: "peer-identity-mismatch", message: DeviceLinkError.identityMismatch.localizedDescription)
+        }
+    }
+
     static var needsAuthorizationMessage: String {
-        String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect.")
+        String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings › Computers to connect.")
     }
 
     static var connectionFailedMessage: String {

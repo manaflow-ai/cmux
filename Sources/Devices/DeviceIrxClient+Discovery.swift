@@ -7,6 +7,7 @@ extension DeviceIrxClient {
     /// Projects only currently authorized v2 Macs into immutable directory rows.
     static func displayBindings(cache: V2CachedState, now: Date) -> [DeviceDiscoveredMac] {
         guard let directory = cache.directory else { return [] }
+        let supportsMacPeers = DeviceLinkControlPlaneRules.current.isSatisfied(by: directory)
         return directory.devices.compactMap { record in
             let device = record.descriptor
             guard (try? IrxMacPeerAuthorization(deviceID: device.identity.deviceID,
@@ -20,7 +21,8 @@ extension DeviceIrxClient {
             guard let endpoint = try? CmxIrohPeerIdentity(endpointID: device.endpointID) else { return nil }
             return DeviceDiscoveredMac(bindingID: record.deviceRecordID,
                 deviceID: device.identity.deviceID.lowercased(), tag: device.identity.buildTag,
-                displayName: device.metadata.displayName, endpointID: endpoint, pathHints: hints)
+                displayName: device.metadata.displayName, endpointID: endpoint, pathHints: hints,
+                controlPlaneSupportsMacPeers: supportsMacPeers)
         }
     }
 

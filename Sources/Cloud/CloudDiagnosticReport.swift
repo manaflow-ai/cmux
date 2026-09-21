@@ -2,9 +2,10 @@ import Foundation
 
 /// A user-requested support report made only from the structured operation snapshots.
 enum CloudDiagnosticReport {
-    static func text(operations: [CloudOperationSnapshot], client: CloudTelemetryClient = .current()) -> String {
+    /// `devices` is the My Devices section (``DeviceLinkDiagnostics/reportText()``), appended when composed.
+    static func text(operations: [CloudOperationSnapshot], devices: String? = nil, client: CloudTelemetryClient = .current()) -> String {
         let identity = "cmux \(client.version) (\(client.build))\nchannel=\(client.channel) revision=\(client.revision)\nmacOS=\(client.osVersion) architecture=\(client.architecture)"
-        return ([identity] + operations.map(operationText)).joined(separator: "\n\n")
+        return ([identity] + [devices].compactMap { $0 } + operations.map(operationText)).joined(separator: "\n\n")
     }
 
     static func operationText(_ operation: CloudOperationSnapshot) -> String {
