@@ -1011,10 +1011,11 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
     workflow = workflow_job_block("web-typecheck")
     web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" in config
-    assert "process.env.CMUX_INSTANT_CHECK_TYPECHECK === \"1\"" in config
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
+    assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
     package_json = (ROOT / "web/package.json").read_text()
-    assert '"test:instant:checked": "CMUX_INSTANT_CHECK_TYPECHECK=1 playwright test -c playwright.instant.config.ts"' in package_json
+    assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
+    assert '"test:instant:checked"' not in package_json
 
     ci_typecheck = workflow.index("      - name: Typecheck")
     ci_instant = workflow.index("      - name: Instant navigation tests")
@@ -1022,16 +1023,19 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     # The only second invocation is the bounded retry owned by the Typecheck
     # step; the Instant navigation step must never own a typecheck.
     assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in workflow[ci_instant:]
-    assert "CMUX_INSTANT_SKIP_TYPECHECK" not in workflow[ci_instant:]
-    assert "      - name: Instant navigation tests\n        run: bun run test:instant" in workflow
+    ci_instant_step = workflow[ci_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
+    assert "        env:" in ci_instant_step
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
+    assert "        run: bun run test:instant" in ci_instant_step
 
     validation_typecheck = web_validation.index("      - run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
     assert validation_typecheck < validation_instant
     assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in web_validation[validation_instant:]
-    assert "CMUX_INSTANT_SKIP_TYPECHECK" not in web_validation[validation_instant:]
+    validation_instant_step = web_validation[validation_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in validation_instant_step
+    assert '        env:\n          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in validation_instant_step
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
