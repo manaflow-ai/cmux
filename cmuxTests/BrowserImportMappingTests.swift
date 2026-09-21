@@ -63,7 +63,7 @@ final class BrowserImportMappingTests: XCTestCase {
             ),
         ]
         XCTAssertThrowsError(
-            try BrowserImportDestinationResolver.resolve(
+            try BrowserImportDestinationResolver().resolve(
                 params: ["destination_profile": "SHARED"], destinationProfiles: sharedName
             )
         ) { error in
@@ -73,7 +73,7 @@ final class BrowserImportMappingTests: XCTestCase {
             }
         }
 
-        let selected = try BrowserImportDestinationResolver.resolve(
+        let selected = try BrowserImportDestinationResolver().resolve(
             params: ["destination_profile_id": sharedName[0].id.uuidString],
             destinationProfiles: sharedName
         )

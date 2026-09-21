@@ -35,8 +35,8 @@ public struct BrowserImportDestinationResolver: Sendable {
         createIfMissing: Bool,
         profiles: [BrowserProfileDefinition]
     ) -> Resolution {
-        if let rawIdentifier {
-            let identifier = rawIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identifier = rawIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let identifier, !identifier.isEmpty {
             guard let id = UUID(uuidString: identifier),
                   profiles.contains(where: { $0.id == id }) else {
                 return .invalidIdentifier(identifier)

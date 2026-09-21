@@ -21,7 +21,11 @@ extension TerminalController {
         if params.keys.contains("scope") {
             guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                   !raw.isEmpty else {
-                return .err(code: "invalid_params", message: "scope must be a non-empty string", data: ["param": "scope"])
+                return .err(
+                    code: "invalid_params",
+                    message: String(localized: "browser.import.error.scopeRequired", defaultValue: "Scope must be a non-empty string."),
+                    data: ["param": "scope"]
+                )
             }
             switch raw {
             case "cookie", "cookies", "cookiesonly", "cookies_only", "cookies-only":
@@ -33,7 +37,11 @@ extension TerminalController {
             case "everything", "all":
                 scope = .everything
             default:
-                return .err(code: "invalid_params", message: "scope is invalid", data: ["param": "scope"])
+                return .err(
+                    code: "invalid_params",
+                    message: String(localized: "browser.import.error.scopeInvalid", defaultValue: "Scope is invalid."),
+                    data: ["param": "scope"]
+                )
             }
         } else {
             scope = nil
