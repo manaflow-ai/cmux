@@ -174,7 +174,6 @@ struct WindowOverlayChromeTests {
         let fixture = chromeFixture.overlay {
             if withBrowserHost {
                 WindowContentOverlayBrowserHost()
-                    .allowsHitTesting(false)
             }
         }
         window.contentView = MainWindowHostingView(rootView: fixture)
