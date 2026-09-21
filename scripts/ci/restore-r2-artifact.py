@@ -71,7 +71,7 @@ def unpack(archive: Path, destination: Path, digest: str, size: int) -> None:
 
 
 def restore(broker: str, artifact_id: str, run_id: str, repository: str, destination: Path,
-            metadata=github_metadata, fetch=download) -> bool:
+            metadata=github_metadata, fetch=download, expected_provider_digest: str = "") -> bool:
     if not broker:
         return False
     try:
@@ -84,8 +84,11 @@ def restore(broker: str, artifact_id: str, run_id: str, repository: str, destina
         digest = info.get("digest", "")
         size = info.get("size_in_bytes")
         producer = info.get("workflow_run", {})
+        expected = expected_provider_digest.removeprefix("sha256:").lower()
         if (info.get("id") != int(artifact_id) or info.get("expired") is not False
                 or not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest)
+                or (expected and (not re.fullmatch(r"[a-f0-9]{64}", expected)
+                                  or digest != "sha256:" + expected))
                 or not isinstance(size, int) or not 0 < size <= MAX_BYTES
                 or not isinstance(producer, dict) or producer.get("id") != int(run_id)):
             raise ValueError("artifact does not match this producer run")
@@ -114,6 +117,7 @@ def main() -> None:
         os.environ.get("CI_ARTIFACT_R2_URL", ""), os.environ.get("ARTIFACT_ID", ""),
         os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_REPOSITORY", ""),
         Path(os.environ["RUNNER_TEMP"]) / "app-host-products",
+        expected_provider_digest=os.environ.get("ARTIFACT_PROVIDER_DIGEST", ""),
     )
     if hit:
         with output.open("a") as handle:

@@ -73,6 +73,22 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(self.restore())
         self.assertFalse(self.destination.exists())
 
+    def test_expected_provider_digest_must_match_metadata(self):
+        expected = "sha256:" + hashlib.sha256(self.zip).hexdigest()
+        self.assertTrue(transport.restore(
+            "https://broker.example", "123", "456", "manaflow-ai/cmux",
+            self.destination, self.metadata, self.download,
+            expected_provider_digest=expected,
+        ))
+        self.destination.joinpath("app-host-products.aar").unlink()
+        self.destination.rmdir()
+        self.assertFalse(transport.restore(
+            "https://broker.example", "123", "456", "manaflow-ai/cmux",
+            self.destination, self.metadata, self.download,
+            expected_provider_digest="sha256:" + "0" * 64,
+        ))
+        self.assertFalse(self.destination.exists())
+
     def test_other_run_or_repository_is_not_reused(self):
         self.wrong_run = True
         self.assertFalse(self.restore())

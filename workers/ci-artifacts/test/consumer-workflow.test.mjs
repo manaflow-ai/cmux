@@ -49,12 +49,18 @@ else:
 `;
       for (const command of ["gh", "curl"]) fs.writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
       const job = workflow.jobs[jobName];
+      const local = job.steps.find((step) => step.id === "node-products");
       const restore = job.steps.find((step) => step.id === "r2-products");
       const fallback = job.steps.find((step) => step.name === "Download compiled app-host test product");
+      assert.equal(local.run, 'python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"');
+      assert.equal(evaluate(restore.if, { steps: { "node-products": { outputs: { hit: "false" } } } }), "true");
       const values = {
         github: { token: "read-only-job-token" },
         vars: { CI_ARTIFACT_R2_URL: enabled ? "https://broker.example" : "" },
-        needs: { "macos-compile-admission": { outputs: { artifact_id: "123" } } },
+        needs: { "macos-compile-admission": { outputs: {
+          artifact_id: "123",
+          artifact_digest: "sha256:169fa1cbfb4a778073f1efdc24904064d3bee6103f4a89e5054936d6661eed2a",
+        } } },
       };
       const output = path.join(temporary, "output");
       execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
@@ -63,7 +69,10 @@ else:
         ...Object.fromEntries(Object.entries(restore.env).map(([key, value]) => [key, render(value, values)])),
       } });
       const hit = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))).hit;
-      const download = evaluate(fallback.if, { steps: { "r2-products": { outputs: { hit } } } }) === "true";
+      const download = evaluate(fallback.if, { steps: {
+        "node-products": { outputs: { hit: "false" } },
+        "r2-products": { outputs: { hit } },
+      } }) === "true";
       assert.equal(download, !enabled);
       const wrapped = jobName === "app-host-unit-tests";
       assert.equal(fallback.uses, wrapped
