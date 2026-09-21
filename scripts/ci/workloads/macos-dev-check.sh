@@ -11,6 +11,7 @@ source_packages="$state/source-packages"
 xcode_env="$state/xcode.env"
 tag="profile-$attempt_id"
 cmux_attach_validate_dev_tag "$tag"
+tag_slug="$(cmux_attach__slug "$tag")"
 expected_bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
 
 stage() {
@@ -48,7 +49,7 @@ CMUX_RELOAD_NO_GLOBAL_CLI_LINKS=1 \
 stage end compile
 
 stage start validation
-app="$derived/Build/Products/Debug/cmux DEV $tag.app"
+app="$derived/Build/Products/Debug/cmux DEV $tag_slug.app"
 test -x "$app/Contents/MacOS/cmux DEV"
 bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
 test "$bundle_id" = "$expected_bundle_id"
