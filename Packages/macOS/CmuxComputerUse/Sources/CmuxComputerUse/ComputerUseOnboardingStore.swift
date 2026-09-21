@@ -126,7 +126,7 @@ public final class ComputerUseOnboardingStore {
         attempt: UUID
     ) -> ComputerUseDirectScreenCaptureVerification {
         guard stageVerification(result, attempt: attempt) == .ready else {
-            return result
+            return result == .ready ? .unavailable : result
         }
         return commitVerification(attempt: attempt) ? .ready : .unavailable
     }
