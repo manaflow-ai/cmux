@@ -4,11 +4,13 @@ import hashlib
 import importlib.util
 import io
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
 spec = importlib.util.spec_from_file_location("r2_artifact", ROOT / "scripts/ci/restore-r2-artifact.py")
 transport = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transport)
