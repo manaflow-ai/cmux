@@ -22,19 +22,29 @@ final class SplitPaneBackgroundUITests: BrowserFixtureSocketTestCase {
     func testSplitDownNeverPaintsSourceTextInsideNewPane() throws {
         let app = try launchApp()
 
-        // A fresh workspace gives the test its own terminal with known ids,
-        // independent of whatever the launch restored or focused.
-        let workspace = try socketResult(
+        // A fresh workspace gives the test its own terminal with known ids.
+        // When creation does not answer on the runner, fall back to the
+        // terminal the launch restored: the selected workspace's focused (or
+        // first) terminal from the list methods.
+        let created = socketEnvelope(
             method: "workspace.create",
             params: ["title": "Split pane background 13387", "focus": true],
-            responseTimeout: 20.0
+            responseTimeout: 30.0
         )
-        let sourceWorkspaceID = try XCTUnwrap(
-            workspace["workspace_id"] as? String, "workspace.create returned no workspace_id: \(workspace)"
-        )
-        let sourceSurfaceID = try XCTUnwrap(
-            workspace["surface_id"] as? String, "workspace.create returned no surface_id: \(workspace)"
-        )
+        var resolved: (workspaceID: String, surfaceID: String)?
+        if let result = created?["result"] as? [String: Any],
+           let workspaceID = result["workspace_id"] as? String,
+           let surfaceID = result["surface_id"] as? String {
+            resolved = (workspaceID, surfaceID)
+        } else {
+            XCTAssertTrue(waitForCondition(timeout: 20) {
+                resolved = self.restoredTerminal()
+                return resolved != nil
+            }, "No terminal from workspace.create (\(String(describing: created))) or the list methods")
+        }
+        let target = try XCTUnwrap(resolved)
+        let sourceWorkspaceID = target.workspaceID
+        let sourceSurfaceID = target.surfaceID
         // Cmd+Shift+D splits the focused panel, so make the source terminal
         // the focused one explicitly instead of relying on launch focus.
         try socketResult(
@@ -250,6 +260,22 @@ final class SplitPaneBackgroundUITests: BrowserFixtureSocketTestCase {
     }
 
     // MARK: - Harness
+
+    /// The selected workspace's focused (else first) terminal.
+    private func restoredTerminal() -> (workspaceID: String, surfaceID: String)? {
+        guard let list = socketEnvelope(method: "workspace.list", params: [:]),
+              list["ok"] as? Bool == true,
+              let workspaces = (list["result"] as? [String: Any])?["workspaces"] as? [[String: Any]],
+              let workspace = workspaces.first(where: { ($0["selected"] as? Bool) == true }) ?? workspaces.first,
+              let workspaceID = workspace["id"] as? String,
+              let surfaces = socketEnvelope(method: "surface.list", params: ["workspace_id": workspaceID]),
+              surfaces["ok"] as? Bool == true,
+              let entries = (surfaces["result"] as? [String: Any])?["surfaces"] as? [[String: Any]] else { return nil }
+        let terminals = entries.filter { ($0["type"] as? String) == "terminal" }
+        guard let surface = terminals.first(where: { ($0["focused"] as? Bool) == true }) ?? terminals.first,
+              let surfaceID = surface["id"] as? String else { return nil }
+        return (workspaceID, surfaceID)
+    }
 
     private func readText(surfaceID: String) -> String? {
         guard let envelope = socketEnvelope(method: "surface.read_text", params: ["surface_id": surfaceID]),
