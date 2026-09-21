@@ -167,29 +167,85 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # PR and merge-group checkouts are synthetic commits; one parent is
+          # enough to decide whether this PR touched the in-app webviews lane.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Detect in-app webviews changes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual run: validating in-app webviews."
+            exit 0
+          fi
+
+          if ! base="$(git rev-parse -q --verify 'HEAD^1')"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Could not resolve comparison parent; validating in-app webviews."
+            exit 0
+          fi
+
+          set +e
+          git diff --quiet --no-renames "$base" HEAD -- \
+            webviews \
+            Resources/markdown-viewer \
+            scripts/build-webviews-app.sh \
+            scripts/check-webviews-react-compiler.mjs \
+            .github/workflows/ci-web.yml
+          diff_status=$?
+          set -e
+
+          case "$diff_status" in
+            0)
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              echo "No in-app webviews inputs changed; skipping webviews build/test/lint."
+              ;;
+            1)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "In-app webviews inputs changed; running webviews validation."
+              ;;
+            *)
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Could not classify in-app webviews diff; validating conservatively."
+              ;;
+          esac
 
       - name: Setup Bun
+        if: steps.scope.outputs.run == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Verify generated webviews assets
+        if: steps.scope.outputs.run == 'true'
         run: ./scripts/build-webviews-app.sh --check
 
       - name: Verify React Compiler for webviews
+        if: steps.scope.outputs.run == 'true'
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Typecheck webviews
+        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run typecheck
 
       - name: Test webviews
+        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run test
 
       - name: Oxlint webviews
+        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run lint:ci
 
       - name: React Doctor
+        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run react-doctor:ci
 
