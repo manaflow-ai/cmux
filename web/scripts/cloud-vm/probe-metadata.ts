@@ -7,8 +7,9 @@
  * Creates one machine from the manifest's md desktop default with a
  * `cmux-vm-name` metadata entry, runs the metadata-service token dance the
  * supervisor uses (cmux-devbox-boot `instance_id()`) against every plausible
- * path, then `vm.update({ metadata })` and re-reads, and deletes the machine
- * before exit, including on failure. The answer decides whether the prompt
+ * path, then `vm.update({ metadata })` and re-reads every path until the new
+ * value is visible or 30 s have passed, and deletes the machine before exit,
+ * including on failure. The answer decides whether the prompt
  * name can be delivered through create metadata (readable in the guest) or
  * must be written by a create-time exec.
  *
@@ -162,17 +163,73 @@ function findValue(probes: Probed[], value: string): Probed | undefined {
   return probes.find((p) => p.status === "200" && p.body.includes(value));
 }
 
+const UPDATE_VISIBILITY_BUDGET_MS = 30_000;
+const UPDATE_VISIBILITY_POLL_MS = 500;
+
+/**
+ * Bounded retry for the `vm.update({ metadata })` half of the probe: one full
+ * pass of the probe script per read, until the renamed value is visible at any
+ * path or the budget is spent. Returns the last pass's raw bodies with the
+ * number of passes and the time they took, so the report can bound its claim
+ * ("not visible within 30 s over N reads") instead of judging one read taken
+ * a fixed moment after the update.
+ */
+async function waitForUpdate(vm: Vm, budgetMs = UPDATE_VISIBILITY_BUDGET_MS) {
+  const startedAt = performance.now();
+  let passes = 0;
+  for (;;) {
+    passes += 1;
+    const parsed = parseProbe((await exec(vm, probeScript(), 60_000)).stdout);
+    const raw: Record<string, string> = {};
+    for (const p of parsed.probes) raw[p.path] = `[${p.status ?? "?"}] ${p.body.slice(0, 200)}`;
+    const hit = findValue(parsed.probes, RENAMED_VALUE);
+    const elapsedMs = Math.round(performance.now() - startedAt);
+    if (hit || elapsedMs >= budgetMs) return { hit, raw, passes, elapsedMs, budgetMs };
+    await new Promise((resolve) => setTimeout(resolve, UPDATE_VISIBILITY_POLL_MS));
+  }
+}
+
+/**
+ * The create is a polled provider request: when it fails or outlives its bound
+ * the machine can still exist without this process knowing its id (seen
+ * 2026-09-21: "create exceeded 120000 ms"), so the failure path lists the
+ * machines carrying the probe's own metadata tag that were created since this
+ * run started and deletes them before rethrowing.
+ */
+async function createProbeVm(since: string) {
+  try {
+    return await bounded(fs.vms.create({
+      snapshotId: image,
+      displayName: "cmux metadata probe (throwaway)",
+      idleTimeoutSeconds: 600,
+      metadata: { cmux: "probe", [METADATA_KEY]: PROBE_VALUE },
+      firewall: { rules: freestyleFirewallRules() },
+    }), 120_000, "create");
+  } catch (error) {
+    await deleteStrays(since);
+    throw error;
+  }
+}
+
+async function deleteStrays(since: string): Promise<void> {
+  try {
+    const page = await bounded(fs.vms.list({ metadata: "cmux:probe", limit: 200, offset: 0 }), 60_000, "list");
+    for (const data of page.vms) {
+      if (new Date(data.createdAt).getTime() < Date.parse(since)) continue;
+      await bounded(fs.vms.ref(data.id).delete(), 60_000, "delete");
+      console.error(`probe-metadata: deleted stray ${data.id}`);
+    }
+  } catch (error) {
+    console.error(`probe-metadata: CLEANUP NEEDED (list metadata=cmux:probe since ${since}): ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+}
+
 async function main() {
   mkdirSync(outDir, { recursive: true });
   const startedAt = new Date().toISOString();
   console.error(`probe-metadata: image=${image} out=${outDir}`);
-  const created = await bounded(fs.vms.create({
-    snapshotId: image,
-    displayName: "cmux metadata probe (throwaway)",
-    idleTimeoutSeconds: 600,
-    metadata: { cmux: "probe", [METADATA_KEY]: PROBE_VALUE },
-    firewall: { rules: freestyleFirewallRules() },
-  }), 120_000, "create");
+  const created = await createProbeVm(startedAt);
   const { vm, vmId } = created;
   console.error(`probe-metadata: created ${vmId}`);
   const report: Record<string, unknown> = { startedAt, image, vmId, metadataSent: { cmux: "probe", [METADATA_KEY]: PROBE_VALUE } };
@@ -193,11 +250,13 @@ async function main() {
     let apiMetadataAfterUpdate: unknown = null;
     const updated = await bounded(vm.update({ metadata: { [METADATA_KEY]: RENAMED_VALUE } }), 60_000, "update");
     apiMetadataAfterUpdate = updated.metadata;
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
-    const second = await exec(vm, probeScript(), 60_000);
-    const parsed2 = parseProbe(second.stdout);
-    for (const p of parsed2.probes) updatedRaw[p.path] = `[${p.status ?? "?"}] ${p.body.slice(0, 200)}`;
-    const hit2 = findValue(parsed2.probes, RENAMED_VALUE);
+    // Propagation into the guest, if it happens at all, is asynchronous: read
+    // every path again until the renamed value shows up or the budget ends,
+    // and record how long that took, so a slow update is reported as slow
+    // rather than as invisible.
+    const propagation = await waitForUpdate(vm);
+    updatedRaw = propagation.raw;
+    const hit2 = propagation.hit;
     updateVisible = !!hit2;
     const readable = !!hit;
     const result = {
@@ -206,6 +265,7 @@ async function main() {
       pathMode: hit ? hit.path.split(":")[0] : null,
       updateVisible,
       updatePath: hit2 ? hit2.path.replace(/^(token|json|xmt|notoken):/, "") : null,
+      updateWait: { passes: propagation.passes, elapsedMs: propagation.elapsedMs, budgetMs: propagation.budgetMs },
       tokenOk: parsed.tokenOk,
       apiMetadata: report.apiMetadata,
       apiMetadataAfterUpdate,
@@ -226,7 +286,7 @@ async function main() {
       `- metadata sent at create: \`{ cmux: "probe", "${METADATA_KEY}": "${PROBE_VALUE}" }\`; API \`vm.data().metadata\`: \`${JSON.stringify(result.apiMetadata)}\``,
       `- token dance (PUT /latest/api/token): ${parsed.tokenOk ? "ok" : "FAILED"}`,
       `- **readable in guest: ${readable ? "YES" : "NO"}**${hit ? ` at \`${hit.path}\`` : ""}`,
-      `- \`vm.update({ metadata })\` visible in guest: ${updateVisible ? "YES" : "NO"}${hit2 ? ` at \`${hit2.path}\`` : ""}; API metadata after update: \`${JSON.stringify(apiMetadataAfterUpdate)}\``,
+      `- \`vm.update({ metadata })\` visible in guest ${updateVisible ? `after ${propagation.elapsedMs} ms: YES` : `within ${propagation.budgetMs / 1000} s: NO`}${hit2 ? ` at \`${hit2.path}\`` : ""} (${propagation.passes} reads over ${propagation.elapsedMs} ms); API metadata after update: \`${JSON.stringify(apiMetadataAfterUpdate)}\``,
       "",
       "## Paths (status, first 200 bytes)",
       "",
@@ -240,7 +300,7 @@ async function main() {
       "",
     ].join("\n");
     writeFileSync(join(outDir, "metadata-probe.md"), md);
-    console.log(JSON.stringify({ readable, path: result.path, pathMode: result.pathMode, updateVisible, tokenOk: parsed.tokenOk, vmId }, null, 2));
+    console.log(JSON.stringify({ readable, path: result.path, pathMode: result.pathMode, updateVisible, updateWait: result.updateWait, tokenOk: parsed.tokenOk, vmId }, null, 2));
   } finally {
     try {
       await bounded(vm.delete(), 60_000, "delete");
