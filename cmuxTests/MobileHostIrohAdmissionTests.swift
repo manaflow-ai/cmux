@@ -404,6 +404,24 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    @Test func testV3ArtifactCapabilitiesCannotCrossPeersOrTransportDomains() async throws {
+        let fixture = try MobileHostIrohArtifactFixture(contents: Data("artifact".utf8))
+        defer { fixture.remove() }
+        let registry = MobileHostIrohArtifactTransferRegistry()
+        let descriptor = try await registry.issue(canonicalPath: fixture.path, owner: .v3(peerID: "peer-a"))
+        let resource = try CmxIrohResourceID(descriptor.resourceID)
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.peerMismatch) {
+            try await registry.claim(resourceID: resource, offset: 0, owner: .v3(peerID: "peer-b"))
+        }
+        let irohPeer = try irohPeer(endpointCharacter: "a")
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.peerMismatch) {
+            try await registry.claim(resourceID: resource, offset: 0, peer: irohPeer)
+        }
+        let lease = try await registry.claim(resourceID: resource, offset: 3, owner: .v3(peerID: "peer-a"))
+        #expect(lease.offset == 3)
+        await registry.release(lease)
+    }
+
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {
         let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
