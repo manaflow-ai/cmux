@@ -109,133 +109,27 @@ mv "$ENROLLMENT_NEXT" "$ENROLLMENT"
 
 The new enrollment starts in `enrolling`. It records the role's exact CMUX profile ID/generation, the observed toolchain generation, the installed Glaeda generation, and bounded machine capability classes.
 
-## 3. Run local CMUX acceptance
+## 3. Fleet eligibility activation gate
 
-Candidate eligibility requires a Glaeda-owned local attempt, because the CMUX semantic result is intentionally machine-neutral. `accept-local` resolves the exact local CMUX commit/tree, launches the enrolled CMUX profile inside a private attempt directory, captures the canonical `cmux-workload-result/v1`, then reruns Glaeda's read-only bootstrap on this same node.
+The repository-owned workload profiles in this change are usable independently of hardware
+eligibility. Stop after the enrollment record for now.
 
-```bash
-set -euo pipefail
-cd "$GLAEDA_ROOT"
+Candidate-eligible fleet acceptance requires the Glaeda-owned local-attempt contract from
+teamleaderleo/glaeda#1088. Until that change is merged into Glaeda `main`:
 
-case "$(uname -s)" in
-  Darwin)
-    ACCEPTANCE_ROLE=cmux_macos_native_build
-    ACCEPTANCE="$FLEET_ROOT/acceptance/$ACCEPTANCE_ROLE.json"
-    ACCEPTANCE_NEXT="$(mktemp "$FLEET_ROOT/acceptance/.$ACCEPTANCE_ROLE.XXXXXX")"
-    python3 scripts/cmux_fleet.py accept-local "$ENROLLMENT" \
-      --cmux-root "$CMUX_ROOT" \
-      --glaeda "$GLAEDA_BIN" \
-      --cache-root "$CMUX_CACHE_ROOT" \
-      --role "$ACCEPTANCE_ROLE" \
-      > "$ACCEPTANCE_NEXT"
-    ;;
-  Linux)
-    ACCEPTANCE_ROLE=cmux_linux_ci
-    ACCEPTANCE="$FLEET_ROOT/acceptance/$ACCEPTANCE_ROLE.json"
-    ACCEPTANCE_NEXT="$(mktemp "$FLEET_ROOT/acceptance/.$ACCEPTANCE_ROLE.XXXXXX")"
-    python3 scripts/cmux_fleet.py accept-local "$ENROLLMENT" \
-      --cmux-root "$CMUX_ROOT" \
-      --glaeda "$GLAEDA_BIN" \
-      --role "$ACCEPTANCE_ROLE" \
-      > "$ACCEPTANCE_NEXT"
-    ;;
-  *) echo "unsupported host" >&2; exit 1 ;;
-esac
+- do not transition a CMUX fleet enrollment to `eligible` using this document;
+- do not treat a standalone `cmux-workload-result/v1` as machine acceptance;
+- keep existing hosted/dev-fleet routing policy unchanged;
+- use the profile runner for semantic CI/dev execution and benchmark comparison only.
 
-chmod 600 "$ACCEPTANCE_NEXT"
-mv "$ACCEPTANCE_NEXT" "$ACCEPTANCE"
-```
+The activation follow-up will add the exact `accept-local` invocation and v2 acceptance receipt
+operator flow after that command exists on Glaeda `main`. CMUX will continue to own workload
+commands, validators, artifacts, environment class, timeout, and semantic terminal result; Glaeda
+will own the local attempt, post-run machine re-observation, durable acceptance receipt, lifecycle,
+and fresh local admission.
 
-CMUX still owns workload commands, validator semantics, artifacts, environment class, timeouts, and the semantic terminal result. Glaeda owns the local process invocation, the post-run machine re-observation, and `glaeda-cmux-fleet-acceptance/v2`. An accepted v2 receipt binds the exact CMUX result digest, CMUX environment class/toolchain identity, a fresh-bootstrap digest, the enrollment generation, role/profile, Glaeda generation, selected host toolchain generation, process settlement, and an opaque Glaeda-local attempt digest.
-
-The low-level `finalize-acceptance` command remains available to validate externally supplied semantic evidence, but v2 marks that evidence as external and it can only produce a rejected receipt. Candidate-eligible receipts come from `accept-local`.
-
-## 4. Mark the node candidate-eligible
-
-```bash
-python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
-  "$ENROLLMENT" --to eligible \
-  --acceptance "$ACCEPTANCE"
-
-bash "$GLAEDA_ROOT/scripts/cmux-fleet" status "$ENROLLMENT" \
-  --acceptance "$ACCEPTANCE"
-```
-
-`transition-apply` is the durable lifecycle mutation path: one private mutation lock, a fresh current-state read, same-directory staged bytes, fsync, atomic replacement, directory fsync, and published-state revalidation.
-
-Status exposes routing-candidate eligibility while `automaticDispatchAuthorized` remains false. Current host pressure, drain state, physical lease ownership, and higher-level routing policy still apply at execution time.
-
-## 5. Drain, recover, quarantine, or retire
-
-These operations are intentionally usable from a fresh shell after reboot. Reconstruct the durable paths first:
-
-```bash
-GLAEDA_ROOT=/absolute/path/to/glaeda
-FLEET_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/glaeda/cmux-fleet"
-ENROLLMENT="$FLEET_ROOT/enrollment.json"
-case "$(uname -s)" in
-  Darwin) ACCEPTANCE_ROLE=cmux_macos_native_build ;;
-  Linux) ACCEPTANCE_ROLE=cmux_linux_ci ;;
-  *) echo "unsupported host" >&2; exit 1 ;;
-esac
-ACCEPTANCE="$FLEET_ROOT/acceptance/$ACCEPTANCE_ROLE.json"
-```
-
-Drain before planned operator work:
-
-```bash
-python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
-  "$ENROLLMENT" --to draining
-```
-
-Return to candidate eligibility only with the still-current acceptance:
-
-```bash
-python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
-  "$ENROLLMENT" --to eligible \
-  --acceptance "$ACCEPTANCE"
-```
-
-Quarantine a concrete mismatch:
-
-```bash
-python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
-  "$ENROLLMENT" --to quarantined --reason toolchain_mismatch
-```
-
-Retire a node:
-
-```bash
-python3 "$GLAEDA_ROOT/scripts/cmux_fleet.py" transition-apply \
-  "$ENROLLMENT" --to retired
-```
-
-After an OS, hardware class, toolchain, installed Glaeda, or reviewed role-profile generation change, rerun bootstrap, advance the enrollment generation, and rerun the CMUX profile acceptance.
-
-## Rollback and cleanup
-
-Rollback is also a standalone operator action. Reconstruct the install paths first:
-
-```bash
-GLAEDA_INSTALL_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/glaeda/cmux-fleet"
-GLAEDA_BIN="$GLAEDA_INSTALL_ROOT/glaeda"
-```
-
-Before a candidate Glaeda generation is accepted:
-
-```bash
-test -f "$GLAEDA_INSTALL_ROOT/glaeda.rollback"
-mv "$GLAEDA_INSTALL_ROOT/glaeda.rollback" "$GLAEDA_BIN"
-```
-
-After successful re-enrollment and role acceptance:
-
-```bash
-rm -f "$GLAEDA_INSTALL_ROOT/glaeda.rollback"
-rm -f "$BOOTSTRAP"
-```
-
-The canonical enrollment and finalized acceptance receipt stay under `$FLEET_ROOT` across reboot.
+Losing or delaying this activation costs fleet availability only. It does not change the canonical
+CMUX workload semantics introduced here.
 
 ## CI and physical proof
 
