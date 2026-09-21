@@ -386,7 +386,10 @@ extension TerminalWindowPortalLifecycleTests {
         anchor.setFrameSize(NSSize(width: 220, height: 150))
         portal.synchronizeHostedViewForAnchor(anchor)
         XCTAssertEqual(surface.hostedView.frame.size, NSSize(width: 220, height: 150))
-        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, NSSize(width: 220, height: 150))
+        let scrollView = try XCTUnwrap(surface.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
+        // A legacy scroller consumes part of the pane width. The renderer must
+        // follow the final visible viewport after teardown and reattachment.
+        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, scrollView.contentView.bounds.size)
         withExtendedLifetime(surface) {}
     }
 
