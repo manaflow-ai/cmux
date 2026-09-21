@@ -122,8 +122,8 @@ final class SurfaceCatalog {
         // A pending rename is visible in the snapshot the moment it is admitted
         // and gone the moment it fails; local pane and workspace titles keep
         // their own provenance rules and follow the accepted graph.
-        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] _ in
-            self?.notifyChange()
+        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] machine in
+            self?.notifyChange(for: machine)
         }
     }
 
@@ -972,7 +972,7 @@ final class SurfaceCatalog {
         // removed before cleanup, a preserving provider must not resurrect the closed pane.
         guard let current, !preserved else { return }
         projections.remove(current)
-        notifyChange()
+        notifyChange(for: projection.resource.machine)
     }
 
     /// Cleans up a provider result that arrived after its catalog operation was retired. A
@@ -1109,7 +1109,7 @@ final class SurfaceCatalog {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
-        notifyChange()
+        notifyChange(for: projection.resource.machine)
     }
 
     /// A restored placeholder yields to its native pane without authoring a layout edit.
@@ -1153,7 +1153,7 @@ final class SurfaceCatalog {
         updated.remoteTabID = view.tabID
         projections.insert(updated)
         reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
-        notifyChange()
+        notifyChange(for: updated.resource.machine)
         return updated
     }
 
@@ -1194,7 +1194,7 @@ final class SurfaceCatalog {
     /// mirrored workspace also closes its machine tab (`CloudPlacementCoordinator`).
     func endProjections(panelID: UUID, reason: SurfaceProjectionEndReason = .paneClosed) {
         cloudWorkspaceCreationCoordinator.projectionDidEnd(panelID: panelID)
-        let removedPending = pendingRestoredProjections.remove(panelID: panelID)
+        let pendingMachine = pendingRestoredProjections.machineOwningPanel(panelID); let removedPending = pendingRestoredProjections.remove(panelID: panelID)
         if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty || removedPending else { return }
@@ -1203,7 +1203,8 @@ final class SurfaceCatalog {
             cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
             providers[projection.resource.machine]?.projectionDidEnd(projection)
         }
-        notifyChange()
+        for projection in ended { notifyChange(for: projection.resource.machine) }
+        if ended.isEmpty, removedPending, let pendingMachine { notifyChange(for: pendingMachine) }
     }
 
     func moveProjections(panelID: UUID, to workspaceID: UUID) {
@@ -1221,7 +1222,9 @@ final class SurfaceCatalog {
         for projection in projections where projection.panelID == panelID {
             cloudPlacementCoordinator.projectionDidMove(projection, catalog: self)
         }
-        notifyChange()
+        for projection in moved {
+            notifyChange(for: projection.resource.machine)
+        }
     }
 
     /// Applies one accepted graph's coordinate changes in O(changed projections).
@@ -1231,7 +1234,9 @@ final class SurfaceCatalog {
             projections.remove(previous)
             projections.insert(updated)
         }
-        notifyChange()
+        for replacement in replacements.values {
+            notifyChange(for: replacement.resource.machine)
+        }
     }
 
     /// Updates every view of an exact tab together; a late result cannot replace a
@@ -1251,7 +1256,7 @@ final class SurfaceCatalog {
             projection.remoteTabID = tabID
             projections.insert(projection)
         }
-        notifyChange()
+        notifyChange(for: source.resource.machine)
     }
 
 
@@ -1338,7 +1343,9 @@ final class SurfaceCatalog {
             }
         }
         reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
-        notifyChange()
+        for record in records {
+            notifyChange(for: record.resource.machine)
+        }
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {

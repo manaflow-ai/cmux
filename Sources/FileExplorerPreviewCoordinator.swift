@@ -36,6 +36,7 @@ struct FileExplorerPreviewCoordinator {
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
+                        workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
                 } else if let remote = provider as? any RemoteFileExplorerProvider {
                     if Self.focusExistingRemotePreview(
@@ -47,6 +48,7 @@ struct FileExplorerPreviewCoordinator {
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewProviderIdentity = providerIdentity
                         panel.cloudPreviewLease = lease
+                        workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
                 }
             } catch is CancellationError {
@@ -73,6 +75,7 @@ struct FileExplorerPreviewCoordinator {
                     FileManager.default.fileExists(atPath: $0.filePath)
             }) else { return false }
         _ = workspace.openOrFocusFilePreviewSurface(inPane: pane, filePath: existing.filePath, focus: true)
+        workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: existing)
         return true
     }
 
