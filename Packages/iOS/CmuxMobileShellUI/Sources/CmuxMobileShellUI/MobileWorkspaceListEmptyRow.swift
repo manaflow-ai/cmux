@@ -1,9 +1,24 @@
 #if os(iOS)
 import Foundation
 import CmuxMobileSupport
+import SafariServices
 import SwiftUI
 
+private struct MobileDocsSafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.view.accessibilityIdentifier = "MobileDocsSafariView"
+        controller.view.accessibilityValue = url.absoluteString
+        return controller
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+}
+
 struct MobileWorkspaceListEmptyRow: View {
+    private static let docsURL = URL(string: "https://cmux.com/docs/ios#setup")!
     private static let retryTimeout: Duration = .seconds(30)
 
     let retry: (@Sendable () async -> Void)?
@@ -20,6 +35,7 @@ struct MobileWorkspaceListEmptyRow: View {
     @State private var retryAttemptID: UUID?
     @State private var retryRecoveryGeneration: UUID?
     @State private var retryTimedOut = false
+    @State private var isDocsPresented = false
 
     var body: some View {
         ContentUnavailableView {
@@ -99,11 +115,13 @@ struct MobileWorkspaceListEmptyRow: View {
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
             }
-            Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
+            Button {
+                isDocsPresented = true
+            } label: {
                 Label(
                     L10n.string(
                         "mobile.workspaces.empty.setupGuide",
-                        defaultValue: "Set Up cmux iOS"
+                        defaultValue: "See Docs"
                     ),
                     systemImage: "book"
                 )
@@ -118,6 +136,10 @@ struct MobileWorkspaceListEmptyRow: View {
         .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
+        .sheet(isPresented: $isDocsPresented) {
+            MobileDocsSafariView(url: Self.docsURL)
+                .ignoresSafeArea()
+        }
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
             let hasActiveRetry = isRetrying || retryTask != nil

@@ -7,55 +7,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Up cmux iOS"
+            "value": "See Docs"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS einrichten"
+            "value": "Doku anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurer cmux iOS"
+            "value": "Voir la documentation"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعداد cmux على iOS"
+            "value": "عرض المستندات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurar cmux iOS"
+            "value": "Ver documentación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定 cmux iOS"
+            "value": "查看文件"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置 cmux iOS"
+            "value": "查看文档"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS 설정"
+            "value": "문서 보기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS を設定"
+            "value": "ドキュメントを見る"
           }
         }
       }
