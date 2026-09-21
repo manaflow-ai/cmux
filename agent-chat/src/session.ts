@@ -280,6 +280,12 @@ export function useSession(): SessionState {
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
 
+  const closeHandoffWindow = useCallback(() => {
+    const popup = handoffWindowRef.current;
+    handoffWindowRef.current = null;
+    if (popup && !popup.closed) popup.close();
+  }, []);
+
   const clearPendingStartTimeout = useCallback(() => {
     if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
     pendingStartTimeoutRef.current = null;
@@ -481,7 +487,10 @@ export function useSession(): SessionState {
               }
             }
             if (msg.op === "fork") setForkPending(false);
-            if (msg.op === "handoff") setHandoffPending(false);
+            if (msg.op === "handoff") {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
               const path = String(msg.path);
               const queue = pendingFileDiffKeysRef.current[path];
@@ -495,8 +504,13 @@ export function useSession(): SessionState {
       ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
     };
     connect();
-    return () => { closed = true; clearPendingStartTimeout(); wsRef.current?.close(); };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, failPendingStart, sendRaw]);
+    return () => {
+      closed = true;
+      clearPendingStartTimeout();
+      closeHandoffWindow();
+      wsRef.current?.close();
+    };
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
@@ -533,6 +547,8 @@ export function useSession(): SessionState {
   }, [armPendingStartTimeout, sendRaw]);
   const compose = useCallback(() => {
     clearPendingStartTimeout();
+    closeHandoffWindow();
+    setHandoffPending(false);
     pendingStartRef.current = null;
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
@@ -546,7 +562,7 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, [clearPendingStartTimeout]);
+  }, [clearPendingStartTimeout, closeHandoffWindow]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -578,6 +594,7 @@ export function useSession(): SessionState {
   }, [sendRaw]);
   const handoff = useCallback(() => {
     if (sessionIdRef.current) {
+      closeHandoffWindow();
       const popup = window.open("about:blank", "_blank");
       if (sendRaw({ op: "handoff", sessionId: sessionIdRef.current })) {
         handoffWindowRef.current = popup;
@@ -586,7 +603,7 @@ export function useSession(): SessionState {
         popup?.close();
       }
     }
-  }, [sendRaw]);
+  }, [closeHandoffWindow, sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
