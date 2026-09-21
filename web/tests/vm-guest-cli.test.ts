@@ -198,6 +198,12 @@ esac
     const invalid = runShim(["welcome", "--bad-option"], { LC_ALL: locale });
     expect(invalid.status).toBe(2);
     expect(invalid.stderr).toContain("--bad-option");
+    const catalogLocale = locale.startsWith("nb") ? "no" : locale.startsWith("pt") ? "pt-BR"
+      : locale.startsWith("zh_TW") ? "zh-TW" : locale.startsWith("zh") ? "zh-CN" : locale.slice(0, 2);
+    const catalog = JSON.parse(readFileSync(join(import.meta.dir, "../messages", `${catalogLocale}.json`), "utf8"));
+    const help = runShim(["--help"], { LC_ALL: locale });
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain(catalog.guestCLI.welcomeHelp);
   });
 
   test.each([true, false])("peer connection consumes readiness or process exit (ready=%s)", (ready) => {

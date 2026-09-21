@@ -1,6 +1,7 @@
 {
   "guestCLI": {
     "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  แสดงคู่มือ Cloud อีกครั้ง",
     "welcomeUsage": "วิธีใช้: cmux welcome\n\nแสดงคู่มือ cmux Cloud อีกครั้ง",
     "welcomeOption": "cmux welcome: ตัวเลือกที่ไม่รู้จัก %s\n\nวิธีใช้: cmux welcome",
     "welcomeIntro": "ยินดีต้อนรับสู่ cmux Cloud\nเครื่องของคุณสำหรับเอเจนต์เขียนโค้ด",

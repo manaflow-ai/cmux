@@ -590,6 +590,10 @@ export function cmuxTuiAttachBundleCommand(options: {
 
 /** The daemon owns the reserved first workspace; this never sends shell input. */
 export function cmuxTuiCloudBootstrapCommand(binary: string, welcome: boolean): string {
+  // This trusted-local preparation precedes the frontend's carrier admission.
+  // It cannot run on that remote control connection: remote callers may not
+  // consume the first-shell grant. The existing carrier still owns subsequent
+  // pane/split/control requests; none of them invokes this bootstrap client.
   const request = shellQuote(JSON.stringify({ cmd: "cloud-bootstrap", welcome }));
   const command = cmuxTuiAsDaemonUser(`${binary} --session ${CMUX_TUI_SESSION} raw command --request-json ${request}`);
   // An old daemon retains its already-running starter shell. A real bootstrap

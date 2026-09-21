@@ -125,6 +125,7 @@ use_peer() {
 
 guest_usage() {
   cmux_message help
+  cmux_message welcomeHelp
 }
 
 load_model_env() {
