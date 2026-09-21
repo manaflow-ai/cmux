@@ -14,9 +14,9 @@ final class SessionTodoStatePersistenceCoordinator {
     private var writeTimer: DispatchSourceTimer?
     private var hasPendingEdits = false
     private var consecutiveFailures = 0
-    private var terminalFailure = false
 
     private static let maximumRetryCount = 3
+    private static let recoveryRetryDelay: DispatchTimeInterval = .seconds(5)
 
     init(saveSnapshot: @escaping @MainActor () -> Bool) {
         self.saveSnapshot = saveSnapshot
@@ -24,10 +24,6 @@ final class SessionTodoStatePersistenceCoordinator {
 
     func enqueue() {
         hasPendingEdits = true
-        if terminalFailure {
-            terminalFailure = false
-            consecutiveFailures = 0
-        }
         scheduleWrite(resetDelay: true)
     }
 
@@ -39,7 +35,7 @@ final class SessionTodoStatePersistenceCoordinator {
             writeTimer?.cancel()
             writeTimer = nil
         }
-        guard hasPendingEdits, writeTimer == nil, !terminalFailure else { return }
+        guard hasPendingEdits, writeTimer == nil else { return }
         let delay = requestedDelay ?? .milliseconds(500)
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
@@ -55,7 +51,7 @@ final class SessionTodoStatePersistenceCoordinator {
     }
 
     private func flushPendingEdits() {
-        guard hasPendingEdits, !terminalFailure else { return }
+        guard hasPendingEdits else { return }
         hasPendingEdits = false
         guard saveSnapshot() else {
             hasPendingEdits = true
@@ -64,10 +60,11 @@ final class SessionTodoStatePersistenceCoordinator {
                 let delay = DispatchTimeInterval.milliseconds(100 * (1 << (consecutiveFailures - 1)))
                 scheduleWrite(after: delay)
             } else {
-                terminalFailure = true
+                consecutiveFailures = 0
                 sessionTodoPersistenceLogger.error(
-                    "Todo session persistence stopped after repeated snapshot failures"
+                    "Todo session persistence retrying after repeated snapshot failures"
                 )
+                scheduleWrite(after: Self.recoveryRetryDelay)
             }
             return
         }
