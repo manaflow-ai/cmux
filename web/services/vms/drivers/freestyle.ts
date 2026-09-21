@@ -1750,8 +1750,7 @@ export class FreestyleProvider implements VMProvider {
   private async installGuestCliFiles(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
-      await this.execOrThrow(vm, vmId, "mkdir -p /usr/local/libexec", 5_000);
-      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
+      await this.uploadGuestShim(vm, vmId, temporaryPath);
       const result = await vm.exec({
         command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}' && ${guestCliDistributionCommand()}`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
@@ -1765,6 +1764,22 @@ export class FreestyleProvider implements VMProvider {
     } catch (error) {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
+    }
+  }
+
+  /**
+   * The bake creates the shim's directory (`/usr/local/libexec`, the
+   * opencode launcher step), so the upload goes straight in; an image from
+   * before that step rejects it once, and the directory is created and the
+   * upload retried instead of paying a mkdir round trip on every create.
+   */
+  private async uploadGuestShim(vm: Vm, vmId: string, temporaryPath: string): Promise<void> {
+    try {
+      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
+    } catch (error) {
+      if (!isMissingGuestDirectoryError(error)) throw error;
+      await this.execOrThrow(vm, vmId, "mkdir -p /usr/local/libexec", 5_000);
+      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
     }
   }
 
@@ -1792,6 +1807,14 @@ export class FreestyleProvider implements VMProvider {
       return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
     };
   }
+}
+
+/** A filesystem write refused because the target directory does not exist in the guest. */
+function isMissingGuestDirectoryError(error: unknown): boolean {
+  if (error instanceof FreestyleApiError) {
+    return error.status === 404 || /no such file|not found|enoent/i.test(error.message);
+  }
+  return error instanceof Error && /no such file|enoent/i.test(error.message);
 }
 
 /** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */

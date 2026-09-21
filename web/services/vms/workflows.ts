@@ -114,6 +114,8 @@ import {
   type VmResizeReservation,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import type { VmDeferSink } from "./defer";
+import { findVmImageManifestEntry, vmImageEntryEpoch } from "./images/resolver";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 
 export {
@@ -159,6 +161,12 @@ export type VmEntry = {
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
+  /**
+   * The devbox epoch the machine's image was baked at: stamped on the row at
+   * create, read from the manifest for rows created before the stamp. Null
+   * for an image the manifest does not list.
+   */
+  readonly imageEpoch: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -579,6 +587,9 @@ type CreateVmInput = {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
+  /** The manifest epoch of the resolved image, stamped on the row so attach gates never re-resolve it. */
+  readonly imageEpoch?: string | null;
+  readonly defer?: VmDeferSink;
 };
 
 function createVmBeginInput(input: CreateVmInput): CreateVmInput {
@@ -746,7 +757,10 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: {
+          ...(handle.providerMetadata ?? create.vm.providerMetadata),
+          ...(input.imageEpoch ? { imageEpoch: input.imageEpoch } : {}),
+        },
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -3384,11 +3398,13 @@ export function openVmCmuxRemote(input: {
   readonly clientCapabilities?: readonly string[];
   /** Caller's CURRENT billing plan; the free access window applies to cmux-tui attaches too. */
   readonly callerPlanId?: string | null;
+  readonly timing?: VmTimingSink;
+  readonly defer?: VmDeferSink;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
-    const vm = yield* requireAccessibleUserVm(input);
+    const vm = yield* measureVmEffect(input.timing, "access_check", requireAccessibleUserVm(input));
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.includes("cmux-remote")) {
       return yield* Effect.fail(new VmAttachTransportUnsupportedError({
@@ -3407,15 +3423,22 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
-    yield* preflightResumeIfSuspended(
+    // A row the control plane wrote seconds ago (a create, a resume, a
+    // rename) describes a machine that cannot have been idle-paused since:
+    // Cloud machines run with idle pausing disabled, and the row is updated
+    // on every control-plane transition. Trusting it saves the provider
+    // status round trip on the attach that follows a create; the re-probe
+    // after a failed attach still wakes a machine paused out of band.
+    const trustedRow = vm.status === "running" && Date.now() - vm.updatedAt.getTime() < VM_ROW_TRUST_WINDOW_MS;
+    yield* measureVmEffect(input.timing, "preflight_probe", preflightResumeIfSuspended(
       repo,
       providers,
       vm,
       input.providerVmId,
       "attach",
-      { forceProviderProbe: true, maxActiveVms: input.maxActiveVms },
-    );
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      { forceProviderProbe: !trustedRow, maxActiveVms: input.maxActiveVms },
+    ));
+    const endpoint = yield* measureVmEffect(input.timing, "provider_attach", withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
@@ -3428,8 +3451,10 @@ export function openVmCmuxRemote(input: {
         providerMetadata: vm.providerMetadata,
       }),
       input.maxActiveVms,
-    );
-    yield* repo.recordLease({
+    ));
+    // The lease is what sign-out revocation finds, so it is written before
+    // the endpoint is handed out.
+    yield* measureVmEffect(input.timing, "lease", repo.recordLease({
       vmId: vm.id,
       userId: input.userId,
       kind: "preview",
@@ -3444,32 +3469,51 @@ export function openVmCmuxRemote(input: {
           : Effect.void;
         return cleanup.pipe(Effect.andThen(Effect.fail(err)));
       }),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.attach",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    // Backfill: machines created before address recording learn their private
-    // address on first attach, so "Copy IP Address" appears for them too.
-    const learned = endpoint.networkAddresses;
-    if (learned && repo.mergeProviderMetadata) {
-      const metadata = vm.providerMetadata ?? {};
-      const patch = {
-        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
-        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
-      };
-      if (Object.keys(patch).length) {
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
+    ));
+    // The attach usage event and the address backfill are bookkeeping the
+    // response does not wait for.
+    yield* deferOrRun(input.defer, Effect.all([
+      repo.recordUsageEvent({
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.attach",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
+      }).pipe(Effect.catchAll(() => Effect.void)),
+      backfillLearnedAddresses(repo, vm, endpoint.networkAddresses),
+    ], { discard: true }));
     return endpoint;
   });
+}
+
+/**
+ * How long a `running` row is trusted without a provider status probe
+ * (see openVmCmuxRemote). Long enough to cover the attach that follows a
+ * create or a resume, short enough that a machine paused from the provider
+ * console is still noticed on the next open.
+ */
+const VM_ROW_TRUST_WINDOW_MS = 120_000;
+
+/**
+ * Backfill: machines created before address recording learn their private
+ * address on first attach, so "Copy IP Address" appears for them too.
+ */
+function backfillLearnedAddresses(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  learned: { readonly ipv4?: string; readonly ipv6?: string } | undefined,
+): Effect.Effect<void> {
+  if (!learned || !repo.mergeProviderMetadata) return Effect.void;
+  const metadata = vm.providerMetadata ?? {};
+  const patch = {
+    ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
+    ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
+  };
+  if (!Object.keys(patch).length) return Effect.void;
+  return repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
 }
 
 export function approveVmCmuxRemoteEnrollment(input: {
@@ -4028,6 +4072,7 @@ function recordCreateRequestedEvents(
     readonly imageVersion?: string | null;
     readonly idempotencyKey?: string;
     readonly timing?: VmTimingSink;
+    readonly defer?: VmDeferSink;
   },
   requestedVm: CloudVmRow,
   creditReservation: VmCreateCreditReservation,
@@ -4035,7 +4080,7 @@ function recordCreateRequestedEvents(
   return measureVmEffect(
     input.timing,
     "usage_events",
-    repo.recordUsageEvents([
+    deferOrRun(input.defer, repo.recordUsageEvents([
       ...(creditReservation.kind === "none"
         ? []
         : [creditUsageEvent(requestedVm, "vm.create.credit.reserved", creditReservation)]),
@@ -4052,7 +4097,7 @@ function recordCreateRequestedEvents(
           imageVersion: input.imageVersion ?? null,
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ])),
   );
 }
 
@@ -4068,13 +4113,14 @@ function recordCreateSuccessEvents(
     readonly persistentHome?: boolean;
     readonly perMachineHome?: boolean;
     readonly imageSize?: CreateOptions["imageSize"];
+    readonly defer?: VmDeferSink;
   },
   running: CloudVmRow,
 ) {
   return measureVmEffect(
     input.timing,
     "usage_events",
-    repo.recordUsageEvents([
+    deferOrRun(input.defer, repo.recordUsageEvents([
       {
         userId: running.userId,
         billingTeamId: running.billingTeamId,
@@ -4095,8 +4141,22 @@ function recordCreateSuccessEvents(
           ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
         },
       },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    ])),
   );
+}
+
+/**
+ * Best-effort bookkeeping: run `effect` inline, or hand it to the caller's
+ * defer sink so it runs after the response. Failures are swallowed either
+ * way (the repository logs them); the sink's own error handling covers the
+ * deferred case.
+ */
+function deferOrRun<E>(defer: VmDeferSink | undefined, effect: Effect.Effect<void, E>): Effect.Effect<void> {
+  const guarded = effect.pipe(Effect.catchAll(() => Effect.void));
+  if (!defer) return guarded;
+  return Effect.sync(() => {
+    defer(() => Effect.runPromise(guarded));
+  });
 }
 
 function recordCreateFailureEvent(
@@ -4266,6 +4326,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   const metadata = row.providerMetadata ?? {};
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
+  const stampedEpoch = metadata["imageEpoch"];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -4277,6 +4338,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
+    imageEpoch: typeof stampedEpoch === "string" && stampedEpoch
+      ? stampedEpoch
+      : vmImageEntryEpoch(findVmImageManifestEntry(row.provider, row.imageId)) ?? null,
   };
 }
 
