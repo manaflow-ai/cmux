@@ -45,5 +45,7 @@ jobs:
             --no-input \
             PyYAML==6.0.3
           echo "CACHE_RECEIPT_PYTHON=$RUNNER_TEMP/cache-receipt-venv/bin/python" >> "$GITHUB_ENV"
-      - run: "$CACHE_RECEIPT_PYTHON" tests/test_ci_cache_restore_receipt.py
-      - run: "$CACHE_RECEIPT_PYTHON" scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
+      - run: |
+          "$CACHE_RECEIPT_PYTHON" tests/test_ci_cache_restore_receipt.py
+      - run: |
+          "$CACHE_RECEIPT_PYTHON" scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
