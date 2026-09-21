@@ -218,6 +218,25 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
+    func currentProviderMetadataWinsOverPaginatedCache() {
+        let stale = SessionAgent.registered(RegisteredSessionAgent(
+            id: "custom", name: "Old Name"
+        ))
+        let current = SessionAgent.registered(RegisteredSessionAgent(
+            id: "custom", name: "Current Name", iconAssetName: "AgentIcons/Pi"
+        ))
+        let options = projection.providerFilterOptions(
+            agents: [current, stale],
+            preferredOrder: [current],
+            selectedProviderID: nil
+        )
+
+        #expect(options == [current])
+        #expect(options.first?.displayName == "Current Name")
+        #expect(options.first?.assetName == "AgentIcons/Pi")
+    }
+
+    @Test
     func paginatedHistoryExtendsCachedProviderOptions() {
         let custom = SessionAgent.registered(RegisteredSessionAgent(
             id: "paginated-custom", name: "Paginated Custom"
