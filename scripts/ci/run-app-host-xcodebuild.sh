@@ -49,14 +49,6 @@ fi
 # that prefix when it launches the test runner, so the app host receives the
 # redirects without exposing them to the xcodebuild driver.
 app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
-# Swift Testing otherwise runs independent suites concurrently inside the same
-# app-host process. The cmux app-host tests share AppKit windows, UserDefaults,
-# socket fixtures, Ghostty configuration, and hook stores, so XCTest's
-# `-parallel-testing-enabled NO` is insufficient. Xcode's Testing runtime
-# provides this runtime width specifically for process-local serialization.
-app_host_test_runner_environment+=(
-  "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=1"
-)
 # Xcode does not inherit the driver's full environment into the test host.
 # Preserve CI identity so existing CI-specific test deadlines actually apply.
 if [ -n "${CI:-}" ]; then
