@@ -4577,24 +4577,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveDeferredRetryPending = false
     }
 
-    /// Capture only the changed todo state on main. Patch the existing session
-    /// on its serial writer so typing never rebuilds every live terminal and
-    /// preserves the saved resume bindings and scrollback of unrelated panes.
-    func saveTodoState(in workspace: Workspace) {
+    /// Schedule a session snapshot after todo edits settle. The existing
+    /// session persistence owner captures current in-memory state, keeping
+    /// todo edits consistent with simultaneous pane and workspace changes.
+    func saveTodoState(in _: Workspace) {
         guard !isTerminatingApp,
               didAttemptStartupSessionRestore,
               !isApplyingSessionRestore else { return }
         if todoStatePersistenceCoordinator == nil {
             todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
-                queue: sessionPersistenceQueue,
-                snapshotStore: sessionSnapshotStore,
-                fallbackSave: { [weak self] in
+                saveSnapshot: { [weak self] in
                     guard let self, !self.isTerminatingApp else { return false }
                     return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
                 }
             )
         }
-        todoStatePersistenceCoordinator?.enqueue(workspace: workspace)
+        todoStatePersistenceCoordinator?.enqueue()
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
