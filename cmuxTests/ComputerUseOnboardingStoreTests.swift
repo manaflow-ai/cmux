@@ -114,21 +114,57 @@ struct ComputerUseOnboardingStoreTests {
         #expect(restarted.phase == .onboardingRequired)
     }
 
-    @Test func legacyCompletionMigratesOnlyForAnUnchangedInstalledHelper() throws {
+    @Test func unscopedLegacyCompletionRequiresFreshVerification() throws {
         let fixture = try ComputerUseOnboardingFixture()
         defer { fixture.remove() }
         fixture.defaults.set(true, forKey: ComputerUseOnboardingStore.legacyCompletionKey)
         let store = fixture.store()
         store.restore(for: "synthetic-signed-helper-a")
-        #expect(store.phase.isReady)
+        #expect(!store.phase.isReady)
+        #expect(!store.completionCommitted)
         #expect(fixture.defaults.object(forKey: ComputerUseOnboardingStore.legacyCompletionKey) == nil)
-        #expect(fixture.defaults.data(forKey: fixture.completionKey) != nil)
+        #expect(fixture.defaults.data(forKey: fixture.completionKey) == nil)
 
         fixture.defaults.set(true, forKey: ComputerUseOnboardingStore.legacyCompletionKey)
         let missingHelper = fixture.store()
         missingHelper.invalidateHelper()
         missingHelper.restore(for: "synthetic-signed-helper-a")
         #expect(!missingHelper.phase.isReady)
+    }
+
+    @Test func runtimeAndStoreShareEnablementAndCompletion() async throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        // Foundation has no bundled helper; this exercises runtime transitions
+        // without launching a process or reading the user's preferences.
+        let runtime = ComputerUseRuntimeService(
+            bundle: Bundle(for: NSObject.self), paths: fixture.paths,
+            userDefaults: fixture.defaults, isDisabledByPolicy: { false }
+        )
+        defer { runtime.stopForTermination() }
+        await runtime.setEnabled(true)
+        #expect(runtime.onboarding.phase == .onboardingRequired)
+        runtime.onboarding.restore(for: "synthetic-signed-helper")
+        runtime.onboardingWasPresented()
+        let attempt = try #require(runtime.onboarding.beginVerification())
+        #expect(runtime.onboarding.finishVerification(.ready, attempt: attempt) == .ready)
+        #expect(runtime.permissionPhase == .ready)
+        #expect(runtime.onboardingIsComplete)
+        await runtime.setEnabled(false)
+        #expect(runtime.onboarding.phase == .disabled(onboardingComplete: true))
+        #expect(!runtime.onboardingIsComplete)
+    }
+
+    @Test func staleSuccessDoesNotReportReady() throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        store.apply(.setEnabled(true))
+        store.restore(for: "synthetic-signed-helper")
+        let attempt = try #require(store.beginVerification())
+        store.apply(.setEnabled(false))
+        #expect(store.finishVerification(.ready, attempt: attempt) == .unavailable)
+        #expect(!store.completionCommitted)
     }
 
     @Test(arguments: ["not-json", "{}", #"{"version":2,"scope":"fixture","helperIdentity":"synthetic-signed-helper-a"}"#])

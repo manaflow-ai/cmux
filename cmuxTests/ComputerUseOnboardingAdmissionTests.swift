@@ -13,6 +13,27 @@ import Testing
 
 @Suite("Computer Use onboarding admission")
 struct ComputerUseOnboardingAdmissionTests {
+    @Test @MainActor func bothProfilesAcknowledgeClosedAdmissionBeforeCompletion() async throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        store.apply(.setEnabled(true))
+        store.restore(for: "synthetic-signed-helper")
+        var publishedReadiness: [Bool] = []
+        let admission = ComputerUseOnboardingAdmissionCoordinator(
+            store: store,
+            publish: { _ in
+                publishedReadiness.append(store.completionCommitted && store.phase.isReady)
+                return true
+            },
+            stop: { Issue.record("A successful transaction must not stop the helpers") }
+        )
+        let attempt = try #require(store.beginVerification())
+        #expect(await admission.finish(.ready, attempt: attempt) == .ready)
+        #expect(publishedReadiness == [false, false, true, true])
+        #expect(store.completionCommitted)
+    }
+
     @Test(arguments: ComputerUseDaemonProfile.allCases) @MainActor
     func grantRecheckUsesTheControlProtocolForBothProfiles(profile: ComputerUseDaemonProfile) async throws {
         let fixture = try ComputerUseOnboardingFixture()
