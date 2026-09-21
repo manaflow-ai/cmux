@@ -839,8 +839,12 @@ extension AppDelegate {
         guard mainWindowLifecycleCoordinator.teardownRoute(windowId: route.windowId) === route else {
             return
         }
-        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
+        // Drop the route before resolving current workspace owners. That lookup
+        // walks the recoverable routes, and a windowless route whose manager is
+        // already finalized would otherwise re-enter this retirement for the
+        // same route without bound (a stack overflow in the app host).
         mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
+        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
         let manager = route.tabManager
         manager?.clearRecoverableMainWindowRouteOwnerRegistration(for: route)
         route.markForTeardown()
