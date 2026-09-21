@@ -9345,12 +9345,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
-        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
-            tabId: id,
+            id: panelID, tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
@@ -14518,9 +14518,9 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .newCloudWorkspace:
-                _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudWorkspace")
+                _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudWorkspace")
             case .newCloudMachine:
-                _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudMachine")
+                _ = AppDelegate.shared?.performNewCloudMachineAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.newCloudMachine")
             case .mobileConnect:
                 // Audible feedback instead of a silent no-op when the managed
                 // policy suppresses the pairing chokepoint.

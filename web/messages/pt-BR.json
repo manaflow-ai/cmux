@@ -53,8 +53,7 @@
     "memoryUnavailable": {
       "message": "Este tamanho de máquina não está disponível. Escolha até {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go inclui duas VMs salvas, incluindo a VM em execução.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -64,7 +63,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go suporta 2 vCPU, 4 GiB de RAM e 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Se encontramos uma conta, verifique seu e-mail para saber os próximos passos"
   },
@@ -400,7 +400,16 @@
       "revoked": "Revogado",
       "relaySettings": "Configurações de relay",
       "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
-      "saveRelaySettings": "Salvar configurações de relay"
+      "saveRelaySettings": "Salvar configurações de relay",
+      "eyebrow": "nuvem / dispositivos",
+      "scopeActive": "Exibindo esta equipe",
+      "emptyTitle": "Nenhum dispositivo conectado ainda",
+      "emptyDescription": "Quando um dispositivo cmux for pareado com esta equipe, ele aparecerá aqui com plataforma, versão e controles de acesso.",
+      "revoking": "Revogando…",
+      "registeredDevices": "Dispositivos registrados",
+      "activeDevices": "Dispositivos ativos",
+      "directoryRevision": "Revisão do diretório",
+      "savingRelaySettings": "Salvando…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartilhar com a equipe",
@@ -1356,7 +1365,7 @@
       "plusButtonScreenshotAlt": "Menu de clique direito do botão de mais do cmux mostrando Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "O menu de clique direito segue a ordem de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Ações personalizadas do botão de mais",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> para sobrescrever o que o botão de mais faz. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou o alias <rightClick>rightClick</rightClick>) para definir o menu ordenado do clique direito. Entradas de menu podem ser IDs de ação, objetos de ação ou <separator>{ \"type\": \"separator\" }</separator>. Quando não definido, o menu lista cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada um com seu atalho atual. As opções de nuvem aparecem apenas quando Cloud Machines está habilitado.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> para sobrescrever o que o botão de mais faz. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou o alias <rightClick>rightClick</rightClick>) para definir o menu ordenado do clique direito. Entradas de menu podem ser IDs de ação, objetos de ação ou <separator>{ \"type\": \"separator\" }</separator>. Quando não definido, o menu lista cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada um com seu atalho atual. As opções de nuvem aparecem apenas quando Cloud Machines está habilitado. New Cloud Workspace usa a máquina do último workspace Cloud selecionado e depois a primeira máquina na barra lateral direita; New Cloud Machine provisiona uma máquina deliberadamente.",
       "newWorkspaceWorktreeNote": "Este exemplo faz o clique normal no botão de mais executar a ação <action>worktree-agents</action>. O comando de workspace em <commands>commands</commands> usa um terminal de preparação visível para criar primeiro o <worktree>worktree</worktree> do Git. Codex e Claude iniciam ao mesmo tempo, esperam o arquivo de estado específico do workspace e então entram no diretório criado antes de exec.",
       "simpleCommands": "Comandos simples",
       "simpleCommandsDesc": "Um comando simples executa um comando shell no terminal atualmente focado:",

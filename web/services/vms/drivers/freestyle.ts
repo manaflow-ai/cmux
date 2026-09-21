@@ -52,6 +52,7 @@ import {
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
+import { guestCliDistributionCommand } from "../guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
@@ -1726,7 +1727,7 @@ export class FreestyleProvider implements VMProvider {
 
   private async ensureGuestCli(vm: Vm, vmId: string, installReporter = true): Promise<void> {
     const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
-    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && test "$(cat '${GUEST_CMUX_WELCOME_IDENTITY_PATH}' 2>/dev/null)" = ${shellQuote(vmId)}`);
+    const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && test "$(cat '${GUEST_CMUX_WELCOME_IDENTITY_PATH}' 2>/dev/null)" = ${shellQuote(vmId)} && ${guestCliDistributionCommand(true)}`);
     if (current?.exitCode === 0) {
       await this.execResult(vm, guestBrowserMimeReconcileCommand);
       return;
@@ -1760,13 +1761,14 @@ export class FreestyleProvider implements VMProvider {
     const pendingInstall = welcomeEligible === undefined ? ""
       : `printf '%s\\n' ${shellQuote(welcomeEligible ? vmId : "")} > '${pendingTemporaryPath}' && chmod 0644 '${pendingTemporaryPath}' && mv -f '${pendingTemporaryPath}' '${GUEST_CMUX_WELCOME_PENDING_PATH}'`;
     try {
+      await this.execOrThrow(vm, vmId, "mkdir -p /usr/local/libexec", 5_000);
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
       const result = await vm.exec({
-        command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}'`
+        command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}' && ${guestCliDistributionCommand()}`
           + ` && ${identityInstall}`
           + (pendingInstall ? ` && ${pendingInstall}` : "")
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
-        timeoutMs: 30_000,
+        timeoutMs: 90_000,
         linuxUser: GUEST_LINUX_USER,
       });
       const exitCode = result.statusCode ?? 124;

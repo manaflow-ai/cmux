@@ -26,9 +26,6 @@ struct MachinesPanelView: View {
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
-#if DEBUG
-    @Environment(\.cloudSidebarDebugSettings) private var cloudSidebarDebugSettings
-#endif
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
@@ -36,14 +33,13 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
-        defaultMachineStore: DefaultCloudMachineStore,
         machinePinStore: CloudMachinePinStore? = nil,
         tabManager: TabManager? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore,
+            machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
                 return tabManager.tabs.map {
@@ -51,15 +47,6 @@ struct MachinesPanelView: View {
                 }
             }
         ))
-    }
-
-    init(chromeBackgroundColor: NSColor, machinePinStore: CloudMachinePinStore? = nil, tabManager: TabManager? = nil) {
-        self.init(
-            chromeBackgroundColor: chromeBackgroundColor,
-            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
-            machinePinStore: machinePinStore,
-            tabManager: tabManager
-        )
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -96,9 +83,6 @@ struct MachinesPanelView: View {
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
-        }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -476,15 +460,6 @@ struct MachinesPanelView: View {
             coordinator: viewModel.createCoordinator
         )
     }
-    private var resolvedTreeStyle: CloudTreeStyle {
-        let base = CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
-#if DEBUG
-        return cloudSidebarDebugSettings?.metrics.resolvedStyle(base) ?? base
-#else
-        return base
-#endif
-    }
-
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
@@ -500,12 +475,10 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
-        }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in
@@ -526,7 +499,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: resolvedTreeStyle,
+            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
