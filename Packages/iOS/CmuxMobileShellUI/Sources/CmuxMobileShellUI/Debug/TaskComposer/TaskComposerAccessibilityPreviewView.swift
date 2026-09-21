@@ -123,7 +123,9 @@ public struct TaskComposerAccessibilityPreviewView: View {
         }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
-            workspaces: presentsOpenDirectory ? [Self.openDirectoryWorkspace] : [],
+            workspaces: presentsOpenDirectory
+                ? [Self.openDirectoryWorkspace]
+                : [Self.previewPaneWorkspace],
             taskTemplateStore: templateStore,
             taskModelCatalogClient: catalogClient
         )
@@ -336,6 +338,57 @@ public struct TaskComposerAccessibilityPreviewView: View {
         name: "Current project",
         currentDirectory: "/Users/ui/current-project",
         terminals: []
+    )
+
+    private static let previewPaneWorkspace = MobileWorkspacePreview(
+        id: "workspace-pane-preview",
+        macDeviceID: previewMac.macDeviceID,
+        macDisplayName: previewMac.displayName,
+        windowID: "window-pane-preview",
+        name: "Frontend workspace",
+        currentDirectory: "/Users/ui/frontend",
+        terminals: [
+            MobileTerminalPreview(
+                id: "terminal-pane-preview-left",
+                name: "dev",
+                currentDirectory: "/Users/ui/frontend",
+                isFocused: true
+            ),
+            MobileTerminalPreview(
+                id: "terminal-pane-preview-right",
+                name: "tests",
+                currentDirectory: "/Users/ui/frontend",
+                isFocused: false
+            ),
+        ],
+        surfaces: [
+            MobileSurfacePreview(
+                id: "surface-pane-preview-left",
+                kind: .terminal,
+                title: "dev",
+                isFocused: true
+            ),
+            MobileSurfacePreview(
+                id: "surface-pane-preview-right",
+                kind: .terminal,
+                title: "tests"
+            ),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "pane-preview-left",
+                frame: .init(x: 0, y: 0, width: 0.58, height: 1),
+                surfaceIDs: ["surface-pane-preview-left"],
+                selectedSurfaceID: "surface-pane-preview-left",
+                isFocused: true
+            ),
+            MobilePanePreview(
+                id: "pane-preview-right",
+                frame: .init(x: 0.60, y: 0, width: 0.40, height: 1),
+                surfaceIDs: ["surface-pane-preview-right"],
+                selectedSurfaceID: "surface-pane-preview-right"
+            ),
+        ]
     )
 
     @MainActor
