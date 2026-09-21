@@ -722,112 +722,6 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
-      - name: Download persistent Mac compile product
-        id: persistent-download
-        if: steps.reuse-products.outputs.hit != 'true' && needs.persistent-mac-compile-route.outputs.use_persistent == 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          artifact-ids: ${{ needs.persistent-mac-compile-route.outputs.artifact_id }}
-          path: ${{ runner.temp }}/persistent-mac-compile
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}
-
-      - name: Revalidate persistent Mac compile product
-        id: persistent-restore
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-download.outcome == 'success'
-        continue-on-error: true
-        env:
-          EXPECTED_SOURCE_SHA: ${{ github.sha }}
-          EXPECTED_SOURCE_TREE: ${{ needs.persistent-mac-compile-route.outputs.source_tree }}
-        run: |
-          set -euo pipefail
-          [ -z "$(git status --porcelain --untracked-files=all)" ] || {
-            echo "hosted validation checkout is dirty" >&2
-            exit 1
-          }
-          [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
-
-          archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
-          [ -n "$archive" ] && [ -f "$archive" ]
-          mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          tar -xzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          metrics="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/persistent-mac-metrics.json"
-          test -f "$metrics"
-
-          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-
-          METRICS="$metrics" EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import platform
-          import subprocess
-          from pathlib import Path
-
-          metrics = json.load(open(os.environ["METRICS"]))
-          expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
-          expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
-
-          def output(*argv):
-              return subprocess.check_output(argv, text=True).strip()
-
-          def digest(path):
-              value = hashlib.sha256()
-              with Path(path).open("rb") as stream:
-                  for block in iter(lambda: stream.read(1024 * 1024), b""):
-                      value.update(block)
-              return value.hexdigest()
-
-          source = metrics.get("source", {})
-          if source != {"commit": expected_sha, "tree": expected_tree}:
-              raise SystemExit("persistent producer source identity mismatch")
-          if output("git", "rev-parse", "HEAD") != expected_sha:
-              raise SystemExit("hosted checkout revision mismatch")
-          if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
-              raise SystemExit("hosted checkout tree mismatch")
-          if output("git", "status", "--porcelain", "--untracked-files=all"):
-              raise SystemExit("hosted checkout became dirty during validation")
-
-          lockfile = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-          if digest(lockfile) != metrics.get("package_resolved_sha256"):
-              raise SystemExit("Package.resolved identity mismatch")
-          submodules = output("git", "submodule", "status", "--recursive").encode()
-          if hashlib.sha256(submodules).hexdigest() != metrics.get("submodule_identity_sha256"):
-              raise SystemExit("submodule identity mismatch")
-
-          toolchain = metrics.get("toolchain", {})
-          if toolchain.get("xcode") != output("xcodebuild", "-version"):
-              raise SystemExit("Xcode identity mismatch")
-          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
-              raise SystemExit("macOS SDK version mismatch")
-          if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
-              raise SystemExit("macOS SDK build mismatch")
-          if platform.machine() != "arm64":
-              raise SystemExit("persistent product validation requires Apple Silicon")
-
-          classification = metrics.get("classification")
-          if classification not in {"hot", "partially-warm", "cold-reset"}:
-              raise SystemExit("invalid persistent cache classification")
-          glaeda = metrics.get("glaeda", {})
-          for key in ("cache_key", "invocation_identity", "generation"):
-              if not isinstance(glaeda.get(key), str) or not glaeda[key]:
-                  raise SystemExit(f"Glaeda receipt omitted {key}")
-          if not isinstance(glaeda.get("reset_reasons"), list):
-              raise SystemExit("Glaeda reset lineage is invalid")
-          print(
-              f"validated persistent product class={classification} "
-              f"cache_key={glaeda['cache_key']} invocation={glaeda['invocation_identity']}"
-          )
-          PY
-
-          {
-            echo "hit=true"
-            echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
-            echo "metrics=$metrics"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -2885,6 +2779,112 @@ jobs:
             echo "- total reuse seconds: $(show "$REUSE_TOTAL_SECONDS")"
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download persistent Mac compile product
+        id: persistent-download
+        if: steps.reuse-products.outputs.hit != 'true' && needs.persistent-mac-compile-route.outputs.use_persistent == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.persistent-mac-compile-route.outputs.artifact_id }}
+          path: ${{ runner.temp }}/persistent-mac-compile
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}
+
+      - name: Revalidate persistent Mac compile product
+        id: persistent-restore
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-download.outcome == 'success'
+        continue-on-error: true
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_SOURCE_TREE: ${{ needs.persistent-mac-compile-route.outputs.source_tree }}
+        run: |
+          set -euo pipefail
+          [ -z "$(git status --porcelain --untracked-files=all)" ] || {
+            echo "hosted validation checkout is dirty" >&2
+            exit 1
+          }
+          [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
+
+          archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
+          [ -n "$archive" ] && [ -f "$archive" ]
+          mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          tar -xzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          metrics="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/persistent-mac-metrics.json"
+          test -f "$metrics"
+
+          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+          METRICS="$metrics" EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import platform
+          import subprocess
+          from pathlib import Path
+
+          metrics = json.load(open(os.environ["METRICS"]))
+          expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
+          expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
+
+          def output(*argv):
+              return subprocess.check_output(argv, text=True).strip()
+
+          def digest(path):
+              value = hashlib.sha256()
+              with Path(path).open("rb") as stream:
+                  for block in iter(lambda: stream.read(1024 * 1024), b""):
+                      value.update(block)
+              return value.hexdigest()
+
+          source = metrics.get("source", {})
+          if source != {"commit": expected_sha, "tree": expected_tree}:
+              raise SystemExit("persistent producer source identity mismatch")
+          if output("git", "rev-parse", "HEAD") != expected_sha:
+              raise SystemExit("hosted checkout revision mismatch")
+          if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
+              raise SystemExit("hosted checkout tree mismatch")
+          if output("git", "status", "--porcelain", "--untracked-files=all"):
+              raise SystemExit("hosted checkout became dirty during validation")
+
+          lockfile = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          if digest(lockfile) != metrics.get("package_resolved_sha256"):
+              raise SystemExit("Package.resolved identity mismatch")
+          submodules = output("git", "submodule", "status", "--recursive").encode()
+          if hashlib.sha256(submodules).hexdigest() != metrics.get("submodule_identity_sha256"):
+              raise SystemExit("submodule identity mismatch")
+
+          toolchain = metrics.get("toolchain", {})
+          if toolchain.get("xcode") != output("xcodebuild", "-version"):
+              raise SystemExit("Xcode identity mismatch")
+          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
+              raise SystemExit("macOS SDK version mismatch")
+          if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
+              raise SystemExit("macOS SDK build mismatch")
+          if platform.machine() != "arm64":
+              raise SystemExit("persistent product validation requires Apple Silicon")
+
+          classification = metrics.get("classification")
+          if classification not in {"hot", "partially-warm", "cold-reset"}:
+              raise SystemExit("invalid persistent cache classification")
+          glaeda = metrics.get("glaeda", {})
+          for key in ("cache_key", "invocation_identity", "generation"):
+              if not isinstance(glaeda.get(key), str) or not glaeda[key]:
+                  raise SystemExit(f"Glaeda receipt omitted {key}")
+          if not isinstance(glaeda.get("reset_reasons"), list):
+              raise SystemExit("Glaeda reset lineage is invalid")
+          print(
+              f"validated persistent product class={classification} "
+              f"cache_key={glaeda['cache_key']} invocation={glaeda['invocation_identity']}"
+          )
+          PY
+
+          {
+            echo "hit=true"
+            echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
+            echo "metrics=$metrics"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Capture Ghostty revision
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
