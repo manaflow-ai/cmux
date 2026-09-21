@@ -160,6 +160,7 @@ struct cmuxApp: App {
             mobileRootScene
             #endif
         }
+        .analyticsClientID(Self.root.analytics.anonymousID)
         .environment(\.irohSettingsController, Self.root.irohSettingsController)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
         .environment(
