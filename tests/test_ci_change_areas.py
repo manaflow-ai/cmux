@@ -1819,6 +1819,25 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
+def test_source_lint_matrix_runs_independent_slow_scans_in_parallel() -> None:
+    block = workflow_job_block("workflow-guard-source-lints", GUARD_WORKFLOW)
+
+    assert "name: workflow-guard-source-lints / ${{ matrix.group }}" in block
+    assert "group: [sidebar-layout, dispatch-ownership]" in block
+    assert (
+        "- name: Validate sidebar lazy-layout guard\n"
+        "        if: ${{ matrix.group == 'sidebar-layout' }}"
+    ) in block
+    assert (
+        "- name: Initialize Bonsplit for deferred-work ownership guard\n"
+        "        if: ${{ matrix.group == 'dispatch-ownership' }}"
+    ) in block
+    assert (
+        "- name: Validate stored DispatchWorkItem ownership\n"
+        "        if: ${{ matrix.group == 'dispatch-ownership' }}"
+    ) in block
+
+
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
     assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
