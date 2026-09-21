@@ -34,11 +34,47 @@ cleanup() {
   stop_stream
   rm -rf "$stream_dir"
 }
-trap cleanup EXIT HUP INT TERM
+
+command_pid=""
+forward_signal() {
+  local signal_name="$1"
+  local exit_status="$2"
+  trap - HUP INT TERM
+  if [ -n "$command_pid" ] && kill -0 "$command_pid" 2>/dev/null; then
+    # The command runs as a new session/process-group leader. Forward
+    # cancellation to the whole owned group so xcodebuild/test descendants do
+    # not keep running after the capture wrapper is cancelled.
+    kill -s "$signal_name" -- "-$command_pid" 2>/dev/null       || kill -s "$signal_name" "$command_pid" 2>/dev/null       || true
+    for _ in 1 2 3 4 5; do
+      kill -0 "$command_pid" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$command_pid" 2>/dev/null; then
+      kill -KILL -- "-$command_pid" 2>/dev/null         || kill -KILL "$command_pid" 2>/dev/null         || true
+    fi
+    wait "$command_pid" 2>/dev/null || true
+  fi
+  command_pid=""
+  cleanup
+  trap - EXIT
+  exit "$exit_status"
+}
+trap cleanup EXIT
+trap 'forward_signal HUP 129' HUP
+trap 'forward_signal INT 130' INT
+trap 'forward_signal TERM 143' TERM
 
 set +e
-CMUX_CI_FILE_CAPTURE_ACTIVE=1 "$@" >>"$output_path" 2>&1
+CMUX_CI_FILE_CAPTURE_ACTIVE=1 python3 -c '
+import os
+import sys
+os.setsid()
+os.execvp(sys.argv[1], sys.argv[1:])
+' "$@" >>"$output_path" 2>&1 &
+command_pid=$!
+wait "$command_pid"
 status=$?
+command_pid=""
 set -e
 
 # Stop the live follower, then wait for the pipe reader to observe EOF. Reconcile
