@@ -136,6 +136,7 @@ private struct WorkspaceTodoPaneContent: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
     /// toggles it.
@@ -474,12 +475,14 @@ private struct WorkspaceTodoPaneContent: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        editingOriginalText = ""
         cancelItemEdit()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
@@ -488,6 +491,7 @@ private struct WorkspaceTodoPaneContent: View {
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -495,8 +499,15 @@ private struct WorkspaceTodoPaneContent: View {
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = todoState.checklist.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            WorkspaceTodoActions.editChecklistItem(id: id, text: editingOriginalText, in: workspace)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 }

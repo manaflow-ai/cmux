@@ -63,7 +63,7 @@ extension Workspace {
             inferred: inferredTaskStatus
         ).shouldClearOverride else { return }
         todoState.statusOverride = nil
-        postTodoMutationNotification()
+        persistTodoState()
     }
 
     /// Applies a manual status override, recording the current inference so
@@ -75,7 +75,7 @@ extension Workspace {
             status: status,
             inferredAtOverride: inferredTaskStatus
         )
-        postTodoMutationNotification()
+        persistTodoState()
     }
 
     /// Returns the status to automatic by clearing the manual override (and
@@ -83,7 +83,7 @@ extension Workspace {
     func clearTaskStatusOverride() {
         todoState.statusHidden = false
         todoState.statusOverride = nil
-        postTodoMutationNotification()
+        persistTodoState()
     }
 
     /// Opts this workspace out of the status feature: no glyph is drawn before
@@ -91,7 +91,7 @@ extension Workspace {
     func hideTaskStatus() {
         todoState.statusOverride = nil
         todoState.statusHidden = true
-        postTodoMutationNotification()
+        persistTodoState()
     }
 
     /// Cycles the effective status one lane forward (round-robin
@@ -115,7 +115,7 @@ extension Workspace {
             todoState.checklist.addChecklistItem(text, state: state, origin: origin)
         }
         if case .success = result {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return result
     }
@@ -130,7 +130,7 @@ extension Workspace {
             todoState.checklist.setChecklistItemState(id: id, state: state)
         }
         if didSet {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return didSet
     }
@@ -143,7 +143,7 @@ extension Workspace {
     func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
         let didMove = todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
         if didMove {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return didMove
     }
@@ -155,7 +155,7 @@ extension Workspace {
     func setChecklistItemText(id: UUID, text: String) -> Bool {
         let didSet = todoState.checklist.setChecklistItemText(id: id, text: text)
         if didSet {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return didSet
     }
@@ -174,7 +174,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[index].attachments.append(contentsOf: attachments)
-        postTodoMutationNotification()
+        persistTodoState()
         return true
     }
 
@@ -188,7 +188,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[itemIndex].attachments.remove(at: attachmentIndex)
-        postTodoMutationNotification()
+        persistTodoState()
         return true
     }
 
@@ -201,7 +201,7 @@ extension Workspace {
             todoState.checklist.removeChecklistItem(id: id)
         }
         if didRemove {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return didRemove
     }
@@ -213,7 +213,7 @@ extension Workspace {
     func clearChecklist() -> Int {
         let removedCount = todoState.checklist.clearChecklist()
         if removedCount > 0 {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return removedCount
     }
@@ -233,7 +233,7 @@ extension Workspace {
             todoState.checklist.replaceChecklist(with: items)
         }
         if case .success = result {
-            postTodoMutationNotification()
+            persistTodoState()
         }
         return result
     }
@@ -267,14 +267,8 @@ extension Workspace {
         todoState.checklist = snapshot.restoredChecklist
     }
 
-    /// Announces a completed todo mutation so session persistence can write
-    /// the latest checklist before the normal autosave interval elapses.
-    private func postTodoMutationNotification() {
-        NotificationCenter.default.post(name: .workspaceTodoDidMutate, object: self)
+    /// All callers, including CLI and UI edits, use the session persistence owner.
+    private func persistTodoState() {
+        AppDelegate.shared?.saveTodoState(in: self)
     }
-}
-
-extension Notification.Name {
-    /// Posted after a workspace todo state mutation has reached the live model.
-    static let workspaceTodoDidMutate = Notification.Name("cmux.workspaceTodoDidMutate")
 }

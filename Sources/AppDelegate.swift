@@ -1251,7 +1251,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var activeQuitConfirmationAlertPresenter: QuitConfirmationAlertPresenter?
     private var activeQuitConfirmationOwnsTerminateRequest = false
     private var didInstallLifecycleSnapshotObservers = false
-    private var todoMutationObserver: NSObjectProtocol?
     static let screenChangeReconcileNotification = Notification.Name("com.cmuxterm.app.screenChangeReconcile")
     static let displayReconfigurationNotification = Notification.Name("com.cmuxterm.app.displayReconfiguration")
     static let screenChangeReconcileRetryLimit = 3
@@ -4577,41 +4576,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveDeferredRetryPending = false
     }
 
-    /// Installs the immediate persistence bridge for todo mutations. The
-    /// workspace owns the mutation path, so UI, CLI, and socket edits all use
-    /// this same save path.
-    private func installTodoMutationObserverIfNeeded() {
-        guard todoMutationObserver == nil else { return }
-        todoMutationObserver = NotificationCenter.default.addObserver(
-            forName: .workspaceTodoDidMutate,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.saveSessionSnapshotForTodoMutation()
+    /// Capture only the changed todo state on main. Patch the existing session
+    /// on its serial writer so typing never rebuilds every live terminal and
+    /// preserves the saved resume bindings and scrollback of unrelated panes.
+    func saveTodoState(in workspace: Workspace) {
+        guard !isTerminatingApp,
+              didAttemptStartupSessionRestore,
+              !isApplyingSessionRestore else { return }
+        let update = SessionTodoStateSnapshot(workspace: workspace)
+        sessionPersistenceQueue.async { [weak self, sessionSnapshotStore] in
+            guard var snapshot = sessionSnapshotStore.load(fileURL: nil),
+                  update.apply(to: &snapshot) else {
+                // A new workspace may not have a baseline session yet. Capture
+                // its current state once through the normal persistence owner.
+                Task { @MainActor [weak self] in
+                    guard let self, !self.isTerminatingApp else { return }
+                    _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+                }
+                return
             }
+            _ = sessionSnapshotStore.save(snapshot, fileURL: nil)
         }
-    }
-
-    /// Writes the current session snapshot as soon as a todo mutation reaches
-    /// the live workspace model. Cached process indexes keep this path free of
-    /// the off-main process scan used by the regular autosave timer.
-    private func saveSessionSnapshotForTodoMutation() {
-        guard !isTerminatingApp else { return }
-        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
-        )
-        _ = saveSessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
         guard !didInstallLifecycleSnapshotObservers else { return }
         didInstallLifecycleSnapshotObservers = true
-        installTodoMutationObserverIfNeeded()
 
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         let powerOffObserver = workspaceCenter.addObserver(

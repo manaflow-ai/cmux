@@ -66,6 +66,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item: Up/Down from the add field moves it,
     /// Return toggles it when the add field is empty, and Cmd+Return always
@@ -532,12 +533,14 @@ struct SidebarWorkspaceChecklistPopover: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        editingOriginalText = ""
         cancelItemEdit()
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
@@ -546,6 +549,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -553,8 +557,15 @@ struct SidebarWorkspaceChecklistPopover: View {
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = model.items.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            actions.editItem(id, editingOriginalText)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 

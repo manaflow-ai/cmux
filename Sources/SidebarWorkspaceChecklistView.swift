@@ -187,6 +187,7 @@ struct SidebarWorkspaceChecklistSection: View {
     /// and clears itself on appear).
     @State private var inlineAddGeneration = 0
     @State private var editingItemId: UUID?
+    @State private var editingOriginalText = ""
     /// The item currently under the pointer, used to reveal the trailing
     /// delete button. A single id (not a per-row `@State`) is enough because
     /// only one row can be hovered at a time; mirrors `editingItemId`.
@@ -554,6 +555,7 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
+        editingOriginalText = item.text
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
@@ -564,6 +566,13 @@ struct SidebarWorkspaceChecklistSection: View {
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = items.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            actions.editItem(id, editingOriginalText)
+        }
         editingItemId = nil
+        editingOriginalText = ""
     }
 }
