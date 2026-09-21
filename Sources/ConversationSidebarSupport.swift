@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 
-@MainActor
 struct ConversationSidebarProjection {
     let historyPagePerAgent = 30
 
@@ -170,9 +169,12 @@ struct ConversationSidebarProjection {
 @MainActor
 private final class ConversationSidebarRefreshScheduler: ObservableObject {
     private var pendingTask: Task<Void, Never>?
+    private var generation: UInt64 = 0
 
     func schedule(_ operation: @escaping @MainActor () async -> Void) {
         pendingTask?.cancel()
+        generation &+= 1
+        let scheduledGeneration = generation
         pendingTask = Task { @MainActor [weak self] in
             // Yield once so a synchronous burst of registry notifications
             // collapses into one trailing refresh without retaining a SwiftUI
@@ -180,11 +182,13 @@ private final class ConversationSidebarRefreshScheduler: ObservableObject {
             await Task.yield()
             guard !Task.isCancelled else { return }
             await operation()
+            guard self?.generation == scheduledGeneration else { return }
             self?.pendingTask = nil
         }
     }
 
     func cancel() {
+        generation &+= 1
         pendingTask?.cancel()
         pendingTask = nil
     }
