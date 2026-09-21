@@ -32,6 +32,90 @@ struct MobileSettingsView: View {
     @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+
+    /// Split out of `body` because the inline Section pushed the containing
+    /// expression past the type-checker's budget on clean builds.
+    private func networkingSection(controller: any CmxIrohSettingsControlling) -> some View {
+        Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+            NavigationLink {
+                MobileIrohSettingsView(
+                    controller: controller,
+                    diagnosticLog: diagnosticLog
+                )
+            } label: {
+                Label(
+                    L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
+                    systemImage: "network"
+                )
+            }
+            .accessibilityIdentifier("MobileSettingsIroh")
+        }
+    }
+
+    /// Split out of `body`: this Section's expression exceeded the
+    /// type-checker's budget on clean builds.
+    @ViewBuilder
+    private var pushAlertsSection: some View {
+        // Release builds keep the section to the single agent-alerts
+        // toggle the app always had; the delivery-status diagnostics,
+        // Mac forwarding controls, and test actions are a dev surface
+        // and stay DEBUG-only.
+        Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+#if DEBUG
+            MobilePushSettingsContent(
+                readiness: pushCoordinator.readiness(
+                    macStatus: store?.phonePushMacStatus,
+                    macAccountMismatch: store?.connectionRequiresReauth == true,
+                    securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
+                ),
+                phoneEnabled: $notificationsEnabled,
+                macStatus: store?.phonePushMacStatus,
+                supportsMacSettings: store?.supportsPhonePushSettings == true,
+                supportsMacTest: store?.supportsPhonePushTest == true,
+                canConnectMac: startPairingScanner != nil,
+                onPhoneEnabledChange: updatePhonePushEnabled,
+                onRepair: repairPhonePush,
+                onMacMutation: updateMacPhonePush,
+                onSendTest: sendPhonePushTest
+            )
+            Button {
+                Task { @MainActor in
+                    debugReplyScheduled = await pushCoordinator
+                        .debugScheduleLocalReplyNotification()
+                }
+            } label: {
+                Text(L10n.string(
+                    "mobile.settings.debugReplyTest",
+                    defaultValue: "Test Inline Reply (Local)"
+                ))
+            }
+            .accessibilityIdentifier("MobileSettingsDebugReplyTestButton")
+            if let debugReplyScheduled {
+                Text(L10n.string(
+                    debugReplyScheduled
+                        ? "mobile.settings.debugReplyTest.scheduled"
+                        : "mobile.settings.debugReplyTest.failed",
+                    defaultValue: debugReplyScheduled
+                        ? "Scheduled: lock the phone; the notification fires in 5 seconds."
+                        : "Couldn't schedule: open a workspace and select a terminal first."
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+#else
+            if store?.phonePushKeyExchangeFailed == true {
+                MobilePushSecuritySetupFailureView(
+                    onRetry: retrySecurePushSetup
+                )
+            }
+            MobilePushToggle(
+                isEnabled: $notificationsEnabled,
+                applyEnabledIntent: setPhonePushEnabledIntent
+            )
+#endif
+        }
+    }
+
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
     /// Re-evaluates the scanner entrypoint after the replay picker changes the
@@ -214,20 +298,7 @@ struct MobileSettingsView: View {
                 }
 
                 if let irohSettingsController {
-                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
-                        NavigationLink {
-                            MobileIrohSettingsView(
-                                controller: irohSettingsController,
-                                diagnosticLog: diagnosticLog
-                            )
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
-                                systemImage: "network"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsIroh")
-                    }
+                    networkingSection(controller: irohSettingsController)
                 }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
@@ -448,64 +519,7 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalScrollback")
                 }
 
-                // Release builds keep the section to the single agent-alerts
-                // toggle the app always had; the delivery-status diagnostics,
-                // Mac forwarding controls, and test actions are a dev surface
-                // and stay DEBUG-only.
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
-#if DEBUG
-                    MobilePushSettingsContent(
-                        readiness: pushCoordinator.readiness(
-                            macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true,
-                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
-                        ),
-                        phoneEnabled: $notificationsEnabled,
-                        macStatus: store?.phonePushMacStatus,
-                        supportsMacSettings: store?.supportsPhonePushSettings == true,
-                        supportsMacTest: store?.supportsPhonePushTest == true,
-                        canConnectMac: startPairingScanner != nil,
-                        onPhoneEnabledChange: updatePhonePushEnabled,
-                        onRepair: repairPhonePush,
-                        onMacMutation: updateMacPhonePush,
-                        onSendTest: sendPhonePushTest
-                    )
-                    Button {
-                        Task { @MainActor in
-                            debugReplyScheduled = await pushCoordinator
-                                .debugScheduleLocalReplyNotification()
-                        }
-                    } label: {
-                        Text(L10n.string(
-                            "mobile.settings.debugReplyTest",
-                            defaultValue: "Test Inline Reply (Local)"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsDebugReplyTestButton")
-                    if let debugReplyScheduled {
-                        Text(L10n.string(
-                            debugReplyScheduled
-                                ? "mobile.settings.debugReplyTest.scheduled"
-                                : "mobile.settings.debugReplyTest.failed",
-                            defaultValue: debugReplyScheduled
-                                ? "Scheduled: lock the phone; the notification fires in 5 seconds."
-                                : "Couldn't schedule: open a workspace and select a terminal first."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-#else
-                    if store?.phonePushKeyExchangeFailed == true {
-                        MobilePushSecuritySetupFailureView(
-                            onRetry: retrySecurePushSetup
-                        )
-                    }
-                    MobilePushToggle(
-                        isEnabled: $notificationsEnabled,
-                        applyEnabledIntent: setPhonePushEnabledIntent
-                    )
-#endif
-                }
+                pushAlertsSection
 
                 Section {
                     Toggle(isOn: $sendAnonymousTelemetry) {

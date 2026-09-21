@@ -1270,6 +1270,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
+    /// Live-path trace bookkeeping (MobileShellComposite+TerminalLiveTrace):
+    /// dispatch stamps for in-flight marked inputs, echo stamps awaiting
+    /// presentation, the frame sampling counter, and the one-time verbose
+    /// admission-cap application. All bounded.
+    @ObservationIgnored var liveInputTraceStartsBySequence: [UInt64: Date] = [:]
+    @ObservationIgnored var liveInputPresentationStartsBySequence: [UInt64: Date] = [:]
+    @ObservationIgnored var liveFrameTraceSampleCounter: UInt64 = 0
+    @ObservationIgnored var liveTraceAdmissionPolicyApplied = false
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
     @ObservationIgnored var terminalInputAckResubscribeRetrySurfaceID: String?
@@ -11552,6 +11560,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalInputAckResubscribeRetry()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
+        clearLiveTerminalTraces()
     }
 
     /// The one shared entry every pairing flow funnels through, so it is also the
@@ -12832,6 +12841,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             correlate: tracksInputSequence
         )
         let marker = inputSequence != 0 && tracksInputSequence ? inputSequence : nil
+        if let marker {
+            traceLiveInputDispatched(surfaceID: terminalID.rawValue, sequence: marker)
+        }
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
@@ -12904,6 +12916,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: terminalID.rawValue,
                     sequence: inputSequence
                 )
+                if marker != nil {
+                    traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: inputSequence, failed: false)
+                }
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
                 finishRawTerminalSend(
                     sendStatusOperationID,
@@ -12916,6 +12931,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: terminalID.rawValue,
                     sequence: inputSequence
                 )
+                if marker != nil {
+                    traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: inputSequence, failed: true)
+                }
                 mobileShellLog.error(
                     "independent terminal input failed surface=\(terminalID.rawValue, privacy: .public)"
                 )
@@ -12959,6 +12977,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 surfaceID: terminalID.rawValue,
                                 sequence: directInputSequence
                             )
+                            if marker != nil {
+                                self?.traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: directInputSequence, failed: false)
+                            }
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
                                 succeeded: true
@@ -12982,6 +13003,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 surfaceID: terminalID.rawValue,
                                 sequence: directInputSequence
                             )
+                            if marker != nil {
+                                self?.traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: directInputSequence, failed: true)
+                            }
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
                                 succeeded: false
@@ -13052,6 +13076,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 surfaceID: terminalID.rawValue,
                 sequence: directInputSequence
             )
+            if marker != nil {
+                traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: directInputSequence, failed: false)
+            }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
             finishRawTerminalSend(

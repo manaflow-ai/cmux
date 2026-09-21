@@ -124,7 +124,7 @@ struct MobilePushReadinessPreviewView: View {
         switch repair {
         case .enableOnPhone:
             return await setPhoneEnabled(true)
-        case .retryDeviceTokenRegistration, .retryRegistration:
+        case .retryDeviceTokenRegistration, .retryRegistration, .retrySecurePushSetup:
             registration = Self.registered
             return true
         case .connectMac:
