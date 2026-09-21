@@ -1398,6 +1398,20 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         return next
     }
 
+    // Compatibility overload for callers that only track one source path.
+    static func fromDefinition(
+        id: String,
+        definition: CmuxConfigActionDefinition,
+        sourcePath: String?
+    ) -> CmuxResolvedConfigAction? {
+        fromDefinition(
+            id: id,
+            definition: definition,
+            actionSourcePath: sourcePath,
+            iconSourcePath: sourcePath
+        )
+    }
+
     static func fromDefinition(
         id: String,
         definition: CmuxConfigActionDefinition,
