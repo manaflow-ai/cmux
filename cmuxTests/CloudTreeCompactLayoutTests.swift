@@ -27,7 +27,7 @@ struct CloudTreeCompactLayoutTests {
         let template = try #require(fixture.nodes(titles: ["workspace-1"]).first)
         let machine = MachineSnapshot(
             id: fixture.machine.rawValue, provider: "fixture", image: "fixture", isDesktop: false,
-            activity: .ready, createdAt: nil, label: "early-plum-alpaca", isDefault: true
+            activity: .ready, createdAt: nil, label: "early-plum-alpaca"
         )
         let root = CloudTreeNode(id: template.id, kind: .machine(machine, nil), children: template.children)
         fixture.coordinator.apply(nodes: [root])

@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -1343,7 +1343,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen. New Cloud Workspace koristi mašinu posljednjeg odabranog Cloud workspacea, zatim prvu mašinu na desnoj bočnoj traci; New Cloud Machine namjerno kreira mašinu.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Jednostavne komande",
       "simpleCommandsDesc": "Jednostavna komanda pokreće shell komandu u trenutno fokusiranom terminalu:",
