@@ -212,6 +212,12 @@ public final class ComputerUseRuntimeService {
         onboarding.completionCommitted && desiredEnabled && permissionPhase.isReady
     }
 
+    /// Whether the helper has returned authoritative permission and readiness
+    /// evidence for the Settings snapshot.
+    public var setupStatusIsKnown: Bool {
+        permissionStatusIsKnown && permissionPhase != .onboardingRequired
+    }
+
     /// Claims automatic first-use onboarding for an explicit functional request.
     @discardableResult
     public func requestAutomaticOnboarding() -> Bool {
