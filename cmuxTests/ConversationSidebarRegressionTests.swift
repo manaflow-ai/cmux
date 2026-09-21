@@ -243,6 +243,57 @@ struct ConversationSidebarRegressionTests {
             }
         }
     }
+
+    @Test
+    func refreshSchedulerKeepsReplacementOwnedAfterOlderTaskFinishes() async {
+        let oldStarted = AsyncStream<Void>.makeStream()
+        let oldGate = AsyncStream<Void>.makeStream()
+        let oldFinished = AsyncStream<Void>.makeStream()
+        let newStarted = AsyncStream<Void>.makeStream()
+        let newGate = AsyncStream<Void>.makeStream()
+        let newFinished = AsyncStream<Void>.makeStream()
+        let newObservedCancellation = AsyncStream<Void>.makeStream()
+        let scheduler = ConversationSidebarRefreshScheduler()
+
+        scheduler.schedule {
+            oldStarted.continuation.yield()
+            for await _ in oldGate.stream { break }
+            oldFinished.continuation.yield()
+        }
+        var oldStartedIterator = oldStarted.stream.makeAsyncIterator()
+        _ = await oldStartedIterator.next()
+
+        scheduler.schedule {
+            newStarted.continuation.yield()
+            for await _ in newGate.stream { break }
+            if Task.isCancelled {
+                newObservedCancellation.continuation.yield()
+            }
+            newFinished.continuation.yield()
+        }
+        var newStartedIterator = newStarted.stream.makeAsyncIterator()
+        _ = await newStartedIterator.next()
+
+        // The cancelled operation is allowed to finish after its replacement
+        // has been installed. It must not clear the replacement's handle.
+        oldGate.continuation.yield()
+        oldGate.continuation.finish()
+        var oldFinishedIterator = oldFinished.stream.makeAsyncIterator()
+        _ = await oldFinishedIterator.next()
+
+        scheduler.cancel()
+        newGate.continuation.yield()
+        newGate.continuation.finish()
+        var newFinishedIterator = newFinished.stream.makeAsyncIterator()
+        _ = await newFinishedIterator.next()
+        newObservedCancellation.continuation.finish()
+        var cancellationIterator = newObservedCancellation.stream.makeAsyncIterator()
+        #expect(await cancellationIterator.next() != nil)
+
+        oldStarted.continuation.finish()
+        newStarted.continuation.finish()
+    }
+
     private func sessionEntry(
         id: String,
         title: String,
