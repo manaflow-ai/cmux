@@ -1814,9 +1814,8 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["scripts/ci/web_subareas.py"], (True, True, True)),
     )
     for paths, expected in cases:
-        with contextlib.ExitStack():
-            actual = web_subareas.classify_paths(paths)
-            assert (actual.db, actual.instant, actual.react_apps) == expected, (paths, actual)
+        actual = web_subareas.classify_paths(paths)
+        assert (actual.db, actual.instant, actual.react_apps) == expected, (paths, actual)
 
 
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
