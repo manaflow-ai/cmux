@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 WEB_CI_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
@@ -762,20 +762,20 @@ check_gui_smoke_unsupported_launch_handling() {
 
 check_no_ci_xctest_skips() {
   if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
-    echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
+    echo "FAIL: ci-macos.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
     exit 1
   fi
 
-  echo "PASS: ci.yml does not exclude XCTest methods"
+  echo "PASS: ci-macos.yml does not exclude XCTest methods"
 }
 
 check_no_ci_swift_package_skips() {
   if grep -nE '(^|[[:space:]])swift[[:space:]]+test([[:space:]].*)?[[:space:]]--skip([[:space:]]|$)' "$CI_FILE"; then
-    echo "FAIL: ci.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
+    echo "FAIL: ci-macos.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
     exit 1
   fi
 
-  echo "PASS: ci.yml does not exclude Swift package tests"
+  echo "PASS: ci-macos.yml does not exclude Swift package tests"
 }
 
 check_web_db_behavior_tests() {
@@ -1216,7 +1216,7 @@ check_no_self_hosted_fleet_runners() {
 
 check_cla_guard_runner
 
-# ci.yml jobs
+# ci-macos.yml jobs
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
