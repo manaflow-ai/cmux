@@ -66,7 +66,12 @@ resolve() {
 
 build() {
   local derived_data="$1" source_packages="$2" cas_path="$3" log="${4:-/dev/null}"
+  local -a module_cache_setting=()
   mkdir -p "$cas_path" "$derived_data"
+  if [ -n "${CMUX_CI_MODULE_CACHE_PATH:-}" ]; then
+    mkdir -p "$CMUX_CI_MODULE_CACHE_PATH"
+    module_cache_setting=("CLANG_MODULE_CACHE_PATH=$CMUX_CI_MODULE_CACHE_PATH")
+  fi
 
   # Build the app/UI scheme first so its warning log retains the old runtime
   # job warning-budget scope; subsequent schemes reuse the same app objects.
@@ -82,6 +87,7 @@ build() {
       COMPILATION_CACHE_ENABLE_CACHING=YES \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
