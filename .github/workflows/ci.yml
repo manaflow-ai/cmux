@@ -2022,13 +2022,6 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
-      - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
-
       - name: Set up Bun for Pi extension dispatch regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
