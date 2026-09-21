@@ -255,10 +255,15 @@ while [ "$attempt" -le "$max_attempts" ]; do
   : >"$log_path"
   attempt_xcodebuild_arguments=("${app_host_xcodebuild_arguments[@]}")
   result_bundle_path=""
-  if [ -n "${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}" ] \
+  result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}"
+  if [ -z "$result_bundle_root" ] \
+    && [ "${CMUX_APP_HOST_CAPTURE_XCRESULTS:-0}" = "1" ]; then
+    result_bundle_root="${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults"
+  fi
+  if [ -n "$result_bundle_root" ] \
     && [ "$caller_has_result_bundle" -eq 0 ]; then
-    mkdir -p "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT"
-    result_bundle_path="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT%/}/$(basename "$log_stem")-attempt-${attempt}.xcresult"
+    mkdir -p "$result_bundle_root"
+    result_bundle_path="${result_bundle_root%/}/$(basename "$log_stem")-attempt-${attempt}.xcresult"
     rm -rf -- "$result_bundle_path"
     attempt_xcodebuild_arguments+=("-resultBundlePath" "$result_bundle_path")
   fi
