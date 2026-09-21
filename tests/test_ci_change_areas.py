@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
     "static-preflight",
     "workflow-guard-tests",
@@ -997,24 +998,40 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert 'tests["result"] not in {"success", "skipped"}' in block
 
 
-def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
-    block = workflow_job_block("web-typecheck")
+def test_web_typecheck_retries_native_tsgo_abort() -> None:
+    script = workflow_job_step_script("web-typecheck", "Typecheck")
 
-    assert "grep -Fq '[WebServer] $ tsgo --noEmit' \"$log\"" in block
-    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in block
-    assert "retrying once" in block
+    assert "bun run typecheck 2>&1 | tee \"$log\"" in script
+    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in script
+    assert "retrying once" in script
+    assert "bun run test:instant" not in script
 
 
 def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    web_validation = (ROOT / ".github/workflows/web-validation.yml").read_text()
+    workflow = workflow_job_block("web-typecheck")
+    web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
     assert "CMUX_INSTANT_CHECK_TYPECHECK" in config
     assert "process.env.CMUX_INSTANT_CHECK_TYPECHECK === \"1\"" in config
     package_json = (ROOT / "web/package.json").read_text()
-    assert '"test:instant:checked"' in package_json
-    assert 'bun run test:instant' in workflow
-    assert 'bun run test:instant' in web_validation
+    assert '"test:instant:checked": "CMUX_INSTANT_CHECK_TYPECHECK=1 playwright test -c playwright.instant.config.ts"' in package_json
+
+    ci_typecheck = workflow.index("      - name: Typecheck")
+    ci_instant = workflow.index("      - name: Instant navigation tests")
+    assert ci_typecheck < ci_instant
+    # The only second invocation is the bounded retry owned by the Typecheck
+    # step; the Instant navigation step must never own a typecheck.
+    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in workflow[ci_instant:]
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" not in workflow[ci_instant:]
+    assert "      - name: Instant navigation tests\n        run: bun run test:instant" in workflow
+
+    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_instant = web_validation.index("      - run: bun run test:instant")
+    assert validation_typecheck < validation_instant
+    assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in web_validation[validation_instant:]
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" not in web_validation[validation_instant:]
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
