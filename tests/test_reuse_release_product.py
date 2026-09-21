@@ -40,6 +40,8 @@ class FakeGitHub:
         self.archive = None
 
     def get(self, path):
+        if path.startswith(f"actions/runs/{self.run['id']}/artifacts?"):
+            return {"artifacts": [] if self.artifact is None else [self.artifact]}
         if path.startswith("actions/artifacts?"):
             return {"artifacts": [] if self.artifact is None else [self.artifact]}
         if path.startswith("actions/runs/") and "/attempts/" in path:
@@ -164,6 +166,30 @@ class ReleaseProductReuseTests(unittest.TestCase):
     def test_dependency_mismatch_forces_rebuild(self):
         self.assert_rebuild_for_contract_change(
             lambda value: value.__setitem__("package_resolved_sha256", "8" * 64)
+        )
+
+    def test_same_run_artifact_survives_busy_repository_window(self):
+        calls = []
+        original_get = self.api.get
+
+        def get(path):
+            calls.append(path)
+            if path.startswith("actions/artifacts?"):
+                return {"artifacts": [
+                    {"id": 1000 + index, "name": "unrelated-artifact"}
+                    for index in range(100)
+                ]}
+            return original_get(path)
+
+        with mock.patch.object(self.api, "get", side_effect=get):
+            result = self.restore()
+
+        self.assertTrue(result["hit"])
+        artifact_lookups = [path for path in calls if "artifacts?" in path]
+        self.assertTrue(artifact_lookups[0].startswith("actions/runs/12/artifacts?"))
+        self.assertLessEqual(
+            sum(path.startswith("actions/artifacts?") for path in artifact_lookups),
+            3,
         )
 
     def test_missing_artifact_is_restore_miss(self):
