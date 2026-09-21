@@ -57,15 +57,20 @@ describe("image epochs", () => {
     expect(vmImageEntryEpoch(manifestEntry({ epoch: undefined, notes: undefined }))).toBeUndefined();
   });
 
-  test("no current manifest entry reads as guest-tools baked", () => {
-    // The gate flips only with the promotion of a bake at GUEST_TOOLS_BAKED_EPOCH;
-    // until then the drivers keep installing the guest tools on every create.
+  test("the promoted defaults read as guest-tools baked and older rows do not", () => {
+    // The gate flipped with the promotion of the 2026-09-21-r1 bake: every
+    // current default carries the guest tools, so the drivers install nothing
+    // at create on it, while the older rows keep the install and heal paths.
     expect(GUEST_TOOLS_BAKED_EPOCH).toBe("2026-09-21-r1");
-    const entries = listVmImageManifestEntries();
-    expect(entries.length).toBeGreaterThan(0);
-    for (const entry of entries) {
-      expect(imageEpochAtLeast(vmImageEntryEpoch(entry), GUEST_TOOLS_BAKED_EPOCH)).toBe(false);
+    for (const kind of ["desktop", "base"] as const) {
+      const defaults = listVmImageKindDefaults("freestyle", kind);
+      expect(defaults.length).toBeGreaterThan(0);
+      for (const entry of defaults) {
+        expect(imageEpochAtLeast(vmImageEntryEpoch(entry), GUEST_TOOLS_BAKED_EPOCH)).toBe(true);
+      }
     }
+    const entries = listVmImageManifestEntries();
+    expect(entries.some((entry) => !imageEpochAtLeast(vmImageEntryEpoch(entry), GUEST_TOOLS_BAKED_EPOCH))).toBe(true);
   });
 
   test("every manifest default serves a trusted-carrier daemon", () => {
