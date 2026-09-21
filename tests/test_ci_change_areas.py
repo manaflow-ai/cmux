@@ -34,6 +34,7 @@ GUARD_ROUTE_JOBS = {
     "linux_guard_source": "workflow-guard-source-lints",
 }
 WEB_JOBS = (
+    "web-subarea-scope",
     "web-typecheck",
     "web-production-build",
     "web-tests",
@@ -51,6 +52,13 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
+
+WEB_SUBAREAS_HELPER = ROOT / "scripts" / "ci" / "web_subareas.py"
+web_subareas_spec = importlib.util.spec_from_file_location("web_subareas", WEB_SUBAREAS_HELPER)
+assert web_subareas_spec and web_subareas_spec.loader
+web_subareas = importlib.util.module_from_spec(web_subareas_spec)
+sys.modules[web_subareas_spec.name] = web_subareas
+web_subareas_spec.loader.exec_module(web_subareas)
 
 
 def assert_areas(
@@ -677,6 +685,7 @@ def run_web_status(
     *,
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
+    subareas: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -686,15 +695,27 @@ def run_web_status(
     job_results = dict.fromkeys(WEB_JOBS, "success")
     if results:
         job_results.update(results)
+    if subareas is None:
+        selected_subareas = {
+            "db": "true",
+            "instant": "true",
+            "react_apps": "true",
+        } if route_inputs["web"] == "true" else {
+            "db": "false",
+            "instant": "false",
+            "react_apps": "false",
+        }
+    else:
+        selected_subareas = dict(subareas)
+    needs = {name: {"result": result} for name, result in job_results.items()}
+    needs["web-subarea-scope"]["outputs"] = selected_subareas
     script = workflow_job_step_script(
         "web-status", "Check routed web jobs", WEB_WORKFLOW
     )
     env = {
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
-        "WEB_NEEDS": json.dumps(
-            {name: {"result": result} for name, result in job_results.items()}
-        ),
+        "WEB_NEEDS": json.dumps(needs),
     }
     return subprocess.run(
         ["bash", "-c", script],
@@ -1777,6 +1798,37 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
     assert "bunx playwright install --with-deps chromium" in instant
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
+
+
+def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
+    cases = (
+        (["web/messages/fr.json"], (False, True, False)),
+        (["web/app/[locale]/page.tsx"], (False, True, False)),
+        (["web/services/vms/workflows.ts"], (True, False, False)),
+        (["web/app/api/account/route.ts"], (True, True, False)),
+        (["webviews/src/App.tsx"], (False, False, True)),
+        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, True)),
+        (["web/public/logo.png"], (False, False, False)),
+        (["web/e2e/other.spec.ts"], (False, False, False)),
+        ([".github/workflows/ci-web.yml"], (True, True, True)),
+        (["scripts/ci/web_subareas.py"], (True, True, True)),
+    )
+    for paths, expected in cases:
+        with contextlib.ExitStack():
+            actual = web_subareas.classify_paths(paths)
+            assert (actual.db, actual.instant, actual.react_apps) == expected, (paths, actual)
+
+
+def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
+    result = run_web_status(
+        results={
+            "web-instant-navigation": "skipped",
+            "react-apps-check": "skipped",
+            "web-db-migrations": "skipped",
+        },
+        subareas={"db": "false", "instant": "false", "react_apps": "false"},
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
