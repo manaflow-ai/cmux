@@ -13,9 +13,12 @@ import re
 import stat
 import subprocess
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
+
+import app_host_consumer_receipt as consumer_receipt
 
 REPOSITORY = "manaflow-ai/cmux"
 MAX_BYTES = 2 * 1024**3
@@ -73,6 +76,7 @@ def unpack(archive: Path, destination: Path, digest: str, size: int) -> None:
 def restore(broker: str, artifact_id: str, run_id: str, repository: str, destination: Path,
             metadata=github_metadata, fetch=download) -> bool:
     if not broker:
+        consumer_receipt.append_fallback("r2:disabled")
         return False
     try:
         parsed = urlsplit(broker)
@@ -94,15 +98,24 @@ def restore(broker: str, artifact_id: str, run_id: str, repository: str, destina
             staging = Path(work)
             zip_path = staging / "artifact.zip"
             url = f"{broker.rstrip('/')}/v1/{REPOSITORY}/artifacts/{artifact_id}/{digest[7:]}.zip"
-            fetch(url, zip_path, size)
+            transfer_started = time.monotonic()
+            try:
+                fetch(url, zip_path, size)
+            finally:
+                elapsed = round(time.monotonic() - transfer_started, 3)
+                consumer_receipt.add_transfer(
+                    "r2-aggregate", size,
+                    zip_path.stat().st_size if zip_path.exists() else 0, elapsed)
             unpack(zip_path, staging / "products", digest[7:], size)
             if destination.exists():
                 destination.rmdir()  # Never merge a hit into stale/partial products.
             (staging / "products").rename(destination)
+        consumer_receipt.aggregate_hit("r2-aggregate")
         print(f"R2 artifact transport restored GitHub artifact {artifact_id}; product validation still runs.")
         return True
     except (ValueError, TypeError, AttributeError, OSError, subprocess.SubprocessError, zipfile.BadZipFile, RuntimeError) as error:
-        print(f"R2 artifact transport miss ({type(error).__name__}); using GitHub.")
+        consumer_receipt.append_fallback(f"r2:{type(error).__name__}:{error}")
+        print(f"R2 artifact transport miss ({type(error).__name__}: {error}); using GitHub.")
         return False
 
 
