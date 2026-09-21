@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     var organizationNodes: [CloudTreeNode] { deferredNodes ?? nodes }
