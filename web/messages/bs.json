@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Otkrivena konfiguracija harnessa",
+    "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
+    "selectProvider": "Odaberi {provider}",
+    "foundPath": "Pronađen {path}",
+    "foundCommand": "Pronađena naredba {command}",
+    "installed": "Provajder je instaliran",
+    "missing": "Provajder nije instaliran",
+    "install": "Instaliraj pomoću: {command}",
+    "benefitPi": "Sažimanje, memorija i rutiranje provajdera",
+    "benefitOpenagent": "Paralelni specijalisti i oporavak za OpenCode",
+    "benefitClaude": "Timovi i provjera za Claude Code",
+    "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",

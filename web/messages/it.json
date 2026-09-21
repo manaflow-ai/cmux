@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Configurazione harness rilevata",
+    "selectionNotice": "La selezione di un provider non avvia né abilita questi harness.",
+    "selectProvider": "Seleziona {provider}",
+    "foundPath": "Trovato {path}",
+    "foundCommand": "Comando {command} trovato",
+    "installed": "Il provider è installato",
+    "missing": "Il provider non è installato",
+    "install": "Installa con: {command}",
+    "benefitPi": "Compattazione, memoria e instradamento dei provider",
+    "benefitOpenagent": "Specialisti paralleli e ripristino per OpenCode",
+    "benefitClaude": "Team e verifica per Claude Code",
+    "benefitSuperpowers": "Pianificazione, TDD, subagenti e revisione"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",

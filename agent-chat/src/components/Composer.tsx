@@ -20,6 +20,8 @@ import {
   withFileTrigger,
 } from "../hooks/useCatalogs";
 
+import { selectHarnessLocale, formatHarnessMessage, renderHarnessMessage } from "../harness-i18n";
+
 const readProviderOptions = readStoredProviderOptions;
 
 export function Composer() {
@@ -28,6 +30,8 @@ export function Composer() {
     connectionEpoch,
     providers,
     harnesses,
+    harnessCatalogs,
+    harnessesCwd,
     capabilities,
     defaultCwd,
     providerOptions,
@@ -67,9 +71,11 @@ export function Composer() {
   const options = withLocalValues(baseOptions, startOptions);
   const commandGroups = useMemo(() => withFileTrigger(providerCommands[provider] ?? [], filesByCwd[committedCwd] ?? []), [committedCwd, filesByCwd, provider, providerCommands]);
   const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef, ctrlJ);
+  const harnessLocale = selectHarnessLocale(harnessCatalogs, navigator.languages);
+  const harnessMessages = harnessCatalogs[harnessLocale];
   const workflowHarnesses = useMemo(
-    () => harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2),
-    [harnesses],
+    () => harnessesCwd === cwd ? harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2) : [],
+    [cwd, harnesses, harnessesCwd],
   );
 
   useDefaultCwd(defaultCwd, cwd, setCwd, committedCwd, setCommittedCwd);
@@ -178,18 +184,19 @@ export function Composer() {
           )}
         />
       </div>
-      {workflowHarnesses.length ? (
-        <div className="harness-recommendation" role="status">
-          <div className="harness-recommendation-title">cmux found a harness you already use</div>
+      {harnessMessages && workflowHarnesses.length ? (
+        <div className="harness-recommendation" role="status" lang={harnessLocale} dir={harnessLocale === "ar" ? "rtl" : "ltr"}>
+          <div className="harness-recommendation-title">{harnessMessages.title}</div>
+          <div className="harness-recommendation-note">{harnessMessages.selectionNotice}</div>
           {workflowHarnesses.map((harness) => (
             <div className="harness-recommendation-item" key={harness.id}>
               <div>
                 <strong>{harness.label}</strong>
-                <span>{harness.evidence ? `${harness.evidence} · ` : ""}{harness.benefit ?? harness.reason}</span>
+                <span>{[renderHarnessMessage(harnessMessages, harness.evidence ?? harness.reason), renderHarnessMessage(harnessMessages, harness.benefit)].filter(Boolean).join(" · ")}</span>
               </div>
               {harness.provider && providers.some((p) => p.id === harness.provider && p.installed !== false) ? (
                 <button type="button" onClick={() => changeProvider(harness.provider!)}>
-                  Select {providers.find((p) => p.id === harness.provider)?.label ?? harness.provider}
+                  {formatHarnessMessage(harnessMessages, "selectProvider", { provider: providers.find((p) => p.id === harness.provider)?.label ?? harness.provider })}
                 </button>
               ) : null}
             </div>

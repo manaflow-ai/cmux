@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "ตรวจพบการกำหนดค่า harness",
+    "selectionNotice": "การเลือกผู้ให้บริการจะไม่เปิดใช้งานหรือเริ่มต้น harness เหล่านี้",
+    "selectProvider": "เลือก {provider}",
+    "foundPath": "พบ {path}",
+    "foundCommand": "พบคำสั่ง {command}",
+    "installed": "ติดตั้งผู้ให้บริการแล้ว",
+    "missing": "ยังไม่ได้ติดตั้งผู้ให้บริการ",
+    "install": "ติดตั้งด้วย: {command}",
+    "benefitPi": "การบีบอัด หน่วยความจำ และการกำหนดเส้นทางผู้ให้บริการ",
+    "benefitOpenagent": "ผู้เชี่ยวชาญแบบขนานและการกู้คืนสำหรับ OpenCode",
+    "benefitClaude": "ทีมและการตรวจสอบสำหรับ Claude Code",
+    "benefitSuperpowers": "การวางแผน TDD ตัวแทนย่อย และการตรวจทาน"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "ไม่สามารถใช้การดำเนินการ Cloud VM ได้",

@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "تم اكتشاف إعداد harness",
+    "selectionNotice": "لا يؤدي اختيار موفر إلى تشغيل هذه الـ harness أو تفعيلها.",
+    "selectProvider": "اختيار {provider}",
+    "foundPath": "تم العثور على {path}",
+    "foundCommand": "تم العثور على الأمر {command}",
+    "installed": "الموفر مثبت",
+    "missing": "الموفر غير مثبت",
+    "install": "التثبيت باستخدام: {command}",
+    "benefitPi": "ضغط السياق والذاكرة وتوجيه الموفرين",
+    "benefitOpenagent": "متخصصون متوازون واسترداد لـ OpenCode",
+    "benefitClaude": "فرق وتحقق لـ Claude Code",
+    "benefitSuperpowers": "التخطيط وTDD والوكلاء الفرعيون والمراجعة"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "عملية Cloud VM غير متاحة",

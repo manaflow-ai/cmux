@@ -372,6 +372,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
   border-radius: 10px; padding: 9px 11px; color: var(--text-dim); font-size: calc(var(--font-size-base) - 2px);
 }
 .harness-recommendation-title { color: var(--text); font-weight: 600; margin-bottom: 5px; }
+.harness-recommendation-note { margin-bottom: 7px; color: var(--text-faint); }
 .harness-recommendation-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .harness-recommendation-item + .harness-recommendation-item { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border); }
 .harness-recommendation-item div { min-width: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; }

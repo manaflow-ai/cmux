@@ -20,9 +20,9 @@ test("discovers project harnesses with evidence and benefits", () => {
     installed: true,
     provider: "opencode",
     priority: 0,
-    evidence: "found .opencode/oh-my-openagent.jsonc",
+    evidence: { id: "foundPath", params: { path: ".opencode/oh-my-openagent.jsonc" } },
   });
-  expect(found[0]?.reason).toContain("parallel specialists");
+  expect(found[0]?.benefit).toEqual({ id: "benefitOpenagent" });
   expect(found[0]?.tags).toContain("teams");
 });
 

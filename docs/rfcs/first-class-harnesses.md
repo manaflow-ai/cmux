@@ -132,7 +132,7 @@ The first launch path can use the existing terminal entry point:
 ```swift
 workspace.newTerminalSurfaceOutcome(
     inPane: pane,
-    workingDirectory: launch.cwd,
+    workingDirectory: launch.descriptor.cwd,
     initialCommand: launch.command,
     startupEnvironment: launch.environment
 )
@@ -140,9 +140,11 @@ workspace.newTerminalSurfaceOutcome(
 
 `Workspace.newTerminalSurfaceOutcome` already distinguishes a locally created
 surface from a request routed to a remote tmux mirror or cloud terminal. The
-harness integration should call that path once, then attach using the returned
-surface identity. It must not create a local fallback when the workspace has
-been routed to a remote owner.
+harness integration must branch on the result: attach using the returned local
+surface identity only for `.created(panel)`, and obtain a remote surface receipt
+or let the route owner perform attachment for `.routedToRemote`. A remote
+outcome does not contain a local panel identity, so cmux must never invent one
+or create a local fallback.
 
 For the first implementation, `initialCommand` may be a harness-provided
 attach command generated from the structured arguments. The adapter must apply

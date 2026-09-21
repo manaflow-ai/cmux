@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Algılanan harness yapılandırması",
+    "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",
+    "selectProvider": "{provider} seç",
+    "foundPath": "{path} bulundu",
+    "foundCommand": "{command} komutu bulundu",
+    "installed": "Sağlayıcı yüklü",
+    "missing": "Sağlayıcı yüklü değil",
+    "install": "Şununla yükle: {command}",
+    "benefitPi": "Sıkıştırma, bellek ve sağlayıcı yönlendirmesi",
+    "benefitOpenagent": "OpenCode için paralel uzmanlar ve kurtarma",
+    "benefitClaude": "Claude Code için ekipler ve doğrulama",
+    "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",

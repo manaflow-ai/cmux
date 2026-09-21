@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Erkannte Harness-Konfiguration",
+    "selectionNotice": "Die Auswahl eines Anbieters startet oder aktiviert diese Harnesses nicht.",
+    "selectProvider": "{provider} auswählen",
+    "foundPath": "{path} gefunden",
+    "foundCommand": "Befehl {command} gefunden",
+    "installed": "Anbieter ist installiert",
+    "missing": "Anbieter ist nicht installiert",
+    "install": "Installieren mit: {command}",
+    "benefitPi": "Komprimierung, Speicher und Anbieter-Routing",
+    "benefitOpenagent": "Parallele Spezialisten und Wiederherstellung für OpenCode",
+    "benefitClaude": "Teams und Verifizierung für Claude Code",
+    "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Cloud-VM-Vorgang nicht verfügbar",

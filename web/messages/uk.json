@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Виявлено конфігурацію harness",
+    "selectionNotice": "Вибір постачальника не запускає і не вмикає ці harness.",
+    "selectProvider": "Вибрати {provider}",
+    "foundPath": "Знайдено {path}",
+    "foundCommand": "Знайдено команду {command}",
+    "installed": "Постачальник встановлений",
+    "missing": "Постачальник не встановлений",
+    "install": "Встановити за допомогою: {command}",
+    "benefitPi": "Стиснення, пам’ять і маршрутизація постачальників",
+    "benefitOpenagent": "Паралельні спеціалісти та відновлення для OpenCode",
+    "benefitClaude": "Команди та перевірка для Claude Code",
+    "benefitSuperpowers": "Планування, TDD, субагенти та перевірка"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Операція Cloud VM недоступна",
