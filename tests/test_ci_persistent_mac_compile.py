@@ -282,28 +282,30 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('"source_run_source_mismatch"', route_text)
         self.assertIn('"source_run_pr_mismatch"', route_text)
         self.assertNotIn("actions: write", self.ci)
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("      actions: read", route_block)
-        self.assertIn("--observe-only", route_block)
-
-    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", route_block)
-        self.assertIn("persistent-mac-route-request-", self.ci)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'OWNER'", route_block)
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
-        self.assertNotIn("needs.persistent-mac-compile-route.result == 'success'", admission)
+        self.assertNotIn("  persistent-mac-compile-route:", self.ci)
+        self.assertIn("      actions: read", admission)
+        self.assertIn("      pull-requests: read", admission)
+        self.assertIn("--observe-only", admission)
+
+    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
+        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", admission)
+        self.assertIn("persistent-mac-route-request-", self.ci)
+        self.assertIn("steps.source-identity.outputs.valid == 'true'", self.ci)
+        self.assertIn("source_identity_valid: ${{ steps.source-identity.outputs.valid }}", self.ci)
+        self.assertIn("needs.changes.outputs.source_identity_valid == 'true'", admission)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
+        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
+        self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
+        self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
-        self.assertIn("run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}", admission)
+        self.assertIn("run-id: ${{ steps.persistent-route.outputs.producer_run_id }}", admission)
 
     def test_persistent_product_revalidation_retains_admission_checks(self):
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
