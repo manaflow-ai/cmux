@@ -214,12 +214,11 @@ class DisplayService:
 
     @staticmethod
     def wait_for_port(port, timeout=20):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if listening(port):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=timeout):
                 return True
-            time.sleep(0.1)
-        return False
+        except OSError:
+            return False
 
     @staticmethod
     def process_alive(process):
