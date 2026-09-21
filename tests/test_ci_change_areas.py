@@ -90,6 +90,7 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
     assert module.classify_files(["docs/ci.md"]).release_build is False
     assert module.classify_files([".github/workflows/ci.yml"]).release_build is True
+    assert module.classify_files([".github/workflows/ci-guards.yml"]) == module.ChangeAreas.all()
     assert module.ChangeAreas.all().release_build is True
 
 

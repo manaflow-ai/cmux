@@ -61,7 +61,7 @@ def forces_all_areas(path: str) -> bool:
     is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
     if is_direct_ci_python:
         is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
-    return path == CI_WORKFLOW_PATH or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+    return path in {CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH} or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
