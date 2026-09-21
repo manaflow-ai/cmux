@@ -43,6 +43,7 @@
     "start": "next start",
     "test": "bash scripts/run-tests.sh",
     "test:instant": "playwright test -c playwright.instant.config.ts",
+    "test:instant:checked": "CMUX_INSTANT_CHECK_TYPECHECK=1 playwright test -c playwright.instant.config.ts",
     "test:social-images": "bash scripts/test-social-image-delivery.sh",
     "test:db:behavior": "bash scripts/run-db-behavior-tests.sh",
     "typecheck": "tsgo --noEmit",

@@ -747,8 +747,6 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
-        env:
-          CMUX_INSTANT_SKIP_TYPECHECK: "1"
         run: |
           set -o pipefail
           log="$RUNNER_TEMP/web-test-instant.log"

@@ -1009,10 +1009,12 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     web_validation = (ROOT / ".github/workflows/web-validation.yml").read_text()
-    assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
-    assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
-    assert 'CMUX_INSTANT_SKIP_TYPECHECK: "1"' in workflow
-    assert 'CMUX_INSTANT_SKIP_TYPECHECK: "1"' in web_validation
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" in config
+    assert "process.env.CMUX_INSTANT_CHECK_TYPECHECK === \"1\"" in config
+    package_json = (ROOT / "web/package.json").read_text()
+    assert '"test:instant:checked"' in package_json
+    assert 'bun run test:instant' in workflow
+    assert 'bun run test:instant' in web_validation
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:

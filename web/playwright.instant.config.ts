@@ -10,9 +10,11 @@ const dashboardTestEnv =
   "NEXT_PUBLIC_STACK_PROJECT_ID=123e4567-e89b-12d3-a456-426614174000 " +
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=pck_instant_navigation_test " +
   "STACK_SECRET_SERVER_KEY=ssk_instant_navigation_test";
-const typecheckCommand = process.env.CMUX_INSTANT_SKIP_TYPECHECK === "1"
-  ? ""
-  : `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bun run typecheck && `;
+// Instant tests are behavior-only by default. The standalone web typecheck
+// job owns static validation; opt into the checked variant when developing.
+const typecheckCommand = process.env.CMUX_INSTANT_CHECK_TYPECHECK === "1"
+  ? `${dashboardTestEnv} SKIP_ENV_VALIDATION=1 NEXT_INSTANT_TEST=1 bun run typecheck && `
+  : "";
 
 export default defineConfig({
   testDir: "./e2e/instant",
