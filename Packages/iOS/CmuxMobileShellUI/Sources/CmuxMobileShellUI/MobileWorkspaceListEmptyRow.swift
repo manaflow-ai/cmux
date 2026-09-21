@@ -10,6 +10,7 @@ struct MobileWorkspaceListEmptyRow: View {
     let cancelRetry: (() -> Void)?
     let onLayoutChange: (() -> Void)?
     let shouldCancelRetryOnDisappear: (() -> Bool)?
+    let isRetryOwnerCurrentOnDisappear: (() -> Bool)?
     @State private var isRetrying = false
     @State private var retryTask: Task<Void, Never>?
     @State private var retryTimeoutTask: Task<Void, Never>?
@@ -131,9 +132,12 @@ struct MobileWorkspaceListEmptyRow: View {
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
             let hasActiveRetry = isRetrying || retryTask != nil
-            if hasActiveRetry, shouldCancelRetryOnDisappear?() ?? true {
+            if hasActiveRetry {
                 retryTask?.cancel()
-                cancelRetry?()
+                if isRetryOwnerCurrentOnDisappear?() ?? true,
+                   shouldCancelRetryOnDisappear?() ?? true {
+                    cancelRetry?()
+                }
                 retryTimeoutTask?.cancel()
                 retryTask = nil
                 retryAttemptID = nil

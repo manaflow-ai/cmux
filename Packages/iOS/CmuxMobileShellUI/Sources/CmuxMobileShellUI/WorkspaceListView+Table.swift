@@ -85,6 +85,12 @@ extension WorkspaceListView {
                 }
         let emptyStateMacDeviceID = store?.connectedMacDeviceID
         let emptyStateMacInstanceTag = store?.connectedMacInstanceTag
+        let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
+            {
+                store.connectedMacDeviceID == emptyStateMacDeviceID
+                    && store.connectedMacInstanceTag == emptyStateMacInstanceTag
+            }
+        }
         let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
             {
                 store.connectedMacDeviceID == emptyStateMacDeviceID
@@ -170,7 +176,8 @@ extension WorkspaceListView {
             reconnect: reconnect,
             refresh: refresh,
             cancelRefresh: cancelRefresh,
-            shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear
+            shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
+            isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )
     }
 }
