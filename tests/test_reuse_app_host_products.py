@@ -168,6 +168,10 @@ class ReuseProducts(TestProductHandoff):
             "name: CI orchestration-only\n",
             1,
         )
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, orchestration_workflow),
+        )
         # Mutating an explicitly orchestration-only step must not change product identity.
         metrics_admission = admission.replace(
             "      - name: Record compiled-product reuse metrics\n",
@@ -175,11 +179,49 @@ class ReuseProducts(TestProductHandoff):
             1,
         )
         self.assertNotEqual(admission, metrics_admission)
-        orchestration_workflow = workflow.replace(admission, metrics_admission, 1)
+        orchestration_workflow = orchestration_workflow.replace(
+            admission,
+            metrics_admission,
+            1,
+        )
         self.assertEqual(
             base_identity,
             identity.identity_from_tree_lines(admission_only, orchestration_workflow),
         )
+
+        changed_product_env = mutate_admission(
+            '      CMUX_SKIP_ZIG_BUILD: "1"\n',
+            '      CMUX_SKIP_ZIG_BUILD: "0"\n',
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_product_env),
+        )
+
+        changed_cache_env = mutate_admission(
+            '      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}\n',
+            '      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: "999"\n',
+        )
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_cache_env),
+        )
+
+        changed_defaults = mutate_admission(
+            "    steps:\n",
+            "    defaults:\n      run:\n        shell: bash\n    steps:\n",
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_defaults),
+        )
+
+        unclassified_job_key = mutate_admission(
+            "    timeout-minutes: 75\n",
+            "    timeout-minutes: 75\n    container: future-image\n",
+        )
+        with self.assertRaisesRegex(ValueError, "unclassified.*container"):
+            identity.identity_from_tree_lines(base, unclassified_job_key)
 
         unknown_product_step = mutate_admission(
             "      - name: Validate Swift warning budget\n",
