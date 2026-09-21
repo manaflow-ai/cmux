@@ -585,6 +585,8 @@ jobs:
           python3 tests/test_ci_linux_guard_routing.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_reuse_release_product.py
+          python3 tests/test_ci_release_product_reuse.py
           python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
@@ -2353,6 +2355,9 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
+      ghostty_helper_sha256: ${{ steps.ghostty-helper-identity.outputs.sha256 }}
+      ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
+      ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
@@ -2444,6 +2449,23 @@ jobs:
             echo "Ghostty helper $arch SDK version: $HELPER_SDK_VERSION"
             [[ "$HELPER_SDK_VERSION" == 15.* ]]
           done
+
+      - name: Record Release Ghostty helper identity
+        id: ghostty-helper-identity
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
+        run: |
+          set -euo pipefail
+          helper=ghostty-cli-helper/ghostty
+          sha256="$(shasum -a 256 "$helper" | awk '{print $1}')"
+          toolchain_sha256="$({ xcodebuild -version; xcrun --sdk macosx --show-sdk-build-version; } | shasum -a 256 | awk '{print $1}')"
+          sdk="$(otool -l "$helper" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
+          test -n "$sdk"
+          echo "Release Ghostty helper sha256: $sha256"
+          echo "Release Ghostty helper toolchain sha256: $toolchain_sha256"
+          echo "Release Ghostty helper SDK: $sdk"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "toolchain_sha256=$toolchain_sha256" >> "$GITHUB_OUTPUT"
+          echo "sdk=$sdk" >> "$GITHUB_OUTPUT"
 
       - name: Upload Release Ghostty CLI helper
         if: ${{ needs.changes.outputs.release_build == 'true' }}
@@ -3339,27 +3361,26 @@ jobs:
     # implicit success() so skipped routed linux jobs upstream of
     # linux-preflight do not skip this job transitively.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.release_build == 'true' && needs.changes.outputs.full_suite == 'true' }}
-    # Compile the same unsigned universal Release app that nightly builds before
-    # signing, notarization, and publishing. This catches DEBUG/Release boundary
-    # mistakes before they reach main.
-    # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
-    # compiles into the same artifact shape as nightly and stable releases.
-    # Release builds need enough disk for a universal Release build plus the
-    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
-    # of the generic persistent macOS 26 pool.
+    # Compile or restore the same assembled unsigned Release app that nightly
+    # builds before signing, notarization, and publishing. Debug admission
+    # products stay a separate test-only contract.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
-          # Self-hosted macOS runners reuse the workspace. A job cancelled or
-          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
-          # fails every later submodule checkout (e.g. ghostty). Clear them first.
-          ws="${GITHUB_WORKSPACE:-$PWD}"
+          set -euo pipefail
+          ws="$GITHUB_WORKSPACE"
           rm -f "$ws/.git/index.lock" 2>/dev/null || true
           if [ -d "$ws/.git/modules" ]; then
             find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
@@ -3378,16 +3399,53 @@ jobs:
       - name: Validate app bundle thinning
         run: ./tests/test_thin_app_bundle.sh
 
-      - name: Compute Xcode compilation cache key
-        id: compilation-cache-key
+      # Tool versions are part of the Release fingerprint, so select them before
+      # lookup. These are cheap relative to compiling the app and are also used
+      # by current-run validation.
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Validate cmux-tui client installation
+        run: /bin/bash ./tests/test_install_cmux_tui_client.sh
+
+      # The assembled app includes cmux-tui. Resolve and authenticate the exact
+      # immutable producer before product lookup so restored bytes are bound to
+      # the same helper identity a fresh build would install.
+      - name: Resolve Release cmux-tui producer identity
+        id: release-tui
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
-
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: |
-          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          latest_url="https://files.cmux.com/cmux-tui/latest/manifest.json"
+          latest_manifest="$RUNNER_TEMP/cmux-tui-release-latest-manifest.json"
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$latest_url" -o "$latest_manifest"
+          gh attestation verify "$latest_manifest" \
+            --repo manaflow-ai/cmux \
+            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml >&2
+          commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$latest_manifest")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          manifest_url="https://files.cmux.com/cmux-tui/$commit/manifest.json"
+          manifest="$RUNNER_TEMP/cmux-tui-release-manifest.json"
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$manifest_url" -o "$manifest"
+          gh attestation verify "$manifest" \
+            --repo manaflow-ai/cmux \
+            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
+            --source-digest "$commit" >&2
+          manifest_commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$manifest")"
+          test "$manifest_commit" = "$commit"
+          manifest_sha256="$(shasum -a 256 "$manifest" | awk '{print $1}')"
+          echo "Release cmux-tui producer: $commit"
+          echo "Release cmux-tui manifest sha256: $manifest_sha256"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "manifest_url=$manifest_url" >> "$GITHUB_OUTPUT"
+          echo "manifest_sha256=$manifest_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Reclaim release runner disk
         run: |
@@ -3398,7 +3456,49 @@ jobs:
           echo "Disk after cleanup:"
           df -h /
 
+      - name: Identify reusable unsigned Release product
+        id: release-product-key
+        env:
+          CMUX_RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_TOOLCHAIN_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_toolchain_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SDK: ${{ needs.swift-package-tests.outputs.ghostty_helper_sdk }}
+          CMUX_RELEASE_TUI_COMMIT: ${{ steps.release-tui.outputs.commit }}
+          CMUX_RELEASE_TUI_MANIFEST_SHA256: ${{ steps.release-tui.outputs.manifest_sha256 }}
+        run: python3 scripts/ci/reuse_release_product.py key build-universal
+
+      - name: Restore exact unsigned Release product
+        id: restore-release-product
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_TOOLCHAIN_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_toolchain_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SDK: ${{ needs.swift-package-tests.outputs.ghostty_helper_sdk }}
+          CMUX_RELEASE_TUI_COMMIT: ${{ steps.release-tui.outputs.commit }}
+          CMUX_RELEASE_TUI_MANIFEST_SHA256: ${{ steps.release-tui.outputs.manifest_sha256 }}
+        run: python3 scripts/ci/reuse_release_product.py restore build-universal
+
+      - name: Report Release restore decision
+        run: |
+          echo "Release product restore: ${{ steps.restore-release-product.outputs.outcome }} (${{ steps.restore-release-product.outputs.reason }})"
+          echo "Release product restore seconds: ${{ steps.restore-release-product.outputs.restore_seconds }}"
+
+      - name: Compute Xcode compilation cache key
+        if: steps.restore-release-product.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Capture Ghostty revision
+        if: steps.restore-release-product.outputs.hit != 'true'
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
+        if: steps.restore-release-product.outputs.hit != 'true'
         id: cache-ghosttykit-release
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -3406,15 +3506,11 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
-        run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
+        if: steps.restore-release-product.outputs.hit != 'true' && steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
+        run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Xcode compilation results
+        if: steps.restore-release-product.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
@@ -3424,6 +3520,7 @@ jobs:
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Cache Swift packages
+        if: steps.restore-release-product.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
@@ -3432,15 +3529,12 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
+        if: steps.restore-release-product.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Set up Go for the Cloud tunnel extension
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26.x'
-          cache: false
-
       - name: Build app (Release)
+        id: build-release
+        if: steps.restore-release-product.outputs.hit != 'true'
         env:
           RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
         run: |
@@ -3449,6 +3543,7 @@ jobs:
             arm64|"arm64 x86_64") ;;
             *) echo "missing or invalid producer architectures: $RELEASE_ARCHS" >&2; exit 1 ;;
           esac
+          started="$(date +%s)"
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
@@ -3458,22 +3553,25 @@ jobs:
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+          ended="$(date +%s)"
+          echo "compile_seconds=$((ended - started))" >> "$GITHUB_OUTPUT"
 
       - name: Download Release Ghostty CLI helper
+        if: steps.restore-release-product.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper
 
       - name: Install Release helpers
+        if: steps.restore-release-product.outputs.hit != 'true'
         env:
           RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
-          # install-cmux-tui-client.sh verifies the manifest's build-provenance
-          # attestation with gh before trusting it.
           GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_COMMIT: ${{ steps.release-tui.outputs.commit }}
+          CMUX_TUI_MANIFEST_URL: ${{ steps.release-tui.outputs.manifest_url }}
         run: |
           set -euo pipefail
-          /bin/bash ./tests/test_install_cmux_tui_client.sh
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app --archs "$RELEASE_ARCHS"
@@ -3482,13 +3580,22 @@ jobs:
             "arm64 x86_64") client_arch=universal ;;
             *) echo "unsupported Release client architectures: $RELEASE_ARCHS" >&2; exit 1 ;;
           esac
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app --arch "$client_arch"
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app \
+            --manifest-url "$CMUX_TUI_MANIFEST_URL" \
+            --expected-commit "$CMUX_TUI_COMMIT" \
+            --arch "$client_arch"
 
+      # This validator is deliberately shared by the fresh and restored paths.
+      # It validates current-run helper identity plus the existing architecture,
+      # SDK, codesign, and diff-sidecar Release contract.
       - name: Validate Release artifact slices
+        id: validate-release
         env:
           RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+          EXPECTED_GHOSTTY_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_sha256 }}
         run: |
           set -euo pipefail
+          started="$(date +%s)"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -3505,9 +3612,133 @@ jobs:
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
           ./scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"
+          test "$(shasum -a 256 "$HELPER_BINARY" | awk '{print $1}')" = "$EXPECTED_GHOSTTY_SHA256"
           codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
+          ended="$(date +%s)"
+          echo "validation_seconds=$((ended - started))" >> "$GITHUB_OUTPUT"
+
+      - name: Seal exact unsigned Release product
+        if: steps.restore-release-product.outputs.hit != 'true' && !startsWith(steps.release-product-key.outputs.key, 'unavailable-')
+        env:
+          CMUX_RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_TOOLCHAIN_SHA256: ${{ needs.swift-package-tests.outputs.ghostty_helper_toolchain_sha256 }}
+          CMUX_RELEASE_GHOSTTY_HELPER_SDK: ${{ needs.swift-package-tests.outputs.ghostty_helper_sdk }}
+          CMUX_RELEASE_TUI_COMMIT: ${{ steps.release-tui.outputs.commit }}
+          CMUX_RELEASE_TUI_MANIFEST_SHA256: ${{ steps.release-tui.outputs.manifest_sha256 }}
+        run: python3 scripts/ci/reuse_release_product.py seal build-universal
+
+      - name: Package exact unsigned Release product
+        if: steps.restore-release-product.outputs.hit != 'true' && !startsWith(steps.release-product-key.outputs.key, 'unavailable-')
+        run: python3 scripts/ci/reuse_release_product.py pack build-universal "$RUNNER_TEMP/cmux-release-product.tar.gz"
+
+      - name: Upload exact unsigned Release product
+        id: upload-release-product
+        if: steps.restore-release-product.outputs.hit != 'true' && !startsWith(steps.release-product-key.outputs.key, 'unavailable-')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-products-v1-${{ steps.release-product-key.outputs.key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-release-product.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Emit Release product reuse receipt
+        id: release-product-receipt
+        if: always()
+        env:
+          PRODUCT_KEY: ${{ steps.release-product-key.outputs.key }}
+          RESTORE_HIT: ${{ steps.restore-release-product.outputs.hit }}
+          RESTORE_OUTCOME: ${{ steps.restore-release-product.outputs.outcome }}
+          RESTORE_REASON: ${{ steps.restore-release-product.outputs.reason }}
+          RESTORE_SECONDS: ${{ steps.restore-release-product.outputs.restore_seconds }}
+          PRODUCER_RUN_ID: ${{ steps.restore-release-product.outputs.producer_run_id }}
+          PRODUCER_RUN_ATTEMPT: ${{ steps.restore-release-product.outputs.producer_run_attempt }}
+          PRODUCER_URL: ${{ steps.restore-release-product.outputs.producer_url }}
+          PRODUCER_ARTIFACT_ID: ${{ steps.restore-release-product.outputs.artifact_id }}
+          BUILD_STEP_OUTCOME: ${{ steps.build-release.outcome }}
+          COMPILE_SECONDS: ${{ steps.build-release.outputs.compile_seconds }}
+          VALIDATION_STEP_OUTCOME: ${{ steps.validate-release.outcome }}
+          VALIDATION_SECONDS: ${{ steps.validate-release.outputs.validation_seconds }}
+          UPLOAD_STEP_OUTCOME: ${{ steps.upload-release-product.outcome }}
+          UPLOAD_ARTIFACT_ID: ${{ steps.upload-release-product.outputs.artifact-id }}
+          RELEASE_ARCHS: ${{ needs.swift-package-tests.outputs.release_archs }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          restore = os.environ.get("RESTORE_OUTCOME", "") or "fallback_rebuild"
+          events = []
+          if restore == "exact_restore":
+              events.append("exact_restore")
+          elif restore == "restore_miss":
+              events.append("restore_miss")
+          else:
+              events.append("fallback_rebuild")
+          build = os.environ.get("BUILD_STEP_OUTCOME", "")
+          if build == "success":
+              events.append("fresh_compile")
+          route = "github_artifact" if restore == "exact_restore" else (
+              "github_artifact_publish" if os.environ.get("UPLOAD_STEP_OUTCOME") == "success" else "local_compile"
+          )
+          receipt = {
+              "schema_version": 1,
+              "events": events,
+              "fingerprint": os.environ.get("PRODUCT_KEY", ""),
+              "route": route,
+              "restore": {
+                  "outcome": restore,
+                  "reason": os.environ.get("RESTORE_REASON", ""),
+                  "seconds": os.environ.get("RESTORE_SECONDS", ""),
+              },
+              "producer": {
+                  "run_id": os.environ.get("PRODUCER_RUN_ID", ""),
+                  "run_attempt": os.environ.get("PRODUCER_RUN_ATTEMPT", ""),
+                  "url": os.environ.get("PRODUCER_URL", ""),
+                  "artifact_id": os.environ.get("PRODUCER_ARTIFACT_ID", ""),
+              },
+              "consumer": {
+                  "run_id": os.environ.get("GITHUB_RUN_ID", ""),
+                  "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
+                  "revision": os.environ.get("GITHUB_SHA", ""),
+                  "release_architectures": os.environ.get("RELEASE_ARCHS", ""),
+              },
+              "compile": {
+                  "outcome": build,
+                  "seconds": os.environ.get("COMPILE_SECONDS", ""),
+              },
+              "validation": {
+                  "outcome": os.environ.get("VALIDATION_STEP_OUTCOME", ""),
+                  "seconds": os.environ.get("VALIDATION_SECONDS", ""),
+              },
+              "published_artifact_id": os.environ.get("UPLOAD_ARTIFACT_ID", ""),
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "release-product-reuse-receipt.json"
+          path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("### Release product reuse\n")
+              summary.write(f"- events: {', '.join(events)}\n")
+              summary.write(f"- route: {route}\n")
+              summary.write(f"- restore: {restore} ({receipt['restore']['reason']}) in {receipt['restore']['seconds']}s\n")
+              summary.write(f"- compile: {build or 'skipped'} in {receipt['compile']['seconds'] or '0'}s\n")
+              summary.write(f"- validation: {receipt['validation']['outcome'] or 'skipped'} in {receipt['validation']['seconds'] or '0'}s\n")
+              if receipt["producer"]["url"]:
+                  summary.write(f"- producer: {receipt['producer']['url']} attempt {receipt['producer']['run_attempt']} artifact {receipt['producer']['artifact_id']}\n")
+          PY
+
+      - name: Upload Release product reuse receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-product-reuse-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-product-reuse-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
 
   ci-status:
     needs:
