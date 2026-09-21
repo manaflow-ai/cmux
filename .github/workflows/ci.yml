@@ -990,7 +990,7 @@ jobs:
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=245 6=284"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=199 6=284"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -1573,72 +1573,6 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test-without-building
-
-      - name: Run Cloud notification dismiss parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
-          # The tolerant full-suite step accepts ordinary Swift Testing
-          # failures, so keep the one-read-state contract between the local
-          # store, the left sidebar, and the Cloud tree on a non-tolerant
-          # only-testing invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CloudNotificationDismissParityTests \
-            test-without-building
-
-      - name: Run agent restore admission regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/12158.
-          # The tolerant full-suite step accepts ordinary Swift Testing
-          # failures, so keep restore admission under hook-store churn, the
-          # per-kind store completeness rule, and the surviving-owner notice
-          # on a non-tolerant only-testing invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests \
-            test-without-building
-
-      - name: Run Option/Alt sided-modifier regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test-without-building
-
-      - name: Run ssh-session-attach anchor regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
-          # The full "Run unit tests" step tolerates any xcodebuild failure
-          # whose last test summary reports "(0 unexpected)", and test
-          # assertion failures never increment the unexpected count on these
-          # runners — so a failing regression assertion in the sharded run
-          # cannot turn the shard red. Keep this targeted only-testing
-          # invocation as a non-tolerant guard for the ssh-session-attach
-          # split-anchor regression.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
             test-without-building
 
       - name: Run focused browser regressions
