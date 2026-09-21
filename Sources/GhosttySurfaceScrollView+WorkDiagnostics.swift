@@ -17,7 +17,7 @@ extension GhosttySurfaceScrollView {
             self.hasVisibilityRevealRefreshScheduled = false
             let transition = self.pendingVisibilityRefreshTransition
             self.pendingVisibilityRefreshTransition = .unknown
-            guard self.surfaceView.isVisibleInUI else { return }
+            guard self.isVisibleInUI else { return }
             self.refreshSurfaceNow(reason: "setVisibleInUI.deferred", transition: transition)
         }
     }
