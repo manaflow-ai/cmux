@@ -188,7 +188,7 @@ final class CmuxFeatureFlags {
     // The user-facing beta setting is evaluated separately by the sidebar
     // integration; this flag is the remote rollout gate and emergency kill
     // switch for the feature.
-    static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
+    nonisolated static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
         key: "conversation-sidebar-release",
         title: String(
             localized: "featureFlags.conversationSidebar.title",

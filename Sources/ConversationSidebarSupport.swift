@@ -248,21 +248,19 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
         let records = TerminalController.shared.agentChatTranscriptService?
             .sessionRecords(workspaceID: nil) ?? []
         let requiredDirectoryKeys = projection.livePresentationDirectoryKeys(for: records)
-        var next = presentationAgentsByDirectory
-        let staleDirectoryKeys = Set(next.keys).subtracting(requiredDirectoryKeys)
+        let staleDirectoryKeys = Set(presentationAgentsByDirectory.keys).subtracting(requiredDirectoryKeys)
         for directoryKey in staleDirectoryKeys {
-            next.removeValue(forKey: directoryKey)
+            presentationAgentsByDirectory.removeValue(forKey: directoryKey)
         }
-        let missingDirectoryKeys = requiredDirectoryKeys.subtracting(next.keys)
-        guard !missingDirectoryKeys.isEmpty || !staleDirectoryKeys.isEmpty else { return }
+        let missingDirectoryKeys = requiredDirectoryKeys.subtracting(presentationAgentsByDirectory.keys)
+        guard !missingDirectoryKeys.isEmpty else { return }
 
         for directoryKey in missingDirectoryKeys.sorted() {
             let loaded = await SessionIndexStore.defaultAgentOrder(
                 workingDirectory: directoryKey.isEmpty ? nil : directoryKey
             )
             guard !Task.isCancelled else { return }
-            next[directoryKey] = projection.presentationAgentsByID(loaded.agents)
+            presentationAgentsByDirectory[directoryKey] = projection.presentationAgentsByID(loaded.agents)
         }
-        presentationAgentsByDirectory = next
     }
 }
