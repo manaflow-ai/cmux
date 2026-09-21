@@ -1208,13 +1208,8 @@ final class FileExplorerStore: ObservableObject {
                 total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             }
             var retainedCount = fileURLs.count
-            let evictionCutoff = Date().addingTimeInterval(-60 * 60)
             for url in ordered where retainedCount > 32 || totalBytes > 32 * 1_024 * 1_024 {
                 guard !protectedURLs.contains(url.standardizedFileURL) else { continue }
-                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-                // Keep recent files available to open preview tabs; stale entries are
-                // evicted once they are outside the active preview window.
-                guard modified < evictionCutoff else { continue }
                 let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 try? FileManager.default.removeItem(at: url)
                 totalBytes = max(0, totalBytes - size)

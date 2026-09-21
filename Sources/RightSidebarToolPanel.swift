@@ -20,6 +20,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
     private var workspaceObservationCancellable: AnyCancellable?
+    private var rootSyncTask: Task<Void, Never>?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
         self.id = UUID()
@@ -28,7 +29,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     }
 
     deinit {
-        // Explicit no-op so future teardown has a single home.
+        rootSyncTask?.cancel()
     }
 
     var fileExplorerStore: FileExplorerStore {
@@ -198,7 +199,9 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 .eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
-            Task { @MainActor in
+            guard let self, let workspace, self.rootSyncTask == nil else { return }
+            self.rootSyncTask = Task { @MainActor [weak self, weak workspace] in
+                defer { self?.rootSyncTask = nil }
                 guard let self, let workspace else { return }
                 self.syncWorkspaceRoot(from: workspace)
             }
