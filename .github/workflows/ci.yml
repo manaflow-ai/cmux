@@ -137,7 +137,10 @@ jobs:
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
                   has_ghosttykit_guard_file=true
                   ;;
-                tests/test_ci_change_areas.py|scripts/ci/detect_ci_change_areas.py)
+                tests/test_ci_change_areas.py)
+                  ci_router_changed=true
+                  ;;
+                scripts/ci/detect_ci_change_areas.py)
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
