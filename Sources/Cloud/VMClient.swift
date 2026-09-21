@@ -2009,7 +2009,7 @@ actor VMClient {
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
                 generation: identity.generation, teamID: teamID)
             let value = try await self.readRequests.read(key, deadline: deadline) {
-                try await CloudOperationContext.$current.withValue(context) {
+                try await CloudOperationContext.withCurrent(context) {
                     let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
@@ -2586,7 +2586,7 @@ actor MachineUsageClient {
             let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity.accountID,
                 generation: identity.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
             let response = try await readRequests.read(key, deadline: deadline) {
-                try await CloudOperationContext.$current.withValue(context) {
+                try await CloudOperationContext.withCurrent(context) {
                     let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }

@@ -32,7 +32,7 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
     "/usr/local/share": join(root, "share"),
     "/etc/cmux": join(root, "etc"), "/etc": join(root, "system-etc"),
   };
-  const rebase = (value: string) => value.replace(/\/usr\/local\/bin|\/usr\/local\/share|\/etc\/cmux|\/etc(?=\/)/g,
+  const rebase = (value: string) => value.replace(/\/usr\/local\/bin|\/usr\/local\/libexec|\/usr\/local\/share|\/etc\/cmux|\/etc(?=\/)/g,
     (prefix) => prefixes[prefix]!);
   const target = join(root, "bin/cmux");
   const fixture = freestyleGuestFixture({
