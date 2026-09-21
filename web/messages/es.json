@@ -387,7 +387,16 @@
       "revoked": "Revocado",
       "relaySettings": "Configuración de retransmisión",
       "relaySettingsDescription": "Elige los servidores de retransmisión que usa este equipo. Introduce una URL por línea.",
-      "saveRelaySettings": "Guardar configuración de retransmisión"
+      "saveRelaySettings": "Guardar configuración de retransmisión",
+      "eyebrow": "nube / dispositivos",
+      "scopeActive": "Mostrando este equipo",
+      "emptyTitle": "Aún no hay dispositivos conectados",
+      "emptyDescription": "Cuando un dispositivo cmux se vincule con este equipo, aparecerá aquí con su plataforma, versión y controles de acceso.",
+      "revoking": "Revocando…",
+      "registeredDevices": "Dispositivos registrados",
+      "activeDevices": "Dispositivos activos",
+      "directoryRevision": "Revisión del directorio",
+      "savingRelaySettings": "Guardando…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartir con el equipo",

@@ -9055,14 +9055,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.windowsThatReportedVisible.add(window)
         }
         terminalSurface?.setRendererWindowVisible(
-            TerminalRendererWindowVisibility.isVisible(
+            TerminalRendererWindowVisibility(
                 occlusionVisible: occlusionVisible,
                 windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
                 isWindowVisible: window.isVisible,
                 isMiniaturized: window.isMiniaturized,
                 isOnActiveSpace: window.isOnActiveSpace,
                 isKeyWindow: window.isKeyWindow
-            )
+            ).isVisible
         )
     }
 
@@ -13159,11 +13159,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        TerminalScrollBarPresencePolicy.isPresent(
+        TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
             hasScrollback: surfaceHasScrollback()
-        )
+        ).isPresent
     }
 
 }

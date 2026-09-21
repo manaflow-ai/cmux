@@ -511,12 +511,11 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
+        defer { isLoading = false }
         guard CloudMachinesFeature.isEnabled else {
-            isLoading = false
             return
         }
         guard let client = VMClient.shared else {
-            isLoading = false
             return
         }
         let generation = refreshGeneration
@@ -574,7 +573,6 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        isLoading = false
         hasLoadedOnce = true
     }
 }

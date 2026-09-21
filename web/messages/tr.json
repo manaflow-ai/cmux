@@ -387,7 +387,16 @@
       "revoked": "İptal edildi",
       "relaySettings": "Aktarma ayarları",
       "relaySettingsDescription": "Bu ekibin kullandığı aktarma sunucularını seçin. Her satıra bir URL girin.",
-      "saveRelaySettings": "Aktarma ayarlarını kaydet"
+      "saveRelaySettings": "Aktarma ayarlarını kaydet",
+      "eyebrow": "bulut / cihazlar",
+      "scopeActive": "Bu takım gösteriliyor",
+      "emptyTitle": "Henüz bağlı cihaz yok",
+      "emptyDescription": "Bir cmux cihazı bu takımla eşleştirildiğinde platformu, sürümü ve erişim denetimleriyle birlikte burada görünür.",
+      "revoking": "Erişim iptal ediliyor…",
+      "registeredDevices": "Kayıtlı cihazlar",
+      "activeDevices": "Etkin cihazlar",
+      "directoryRevision": "Dizin revizyonu",
+      "savingRelaySettings": "Kaydediliyor…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Ekiple paylaş",
