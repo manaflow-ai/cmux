@@ -3016,6 +3016,7 @@ jobs:
           fi
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
 
       # Compile-only forks have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
