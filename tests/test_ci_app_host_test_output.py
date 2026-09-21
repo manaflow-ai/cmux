@@ -113,6 +113,43 @@ class AppHostTestOutputTests(unittest.TestCase):
                 self.assertFalse(passed)
                 self.assertIn("incomplete app-host test run", message)
 
+    def test_wrapper_retry_is_safe_before_test_execution(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "The test runner timed out while preparing to run tests.\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertTrue(safe)
+        self.assertIn("pre-test", message)
+
+    def test_wrapper_retry_is_blocked_after_xctest_started(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "Test Suite 'Selected tests' started at 2026-09-21 00:00:00.\n"
+            "Test Case '-[cmuxTests.ExampleTests testExample]' started.\n"
+            "XCTAssertTrue failed\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+        self.assertIn("test execution evidence", message)
+
+    def test_wrapper_retry_is_blocked_after_zero_test_summary(self) -> None:
+        safe, _ = MODULE.retry_safe(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+
+    def test_wrapper_retry_is_blocked_after_swift_testing_started(self) -> None:
+        safe, _ = MODULE.retry_safe(
+            "◇ Test run started.\n"
+            "◇ Test waitingForCallback() started.\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+
     def test_timeout_words_in_successful_test_names_or_app_logs_are_not_failures(self) -> None:
         passed, _ = MODULE.classify(
             "2026-09-20 07:11:24 cmux DEV[4667:30096] Receive failed: Operation timed out\n"
