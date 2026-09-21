@@ -15,7 +15,10 @@ log_dir="${RUNNER_TEMP:-/tmp}"
 log_tag="${CMUX_TAG:-untagged}"
 # Keep every invocation distinct. Focused suites run sequentially in one job,
 # and a shared "untagged" stem used to overwrite earlier retry evidence.
-log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-$"
+# Python observes this shell as its parent and avoids relying on shell PID
+# syntax that can be rewritten while workflow text is generated.
+invocation_id="$(python3 -c 'import os; print(os.getppid())')"
+log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-${invocation_id}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
 echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
