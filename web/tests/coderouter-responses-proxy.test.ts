@@ -235,13 +235,20 @@ describe("codex responses proxy session routing", () => {
   test("fails over an NDJSON capacity event split across chunks", async () => {
     const record = JSON.stringify({ type: "error", code: "usage_limit_reached" });
     const encoder = new TextEncoder();
-    const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(record.slice(0, -4)));
-        controller.enqueue(encoder.encode(`${record.slice(-4)}\n`));
-        controller.close();
-      },
-    }), { status: 200, headers: { "content-type": "application/x-ndjson" } })) as typeof fetch)(responsesRequest());
+    const responses = [
+      () => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(record.slice(0, -4)));
+          controller.enqueue(encoder.encode(`${record.slice(-4)}\n`));
+          controller.close();
+        },
+      }), { status: 200, headers: { "content-type": "application/x-ndjson" } }),
+      () => new Response(`${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson" },
+      }),
+    ];
+    const response = await capacityProxy((async () => responses.shift()!()) as typeof fetch)(responsesRequest());
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
