@@ -26,8 +26,7 @@ struct WorkspaceCollaboratorsView: View {
         .popover(isPresented: $isPopoverPresented, arrowEdge: .top) {
             WorkspaceCollaboratorList(
                 workspaceScope: workspaceScope,
-                collaborators: collaborators,
-                presence: presence
+                collaborators: collaborators
             )
         }
     }
