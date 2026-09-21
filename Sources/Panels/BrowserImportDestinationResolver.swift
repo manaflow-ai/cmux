@@ -2,56 +2,39 @@ import Foundation
 import CmuxBrowser
 
 @MainActor
-enum BrowserImportDestinationResolver {
-    static func resolve(
+struct BrowserImportDestinationResolver {
+    private let packageResolver = CmuxBrowser.BrowserImportDestinationResolver()
+
+    func resolve(
         params: [String: Any],
         destinationProfiles: [BrowserProfileDefinition]
     ) throws -> UUID? {
-        if let rawID = stringParam(params, key: "destination_profile_id") {
-            guard let id = UUID(uuidString: rawID),
-                  destinationProfiles.contains(where: { $0.id == id }) else {
-                throw BrowserImportAutomationError.destinationProfileNotFound(rawID)
-            }
+        let selector = ["destination_profile", "to_profile", "to"].lazy.compactMap { key in
+            (params[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.first { !$0.isEmpty }
+        let identifier = (params["destination_profile_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolution = packageResolver.resolve(
+            rawSelector: selector,
+            rawIdentifier: identifier,
+            createIfMissing: BrowserAutomationParameters(values: params).bool(
+                keys: ["create_destination_profile", "create_profile"]
+            ),
+            profiles: destinationProfiles
+        )
+        switch resolution {
+        case .none:
+            return nil
+        case .matched(let id):
             return id
-        }
-
-        guard let query = stringParam(
-            params,
-            keys: ["destination_profile", "to_profile", "to"]
-        ) else { return nil }
-        if let id = UUID(uuidString: query) {
-            guard destinationProfiles.contains(where: { $0.id == id }) else {
-                throw BrowserImportAutomationError.destinationProfileNotFound(query)
+        case .ambiguous(let profiles):
+            throw BrowserProfileAutomationError.ambiguousProfile(selector ?? identifier ?? "", profiles)
+        case .notFound(let value), .invalidIdentifier(let value):
+            throw BrowserImportAutomationError.destinationProfileNotFound(value)
+        case .create(let name):
+            guard let profile = BrowserProfileStore.shared.createProfile(named: name) else {
+                throw BrowserImportAutomationError.destinationProfileCreationFailed(name)
             }
-            return id
+            return profile.id
         }
-
-        let matches = destinationProfiles.filter {
-            $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame
-                || $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame
-        }
-        if matches.count == 1 { return matches[0].id }
-        if matches.count > 1 {
-            throw BrowserProfileAutomationError.ambiguousProfile(query, matches)
-        }
-        guard BrowserAutomationParameters(values: params).bool(
-            keys: ["create_destination_profile", "create_profile"]
-        ) else {
-            throw BrowserImportAutomationError.destinationProfileNotFound(query)
-        }
-        guard let profile = BrowserProfileStore.shared.createProfile(named: query) else {
-            throw BrowserImportAutomationError.destinationProfileCreationFailed(query)
-        }
-        return profile.id
-    }
-
-    private static func stringParam(_ params: [String: Any], key: String) -> String? {
-        guard let value = params[key] as? String else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
-        keys.lazy.compactMap { stringParam(params, key: $0) }.first
     }
 }
