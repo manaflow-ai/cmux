@@ -20,6 +20,7 @@ HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
+MACOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-macos.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
     "workflow-guard-tests",
@@ -39,6 +40,13 @@ WEB_JOBS = (
     "diff-sidecar-check",
     "web-db-migrations",
     "agent-session-web-resources",
+)
+MACOS_JOBS = (
+    "macos-compile-admission",
+    "app-host-unit-tests",
+    "swift-package-tests",
+    "tests-build-and-lag",
+    "release-build",
 )
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
@@ -446,7 +454,19 @@ def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
     raise AssertionError("Detect CI change areas run block not found")
 
 
-def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+def workflow_for_job(job_name: str) -> Path:
+    if job_name in GUARD_JOBS or job_name == "guard-status":
+        return GUARD_WORKFLOW
+    if job_name in WEB_JOBS or job_name == "web-status":
+        return WEB_WORKFLOW
+    if job_name in MACOS_JOBS or job_name == "macos-status":
+        return MACOS_WORKFLOW
+    return CI_WORKFLOW
+
+
+def workflow_job_block(job_name: str, workflow_path: Path | None = None) -> str:
+    if workflow_path is None:
+        workflow_path = workflow_for_job(job_name)
     lines = workflow_path.read_text(encoding="utf-8").splitlines()
     marker = f"  {job_name}:"
     for index, line in enumerate(lines):
@@ -457,10 +477,15 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
                     break
                 body.append(body_line)
             return "\n".join(body)
-    raise AssertionError(f"{job_name} job not found")
+    raise AssertionError(f"{job_name} job not found in {workflow_path.name}")
 
-
-def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
+def workflow_job_step_script(
+    job_name: str,
+    step_name: str,
+    workflow_path: Path | None = None,
+) -> str:
+    if workflow_path is None:
+        workflow_path = workflow_for_job(job_name)
     lines = workflow_path.read_text(encoding="utf-8").splitlines()
     job_marker = f"  {job_name}:"
     step_marker = f"      - name: {step_name}"
@@ -485,8 +510,7 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
                         break
                     return "\n".join(body)
             break
-    raise AssertionError(f"{step_name} run block not found in {job_name}")
-
+    raise AssertionError(f"{step_name} run block not found in {job_name} ({workflow_path.name})")
 
 def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
     script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
@@ -682,8 +706,43 @@ def run_web_status(
     )
 
 
-def run_detect_step_for_paths(
-    paths: list[str],
+def run_macos_status(
+    *,
+    inputs: dict[str, str] | None = None,
+    results: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    route_inputs = {
+        "macos": "true",
+        "full_suite": "true",
+        "compile_admitted": "false",
+        "release_build": "true",
+        "cache_backend": "",
+        "release_archs": "",
+    } if inputs is None else dict(inputs)
+    job_results = dict.fromkeys(MACOS_JOBS, "success")
+    if results:
+        job_results.update(results)
+    script = workflow_job_step_script(
+        "macos-status", "Check routed macOS jobs", MACOS_WORKFLOW
+    )
+    env = {
+        **os.environ,
+        "MACOS_INPUTS": json.dumps(route_inputs),
+        "MACOS_NEEDS": json.dumps(
+            {name: {"result": result} for name, result in job_results.items()}
+        ),
+    }
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def run_detect_step_for_paths(    paths: list[str],
     workflow_path: Path = CI_WORKFLOW,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script(workflow_path)
