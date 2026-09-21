@@ -46,9 +46,16 @@ enum CmuxExtensionSidebarSelection {
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var conversationSidebarEnabled: Bool {
         let key = BetaFeaturesCatalogSection().conversationSidebar
-        return Bool.decodeFromUserDefaults(
+        let localOptIn = Bool.decodeFromUserDefaults(
             UserDefaults.standard.object(forKey: key.userDefaultsKey)
         ) ?? key.defaultValue
+        // The beta toggle is intentionally subordinate to the remote release
+        // gate. This keeps the picker and persisted selection recoverable while
+        // allowing PostHog to roll the feature out or kill it without shipping.
+        let releaseEnabled = CmuxFeatureFlags.offMainEffectiveValue(
+            for: CmuxFeatureFlags.conversationSidebarFlag
+        )
+        return localOptIn && releaseEnabled
     }
 
     static var customSidebarsEnabled: Bool {
