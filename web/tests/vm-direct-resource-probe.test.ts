@@ -18,8 +18,14 @@ test("direct probes share a sample and preserve its original time until expiry",
     setSystemTime(1_800_000_005_000);
     expect(await reader.read("vm-one")).toEqual(first);
     expect(calls).toBe(1);
+    // Direct reads coalesce for 30 s (twice the guest reporter's interval):
+    // the dev backend's stats poll must not pile execs onto a machine that
+    // is still creating or attaching.
     setSystemTime(1_800_000_015_001);
-    expect((await reader.read("vm-one"))?.resourceSampledAt).toBe(1_800_000_015_001);
+    expect(await reader.read("vm-one")).toEqual(first);
+    expect(calls).toBe(1);
+    setSystemTime(1_800_000_030_001);
+    expect((await reader.read("vm-one"))?.resourceSampledAt).toBe(1_800_000_030_001);
     expect(calls).toBe(2);
   } finally { setSystemTime(); }
 });

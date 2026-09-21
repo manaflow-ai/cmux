@@ -614,20 +614,15 @@ struct MachinesPanelPendingCreateTests {
     /// Regression: while `cmux vm new --name troll` was still opening its
     /// terminal, the fleet list (and, before it, the catalog) already showed
     /// "troll", so the panel listed "troll · Creating…" above "troll". The
-    /// stand-in row exists only until the machine has a row of its own.
+    /// stand-in row exists only until the machine has a row of its own, and
+    /// that row keeps the stand-in's node id so the sidebar row does not jump.
     @Test func pendingRowStepsAsideOnceItsMachineHasARow() {
         let started = Date(timeIntervalSince1970: 1_787_400_000)
         let named = MachineCreateOperation(
-            id: UUID(),
-            request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"),
-            startedAt: started,
-            createdMachineID: "vm-e0382b"
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started, createdMachineID: "vm-e0382b"
         )
         let unnamed = MachineCreateOperation(
-            id: UUID(),
-            request: MachineCreateCoordinatorTests.newMachineRequest(name: nil),
-            startedAt: started,
-            createdMachineID: "calm-petrel"
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: nil), startedAt: started, createdMachineID: "calm-petrel"
         )
         func machine(_ id: String, label: String?, createdAt: Date?) -> MachineSnapshot {
             MachineSnapshot(
@@ -635,49 +630,53 @@ struct MachinesPanelPendingCreateTests {
                 isDesktop: false, activity: .ready, createdAt: createdAt, label: label
             )
         }
+        /// A stand-in renders as its node id; a machine's own row as "<machine id>@<node id>".
         func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
             CloudTreeNodeBuilder.nodes(
                 machines: machines,
                 pendingCreates: pending,
                 snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
                 localWorkspaces: []
-            ).map(\.id)
+            ).map { node in
+                if case .machine(let machine, _) = node.kind { return "\(machine.id)@\(node.id)" }
+                return node.id
+            }
         }
         let older = machine("old-hare", label: "troll", createdAt: started.addingTimeInterval(-3_600))
         let created = machine("vm-e0382b", label: "troll", createdAt: started.addingTimeInterval(20))
         let anonymous = machine("calm-petrel", label: nil, createdAt: started.addingTimeInterval(20))
+        let namedRow = "pending-machine:\(named.id.uuidString)"
+        let unnamedRow = "pending-machine:\(unnamed.id.uuidString)"
 
-        // The fleet list returned the named machine: its stand-in is gone; an
-        // older machine that happens to share the label is not it.
-        #expect(rows(machines: [older], pending: [named]) == ["pending-machine:\(named.id.uuidString)", "machine:old-hare"])
-        #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", "machine:vm-e0382b"])
+        // The fleet list returned the named machine: its stand-in is gone and the
+        // machine's own row inherits its node id; an older machine that happens to
+        // share the label is not it.
+        #expect(rows(machines: [older], pending: [named]) == [namedRow, "old-hare@machine:old-hare"])
+        #expect(rows(machines: [older, created], pending: [named]) == ["old-hare@machine:old-hare", "vm-e0382b@\(namedRow)"])
         // The catalog registered it (the CLI is opening it) before the fleet
         // list caught up: the catalog row is the machine's row.
         let catalogTroll = SurfaceMachineInfo(
             id: .cloud("vm-e0382b"), name: "troll", status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
         )
-        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["machine:vm-e0382b"])
+        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["vm-e0382b@\(namedRow)"])
         // An unnamed create is the machine that appeared after it started.
-        #expect(rows(machines: [older], pending: [unnamed]) == ["pending-machine:\(unnamed.id.uuidString)", "machine:old-hare"])
-        #expect(rows(machines: [anonymous], pending: [unnamed]) == ["machine:calm-petrel"])
-        // A failed create keeps its row so it can be retried or dismissed.
+        #expect(rows(machines: [older], pending: [unnamed]) == [unnamedRow, "old-hare@machine:old-hare"])
+        #expect(rows(machines: [anonymous], pending: [unnamed]) == ["calm-petrel@\(unnamedRow)"])
+        // A failed create keeps its row, standing in for its machine, so it can be
+        // retried or dismissed; the machine gets no second row.
         var failed = named
         failed.phase = .failed(output: "Error: quota")
-        #expect(rows(machines: [created], pending: [failed]) == ["pending-machine:\(failed.id.uuidString)", "machine:vm-e0382b"])
+        #expect(rows(machines: [created], pending: [failed]) == [namedRow])
 
         // A pending operation without its emitted machine id cannot safely be
         // matched by a label or timestamp, especially with concurrent creates.
-        let uncorrelated = MachineCreateOperation(
-            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started
-        )
+        let uncorrelated = MachineCreateOperation(id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: "troll"), startedAt: started)
         #expect(rows(machines: [created], pending: [uncorrelated]).first?.hasPrefix("pending-machine:") == true)
 
         // Two concurrent unnamed creates must not both disappear when one
         // newly observed machine has no matching authoritative id.
-        let uncorrelatedOther = MachineCreateOperation(
-            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: nil), startedAt: started
-        )
+        let uncorrelatedOther = MachineCreateOperation(id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: nil), startedAt: started)
         let concurrentRows = rows(machines: [anonymous], pending: [uncorrelated, uncorrelatedOther])
         #expect(concurrentRows.filter { $0.hasPrefix("pending-machine:") }.count == 2)
     }

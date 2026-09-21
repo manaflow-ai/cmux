@@ -23,6 +23,12 @@ export function shellQuote(value: string): string {
 export const CMUX_TUI_PORT = 1337;
 export const CMUX_TUI_SESSION = "cloud";
 /**
+ * How long a cmux-remote route token (and the lease it is hashed into) lives.
+ * The token is ledger-only on a private machine: the daemon's Noise session is
+ * the gate, the lease is what sign-out revocation finds.
+ */
+export const CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+/**
  * The daemon's cloud listener is reachable only inside the owner's private
  * network (every member is the owner's Mac or another of the owner's machines),
  * so it grants carrier authentication to every link: no device enrollment, no
@@ -557,6 +563,12 @@ export function cmuxTuiAttachBundleCommand(options: {
   readonly readyGate?: string;
   readonly deviceFingerprint?: string;
   readonly binary?: string;
+  /**
+   * Read the enrolled-device list (default). A trusted listener needs no
+   * enrollment, so an attach that knows the daemon is trusted-capable (a
+   * baked image) skips it: one daemon call fewer per attach.
+   */
+  readonly includeDevices?: boolean;
 }): string {
   // The enrolled-device list lives in the DAEMON's state dir, so every call
   // here has to be the daemon's user and HOME. Reading it as root on a
@@ -578,8 +590,10 @@ export function cmuxTuiAttachBundleCommand(options: {
     cmuxTuiLayoutSelector(),
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run("remote-probe --json")}; echo`,
-    `echo ${BUNDLE_MARKERS.devices}`,
-    `${run(`remote enroll devices --session ${CMUX_TUI_SESSION} --json`)}; echo`,
+    ...(options.includeDevices === false ? [] : [
+      `echo ${BUNDLE_MARKERS.devices}`,
+      `${run(`remote enroll devices --session ${CMUX_TUI_SESSION} --json`)}; echo`,
+    ]),
     `echo ${BUNDLE_MARKERS.trusted}`,
     cmuxTuiTrustedListenerProbe(),
     `echo ${BUNDLE_MARKERS.end}`,
@@ -609,8 +623,11 @@ export function parseCmuxTuiAttachBundle(
     if (start === -1 || end === -1 || end < start) return "";
     return stdout.slice(start + from.length, end).trim();
   };
-  const probeText = section(BUNDLE_MARKERS.probe, BUNDLE_MARKERS.devices);
-  const devicesText = section(BUNDLE_MARKERS.devices, BUNDLE_MARKERS.trusted);
+  // The device section is optional (includeDevices: false); without it the
+  // probe runs up to the trusted marker and nobody counts as enrolled.
+  const hasDevices = stdout.includes(BUNDLE_MARKERS.devices);
+  const probeText = section(BUNDLE_MARKERS.probe, hasDevices ? BUNDLE_MARKERS.devices : BUNDLE_MARKERS.trusted);
+  const devicesText = hasDevices ? section(BUNDLE_MARKERS.devices, BUNDLE_MARKERS.trusted) : "";
   const trustedText = section(BUNDLE_MARKERS.trusted, BUNDLE_MARKERS.end);
   let daemonBuild: CmuxTuiAttachBundle["daemonBuild"] = null;
   try {

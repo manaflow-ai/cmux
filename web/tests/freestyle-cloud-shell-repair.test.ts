@@ -55,6 +55,23 @@ describe("Freestyle Cloud VM daemon repair", () => {
     expect(healthy).toContain("/latest/meta-data/instance-id");
   });
 
+  test("the settle loop reads the instance id once and compares it every tick", () => {
+    // Up to 30 health ticks used to curl the metadata service twice each
+    // (token, then id) although the id never changes during a settle: it is
+    // read once before the loop (re-read only while it is still empty) and
+    // every tick compares the daemon's bound id against that value.
+    const settled = freestyleDaemonSettledCommand();
+    const loop = settled.slice(settled.indexOf("for i in"), settled.indexOf("done;"));
+    const bound = freestyleDaemonHealthyCommand({ instanceIdVar: "cmux_iid" });
+    expect(bound).toContain('"$cmux_iid"');
+    expect(bound).not.toContain("169.254.169.254");
+    expect(loop).toContain(bound);
+    expect(loop).toContain('[ -n "$cmux_iid" ] ||');
+    expect(settled.indexOf('cmux_iid="$(')).toBeLessThan(settled.indexOf("for i in"));
+    // The immediate check on an older image still reads the id itself.
+    expect(settled).toContain(`else ${freestyleDaemonHealthyCommand()}; fi`);
+  });
+
   test("health and repair require the dual-stack Freestyle listener", () => {
     const health = freestyleDaemonHealthyCommand();
     expect(health).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");

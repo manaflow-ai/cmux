@@ -39,23 +39,23 @@ actor CloudMachineLinkManager {
     }
 
     nonisolated let operations: CloudOperationRecorder?
-    private let isCloudEnabled: @Sendable () -> Bool
-    private let paths: CloudTuiClientPaths
-    private let clientURL: URL?
+    let isCloudEnabled: @Sendable () -> Bool
+    let paths: CloudTuiClientPaths
+    let clientURL: URL?
     private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
-    private let hub: CloudWireGuardHub?
+    let hub: CloudWireGuardHub?
     /// Private routes come from the signed-in machine list. An enrolled client
     /// reconnects with this local fact and does not call the attach endpoint.
-    private var privateRoutes: [String: String] = [:]
+    var privateRoutes: [String: String] = [:]
     private var privateAddressCandidates: [String: [String]] = [:]
-    private var links: [String: CloudMachineLink] = [:]
-    private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
+    var links: [String: CloudMachineLink] = [:]
+    var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
     private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
-    private var lastFailure: [String: (at: Date, error: String)] = [:]
+    var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
     private let retryBackoff: TimeInterval = 15
@@ -399,7 +399,7 @@ actor CloudMachineLinkManager {
     }
 
     /// Records a preflight failure without mutating link retry state.
-    private func recordPreflightFailure(machineID: String, reason: String, correlationID: String) {
+    func recordPreflightFailure(machineID: String, reason: String, correlationID: String) {
         StartupBreadcrumbLog.append(
             "cloud.link.failed",
             fields: [
@@ -487,7 +487,7 @@ actor CloudMachineLinkManager {
     /// that connected it. While a push is in flight, further requests only mark a
     /// rerun; the trailing run reads the colors when it starts, so a reload burst
     /// costs at most one extra command and always lands on the latest theme.
-    private func pushHostTheme(machineID: String, socketPath: String) {
+    func pushHostTheme(machineID: String, socketPath: String) {
         guard links[machineID] != nil else { return }
         guard !themePushInFlight.contains(machineID) else {
             themePushQueued.insert(machineID)
@@ -527,13 +527,13 @@ actor CloudMachineLinkManager {
         }
     }
 
-    private func store(link: CloudMachineLink, for machineID: String) {
+    func store(link: CloudMachineLink, for machineID: String) {
         links[machineID] = link
     }
 
     /// The cached capability probe, else a fresh probe cached on success; a
     /// failed probe reports none and leaves the cache for a later retry.
-    private func resolvedClientCapabilities(clientURL: URL) -> [String] {
+    func resolvedClientCapabilities(clientURL: URL) -> [String] {
         if let cached = cachedClientCapabilities { return cached }
         guard let probed = Self.clientCapabilities(clientURL: clientURL) else { return [] }
         cachedClientCapabilities = probed

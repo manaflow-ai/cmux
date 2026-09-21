@@ -50,7 +50,8 @@ const CREATE_TIMEOUT_MS = 630_000;
 const ATTACH_BUDGET_MS = 180_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
-const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@stackframe/js")).href);
+// The Stack SDK the app itself uses (app/lib/stack.ts), resolved like smoke-vm-api.mjs does.
+const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@hexclave/js")).href);
 // ESM-only package (no require entry): resolved from this script's own tree.
 const { Freestyle, FreestyleApiError } = await import("freestyle");
 
@@ -251,6 +252,9 @@ async function attachUntilReady(vmId, stage) {
       return {
         [`${stage}Ms`]: elapsedMs(startedAt),
         [`${stage}Attempts`]: attempts,
+        // The attach route's own per-stage timings (access check, provider
+        // probe, provider attach, lease), when the backend sends them.
+        [`${stage}Stages`]: parseServerTiming(response.headers.get("server-timing")),
         [`${stage}TrustedCarrier`]: body.trustedCarrier === true,
         [`${stage}RouteFamily`]: typeof body.route === "string" ? (body.route.includes("[") ? "ipv6" : "ipv4") : null,
         [`${stage}DaemonCommit`]: body.daemonBuild?.commit ?? null,
@@ -328,6 +332,9 @@ async function runTrial(trial) {
   trial.vmId = vmId;
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
+  // Whether the create response carried the attach block a client can dial
+  // from without this attach-endpoint round trip (absent on older backends).
+  trial.createAttachBlock = created.attach ? { route: created.attach.route, trustedCarrier: created.attach.trustedCarrier, guestToolsBaked: created.attach.guestToolsBaked } : null;
   Object.assign(trial, await attachUntilReady(vmId, "attach"));
   // Create plus the attach-endpoint's own time: the route and lease exist,
   // but the link, the terminal and the shell prompt come after this point
@@ -881,6 +888,8 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     stages: summarizeFields(measured, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
     attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
+    attachServerTiming: summarizeStages(measured.map((trial) => trial.attachStages)),
+    warmAttachServerTiming: summarizeStages(measured.map((trial) => trial.warmAttachStages)),
     results,
   };
   if (measured.length > 0) {

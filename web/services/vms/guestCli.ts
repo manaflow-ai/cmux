@@ -31,6 +31,7 @@
 // reaches machines created from any existing snapshot. This driver-installed
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
+import { createHash } from "node:crypto";
 import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCliDistribution";
 import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
@@ -2771,6 +2772,20 @@ case "\${1:-}" in
     ;;
 esac
 `;
+
+/** The shim's bytes as the driver, the devbox bake and the image verifier expect them on the guest. */
+export const GUEST_CMUX_SHIM_SHA256 = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
+
+/**
+ * The driver's create/attach gate for the shim (ensureGuestCli in
+ * drivers/freestyle.ts): the exact bytes at the exact path. The devbox bake
+ * proves the same expression right after it writes the shim, and the image
+ * verifier proves it on a booted machine, so a machine from a baked image
+ * passes the gate without an upload (issue #13070).
+ */
+export function guestCliShimReadyCommand(): string {
+  return `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${GUEST_CMUX_SHIM_SHA256}'`;
+}
 
 /** Shell command installing the shim (idempotent; safe to run on every heal). */
 export function guestCliInstallCommand(): string {

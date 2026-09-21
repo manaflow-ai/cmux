@@ -17,6 +17,12 @@ export type VmTimingStage =
   | "mark_running"
   | "mark_base_running"
   | "usage_events"
+  // Attach (open_attach): ownership and plan checks, the optional provider
+  // status probe, the provider's attach, and the lease ledger write.
+  | "access_check"
+  | "preflight_probe"
+  | "provider_attach"
+  | "lease"
   | "total";
 
 export type VmTimingSink = {

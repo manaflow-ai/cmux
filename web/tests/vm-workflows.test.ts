@@ -41,6 +41,8 @@ import {
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
+import type { VmTimingStage } from "../services/vms/timings";
+import { GUEST_TOOLS_BAKED_EPOCH, listVmImageKindDefaults } from "../services/vms/images/resolver";
 import {
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
@@ -2162,6 +2164,8 @@ describe("VM Effect workflows", () => {
       billingTeamId: "team-workflow-remote-stale-running",
       providerVmId: "provider-vm-remote-stale-running",
       status: "running",
+      // Old enough that the row is not trusted: the provider is probed first.
+      updatedAt: new Date(Date.now() - 10 * 60_000),
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const leases: RecordedLease[] = [];
@@ -2231,6 +2235,7 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-remote-probe-fail",
       providerVmId: "provider-vm-remote-probe-fail",
       status: "running",
+      updatedAt: new Date(Date.now() - 10 * 60_000),
     });
     const repo = testWorkflowRepo({ vm });
     const probeError = providerOperationError("getStatus", "provider status unavailable");
@@ -2270,6 +2275,8 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-remote-destroyed",
       providerVmId: "provider-vm-remote-destroyed",
       status: "running",
+      // Old enough that the row is not trusted: the provider is probed first.
+      updatedAt: new Date(Date.now() - 10 * 60_000),
     });
     const observedStatuses: ObservedStatusUpdate[] = [];
     const repo = testWorkflowRepo({ vm, observedStatuses });
@@ -2310,6 +2317,186 @@ describe("VM Effect workflows", () => {
     expect(observedStatuses).toEqual([
       { id: vm.id, providerVmId: "provider-vm-remote-destroyed", status: "destroyed" },
     ]);
+  });
+
+  test("openVmCmuxRemote trusts a row updated within 120 s and still fails closed when the attach and the probe both fail", async () => {
+    // A machine the control plane touched seconds ago (a create, a resume)
+    // cannot have been idle-paused since (Cloud machines run with idle pausing
+    // disabled), so the attach dials the daemon without a status round trip.
+    // The re-probe after a failed attach keeps a provider-paused machine
+    // recoverable.
+    const fresh = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000149",
+      userId: "user-workflow-remote-fresh",
+      providerVmId: "provider-vm-remote-fresh",
+      status: "running",
+      updatedAt: new Date(Date.now() - 5_000),
+    });
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm: fresh, leases });
+    const endpoint = {
+      transport: "cmux-remote" as const,
+      route: "ws://10.0.0.5:1337/v1/link",
+      token: "remote-token",
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+      session: "cloud",
+      trustedCarrier: true,
+    };
+    const calls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () =>
+        Effect.sync(() => {
+          calls.push("getStatus");
+          return "paused" as const;
+        }),
+      resume: () =>
+        Effect.sync(() => {
+          calls.push("resume");
+          return testVmHandle({ providerVmId: "provider-vm-remote-fresh" });
+        }),
+      openCmuxRemote: () =>
+        Effect.sync(() => {
+          calls.push("openCmuxRemote");
+          return endpoint;
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-remote-fresh",
+        providerVmId: "provider-vm-remote-fresh",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(result).toEqual(endpoint);
+    expect(calls).toEqual(["openCmuxRemote"]);
+    expect(leases).toHaveLength(1);
+
+    // The attach fails and the provider cannot be probed either: the attach
+    // error surfaces unchanged and nothing is minted or recorded.
+    const attachError = providerOperationError("openCmuxRemote", "daemon unreachable");
+    const probeError = providerOperationError("getStatus", "provider status unavailable");
+    const failedLeases: RecordedLease[] = [];
+    const failedCalls: string[] = [];
+    const failing: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () =>
+        Effect.suspend(() => {
+          failedCalls.push("getStatus");
+          return Effect.fail(probeError);
+        }),
+      resume: () => Effect.fail(providerOperationError("resume", "should not resume")),
+      openCmuxRemote: () =>
+        Effect.suspend(() => {
+          failedCalls.push("openCmuxRemote");
+          return Effect.fail(attachError);
+        }),
+    };
+    const error = await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-remote-fresh",
+        providerVmId: "provider-vm-remote-fresh",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm: fresh, leases: failedLeases }), failing))),
+    );
+    expect(error).toBe(attachError);
+    expect(failedCalls).toEqual(["openCmuxRemote", "getStatus"]);
+    expect(failedLeases).toHaveLength(0);
+  });
+
+  test("openVmCmuxRemote records its stages on the timing sink", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-00000000014a",
+      userId: "user-workflow-remote-timing",
+      providerVmId: "provider-vm-remote-timing",
+      status: "running",
+      updatedAt: new Date(Date.now() - 10 * 60_000),
+    });
+    const stages: VmTimingStage[] = [];
+    const timing = {
+      record: (stage: VmTimingStage, durationMs: number) => {
+        expect(durationMs).toBeGreaterThanOrEqual(0);
+        stages.push(stage);
+      },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      openCmuxRemote: () =>
+        Effect.succeed({
+          transport: "cmux-remote" as const,
+          route: "ws://10.0.0.5:1337/v1/link",
+          token: "remote-token",
+          expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+          session: "cloud",
+          trustedCarrier: true,
+        }),
+    };
+
+    await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-remote-timing",
+        providerVmId: "provider-vm-remote-timing",
+        timing,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(stages).toEqual(["access_check", "preflight_probe", "provider_attach", "lease"]);
+  });
+
+  test("openVmCmuxRemote records the lease before returning and defers the usage event and address backfill", async () => {
+    // The lease is what sign-out revocation finds, so it is written before
+    // the endpoint is handed out; the attach usage event and the learned
+    // address are bookkeeping the response does not wait for.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-00000000014b",
+      userId: "user-workflow-remote-defer",
+      providerVmId: "provider-vm-remote-defer",
+      status: "running",
+      providerMetadata: {},
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const patches: Array<Readonly<Record<string, unknown>>> = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm, usageEvents, leases }),
+      mergeProviderMetadata: ({ patch }) =>
+        Effect.sync(() => {
+          patches.push(patch);
+        }),
+    };
+    const endpoint = {
+      transport: "cmux-remote" as const,
+      route: "ws://10.0.0.5:1337/v1/link",
+      token: "remote-token",
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+      session: "cloud",
+      trustedCarrier: true,
+      networkAddresses: { ipv4: "10.0.0.5", ipv6: "fd00:4::5" },
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      openCmuxRemote: () => Effect.succeed(endpoint),
+    };
+    const deferred: Array<() => Promise<void>> = [];
+
+    const result = await Effect.runPromise(
+      openVmCmuxRemote({
+        userId: "user-workflow-remote-defer",
+        providerVmId: "provider-vm-remote-defer",
+        defer: (work) => {
+          deferred.push(work);
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(result).toEqual(endpoint);
+    expect(leases).toHaveLength(1);
+    expect(usageEvents).toEqual([]);
+    expect(patches).toEqual([]);
+    expect(deferred.length).toBeGreaterThan(0);
+
+    for (const work of deferred) await work();
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.attach"]);
+    expect(patches).toEqual([{ networkIpv4: "10.0.0.5", networkIpv6: "fd00:4::5" }]);
   });
 
   test("openAttachEndpoint fails when resumed status persistence fails", async () => {
@@ -2788,6 +2975,255 @@ describe("VM Effect workflows", () => {
     }).pipe(Effect.provide(workflowLayer(repo, provider))));
     expect(promptName).toBe("build-box");
     expect(result.displayName).toBe("Build box");
+  });
+
+  test("create hands its usage events to the defer sink and stamps the image epoch on the row", async () => {
+    // The requested/created ledger rows are analytics, not lifecycle state:
+    // with a sink the create returns before they are written and the route
+    // runs them after the response. Without a sink they are written inline.
+    const requested = testCloudVmRow({ slug: "calm-heron" });
+    let runningMetadata: Record<string, unknown> | undefined;
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested, usageEvents }),
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      markCreateRunning: (input) =>
+        Effect.sync(() => {
+          runningMetadata = input.providerMetadata;
+          return { ...requested, status: "running" as const, providerVmId: "deferred-vm", providerMetadata: input.providerMetadata ?? {} };
+        }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.succeed(testVmHandle({ providerVmId: "deferred-vm", providerMetadata: { networkIpv4: "10.0.0.9" } })),
+    };
+    const deferred: Array<() => Promise<void>> = [];
+
+    const result = await Effect.runPromise(createVm({
+      userId: "user-workflow-usage-events",
+      billingCustomerType: "team",
+      billingTeamId: "user-workflow-usage-events",
+      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+      imageEpoch: "2026-09-10-r2",
+      defer: (work) => {
+        deferred.push(work);
+      },
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+
+    expect(result.providerVmId).toBe("deferred-vm");
+    expect(result.imageEpoch).toBe("2026-09-10-r2");
+    expect(result.addressIpv4).toBe("10.0.0.9");
+    // The epoch rides with the provider's own metadata, nothing is dropped.
+    expect(runningMetadata).toEqual({ networkIpv4: "10.0.0.9", imageEpoch: "2026-09-10-r2" });
+    expect(usageEvents).toEqual([]);
+    // The two usage-event batches and the dial lease for the private address.
+    expect(deferred).toHaveLength(3);
+
+    for (const work of deferred) await work();
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.create.requested", "vm.created"]);
+  });
+
+  test("create tells the provider the guest tools are baked only at or past the baked epoch", async () => {
+    // The gate is the image epoch stamped by the route: every current image
+    // is below GUEST_TOOLS_BAKED_EPOCH, so the driver keeps installing until
+    // the promotion of a bake at that epoch lands.
+    const run = async (imageEpoch: string) => {
+      const requested = testCloudVmRow({ slug: "calm-heron" });
+      const creates: Array<Parameters<VmProviderGatewayShape["create"]>[1]> = [];
+      const repo: VmRepositoryShape = {
+        ...testWorkflowRepo({ vm: requested }),
+        beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+        markCreateRunning: (input) =>
+          Effect.succeed({ ...requested, status: "running" as const, providerVmId: "baked-vm", providerMetadata: input.providerMetadata ?? {} }),
+      };
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        create: (_provider, options) =>
+          Effect.sync(() => {
+            creates.push(options);
+            return testVmHandle({ providerVmId: "baked-vm" });
+          }),
+      };
+      await Effect.runPromise(createVm({
+        userId: "user-workflow-baked",
+        billingCustomerType: "team",
+        billingTeamId: "user-workflow-baked",
+        billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+        imageEpoch,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))));
+      return creates[0];
+    };
+    expect((await run(GUEST_TOOLS_BAKED_EPOCH))?.guestToolsBaked).toBe(true);
+    expect((await run("2026-09-10-r2"))?.guestToolsBaked).toBe(false);
+  });
+
+  test("create records a preview lease after the response for a machine the client can dial directly", async () => {
+    // A client that dials the daemon straight from the create response never
+    // calls attach-endpoint, so the lease that sign-out revocation finds is
+    // written at create, after the response: one per machine and creator.
+    const run = async (handleMetadata: Record<string, unknown>) => {
+      const requested = testCloudVmRow({ id: "00000000-0000-4000-8000-00000000014c", userId: "user-workflow-create-lease", slug: "calm-heron" });
+      const leases: RecordedLease[] = [];
+      const repo: VmRepositoryShape = {
+        ...testWorkflowRepo({ vm: requested, leases }),
+        beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+        markCreateRunning: (input) =>
+          Effect.succeed({ ...requested, status: "running" as const, providerVmId: "lease-vm", providerMetadata: input.providerMetadata ?? {} }),
+      };
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        create: () => Effect.succeed(testVmHandle({ providerVmId: "lease-vm", providerMetadata: handleMetadata })),
+      };
+      const deferred: Array<() => Promise<void>> = [];
+      await Effect.runPromise(createVm({
+        userId: "user-workflow-create-lease",
+        billingCustomerType: "team",
+        billingTeamId: "user-workflow-create-lease",
+        billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+        imageEpoch: "2026-09-10-r2",
+        defer: (work) => {
+          deferred.push(work);
+        },
+      }).pipe(Effect.provide(workflowLayer(repo, provider))));
+      expect(leases).toEqual([]);
+      for (const work of deferred) await work();
+      return { leases, rowId: requested.id };
+    };
+    const dialable = await run({ networkIpv4: "10.0.0.9", networkIpv6: "fd00:4::9" });
+    expect(dialable.leases).toHaveLength(1);
+    expect(dialable.leases[0]).toMatchObject({
+      vmId: dialable.rowId,
+      userId: "user-workflow-create-lease",
+      kind: "preview",
+      transport: "cmux-remote",
+      metadata: { session: "cloud", invited: false, trustedCarrier: true, source: "create" },
+    });
+    const ttlMs = dialable.leases[0]!.expiresAt.getTime() - Date.now();
+    expect(ttlMs).toBeGreaterThan(11 * 3_600_000);
+    expect(ttlMs).toBeLessThan(13 * 3_600_000);
+    // Nothing to dial without a private address: no lease.
+    const unreachable = await run({});
+    expect(unreachable.leases).toEqual([]);
+  });
+
+  test("openVmCmuxRemote tells the provider when the row's image bakes the guest tools", async () => {
+    const attachOptions: Array<Parameters<NonNullable<VmProviderGatewayShape["openCmuxRemote"]>>[2]> = [];
+    const endpoint = {
+      transport: "cmux-remote" as const,
+      route: "ws://10.0.0.5:1337/v1/link",
+      token: "remote-token",
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+      session: "cloud",
+      trustedCarrier: true,
+    };
+    const run = async (imageEpoch: string) => {
+      const vm = testCloudVmRow({
+        id: "00000000-0000-4000-8000-00000000014d",
+        userId: "user-workflow-remote-baked",
+        providerVmId: "provider-vm-remote-baked",
+        status: "running",
+        providerMetadata: { imageEpoch, networkIpv4: "10.0.0.5" },
+      });
+      const provider: VmProviderGatewayShape = {
+        ...unusedProviderGateway(),
+        getStatus: () => Effect.succeed("running" as const),
+        openCmuxRemote: (_provider, _vmId, options) =>
+          Effect.sync(() => {
+            attachOptions.push(options);
+            return endpoint;
+          }),
+      };
+      await Effect.runPromise(
+        openVmCmuxRemote({ userId: "user-workflow-remote-baked", providerVmId: "provider-vm-remote-baked" })
+          .pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+      );
+    };
+    await run(GUEST_TOOLS_BAKED_EPOCH);
+    await run("2026-09-10-r2");
+    expect(attachOptions.map((options) => options?.guestToolsBaked)).toEqual([true, false]);
+  });
+
+  test("a client-proven attach on a baked machine answers from the row and the manifest without a provider call", async () => {
+    // The client already completed the Noise handshake with the daemon it
+    // dialed from the create response, which proves more than any probe or
+    // heal exec would: mint the ledger token and the lease from what the
+    // control plane knows, and never touch the provider.
+    const entry = listVmImageKindDefaults("freestyle", "desktop").find((candidate) => candidate.size?.name === "md");
+    if (!entry) throw new Error("manifest has no md desktop default");
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-00000000014e",
+      userId: "user-workflow-remote-proven",
+      providerVmId: "provider-vm-remote-proven",
+      imageId: entry.imageId,
+      status: "running",
+      providerMetadata: { imageEpoch: GUEST_TOOLS_BAKED_EPOCH, networkIpv4: "10.16.0.7", networkIpv6: "fd00:4::7" },
+    });
+    const leases: RecordedLease[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const calls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.sync(() => { calls.push("getStatus"); return "running" as const; }),
+      openCmuxRemote: () => Effect.sync(() => { calls.push("openCmuxRemote"); throw new Error("a client-proven attach must not call the provider"); }),
+    };
+    const result = await Effect.runPromise(
+      openVmCmuxRemote({ userId: "user-workflow-remote-proven", providerVmId: "provider-vm-remote-proven", clientProven: true })
+        .pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm, leases, usageEvents }), provider))),
+    );
+    expect(calls).toEqual([]);
+    expect(result).toMatchObject({
+      transport: "cmux-remote",
+      route: "ws://10.16.0.7:1337/v1/link",
+      session: "cloud",
+      trustedCarrier: true,
+      daemonBuild: { commit: entry.cmuxTuiCommit, remoteProtocol: null, version: null },
+      networkAddresses: { ipv4: "10.16.0.7", ipv6: "fd00:4::7" },
+    });
+    expect(result.token.length).toBeGreaterThanOrEqual(32);
+    expect(result.expiresAtUnix).toBeGreaterThan(Math.floor(Date.now() / 1000) + 3_600);
+    expect(result.invitation).toBeUndefined();
+    expect(leases).toHaveLength(1);
+    expect(leases[0]).toMatchObject({
+      vmId: vm.id,
+      userId: "user-workflow-remote-proven",
+      kind: "preview",
+      transport: "cmux-remote",
+      metadata: { session: "cloud", invited: false, trustedCarrier: true, readiness: "client-proven" },
+    });
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.attach"]);
+    expect(usageEvents[0]?.metadata).toMatchObject({ transport: "cmux-remote", readiness: "client-proven" });
+  });
+
+  test("a client-proven attach on a machine without baked guest tools still goes through the provider", async () => {
+    // Below the baked epoch the attach may still have to heal the guest
+    // tools, which only the provider path does.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-00000000014f",
+      userId: "user-workflow-remote-unproven",
+      providerVmId: "provider-vm-remote-unproven",
+      status: "running",
+      providerMetadata: { imageEpoch: "2026-09-10-r2", networkIpv4: "10.16.0.7" },
+    });
+    const endpoint = {
+      transport: "cmux-remote" as const,
+      route: "ws://10.16.0.7:1337/v1/link",
+      token: "remote-token",
+      expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+      session: "cloud",
+      trustedCarrier: true,
+    };
+    const calls: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.sync(() => { calls.push("getStatus"); return "running" as const; }),
+      openCmuxRemote: () => Effect.sync(() => { calls.push("openCmuxRemote"); return endpoint; }),
+    };
+    const result = await Effect.runPromise(
+      openVmCmuxRemote({ userId: "user-workflow-remote-unproven", providerVmId: "provider-vm-remote-unproven", clientProven: true })
+        .pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(result).toEqual(endpoint);
+    expect(calls).toEqual(["openCmuxRemote"]);
   });
 
   dbTest("create reserves the display name atomically and an idempotent replay preserves it", async () => {

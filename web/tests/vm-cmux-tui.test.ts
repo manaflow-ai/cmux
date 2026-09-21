@@ -263,7 +263,7 @@ describe("cmux-tui attach bundle", () => {
   const stdoutFor = (probe: string, devices: string, trusted: string) =>
     ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_TRUSTED__", trusted, "__CMUX_END__", ""].join("\n");
 
-  const runBundle = (readyGate: string, deviceFingerprint?: string) => {
+  const runBundle = (readyGate: string, deviceFingerprint?: string, options: { readonly includeDevices?: boolean } = {}) => {
     const root = mkdtempSync(join(tmpdir(), "cmux-tui-attach-bundle-"));
     const binary = join(root, "cmux-tui");
     const callsPath = join(root, "calls");
@@ -288,7 +288,7 @@ describe("cmux-tui attach bundle", () => {
     ].join("\n"));
     chmodSync(binary, 0o755);
     try {
-      const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary })], {
+      const result = spawnSync("/bin/sh", ["-c", cmuxTuiAttachBundleCommand({ readyGate, deviceFingerprint, binary, ...options })], {
         encoding: "utf8",
         env: {
           ...process.env,
@@ -321,6 +321,26 @@ describe("cmux-tui attach bundle", () => {
     expect(bundle.enrolled).toBe(false);
     // No cloud daemon runs on the test host, so the probe reports untrusted.
     expect(bundle.trustedCarrier).toBe(false);
+  });
+
+  test("without the device list the bundle calls only the probe, and the parse still yields build and trust", () => {
+    // A baked machine's trusted listener needs no enrollment, so the attach
+    // skips the device list: one daemon call fewer on every attach.
+    const result = runBundle("exit 0", "fp-new", { includeDevices: false });
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual(["remote-probe --json"]);
+    expect(result.stdout).not.toContain("__CMUX_DEVICES__");
+    const bundle = parseCmuxTuiAttachBundle(result.stdout, "freestyle", "vm-1", "fp-new");
+    expect(bundle.daemonBuild).toEqual({ commit: "abc123", remoteProtocol: 12, version: "0.13.0" });
+    expect(bundle.enrolled).toBe(false);
+    expect(bundle.trustedCarrier).toBe(false);
+    // The same stdout shape with a trusted daemon parses to a trusted bundle.
+    const trusted = parseCmuxTuiAttachBundle(
+      ["__CMUX_PROBE__", '{"build_identity":"abc123","remote_protocol":12,"version":"0.13.0"}', "__CMUX_TRUSTED__", "1", "__CMUX_END__", ""].join("\n"),
+      "freestyle",
+      "vm-1",
+    );
+    expect(trusted).toEqual({ daemonBuild: { commit: "abc123", remoteProtocol: 12, version: "0.13.0" }, enrolled: false, trustedCarrier: true, invitation: null });
   });
 
   test("a failed readiness exit returns the repair signal without calling the daemon", () => {

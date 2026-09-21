@@ -23,6 +23,7 @@ import {
   type DevboxImageManifest,
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
+import { vmImageEntryEpoch } from "../services/vms/images/resolver";
 
 // The checked-in image manifest (services/vms/images/manifest.json) is the
 // source of truth for the image Cloud VM users get: the resolver serves the
@@ -111,6 +112,8 @@ describe("devboxSourceDriftProblems", () => {
     // an epoch bump is the exact case this catches.
     const legacy = passedEntry({ kind: "base", defaultForKind: true, notes: "cmux devbox epoch 1999-01-01-r1 Devbox on Freestyle." });
     expect(manifestEntryEpoch(legacy)).toBe("1999-01-01-r1");
+    // One implementation: the runtime resolver owns it, the bake scripts import it.
+    expect(manifestEntryEpoch).toBe(vmImageEntryEpoch);
     expect(devboxSourceDriftProblems(manifestOf(legacy))).toHaveLength(1);
     expect(devboxSourceDriftProblems(manifestOf(passedEntry({ kind: "base", defaultForKind: true, notes: `cmux devbox epoch ${epoch}` })))).toEqual([]);
     expect(manifestEntryEpoch(passedEntry({ notes: "no epoch here" }))).toBeUndefined();

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
 import { vmEdgeAliasDomain, VM_PLACEHOLDER_API_KEY } from "../coderouter/vmGuestEnv";
 
@@ -65,16 +66,19 @@ while True:
 `;
 }
 
-/** Installed only on explicit create/attach/wake paths, never by a stats read. */
-export function guestResourceReporterInstallCommand(): string {
-  const script = guestResourceReporterScript();
-  const unit = `[Unit]
+export const GUEST_RESOURCE_REPORTER_SCRIPT_PATH = "/usr/local/lib/cmux/resource-stats.py";
+export const GUEST_RESOURCE_REPORTER_UNIT_NAME = "cmux-resource-stats.service";
+export const GUEST_RESOURCE_REPORTER_UNIT_PATH = `/etc/systemd/system/${GUEST_RESOURCE_REPORTER_UNIT_NAME}`;
+
+/** The unit the installer writes: an unprivileged, sandboxed reporter that restarts on failure. */
+export function guestResourceReporterUnit(): string {
+  return `[Unit]
 Description=cmux resource statistics
 After=network-online.target
 [Service]
 Type=simple
 User=nobody
-ExecStart=/usr/bin/python3 /usr/local/lib/cmux/resource-stats.py
+ExecStart=/usr/bin/python3 ${GUEST_RESOURCE_REPORTER_SCRIPT_PATH}
 Restart=always
 RestartSec=30
 NoNewPrivileges=true
@@ -84,19 +88,41 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 `;
+}
+
+/**
+ * The installer's own "nothing to do" condition as one check: the script and
+ * the unit are byte-identical to what it would write, and the unit is enabled
+ * and running. The devbox bake proves it right after installing (issue
+ * #13070) and the image verifier proves it on a booted machine, so a baked
+ * machine needs no systemctl mutation from the driver.
+ */
+export function guestResourceReporterReadyCommand(): string {
+  const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+  return [
+    `test "$(sha256sum '${GUEST_RESOURCE_REPORTER_SCRIPT_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${digest(guestResourceReporterScript())}'`,
+    `test "$(sha256sum '${GUEST_RESOURCE_REPORTER_UNIT_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${digest(guestResourceReporterUnit())}'`,
+    `systemctl is-enabled --quiet ${GUEST_RESOURCE_REPORTER_UNIT_NAME} && systemctl is-active --quiet ${GUEST_RESOURCE_REPORTER_UNIT_NAME}`,
+  ].join(" && ");
+}
+
+/** Installed only on explicit create/attach/wake paths, never by a stats read. */
+export function guestResourceReporterInstallCommand(): string {
+  const script = guestResourceReporterScript();
+  const unit = guestResourceReporterUnit();
   return `set -eu
 install -d -m 0755 /usr/local/lib/cmux
 cmux_stats_tmp=$(mktemp -d)
 trap 'rm -rf "$cmux_stats_tmp"' EXIT
 printf %s ${shellQuote(script)} > "$cmux_stats_tmp/script"
 printf %s ${shellQuote(unit)} > "$cmux_stats_tmp/unit"
-if ! cmp -s "$cmux_stats_tmp/script" /usr/local/lib/cmux/resource-stats.py || ! cmp -s "$cmux_stats_tmp/unit" /etc/systemd/system/cmux-resource-stats.service; then
-    install -m 0644 "$cmux_stats_tmp/script" /usr/local/lib/cmux/resource-stats.py
-    install -m 0644 "$cmux_stats_tmp/unit" /etc/systemd/system/cmux-resource-stats.service
+if ! cmp -s "$cmux_stats_tmp/script" ${GUEST_RESOURCE_REPORTER_SCRIPT_PATH} || ! cmp -s "$cmux_stats_tmp/unit" ${GUEST_RESOURCE_REPORTER_UNIT_PATH}; then
+    install -m 0644 "$cmux_stats_tmp/script" ${GUEST_RESOURCE_REPORTER_SCRIPT_PATH}
+    install -m 0644 "$cmux_stats_tmp/unit" ${GUEST_RESOURCE_REPORTER_UNIT_PATH}
     systemctl daemon-reload
-    systemctl restart cmux-resource-stats.service
+    systemctl restart ${GUEST_RESOURCE_REPORTER_UNIT_NAME}
 fi
-if ! systemctl is-enabled --quiet cmux-resource-stats.service || ! systemctl is-active --quiet cmux-resource-stats.service; then
-    systemctl enable --now cmux-resource-stats.service >/dev/null 2>&1
+if ! systemctl is-enabled --quiet ${GUEST_RESOURCE_REPORTER_UNIT_NAME} || ! systemctl is-active --quiet ${GUEST_RESOURCE_REPORTER_UNIT_NAME}; then
+    systemctl enable --now ${GUEST_RESOURCE_REPORTER_UNIT_NAME} >/dev/null 2>&1
 fi`;
 }

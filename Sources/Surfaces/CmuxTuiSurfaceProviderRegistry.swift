@@ -14,9 +14,9 @@ import Foundation
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
 
-    private var catalog: SurfaceCatalog?
-    private var providers: [String: CmuxTuiSurfaceProvider] = [:]
-    private let links: CloudMachineLinkManager
+    private(set) var catalog: SurfaceCatalog?
+    var providers: [String: CmuxTuiSurfaceProvider] = [:]
+    let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -32,7 +32,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var featureFlagObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
-    private let isCloudEnabled: @MainActor () -> Bool
+    let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
@@ -51,20 +51,20 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// carries the epoch it was registered with and a stale one is dropped:
     /// without this, a `DisableCloud` teardown that lands just after the
     /// policy lifts would clear the freshly restarted registry.
-    private var accessEpoch: UInt64 = 0
+    private(set) var accessEpoch: UInt64 = 0
     /// Create receipts also end at team changes, which preserve the registry's observer epoch.
     private var creationEpoch = UUID()
     /// Machine IDs admitted from a successful create response remain owned by
     /// this registry until a fleet page positively observes them. A stale page
     /// must not prune a receipt that is still converging into discovery.
-    private var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
+    var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []; var createAttachCache: [String: VMCreateAttach] = [:]
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
-    private var isRetired = true
+    private(set) var isRetired = true
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
-    private var machineTeardowns: [String: Task<Void, Never>] = [:]
+    var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
     private var isFeatureSuspended = false
@@ -105,19 +105,6 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Captured before a create starts, so a late receipt cannot enter another account.
     var creationScope: UUID? { !isRetired && isCloudEnabled() ? creationEpoch : nil }
 
-    /// Publishes the create response's friendly name before the first workspace bind.
-    /// The response need not contain private addresses; provider discovery still
-    /// owns transport initialization and registration.
-    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) {
-        guard let scope, scope == creationScope, let catalog else { return }
-        // A replay cannot overwrite names or status already accepted by discovery.
-        guard catalog.machines[.cloud(summary.id)] == nil else { return }
-        pendingMachineCreationIDs.insert(summary.id)
-        catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
-            from: summary, linkState: .connecting, linkError: nil, stats: nil
-        ))
-    }
-
     /// True while the periodic fleet read is scheduled.
     var isPolling: Bool { pollTask != nil }
 
@@ -150,7 +137,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = false
         accessEpoch &+= 1
         creationEpoch = UUID()
-        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
+        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll(); createAttachCache.removeAll()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -359,7 +346,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
-        pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
+        pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id)); createAttachCache[id] = nil
         let provider = providers.removeValue(forKey: id)
         provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
@@ -382,7 +369,7 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     /// The id the registry stores for a machine, matched case-insensitively;
     /// the caller's spelling when nothing is registered under it.
-    private func registeredMachineID(matching rawID: String) -> String {
+    func registeredMachineID(matching rawID: String) -> String {
         if providers[rawID] != nil { return rawID }
         let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
@@ -461,7 +448,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         for id in staleIDs {
             unregisterMachine(id)
         }
-        await links.retainAddresses(machineIDs: seen)
+        await links.retainAddresses(machineIDs: seen.union(pendingMachineCreationIDs))
         guard !isRetired, generation == refreshGeneration else { return nil }
         for summary in page.vms {
             guard !isRetired else { return nil }
@@ -510,7 +497,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = true
         accessEpoch &+= 1
         creationEpoch = UUID()
-        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
+        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll(); createAttachCache.removeAll()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil

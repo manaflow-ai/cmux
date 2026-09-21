@@ -275,6 +275,8 @@ export type VmRepositoryShape = {
   readonly markBillingGrantApplied: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly deleteBillingGrant: (id: string) => Effect.Effect<void, VmDatabaseError>;
   readonly beginCreate: (input: {
+    /** The row id, minted by the workflow so the model-plane token bound to it can be provisioned while the row is inserted. */
+    readonly id?: string;
     readonly userId: string;
     readonly billingTeamId: string;
     readonly billingPlanId: string;
@@ -1465,6 +1467,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             const [vm] = await tx
               .insert(cloudVms)
               .values({
+                ...(input.id ? { id: input.id } : {}),
                 userId: input.userId,
                 billingTeamId: input.billingTeamId,
                 billingPlanId: input.billingPlanId,

@@ -3,9 +3,11 @@ import { preconnectFreestyle } from "../../../../../services/vms/drivers/freesty
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
+  runAfterResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
+import { VmTimingRecorder } from "../../../../../services/vms/timings";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
 import {
@@ -27,7 +29,19 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint",
     { "cmux.vm.operation": "open_attach" },
     "/api/vm/[id]/attach-endpoint failed",
-    async ({ user, span }) => {
+    async ({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
+      const timing = new VmTimingRecorder(span, "open_attach", { startedAt: routeStartedAtMs });
+      timing.record("auth", authDurationMs);
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        // Per-stage timings travel with the response, as on create, so a
+        // client or a bench run sees where an attach spent its time.
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable headers on a passthrough Response: the span still has them.
+        }
+      });
       const { id } = await params;
       const body = await parseLenientObjectBody(request);
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
@@ -62,7 +76,12 @@ export async function POST(
           }, 400);
         }
         const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
-        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
+        // `readiness: "client-proven"`: the caller already dialed the daemon
+        // it was handed at create (the Noise handshake succeeded), so the
+        // workflow may answer from the row without a provider call when the
+        // image bakes the guest tools. Any other value means unproven.
+        const clientProven = optionalString(body.readiness) === "client-proven";
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote", "cmux.vm.attach.client_proven": clientProven });
         const run = await runVmRoute(openVmCmuxRemote({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
@@ -72,6 +91,11 @@ export async function POST(
           deviceFingerprint,
           clientCapabilities,
           callerPlanId: account.entitlements.planId,
+          clientProven,
+          timing,
+          // The attach usage event and the address backfill are written
+          // after the response has left.
+          defer: runAfterResponse,
         }), { request });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);

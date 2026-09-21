@@ -59,14 +59,56 @@ export type VmImageManifestEntry = {
   /** The shape this snapshot boots at. Entries without one are size-less (pre-ladder bakes). */
   readonly size?: VmImageManifestSize;
   readonly cmuxdRemoteCommit: string;
+  /** The cmux-tui build baked in the daemon user's home; absent on images that installed it at create time. */
+  readonly cmuxTuiCommit?: string;
+  readonly cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
+  /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see vmImageEntryEpoch). */
+  readonly epoch?: string;
   readonly builtAt: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
   readonly notes?: string;
 };
+
+/**
+ * The first devbox epoch whose daemon serves the trusted cloud listener: a
+ * client on the owner's private network dials `remote connect --carrier` with
+ * no enrollment. Every current manifest default is at or past it.
+ */
+export const TRUSTED_CARRIER_EPOCH = "2026-09-10-r1";
+
+/**
+ * The first devbox epoch that bakes the guest tools the drivers used to
+ * install by exec on every create and re-check on every attach (the guest
+ * `cmux` shim, the guest CLI distribution, the browser openers, the resource
+ * reporter). Nothing in the manifest reaches it until that bake is promoted,
+ * so the drivers keep installing until then.
+ */
+export const GUEST_TOOLS_BAKED_EPOCH = "2026-09-21-r1";
+
+/** The epoch an entry was baked at: the field, or the `cmux devbox epoch <x>` prefix every bake writes into `notes`. */
+export function vmImageEntryEpoch(entry: Pick<VmImageManifestEntry, "epoch" | "notes"> | null | undefined): string | undefined {
+  if (!entry) return undefined;
+  return entry.epoch ?? /cmux devbox epoch (\S+)/.exec(entry.notes ?? "")?.[1];
+}
+
+const IMAGE_EPOCH_PATTERN = /^(\d{4}-\d{2}-\d{2})-r(\d+)$/;
+
+/**
+ * Whether `epoch` is at or past `floor`: the date first, then the numeric
+ * revision (`r10` is newer than `r9`). An unknown or malformed epoch never
+ * satisfies a floor, so a gate on it fails closed.
+ */
+export function imageEpochAtLeast(epoch: string | null | undefined, floor: string): boolean {
+  const candidate = epoch ? IMAGE_EPOCH_PATTERN.exec(epoch) : null;
+  const bound = IMAGE_EPOCH_PATTERN.exec(floor);
+  if (!candidate || !bound) return false;
+  if (candidate[1] !== bound[1]) return candidate[1]! > bound[1]!;
+  return Number(candidate[2]) >= Number(bound[2]);
+}
 
 export type VmImageSelection = {
   readonly provider: ProviderId;

@@ -227,18 +227,22 @@ extension TerminalController {
         guard let workspaceId = v2UUIDAny(params["workspace_id"]) else {
             return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
         }
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+        // The in-process New Machine create replaces the same pane through the same
+        // function; only the error shapes belong to the socket.
+        let attachment: CloudVMTerminalAttachment
+        do {
+            attachment = try replaceCloudVMLoadingPane(
+                workspaceID: workspaceId,
+                in: tabManager,
+                command: v2RawString(params, "initial_command") ?? "",
+                deferTerminal: v2Bool(params, "defer_terminal") ?? false,
+                focus: v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            )
+        } catch CloudVMTerminalAttachmentError.workspaceNotFound {
             return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
-        }
-        guard let command = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
+        } catch CloudVMTerminalAttachmentError.emptyCommand {
             return .err(code: "invalid_params", message: "initial_command is required", data: ["workspace_id": workspaceId.uuidString])
-        }
-
-        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
-        guard let panelID = workspace.prepareCloudTerminalAttachment(
-            command: command, deferTerminal: v2Bool(params, "defer_terminal") ?? false, focus: focus
-        ) else {
+        } catch {
             return .err(
                 code: "not_found",
                 message: "Cloud VM loading surface not found",
@@ -251,8 +255,8 @@ extension TerminalController {
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
-            "surface_id": panelID.uuidString,
-            "surface_ref": v2Ref(kind: .surface, uuid: panelID),
+            "surface_id": attachment.panelID.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: attachment.panelID),
         ])
     }
 
