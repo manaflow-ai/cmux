@@ -99,7 +99,10 @@ Inside the machine the agent authenticates like it would locally (its own login,
 ```bash
 out=$(cmux surface new-terminal --machine <id> --no-open --json -- sh -lc 'cd "$HOME/work/app" && exec bun test --watch')
 term=$(echo "$out" | jq -r '.terminal_id')
-cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300
+if ! cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300; then
+  echo "terminal did not become ready" >&2
+  exit 1
+fi
 cmux vm terminal read <id> "$term"                                # the screen a person would see
 cmux vm terminal send <id> "$term" --keys ctrl+c                  # stop it; `send … 'text' --keys enter` types a line
 cmux vm terminal close <id> "$term"                               # done with it
@@ -127,7 +130,7 @@ enrollment/grant command; older peer-route files remain compatible. See
 
 ```bash
 # inside <builder>:
-cmux vm agent reviewer --agent codex --name "review" --cwd work/app -- "review the diff on branch feat/x and write REVIEW.md"
+cmux vm agent --machine reviewer --agent codex --name "review" --cwd work/app -- "review the diff on branch feat/x and write REVIEW.md"
 cmux vm terminal wait-exit reviewer <term> --timeout 1800                     # the agent's process ended
 cmux vm terminal output reviewer <term> | tail -n 40                          # what it said
 cmux vm exec reviewer -- cat work/app/REVIEW.md

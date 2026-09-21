@@ -4,10 +4,11 @@ Read this for guest auth, peer access or presentation behavior.
 
 ## Guest auth and CodeRouter
 
-Start with `cmux self --json` to identify the current machine and `cmux vm ls`
-to list the owner's visible machines. The guest reads those through its VM-bound
-TLS edge without a Mac account token. Host lifecycle verbs still run on the Mac;
-read the guest's `cmux --help` for the subset its image supports.
+Start with `cmux self --json` to identify the current machine, then use
+`cmux self peers` to discover the owner's reachable machines. The guest reads
+that reflection through its VM-bound TLS edge without a Mac account token. Host
+lifecycle verbs still run on the Mac; read the guest's `cmux --help` for the
+subset its image supports.
 
 Inside a Cloud machine, the guest `cmux` adapter can report route health and run
 an agent through the shared CodeRouter without exposing the Mac's Stack session:
@@ -34,7 +35,7 @@ selected machine, while the guest `cmux agent` form runs through CodeRouter.
 | Mac | this Mac's own session | the unprefixed local verbs (`cmux send-key`, `cmux new-workspace`, …) |
 | inside a machine | **this** machine's session | the same unprefixed local verbs as on a Mac (`cmux send-key`, `cmux terminal send`, `cmux layout apply`, `cmux env set`, `cmux notify`) |
 | inside a machine | **another** machine | `cmux vm <verb> <machine> …` — the same grammar as on the Mac |
-| inside a machine | the owner's machines | `cmux vm ls` (this one marked `*`, with reachability) |
+| inside a machine | the owner's machines | `cmux self peers` (with reachability) |
 | inside a machine | myself | `cmux self [peers\|integrations\|owner\|machine] [--json]` (aliases: `cmux whoami`, `cmux reflect [<path>]`) |
 | Mac | a machine's identity | `cmux vm self <machine> [<path>] [--json]` — the same reflection payloads through your session |
 
@@ -45,7 +46,7 @@ Every machine has its own `cmux` (a shim over its cmux-tui daemon). An agent run
 ```bash
 cmux self                               # who am I: name, id, status, team, owner, plan (reflection; no credential in the guest)
 cmux self peers                         # the owner's other machines and their routes; `cmux self integrations` = what I can use, with help commands
-cmux vm ls                              # every machine of the owner, this one marked *, with reachable/linked state
+cmux self peers                         # the owner's other machines and their reachable/linked state
 cmux tree --json                        # this machine's workspaces/terminals
 cmux new-workspace --name tests         # a workspace here
 cmux terminal send <term> 'bun test' --keys enter ; cmux terminal wait <term> --pattern 'pass|fail' ; cmux terminal read <term>
@@ -57,7 +58,7 @@ cmux notify --title "done" --body "…"   # lands on the Mac pane showing this t
 cmux agent claude --timeout 600 "fix the tests"     # runs in this terminal until it exits (it is the wait; exit code passes through; --timeout caps it)
 ```
 
-To talk to **another** machine (a second agent, a service box), a machine discovers its peers through reflection (`cmux self peers` or `cmux vm ls`; the owner's private network is the trust boundary, so no Mac step is needed — older Mac-written route files still work). Inside `src`, `cmux vm …` takes the peer as its first argument with the same grammar the Mac uses: `cmux vm tree <dst>`, `cmux vm exec <dst> -- <cmd>`, `cmux vm terminal send|read|wait|close <dst> <term> …`, `cmux vm terminal send <dst> <term> enter`, `cmux vm workspace new|rename|close|rm <dst> …`, `cmux vm agent <dst> --agent codex -- "review work/app"` (a durable terminal on the peer running the peer's own agent config), `cmux vm layout export|apply <dst> …`, `cmux vm env set|ls|rm <dst> …`, `cmux vm push <dst> <file> <remote-path>` (one file over the link, secret-safe), `cmux vm agent <dst> … --wait --output` (until the peer's agent exits). No control-plane credential lives in any VM; a machine reaches only machines of its own owner.
+To talk to **another** machine (a second agent, a service box), a machine discovers its peers through reflection (`cmux self peers`; the owner's private network is the trust boundary, so no Mac step is needed — older Mac-written route files still work). Inside a machine, `cmux vm …` takes the peer as its first argument with the same grammar the Mac uses: `cmux vm tree <dst>`, `cmux vm exec <dst> -- <cmd>`, `cmux vm terminal send|read|wait|close <dst> <term> …`, `cmux vm terminal send <dst> <term> enter`, `cmux vm workspace new|rename|close|rm <dst> …`, `cmux vm agent --machine <dst> --agent codex -- "review work/app"` (a durable terminal on the peer running the peer's own agent config), `cmux vm layout export|apply <dst> …`, `cmux vm env set|ls|rm <dst> …`, `cmux vm push <dst> <file> <remote-path>` (one file over the link, secret-safe), `cmux vm agent --machine <dst> … --wait --output` (until the peer's agent exits). No control-plane credential lives in any VM; a machine reaches only machines of its own owner.
 
 A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs ([local topology](../../cmux/SKILL.md)) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. A local workspace that *mirrors* a machine workspace (opened with `cmux vm workspace open`, or bound with `workspace.cloud_vm_bind`) is that workspace seen from the Mac, so its structure is the machine's: a pane moved into it takes its tab there (a pool terminal gets one), a terminal pane closed in it closes that tab (the terminal detaches into the Terminals pool, still running), and a tab or workspace renamed there is renamed on the machine. Closing the local workspace itself (⌘⇧W) only ends the view: the machine workspace and its terminals stay exactly as they were. Panes in any other local workspace are viewers and never touch the machine's layout. Rearranging the machine's topology in full is what `cmux vm tui <id>` is for.
 
@@ -89,10 +90,12 @@ arguments. A terminal with several views should be moved by its tab ID. Moving,
 renaming, swapping, and changing split ratios preserve running terminal processes.
 `pane resize` changes layout geometry. Machine resource resizing uses `vm resize` and preserves the existing VM identity and data.
 
-Local commands use `cmux <resource> <verb> …`; a peer uses
+Resource commands use `cmux <resource> <verb> …`; a peer uses
 `cmux vm <resource> <verb> <machine> …` (for example,
-`cmux vm tab rename <machine> <tab> "Logs"`). Existing ID-first daemon syntax is
-also supported. `cmux workspace help` lists the full topology grammar.
+`cmux vm tab rename <machine> <tab> "Logs"`). Top-level verbs retain their
+existing forms, such as `cmux send-key`, `cmux new-workspace`, `cmux agent`, and
+`cmux notify`. Existing ID-first daemon syntax is also supported. `cmux workspace
+help` lists the full topology grammar.
 
 Arrange the daemon workspace before presenting it. The Mac's
 `cmux vm workspace open <machine> <ws>` reads that layout when creating its local
