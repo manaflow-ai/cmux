@@ -3,12 +3,15 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts/ci"))
+import app_host_layer_consumers as consumers
 NAMES = ("app-cli", "runtime", "tests", "diagnostics")
 
 
@@ -88,6 +91,25 @@ class LayeredWorkflowTests(unittest.TestCase):
         self.assertTrue(condition(self.steps["upload-layer-index"]["if"], {"steps.pin-layer-index.outcome": "success"}))
         self.assertFalse(condition(self.steps["upload-layer-index"]["if"], {"steps.pin-layer-index.outcome": "failure"}))
 
+    def test_consumer_policy_matches_actual_jobs_shards_and_focused_groups(self):
+        policy = consumers.load_policy()
+        app_host = self.workflow["jobs"]["app-host-unit-tests"]
+        shards = app_host["strategy"]["matrix"]["shard"]
+        expected = {f"app-host-unit-tests/{shard}" for shard in shards} | {"tests-build-and-lag"}
+        self.assertEqual(set(policy["consumers"]), expected)
+        self.assertEqual(app_host["env"]["CMUX_APP_HOST_CONSUMER"], "app-host-unit-tests/${{ matrix.shard }}")
+        self.assertEqual(self.workflow["jobs"]["tests-build-and-lag"]["env"]["CMUX_APP_HOST_CONSUMER"], "tests-build-and-lag")
+        for shard in shards:
+            self.assertEqual(consumers.required_layers(f"app-host-unit-tests/{shard}", policy),
+                             ("app-cli", "runtime", "tests"))
+        self.assertEqual(consumers.required_layers("tests-build-and-lag", policy),
+                         ("app-cli", "runtime", "tests"))
+        for key in ("CMUX_APP_HOST_GLOBAL_SEARCH_SHARD", "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
+                    "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD", "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD"):
+            shard = int(app_host["env"][key])
+            self.assertIn(shard, shards)
+            self.assertIn(f"app-host-unit-tests/{shard}", policy["consumers"])
+
     def test_both_consumers_keep_flat_fallback_and_common_restore_validation(self):
         for name in ("app-host-unit-tests", "tests-build-and-lag"):
             job = self.workflow["jobs"][name]
@@ -121,7 +143,11 @@ class LayeredWorkflowTests(unittest.TestCase):
             self.assertEqual(restore["env"]["CMUX_LAYER_RESTORED"], "${{ steps.restore-layers.outputs.hit }}")
             layered = steps["Restore opt-in layered app-host test product"]
             self.assertIn('${CMUX_DERIVED_DATA_PATH}-layers', layered["run"])
+            self.assertIn('--consumer "$CMUX_APP_HOST_CONSUMER"', layered["run"])
             self.assertIn('outputs.layer_index_digest', layered["env"]["LAYER_INDEX_DIGEST"])
+            self.assertEqual(download["uses"], "./.github/actions/download-test-product")
+            self.assertIn("Declare app-host product consumer", steps)
+            self.assertIn("Report app-host product consumer receipt", steps)
 
     def test_actual_producer_packages_normalized_aggregate_tree(self):
         with tempfile.TemporaryDirectory() as temporary:
