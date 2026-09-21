@@ -1166,6 +1166,15 @@ extension MobileShellComposite {
                 timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
+            guard !Task.isCancelled else {
+                recordAppEvent(
+                    .workspaceListRefreshFailed,
+                    correlationID: diagnosticCorrelationID,
+                    startedAt: diagnosticStartedAt,
+                    failure: .cancelled
+                )
+                return false
+            }
             guard remoteClient === client, connectionState == .connected else {
                 recordAppEvent(
                     .workspaceListRefreshFailed,
