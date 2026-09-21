@@ -8,7 +8,8 @@ extension AppDelegate {
               let workspace = manager.workspacesById[workspaceID],
               !workspace.isRemoteWorkspace,
               let target = workspace.surfaceOwnershipTarget(for: surfaceID),
-              target.panel is TerminalPanel else {
+              target.panel is TerminalPanel,
+              !workspace.isRemoteTerminalContext(target.surfaceID) else {
             return false
         }
         return true

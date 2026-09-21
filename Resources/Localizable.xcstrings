@@ -5567,6 +5567,72 @@
             "state": "translated",
             "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。最初の機能的な Computer Use リクエストで設定が必要な場合、セットアップが自動的に開きます。「設定 > Computer Use」でセットアップを再開できます。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Korištenje prozora aplikacija\\n\\nKoristite computer-use alate za izvorne aplikacije ili vizuelne kontrole. cmux pruža ove alate sesijama Claude Code i Codex pokrenutim u cmuxu. Prvi funkcionalni zahtjev za Computer Use automatski otvara postavljanje kada je potrebno. Postavljanje možete nastaviti u Settings > Computer Use. Pročitajte vještinu `cmux-cua` za metode svog agenta: provjerite stanje aplikacije ili prozora, kliknite ili upišite, pa ponovo provjerite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Brug af programvinduer\\n\\nBrug computer-use-værktøjer til indbyggede programmer eller visuelle kontroller. cmux leverer disse værktøjer til Claude Code- og Codex-sessioner, der startes i cmux. Den første funktionelle Computer Use-anmodning åbner automatisk opsætningen efter behov. Du kan genoptage opsætningen i Settings > Computer Use. Læs færdigheden `cmux-cua` for agentens metoder: se appens eller vinduets tilstand, klik eller skriv, og kontrollér igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usare le finestre delle app\\n\\nUsa gli strumenti computer-use per app native o controlli visivi. cmux fornisce questi strumenti alle sessioni Claude Code e Codex avviate in cmux. La prima richiesta funzionale di Computer Use apre automaticamente la configurazione quando serve. Puoi riprendere la configurazione in Impostazioni > Computer Use. Leggi la skill `cmux-cua` per i metodi del tuo agente: controlla lo stato dell’app o della finestra, fai clic o digita, quindi controlla di nuovo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ប្រើបង្អួចកម្មវិធី\\n\\nប្រើឧបករណ៍ computer-use សម្រាប់កម្មវិធីដើម ឬការគ្រប់គ្រងដែលមើលឃើញ។ cmux ផ្តល់ឧបករណ៍ទាំងនេះដល់សម័យ Claude Code និង Codex ដែលចាប់ផ្តើមក្នុង cmux។ សំណើ Computer Use ដែលដំណើរការដំបូងនឹងបើកការរៀបចំដោយស្វ័យប្រវត្តិនៅពេលចាំបាច់។ អ្នកអាចបន្តការរៀបចំនៅ Settings > Computer Use។ អានជំនាញ `cmux-cua` សម្រាប់វិធីសាស្ត្ររបស់ភ្នាក់ងារ៖ ពិនិត្យស្ថានភាពកម្មវិធី ឬបង្អួច ចុច ឬវាយ បន្ទាប់មកពិនិត្យម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Bruk appvinduer\\n\\nBruk computer-use-verktøy for innebygde apper eller visuelle kontroller. cmux gir disse verktøyene til Claude Code- og Codex-økter som startes i cmux. Den første funksjonelle Computer Use-forespørselen åpner oppsettet automatisk når det trengs. Du kan fortsette oppsettet i Settings > Computer Use. Les `cmux-cua`-ferdigheten for agentens metoder: se app- eller vindustilstand, klikk eller skriv, og kontroller på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Obsługa okien aplikacji\\n\\nUżywaj narzędzi computer-use do aplikacji natywnych lub elementów wizualnych. cmux udostępnia te narzędzia sesjom Claude Code i Codex uruchomionym w cmux. Pierwsze funkcjonalne żądanie Computer Use automatycznie otwiera konfigurację, gdy jest potrzebna. Możesz wznowić konfigurację w Settings > Computer Use. Przeczytaj umiejętność `cmux-cua`, aby poznać metody agenta: sprawdź stan aplikacji lub okna, kliknij albo wpisz tekst, a następnie sprawdź ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Usar janelas de aplicativos\\n\\nUse ferramentas de computer-use para aplicativos nativos ou controles visuais. O cmux fornece essas ferramentas às sessões do Claude Code e do Codex iniciadas no cmux. A primeira solicitação funcional do Computer Use abre a configuração automaticamente quando necessário. Você pode retomar a configuração em Settings > Computer Use. Leia a skill `cmux-cua` para conhecer os métodos do agente: inspecione o estado do aplicativo ou da janela, clique ou digite e inspecione novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Работа с окнами приложений\\n\\nИспользуйте инструменты computer-use для нативных приложений или визуальных элементов. cmux предоставляет эти инструменты сеансам Claude Code и Codex, запущенным в cmux. Первый функциональный запрос Computer Use автоматически открывает настройку при необходимости. Продолжить настройку можно в Settings > Computer Use. Прочитайте навык `cmux-cua`, чтобы узнать методы агента: проверьте состояние приложения или окна, нажмите или введите текст, затем проверьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## ใช้หน้าต่างแอป\\n\\nใช้เครื่องมือ computer-use กับแอปเนทีฟหรือการควบคุมแบบภาพ cmux ให้เครื่องมือเหล่านี้แก่เซสชัน Claude Code และ Codex ที่เปิดใน cmux คำขอ Computer Use ครั้งแรกที่ใช้งานได้จะเปิดการตั้งค่าโดยอัตโนมัติเมื่อจำเป็น คุณสามารถดำเนินการตั้งค่าต่อใน Settings > Computer Use อ่านสกิล `cmux-cua` เพื่อดูวิธีของเอเจนต์: ตรวจสอบสถานะแอปหรือหน้าต่าง คลิกหรือพิมพ์ แล้วตรวจสอบอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Uygulama pencerelerini kullanma\\n\\nYerel uygulamalar veya görsel denetimler için computer-use araçlarını kullanın. cmux, bu araçları cmux içinde başlatılan Claude Code ve Codex oturumlarına sağlar. İlk işlevsel Computer Use isteği gerektiğinde kurulumu otomatik olarak açar. Kuruluma Settings > Computer Use bölümünden devam edebilirsiniz. Ajan yöntemleri için `cmux-cua` becerisini okuyun: uygulama veya pencere durumunu inceleyin, tıklayın ya da yazın ve yeniden inceleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "## Робота з вікнами програм\\n\\nВикористовуйте інструменти computer-use для нативних програм або візуальних елементів. cmux надає ці інструменти сеансам Claude Code і Codex, запущеним у cmux. Перший функціональний запит Computer Use автоматично відкриває налаштування, коли це потрібно. Продовжити налаштування можна в Settings > Computer Use. Прочитайте навичку `cmux-cua`, щоб дізнатися методи агента: перевірте стан програми або вікна, натисніть чи введіть текст, а потім перевірте ще раз."
+          }
         }
       }
     },
@@ -16099,6 +16165,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "첫 번째 Computer Use 요청 시 설정이 자동으로 시작됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvi zahtjev za Computer Use automatski pokreće postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den første Computer Use-anmodning starter automatisk opsætningen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La prima richiesta di Computer Use avvia automaticamente la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើ Computer Use ដំបូងនឹងចាប់ផ្តើមការរៀបចំដោយស្វ័យប្រវត្តិ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den første Computer Use-forespørselen starter oppsettet automatisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pierwsze żądanie Computer Use automatycznie rozpoczyna konfigurację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A primeira solicitação do Computer Use inicia a configuração automaticamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Первый запрос Computer Use автоматически запускает настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอ Computer Use ครั้งแรกจะเริ่มการตั้งค่าโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İlk Computer Use isteği kurulumu otomatik olarak başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перший запит Computer Use автоматично запускає налаштування."
           }
         }
       }
@@ -536458,6 +536590,72 @@
             "state": "translated",
             "value": "Computer Use を有効にしてセットアップを完了してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućite Computer Use da završite postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivér Computer Use for at færdiggøre opsætningen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abilita Computer Use per completare la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើក Computer Use ដើម្បីបញ្ចប់ការរៀបចំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå på Computer Use for å fullføre oppsettet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Włącz Computer Use, aby dokończyć konfigurację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative o Computer Use para concluir a configuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Включите Computer Use, чтобы завершить настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดใช้ Computer Use เพื่อเสร็จสิ้นการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulumu tamamlamak için Computer Use özelliğini etkinleştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увімкніть Computer Use, щоб завершити налаштування."
+          }
         }
       }
     },
@@ -536516,6 +536714,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Computer Use を利用できません。セットアップを再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use nije dostupan. Pokušajte ponovo postaviti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use er ikke tilgængelig. Prøv opsætningen igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use non è disponibile. Riprova la configurazione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use មិនអាចប្រើបានទេ។ ព្យាយាមរៀបចំម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use er utilgjengelig. Prøv oppsettet på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use jest niedostępny. Spróbuj ponownie skonfigurować."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Computer Use está indisponível. Tente configurar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use недоступен. Повторите настройку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ไม่พร้อมใช้งาน ลองตั้งค่าอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use kullanılamıyor. Kurulumu yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use недоступний. Повторіть налаштування."
           }
         }
       }
@@ -536576,6 +536840,72 @@
             "state": "translated",
             "value": "アクセシビリティの権限が必要です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna je dozvola za pristupačnost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelse til Tilgængelighed er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È necessaria l’autorizzazione per Accessibilità."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការសិទ្ធិភាពងាយស្រួលប្រើ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilgjengelighetstillatelse kreves."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane jest pozwolenie na dostępność."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É necessária a permissão de Acessibilidade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется разрешение на Универсальный доступ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมีสิทธิ์การช่วยการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişilebilirlik izni gerekiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен дозвіл на доступність."
+          }
         }
       }
     },
@@ -536634,6 +536964,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面収録の権限が必要です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebna je dozvola za snimanje ekrana."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelse til Skærmoptagelse er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "È necessaria l’autorizzazione per Registrazione schermo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការសិទ្ធិថតអេក្រង់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelse til skjermopptak kreves."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane jest pozwolenie na nagrywanie ekranu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "É necessária a permissão de Gravação de Tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется разрешение на запись экрана."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมีสิทธิ์บันทึกหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Kaydı izni gerekiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен дозвіл на запис екрана."
           }
         }
       }
@@ -536694,6 +537090,72 @@
             "state": "translated",
             "value": "権限は付与されています。セットアップを完了し、macOS で画面キャプチャを確認してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvole su odobrene. Završite postavljanje da potvrdite snimanje ekrana u macOS-u."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilladelserne er givet. Færdiggør opsætningen for at bekræfte skærmoptagelse med macOS."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le autorizzazioni sono concesse. Completa la configurazione per confermare l’acquisizione dello schermo con macOS."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិត្រូវបានផ្តល់។ បញ្ចប់ការរៀបចំ ដើម្បីបញ្ជាក់ការចាប់យកអេក្រង់ជាមួយ macOS។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillatelsene er gitt. Fullfør oppsettet for å bekrefte skjermopptak med macOS."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uprawnienia zostały przyznane. Dokończ konfigurację, aby potwierdzić przechwytywanie ekranu w macOS."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As permissões foram concedidas. Conclua a configuração para confirmar a captura de tela no macOS."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешения предоставлены. Завершите настройку, чтобы подтвердить захват экрана в macOS."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้สิทธิ์แล้ว ตั้งค่าให้เสร็จเพื่อยืนยันการจับภาพหน้าจอกับ macOS"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzinler verildi. macOS ile ekran yakalamayı doğrulamak için kurulumu tamamlayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволи надано. Завершіть налаштування, щоб підтвердити захоплення екрана в macOS."
+          }
         }
       }
     },
@@ -536752,6 +537214,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "セットアップが完了しました。Computer Use を利用できます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postavljanje je završeno. Computer Use je spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opsætningen er færdig. Computer Use er klar."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configurazione è completa. Computer Use è pronto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការរៀបចំបានបញ្ចប់។ Computer Use រួចរាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppsettet er fullført. Computer Use er klart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguracja jest ukończona. Computer Use jest gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configuração foi concluída. O Computer Use está pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройка завершена. Computer Use готов к работе."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตั้งค่าเสร็จแล้ว Computer Use พร้อมใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum tamamlandı. Computer Use hazır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштування завершено. Computer Use готовий."
           }
         }
       }

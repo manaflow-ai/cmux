@@ -39595,20 +39595,49 @@ export default CMUXSessionRestore;
             }
         }
 
+        // Every feed event needs a live, app-owned target. The environment
+        // surface is only a routing hint: it can be stale after a pane move or
+        // can belong to a different cmux instance. Lifecycle events have
+        // already gone through the stricter Codex resolver above; all other
+        // events use the same workspace/surface list validation before they
+        // are published.
+        if validatedCodexFeedTarget == nil {
+            let rawWorkspaceID = feedWorkspaceId(
+                rawObject: stdinObj,
+                fallback: env["CMUX_WORKSPACE_ID"]
+            )
+            let workspaceID = rawWorkspaceID
+                .flatMap(resolveAccessibleWorkspaceId)
+                ?? processBinding()?.workspaceId.flatMap {
+                    resolveAccessibleWorkspaceId($0)
+                }
+            let rawSurfaceID = firstString(
+                in: stdinObj,
+                keys: ["surface_id", "surfaceId"]
+            ) ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+                ?? processBinding()?.surfaceId
+            if let workspaceID,
+               let rawSurfaceID,
+               let surfaceID = resolveAccessibleSurfaceId(
+                   rawSurfaceID,
+                   workspaceId: workspaceID
+               ) {
+                validatedCodexFeedTarget = (workspaceID, surfaceID)
+            }
+        }
+        guard let validatedCodexFeedTarget else {
+            print("{}")
+            return
+        }
+
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
-            eventDict["workspace_id"] = workspaceId
-        }
-        eventDict["surface_id"] = normalizedHandleValue(env["CMUX_SURFACE_ID"])
-        if let validatedCodexFeedTarget {
-            eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
-            eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
-        }
+        eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
+        eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]

@@ -83,6 +83,11 @@ extension ComputerUseRuntimeService {
     /// direct-capture consent can be process-generation scoped, so validating
     /// only the native daemon lets the Codex compatibility daemon prompt later
     /// during the first actual Computer Use call.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func verifyDirectScreenCaptureOutcomes(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),
@@ -110,6 +115,11 @@ extension ComputerUseRuntimeService {
 
     /// Socket-level host request kept internal for peer/capability regression
     /// coverage. A normal bearer token cannot invoke this daemon method.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func verifyDirectScreenCapture(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),
@@ -122,6 +132,11 @@ extension ComputerUseRuntimeService {
         ) == .ready
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func verifyDirectScreenCaptureOutcome(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport = SocketTransport(),

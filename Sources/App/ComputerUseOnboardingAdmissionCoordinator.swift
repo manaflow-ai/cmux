@@ -17,12 +17,6 @@ struct ComputerUseOnboardingAdmissionCoordinator {
             await withdraw()
             return result
         }
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard await publish(profile) else {
-                await withdraw()
-                return .unavailable
-            }
-        }
         guard store.commitVerification(attempt: attempt) else {
             await withdraw()
             return .unavailable

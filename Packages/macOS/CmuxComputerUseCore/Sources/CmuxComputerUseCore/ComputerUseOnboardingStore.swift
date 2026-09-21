@@ -128,7 +128,6 @@ public final class ComputerUseOnboardingStore {
             return result == .ready ? .unavailable : result
         }
         pendingVerificationID = attempt
-        phase = phase.applying(.onboardingCompleted)
         return .ready
     }
 
@@ -136,19 +135,21 @@ public final class ComputerUseOnboardingStore {
     @discardableResult
     public func commitVerification(attempt: UUID) -> Bool {
         guard pendingVerificationID == attempt,
-              phase.isReady,
               let helperIdentity else { return false }
-        persistCompletion(for: helperIdentity)
+        guard persistCompletion(for: helperIdentity) else { return false }
+        phase = phase.applying(.onboardingCompleted)
         pendingVerificationID = nil
         completionCommitted = true
         statusChanged()
         return true
     }
 
-    private func persistCompletion(for identity: String) {
+    @discardableResult
+    private func persistCompletion(for identity: String) -> Bool {
         let record = ComputerUseOnboardingCompletion(version: 1, scope: scope, helperIdentity: identity)
-        guard let data = try? JSONEncoder().encode(record) else { return }
+        guard let data = try? JSONEncoder().encode(record) else { return false }
         defaults.set(data, forKey: completionKey)
         defaults.removeObject(forKey: Self.legacyCompletionKey)
+        return true
     }
 }
