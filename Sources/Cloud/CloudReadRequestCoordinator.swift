@@ -270,6 +270,7 @@ actor CloudReadRequestCoordinator {
             Task { await self?.removeNetworkSubscriber(id) }
         }
         networkSubscribers[id] = continuation
+        if let isOnline { continuation.yield(isOnline) }
         return stream
     }
 

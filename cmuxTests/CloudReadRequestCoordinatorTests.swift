@@ -51,6 +51,15 @@ struct CloudReadRequestCoordinatorTests {
         #expect(await secondValue.value == .some(false))
     }
 
+    @Test("A late reachability subscriber receives the current offline state")
+    func networkChangesReplayCurrentState() async {
+        let owner = Owner()
+        await owner.networkChanged(isOnline: false)
+        let stream = await owner.networkChanges()
+        var iterator = stream.makeAsyncIterator()
+        #expect(await iterator.next() == .some(false))
+    }
+
     @Test("The final waiter cancels and holds the draining slot after another caller leaves", arguments: [false, true])
     func independentCancellation(expireFirst: Bool) async throws {
         let gate = CloudReadResponseGate()
