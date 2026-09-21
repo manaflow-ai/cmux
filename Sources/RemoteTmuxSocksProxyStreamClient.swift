@@ -5,11 +5,12 @@ import Foundation
 import Network
 
 /// Dials out through the local `ssh -D` SOCKS5 listener ssh-tmux keeps open,
-/// conforming to ``RemoteProxyStreamOpening`` so ``RemoteDaemonProxySession``
+/// conforming to ``RemoteProxyStreamOpening`` so `RemoteDaemonProxySession`
 /// reuses its SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias HTTP
 /// rewriting unchanged against this non-daemon backend — the accept side
-/// (WKWebView-facing) is ``RemoteDaemonProxySession`` fed by
-/// ``RemoteTmuxBrowserProxyListener``; this type is only the outgoing leg.
+/// (WKWebView-facing) is a `RemoteDaemonProxySession`, built via
+/// `makeRemoteDaemonProxySession`, fed by ``RemoteTmuxBrowserProxyListener``;
+/// this type is only the outgoing leg.
 ///
 /// ``openStream(host:port:timeoutMs:)`` performs a bounded, nonblocking-socket
 /// SOCKS5 client handshake (connect + greeting + CONNECT) rather than
