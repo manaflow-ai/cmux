@@ -33,6 +33,61 @@ export type CodeRouterRequestContext = {
   };
 };
 
+/**
+ * Control-plane authorization for account mutations.
+ *
+ * A Cloud VM is already authenticated by the TLS edge's VM-bound route token.
+ * It must not be sent through Stack cookie/session resolution, and it must not
+ * be able to choose another team. The token's team and VM pool are the entire
+ * authority for the request. Human browser/native requests keep the existing
+ * permission check through resolveCodeRouterRequestContext.
+ */
+export type CodeRouterControlContext = {
+  readonly user: Pick<AuthedUser, "id">;
+  readonly team: CodeRouterRequestContext["team"];
+  readonly access: CoderouterAccountAccess;
+};
+
+export async function resolveCoderouterControlContext(
+  request: Request,
+): Promise<
+  | { readonly ok: true; readonly value: CodeRouterControlContext }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const token = routeTokenFromRequest(request);
+  if (token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+    const auth = await authenticateRequestRouteToken(request);
+    if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
+    if (!auth.identity.vmId) {
+      return { ok: false, response: jsonResponse({ error: "vm_bound_token_required" }, 403) };
+    }
+    return {
+      ok: true,
+      value: {
+        user: { id: auth.identity.stackUserId },
+        team: {
+          teamId: auth.identity.teamId,
+          teamName: auth.identity.teamId,
+          use: true,
+          manageAccounts: true,
+        },
+        access: accountAccessForIdentity(auth.identity),
+      },
+    };
+  }
+
+  const resolved = await resolveCodeRouterRequestContext(request);
+  if (!resolved.ok) return resolved;
+  return {
+    ok: true,
+    value: {
+      user: resolved.value.user,
+      team: resolved.value.team,
+      access: { kind: "user", userId: resolved.value.user.id },
+    },
+  };
+}
+
 export async function resolveCoderouterUsageTeam(
   request: Request,
 ): Promise<
