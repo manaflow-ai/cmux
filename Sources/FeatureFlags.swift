@@ -58,6 +58,7 @@ final class CmuxFeatureFlags {
     #else
     nonisolated static let cloudMachinesDefault = false
     #endif
+    private static let conversationSidebarDefault = false
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -181,6 +182,24 @@ final class CmuxFeatureFlags {
 
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
+    // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
+    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    // Controls availability of the opt-in multi-provider conversation sidebar.
+    // The user-facing beta setting is evaluated separately by the sidebar
+    // integration; this flag is the remote rollout gate and emergency kill
+    // switch for the feature.
+    static let conversationSidebarFlag = CmuxFeatureFlagDefinition(
+        key: "conversation-sidebar-release",
+        title: String(
+            localized: "featureFlags.conversationSidebar.title",
+            defaultValue: "Multi-provider conversation sidebar"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.conversationSidebar.description",
+            defaultValue: "Enables the opt-in sidebar for conversations from multiple coding-agent providers."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.conversationSidebarDefault
+    )
     // Order is load-bearing for the positional typed accessors below. Flags
     // that need a stable public definition are declared independently and
     // included here without repeating their key literal.
@@ -305,6 +324,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.conversationSidebarFlag
         ]
     }()
 
@@ -355,6 +375,10 @@ final class CmuxFeatureFlags {
 
     var isGoPlanEnabled: Bool {
         effectiveValue(for: Self.goPlanFlag)
+    }
+
+    var isConversationSidebarAvailable: Bool {
+        effectiveValue(for: Self.conversationSidebarFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host
