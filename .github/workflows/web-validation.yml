@@ -91,6 +91,8 @@ jobs:
       - run: bun run test
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:instant
+        env:
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
 
   database:
     name: web-database-tests

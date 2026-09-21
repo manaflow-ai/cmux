@@ -26,6 +26,7 @@ extension View {
         ids: [UUID],
         workspaces: [Workspace],
         debouncedInterval: DispatchQueue.SchedulerTimeType.Stride,
+        deliverInitialValue: Bool = true,
         onChange: @MainActor @escaping (UUID) -> Void
     ) -> some View {
         task(id: ids) { @MainActor in
@@ -44,20 +45,29 @@ extension View {
                         .debounce(for: debouncedInterval, scheduler: DispatchQueue.main)
                         .values
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in cloudChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in immediateChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }
                     group.addTask { @MainActor in
+                        var first = true
                         for await _ in debouncedChanges {
                             if Task.isCancelled { break }
+                            if first && !deliverInitialValue { first = false; continue }
+                            first = false
                             onChange(id)
                         }
                     }

@@ -918,6 +918,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-ssh-retry-limit-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
 
@@ -936,6 +938,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
             "exit 255",
         ])
+        // Exercise the production backoff selection without spending wall time
+        // in its timer. Zero is normalized to the safe two-second default.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
@@ -950,6 +959,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
 
@@ -962,6 +972,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n2\n")
+        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 255."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1063,11 +1076,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
             environment: environment,
-            timeout: 5
+            timeout: 1
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 130, result.stderr)
+        // A child status is an ordinary session failure, unlike a signal sent
+        // to the supervisor. Keep its status visible until a fresh Enter; EOF
+        // must not dismiss the failure prompt (the #9966 contract).
+        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
+        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 130."), result.stderr)
+        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1081,11 +1098,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-ssh-signal-during-reconnect-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
+        let sleepPIDFile = root.appendingPathComponent("sleep-pid.txt")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
+        defer {
+            if let rawPID = try? String(contentsOf: sleepPIDFile, encoding: .utf8),
+               let pid = Int32(rawPID.trimmingCharacters(in: .whitespacesAndNewlines)),
+               kill(pid, 0) == 0 {
+                kill(pid, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
 
         try writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -1097,12 +1124,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ -r \"${CMUX_TEST_ATTEMPT_FILE}\" ]; then count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\"); fi",
             "count=$((count + 1))",
             "printf '%s\\n' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "if [ \"$count\" -eq 1 ]; then",
-            "  ( sleep 0.2; kill -TERM \"${CMUX_SSH_STARTUP_PID:?}\" ) &",
-            "  exit 255",
-            "fi",
-            "exit 0",
+            "exit 255",
         ])
+        // Signal from the timer itself so the test reaches backoff before
+        // cancellation. The timer remains alive until the supervisor reaps it.
+        try writeShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\"",
+            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_SLEEP_PID_FILE}\"",
+            "kill -TERM \"${CMUX_SSH_STARTUP_PID:?}\"",
+            "exec /bin/sleep 30",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
@@ -1117,6 +1150,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
+        environment["CMUX_TEST_SLEEP_PID_FILE"] = sleepPIDFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
 
@@ -1130,11 +1165,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 143, result.stderr)
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
+        let timerPID = try XCTUnwrap(Int32(
+            try String(contentsOf: sleepPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        let timerExists = kill(timerPID, 0)
+        let timerError = errno
+        XCTAssertEqual(timerExists, -1, "cancelled backoff timer must be reaped")
+        XCTAssertEqual(timerError, ESRCH)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        XCTAssertTrue(
+            sessionEndCalls.isEmpty,
+            "Cancelling the pane during backoff must not tear down the shared SSH transport: \(recordedCalls)"
+        )
     }
 
     func testSSHStartupPrintsFinalErrorBannerAndWaitsWhenStderrIsCaptured() throws {
