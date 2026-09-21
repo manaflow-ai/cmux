@@ -2967,14 +2967,21 @@ fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> 
         expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
         "checkpoint content exceeds the uncompressed size limit"
     );
-    let decoder = flate2::read::GzDecoder::new(blob.compressed.as_slice());
+    // Preserve the exact unread compressed suffix, as with archived journal
+    // segments: read::GzDecoder may consume bytes after the first member.
+    let mut decoder = flate2::bufread::GzDecoder::new(blob.compressed.as_slice());
     let mut uncompressed = Vec::new();
     decoder
+        .by_ref()
         .take(u64::try_from(expected_bytes)?.saturating_add(1))
         .read_to_end(&mut uncompressed)?;
     anyhow::ensure!(
         uncompressed.len() == expected_bytes,
         "checkpoint content length does not match its reference"
+    );
+    anyhow::ensure!(
+        decoder.into_inner().is_empty(),
+        "checkpoint content contains trailing compressed data"
     );
     anyhow::ensure!(
         Sha256::digest(&uncompressed).as_slice() == blob.digest.as_slice(),

@@ -5556,6 +5556,19 @@ fn checkpoint_content_rejects_trailing_compressed_members_and_bytes() {
     );
 }
 
+#[test]
+fn checkpoint_content_requires_complete_gzip_trailer() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+    for missing_bytes in 1..=8 {
+        let truncated = blob.compressed[..blob.compressed.len() - missing_bytes].to_vec();
+        assert!(
+            JournalContentBlob::verified(blob.reference.clone(), truncated).is_err(),
+            "a checkpoint blob must validate all eight gzip trailer bytes"
+        );
+    }
+}
+
 fn receipt_test_producer() -> JournalProducerManifest {
     JournalProducerManifest {
         producer_id: "receipt_test".into(),
