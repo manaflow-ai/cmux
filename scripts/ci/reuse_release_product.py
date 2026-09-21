@@ -116,15 +116,11 @@ def product_digest(app: Path) -> str:
     for path in sorted(entries, key=lambda item: item.relative_to(root).as_posix()):
         rel = path.relative_to(root).as_posix().encode()
         metadata = path.lstat()
-        if path.is_symlink():
-            # Symlink permission bits are not a portable restored attribute on
-            # macOS/Python. The link target is the durable product identity.
-            mode = 0
-            kind = b"L"
-            payload = os.readlink(path).encode()
-        else:
-            mode = stat.S_IMODE(metadata.st_mode)
-        if path.is_symlink():
+        is_link = path.is_symlink()
+        # Symlink permission bits are not a portable restored attribute on
+        # macOS/Python. The link target is the durable product identity.
+        mode = 0 if is_link else stat.S_IMODE(metadata.st_mode)
+        if is_link:
             kind = b"L"
             payload = os.readlink(path).encode()
         elif path.is_dir():
