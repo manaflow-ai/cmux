@@ -4,6 +4,19 @@
 
 cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
 
+## Cloud VM startup latency
+
+Fast VM startup is a release requirement. Bake the pinned Rust CLI, CodeRouter,
+cmux-tui daemon, guest adapters, browser integration, and required tools into the
+canonical Freestyle snapshot. Healthy create/restore paths must not download,
+install, or rewrite these components. Keep repair for missing or damaged files
+on existing machines; do not use repair as the normal distribution mechanism.
+When baked components change, build and verify a fresh snapshot, record its
+immutable ID and checksums, and measure create-to-usable-shell latency on fresh
+clones before promotion. Verify `cmux`, `coderouter`, and `cr` work from the
+snapshot without installation. Keep VM/team credentials out of images; attach
+VM-scoped authentication through the provider TLS rules.
+
 ## Setup
 
 `./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.

@@ -17,25 +17,18 @@ function fixture(cliFails = false) {
     fs: { writeTextFile: async () => {}, remove: async () => {} },
     delete: async () => { deleted.push(vmId); },
   };
-  const client = { vms: { create: async () => ({ vm, vmId, data }), get: async () => data } } as unknown as Freestyle;
+  const client = { vms: { create: async () => ({ vm, vmId, data }), ref: () => vm, get: async () => data } } as unknown as Freestyle;
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("No daemon install expected"); } });
   return { provider, deleted, commands };
 }
 
 describe("advisory resource reporter installation", () => {
-  test.each(["create", "restore"])("reporter failure does not roll back %s", async (operation) => {
+  test.each(["create", "restore"])("%s needs no reporter setup", async operation => {
     const { provider, deleted, commands } = fixture();
     const network = { id: "vpc-resource-test" };
     const handle = operation === "create" ? await provider.create({ image: "sh-test", network }) : await provider.restore("sh-test", { network });
     expect(handle.providerVmId).toBe("vm-resource-reporter-test");
-    expect(commands.some(command => command.includes("cmux-resource-stats.service"))).toBe(true);
+    expect(commands).toEqual([]);
     expect(deleted).toEqual([]);
   });
-
-  test("required CLI installation failure still rolls back the allocated machine", async () => {
-    const { provider, deleted } = fixture(true);
-    await expect(provider.create({ image: "sh-test" })).rejects.toThrow();
-    expect(deleted).toEqual(["vm-resource-reporter-test"]);
-  });
-
 });

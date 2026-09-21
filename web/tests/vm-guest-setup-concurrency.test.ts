@@ -29,15 +29,15 @@ function fixture() {
   return { provider, vm, commands, deleted, entered, release };
 }
 
-test("VM create overlaps independent reporter setup with CLI upload", async () => {
+test.each(["create", "restore"])("%s uses the baked CLI even when guest setup is unavailable", async operation => {
   const f = fixture();
-  f.vm.fs.writeTextFile = async () => { f.entered.release(); await f.release.promise; };
-  const creating = f.provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
-  await f.entered.promise;
-  const overlapped = f.commands.some(command => command.includes("cmux-resource-stats.service"));
-  f.release.release();
-  await creating;
-  expect(overlapped).toBe(true);
+  f.vm.fs.writeTextFile = async () => { throw new Error("startup must not upload files"); };
+  f.vm.exec = async () => { throw new Error("startup must not execute installers or probes"); };
+  const network = { id: "vpc-fixture" };
+  const handle = operation === "create"
+    ? await f.provider.create({ image: "sh-fixture", network })
+    : await f.provider.restore("sh-fixture", { network });
+  expect(handle.providerVmId).toBe("vm-fixture");
   expect(f.deleted).toEqual([]);
 });
 
@@ -60,29 +60,3 @@ test("healthy attach overlaps hooks and reporter with the required CLI check", a
   expect(endpoint.trustedCarrier).toBe(true);
 });
 
-test("create failure settles independent setup before destroying the VM", async () => {
-  const f = fixture();
-  f.vm.fs.writeTextFile = async () => {
-    f.entered.release();
-    await f.release.promise;
-    throw new Error("required CLI upload failed");
-  };
-  let reporterFinished = false;
-  const finishReporter = gate(), exec = f.vm.exec;
-  f.vm.exec = async input => {
-    if (input.command.includes("cmux-resource-stats.service")) {
-      await finishReporter.promise;
-      reporterFinished = true;
-    }
-    return exec(input);
-  };
-  f.vm.delete = async () => { expect(reporterFinished).toBe(true); f.deleted.push("vm-fixture"); };
-  const creating = f.provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
-  // Attach the rejection handler before releasing either operation.
-  const result = creating.then(() => null, error => error);
-  await f.entered.promise;
-  f.release.release();
-  finishReporter.release();
-  expect(await result).toBeInstanceOf(Error);
-  expect(f.deleted).toEqual(["vm-fixture"]);
-});
