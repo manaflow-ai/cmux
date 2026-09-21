@@ -166,6 +166,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Browser & Find
     case openDiffViewer
     case saveFilePreview
+    /// Toggles soft wrapping while a file-editor text view owns focus.
     case toggleFileEditorWordWrap
     case openBrowser
     case focusBrowserAddressBar

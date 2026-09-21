@@ -448,16 +448,19 @@ final class SavingTextView: NSTextView {
         self.init(frame: .zero, textContainer: nil)
     }
 
+    /// Creates an editor using the app’s persisted word-wrap preference.
     override convenience init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         self.init(frame: frameRect, textContainer: container, wordWrapSettings: FilePreviewWordWrapSettings(defaults: .standard))
     }
 
+    /// Creates an editor with an explicitly supplied word-wrap preference store.
     init(frame frameRect: NSRect, textContainer container: NSTextContainer?, wordWrapSettings: FilePreviewWordWrapSettings) {
         self.wordWrapSettings = wordWrapSettings
         super.init(frame: frameRect, textContainer: container)
         installFontMagnificationObserver()
     }
 
+    /// Restores an archived editor using the app’s preference domain.
     required init?(coder: NSCoder) {
         wordWrapSettings = FilePreviewWordWrapSettings(defaults: .standard)
         super.init(coder: coder)
@@ -604,6 +607,7 @@ final class SavingTextView: NSTextView {
         return false
     }
 
+    /// Combines save, zoom, and wrap actions for single-stroke and chord routing.
     private func editorShortcutCandidates() -> [
         (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
     ] {

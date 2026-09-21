@@ -68,6 +68,7 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Evaluates this built-in scope against the current focused content.
         func isAvailable(
             focusedBrowserPanel: Bool,
             focusedMarkdownPanel: Bool,
@@ -156,6 +157,7 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Reports whether two built-in shortcut scopes can be active together.
         func overlaps(_ other: ShortcutContext) -> Bool {
             if self == .application || other == .application || self == other {
                 return true

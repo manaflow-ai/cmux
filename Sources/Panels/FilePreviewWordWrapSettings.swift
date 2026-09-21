@@ -17,10 +17,12 @@ struct FilePreviewWordWrapSettings {
         self.defaults = defaults
     }
 
+    /// Reads the stored preference, falling back to the catalog default.
     func isEnabled() -> Bool {
         defaults.object(forKey: Self.key) == nil ? Self.defaultEnabled : defaults.bool(forKey: Self.key)
     }
 
+    /// Persists a wrap preference in the injected defaults domain.
     func setEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: Self.key)
     }

@@ -7,6 +7,7 @@ struct FilePreviewWordWrapMenu: View {
     let target: () -> SavingTextView?
     @AppStorage(FilePreviewWordWrapSettings.key) private var isOn = FilePreviewWordWrapSettings.defaultEnabled
 
+    /// Shows the current preference and the user’s single-stroke menu shortcut.
     var body: some View {
         if let key = shortcut.keyEquivalent {
             toggle.keyboardShortcut(key, modifiers: shortcut.eventModifiers)
@@ -15,6 +16,7 @@ struct FilePreviewWordWrapMenu: View {
         }
     }
 
+    /// Disables the command unless the active responder belongs to a file editor.
     private var toggle: some View {
         Toggle(
             String(localized: "menu.view.toggleFileEditorWordWrap", defaultValue: "Toggle File Editor Word Wrap"),

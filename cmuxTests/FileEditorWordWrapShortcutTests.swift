@@ -12,6 +12,7 @@ import Testing
 @Suite("File editor word wrap shortcut", .serialized)
 struct FileEditorWordWrapShortcutTests {
     @Test("Option-Z reflows the existing editor without editing its document")
+    /// Checks that Option-Z changes layout without replacing storage or the selection.
     func optionZReflowsEditor() throws {
         try withSettings { settings in
             let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
@@ -43,6 +44,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("Wrap binding supports customization, chords, unbinding and focus clauses")
+    /// Exercises rebinding, unbinding, chords, and the built-in editor-only scope.
     func configuredBinding() throws {
         try withSettings { settings in
             let action = try #require(KeyboardShortcutSettings.Action(rawValue: "toggleFileEditorWordWrap"))
@@ -81,6 +83,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("cmux.json bindings and when clauses gate the editor command")
+    /// Verifies that a configured when clause can decline the editor shortcut.
     func fileConfiguredWhenClause() throws {
         try withSettings { settings in
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("wrap-shortcut-\(UUID().uuidString).json")
@@ -99,6 +102,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("Option-Z preserves active input method composition")
+    /// Keeps active input-method composition in control of Option-modified input.
     func markedTextOwnsOptionZ() throws {
         try withSettings { settings in
             let textView = SavingTextView.makeFilePreviewTextView(wordWrapSettings: settings)
@@ -111,6 +115,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("Reflow, resize and document replacement preserve editing state")
+    /// Exercises reflow and resizing with an edited document, selection, and scroll offset.
     func reflowPreservesUndoAndViewport() throws {
         try withSettings { settings in
             let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 240))
@@ -166,6 +171,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("The app dispatcher handles Option-Z only for the actual editor responder")
+    /// Routes a real window event through the app dispatcher and verifies focus gating.
     func appShortcutRouting() throws {
         try withSettings { settings in
             let delegate = try #require(AppDelegate.shared)
@@ -192,6 +198,7 @@ struct FileEditorWordWrapShortcutTests {
     }
 
     @Test("Palette and editor use the same persisted word-wrap setting")
+    /// Verifies that palette and editor actions agree on the same preference value.
     func paletteUsesSharedPreference() throws {
         let suite = "cmux-wrap-palette-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -207,6 +214,7 @@ struct FileEditorWordWrapShortcutTests {
         #expect(!descriptor.isOn(defaults))
     }
 
+    /// Constructs the key event delivered to the production shortcut matcher.
     private func keyEvent(_ key: String, characters: String? = nil,
                           flags: NSEvent.ModifierFlags, code: UInt16) throws -> NSEvent {
         try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags,
@@ -215,6 +223,7 @@ struct FileEditorWordWrapShortcutTests {
                                      isARepeat: false, keyCode: code))
     }
 
+    /// Isolates word-wrap persistence and restores the global shortcut test fixture.
     private func withSettings(_ body: (FilePreviewWordWrapSettings) throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let suite = "cmux-word-wrap-\(UUID().uuidString)"

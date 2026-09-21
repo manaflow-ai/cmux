@@ -45,6 +45,7 @@ extension NSTextView {
         scrollView.reflectScrolledClipView(clipView)
     }
 
+    /// Applies the editor’s shared text padding without changing its content.
     func applyFilePreviewTextEditorInsets() {
         let targetInset = FilePreviewTextEditorLayout.textContainerInset
         if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {

@@ -191,10 +191,12 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
+    /// Includes text editors in the Dock and Markdown text mode by responder ownership.
     private func shortcutFocusedFilePreviewTextEditor(in window: NSWindow?) -> Bool {
         shortcutFocusedSavingTextView(in: window) != nil
     }
 
+    /// Resolves the editor that owns the requested window’s keyboard responder.
     func shortcutFocusedSavingTextView(in window: NSWindow?) -> SavingTextView? {
         guard let responder = window?.firstResponder ?? NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder else {
             return nil
