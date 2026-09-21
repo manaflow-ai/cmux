@@ -90,6 +90,7 @@ const primaryButtonClass =
   "border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60";
 const rowGridClass =
   "grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
+const API_KEY_REQUEST_TIMEOUT_MS = 10_000;
 
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
 
@@ -215,14 +216,19 @@ function CoderouterApiKeysSection({
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [issued, setIssued] = useState<IssuedCoderouterApiKey | null>(null);
+  const [keysTeamId, setKeysTeamId] = useState(teamId);
+  const [issuedTeamId, setIssuedTeamId] = useState(teamId);
   const requestGeneration = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
 
   const fetchKeys = useCallback(async (signal?: AbortSignal): Promise<readonly CoderouterApiKeySummary[]> => {
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS);
     const response = await fetch("/api/coderouter/api-keys", {
       headers: { "x-cmux-team-id": teamId },
       cache: "no-store",
-      signal,
+      signal: requestSignal,
     });
     if (!response.ok) throw new Error("api key list failed");
     const body = await response.json() as { keys?: CoderouterApiKeySummary[] };
@@ -241,6 +247,7 @@ function CoderouterApiKeysSection({
       const nextKeys = await fetchKeys(controller.signal);
       if (generation !== requestGeneration.current) return;
       setKeys(nextKeys);
+      setKeysTeamId(teamId);
     } catch {
       if (generation !== requestGeneration.current) return;
       setLoadError(true);
@@ -249,9 +256,11 @@ function CoderouterApiKeysSection({
       if (generation !== requestGeneration.current) return;
       setLoading(false);
     }
-  }, [fetchKeys]);
+  }, [fetchKeys, teamId]);
 
   useEffect(() => {
+    // The render guard below keeps old team data out of the UI while this
+    // request is in flight. The old request is also aborted before starting it.
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
@@ -260,6 +269,7 @@ function CoderouterApiKeysSection({
       .then((nextKeys) => {
         if (generation !== requestGeneration.current) return;
         setKeys(nextKeys);
+        setKeysTeamId(teamId);
         setLoadError(false);
         setLoading(false);
       })
@@ -275,7 +285,10 @@ function CoderouterApiKeysSection({
       controller.abort();
       requestGeneration.current += 1;
     };
-  }, [fetchKeys]);
+  }, [fetchKeys, teamId]);
+
+  const visibleKeys = keysTeamId === teamId ? keys : null;
+  const visibleIssued = issuedTeamId === teamId ? issued : null;
 
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -288,6 +301,7 @@ function CoderouterApiKeysSection({
         method: "POST",
         headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
         body: JSON.stringify({ label }),
+        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         setStatus({ state: "error", message: response.status === 403 ? t("teamAccessError") : t("apiKeyCreateError") });
@@ -297,6 +311,7 @@ function CoderouterApiKeysSection({
       if (!created.key || !created.id) throw new Error("api key response malformed");
       form.reset();
       setIssued(created);
+      setIssuedTeamId(teamId);
       setStatus(idleStatus);
       await load();
     } catch {
@@ -311,29 +326,29 @@ function CoderouterApiKeysSection({
           <h3 className="text-sm font-medium">{t("apiKeysTitle")}</h3>
           <p className="mt-1 max-w-2xl text-xs text-muted">{t("apiKeysDescription")}</p>
         </div>
-        {keys ? <span className="font-mono text-[11px] text-muted">{t("apiKeysCount", { count: keys.length })}</span> : null}
+        {visibleKeys ? <span className="font-mono text-[11px] text-muted">{t("apiKeysCount", { count: visibleKeys.length })}</span> : null}
       </div>
 
-      {issued ? (
+      {visibleIssued ? (
         <div className="mb-2 border border-foreground p-3">
           <div className="text-sm font-medium">{t("apiKeySecretTitle")}</div>
           <p className="mt-1 text-xs text-muted">{t("apiKeySecretBody")}</p>
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border border-border px-3 py-2">
-            <code className="min-w-0 break-all font-mono text-xs text-foreground">{issued.key}</code>
-            <CopyButton value={issued.key} label={t("apiKeyCopy")} copiedLabel={t("apiKeyCopied")} />
+            <code className="min-w-0 break-all font-mono text-xs text-foreground">{visibleIssued.key}</code>
+            <CopyButton value={visibleIssued.key} label={t("apiKeyCopy")} copiedLabel={t("apiKeyCopied")} />
           </div>
         </div>
       ) : null}
 
-      {loading && !keys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {loading && !visibleKeys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
       {loadError ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
           <span>{t("apiKeysLoadError")}</span>
           <button type="button" className={buttonClass} onClick={() => void load()} disabled={loading}>{t("apiKeysRetry")}</button>
         </div>
       ) : null}
-      {keys && keys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
-      {keys && keys.length > 0 ? (
+      {visibleKeys && visibleKeys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
+      {visibleKeys && visibleKeys.length > 0 ? (
         <div className="border border-border">
           <div className="hidden grid-cols-[1.1fr_1fr_1.3fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
             <div>{t("apiKeyPrefixColumn")}</div>
@@ -342,7 +357,7 @@ function CoderouterApiKeysSection({
             <div className="text-right">{canManage ? t("actionsColumn") : ""}</div>
           </div>
           <ul className="divide-y divide-border">
-            {[...keys].reverse().map((key) => {
+            {[...visibleKeys].reverse().map((key) => {
               const created = new Date(key.createdAt);
               const lastUsed = key.lastUsedAt ? new Date(key.lastUsedAt) : null;
               const statusText = key.revokedAt ? t("apiKeyRevoked") : t("stateActive");
@@ -419,6 +434,7 @@ function ApiKeyRevokeAction({
       const response = await fetch(`/api/coderouter/api-keys/${encodeURIComponent(keyId)}`, {
         method: "DELETE",
         headers: { "x-cmux-team-id": teamId },
+        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) {
         setError(true);
