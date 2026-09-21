@@ -1875,6 +1875,34 @@ describe("VM REST auth", () => {
     expect(payload.invitation).toBeUndefined();
   });
 
+  test("attach-endpoint passes a client-proven readiness through to the cmux-tui workflow", async () => {
+    // A client that already dialed the daemon it was handed at create says so;
+    // the workflow may then answer from the row without a provider call.
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };
+    runVmWorkflow.mockResolvedValue({
+      transport: "cmux-remote",
+      route: "ws://10.16.0.7:1337/v1/link",
+      token: "t",
+      expiresAtUnix: 1_777_000_300,
+      session: "cloud",
+      trustedCarrier: true,
+    });
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ transport: "cmux-remote", readiness: "client-proven" }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(200);
+    expect(openVmCmuxRemote).toHaveBeenCalledWith(expect.objectContaining({
+      providerVmId: "provider-vm-team-1",
+      clientProven: true,
+    }));
+  });
+
   test("attach-endpoint answers 409 vm_attach_transport_unsupported when the machine only runs cmux-tui", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const context = { params: Promise.resolve({ id: "provider-vm-team-1" }) };

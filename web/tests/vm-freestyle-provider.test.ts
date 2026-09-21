@@ -823,6 +823,149 @@ describe("Freestyle openCmuxRemote: the trusted-listener heal", () => {
   });
 });
 
+describe("FreestyleProvider with baked guest tools", () => {
+  // At GUEST_TOOLS_BAKED_EPOCH the image already carries the guest `cmux`
+  // shim, the CLI distribution, the browser openers and the resource
+  // reporter, so a create installs nothing and an attach checks nothing: the
+  // only per-machine bytes are the prompt identity.
+  const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
+  const SIZE = { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768 };
+  const IDENTITY = { machineId: CLOUD_VM_ID, name: "giddy-cherry-emu", revision: 1_777_000_000_000 };
+  const SOURCE_OK = { url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64", sha256: "0".repeat(64), commit: "abc", builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) };
+
+  function bundleStdout(trusted: "0" | "1"): string {
+    return ["__CMUX_PROBE__", JSON.stringify({ build_identity: "abc", remote_protocol: 12, version: "0.1.0" }), "__CMUX_TRUSTED__", trusted, "__CMUX_END__"].join("\n");
+  }
+
+  /** A create fake whose platform call returns `exec` (the create-time command's result) when given. */
+  function bakedCreateFake(exec?: { statusCode: number | null; stdout?: string; stderr?: string }) {
+    const creates: Record<string, unknown>[] = [];
+    const execs: string[] = [];
+    const writes: string[] = [];
+    const deletes: string[] = [];
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+      fs: { writeTextFile: async (_path: string, content: string) => { writes.push(content); }, remove: async () => {} },
+      delete: async () => { deletes.push(VM_ID); },
+      data: async () => PRIVATE,
+      resize: async () => {},
+    };
+    const client = {
+      vms: {
+        create: async (options: Record<string, unknown>) => {
+          creates.push(options);
+          return { vm, vmId: VM_ID, data: { ...PRIVATE, resources: { cpu: 4, memory: 8192, storage: 32768 } }, ...(exec ? { exec } : {}) };
+        },
+        ref: () => vm,
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("no install expected"); } });
+    return { provider, creates, execs, writes, deletes };
+  }
+
+  test("create uploads nothing and execs nothing; the prompt identity rides on the create call", async () => {
+    const fake = bakedCreateFake({ statusCode: 0 });
+    const handle = await fake.provider.create({
+      image: "sh-baked", network: { id: "vpc_1" }, imageSize: SIZE, promptIdentity: IDENTITY, edgeRules: [EDGE_RULE], guestToolsBaked: true,
+    });
+    expect(handle.providerVmId).toBe(VM_ID);
+    expect(handle.providerMetadata).toMatchObject({ networkId: "vpc_1", networkIpv4: "10.4.0.7" });
+    expect(fake.writes).toEqual([]);
+    expect(fake.execs).toEqual([]);
+    const exec = fake.creates[0]?.exec as { command: string; onExit: string; timeoutMs: number; linuxUser: string } | undefined;
+    expect(exec).toMatchObject({ onExit: "continue", timeoutMs: 3000, linuxUser: "root" });
+    expect(exec?.command).toContain("vm-name");
+    expect(exec?.command).toContain("giddy-cherry-emu");
+    // The edge token reaches the platform's tls block only, never the guest command.
+    expect(exec?.command).not.toContain("crt_secret-token");
+    expect(fake.deletes).toEqual([]);
+  });
+
+  test("create without a prompt identity sends no create-time exec", async () => {
+    const fake = bakedCreateFake();
+    await fake.provider.create({ image: "sh-baked", network: { id: "vpc_1" }, imageSize: SIZE, guestToolsBaked: true });
+    expect(fake.creates[0]).not.toHaveProperty("exec");
+    expect(fake.execs).toEqual([]);
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("a failed create-time prompt exec rolls the machine back", async () => {
+    const fake = bakedCreateFake({ statusCode: 1, stderr: "python3: not found" });
+    await expect(fake.provider.create({
+      image: "sh-baked", network: { id: "vpc_1" }, imageSize: SIZE, promptIdentity: IDENTITY, guestToolsBaked: true,
+    })).rejects.toThrow(ProviderError);
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  /** An attach fake: the n-th bundle run exits `ready[n]` (0 = ready) and reports `trusted[n]`. */
+  function bakedAttachFake(input: { readonly trusted: readonly ("0" | "1")[]; readonly ready?: readonly number[] }) {
+    const execs: string[] = [];
+    const writes: string[] = [];
+    let bundles = 0;
+    const vm = {
+      data: async () => PRIVATE,
+      fs: { writeTextFile: async (_path: string, content: string) => { writes.push(content); }, remove: async () => {} },
+      exec: async ({ command }: { command: string }) => {
+        execs.push(command);
+        if (command.includes("__CMUX_PROBE__")) {
+          const n = bundles;
+          bundles += 1;
+          const ready = input.ready?.[n] ?? 0;
+          if (ready !== 0) return { statusCode: ready, stdout: "", stderr: "" };
+          return { statusCode: 0, stdout: bundleStdout(input.trusted[Math.min(n, input.trusted.length - 1)] ?? "0"), stderr: "" };
+        }
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => SOURCE_OK });
+    return { provider, execs, writes, bundles: () => bundles };
+  }
+  const BAKED_ATTACH = { clientCapabilities: [], guestToolsBaked: true, promptIdentity: IDENTITY, providerMetadata: { networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" } };
+
+  test("a healthy baked attach is one exec: the announce folded in, no device list, no guest-tool checks", async () => {
+    const fake = bakedAttachFake({ trusted: ["1"] });
+    const endpoint = await fake.provider.openCmuxRemote(VM_ID, BAKED_ATTACH);
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(endpoint.route).toBe("ws://10.4.0.7:1337/v1/link");
+    expect(endpoint.daemonBuild?.commit).toBe("abc");
+    expect(endpoint.invitation).toBeUndefined();
+    expect(fake.execs).toHaveLength(1);
+    const only = fake.execs[0]!;
+    expect(only).toContain("__CMUX_PROBE__");
+    expect(only).not.toContain("remote enroll devices");
+    // The private-address announcement is best effort inside the same exec.
+    expect(only).toContain("|| true;");
+    expect(only).toContain("10.4.0.7");
+    expect(only).toContain("giddy-cherry-emu");
+    expect(only).not.toContain("sha256sum");
+    expect(only).not.toContain("cmux-resource-stats");
+    expect(fake.writes).toEqual([]);
+  });
+
+  test("a baked attach whose daemon is not settled heals the daemon without installing guest tools", async () => {
+    const fake = bakedAttachFake({ trusted: ["1"], ready: [3, 0] });
+    const endpoint = await fake.provider.openCmuxRemote(VM_ID, BAKED_ATTACH);
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(fake.bundles()).toBe(2);
+    expect(fake.writes).toEqual([]);
+    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("cmux-cloud-adapter"))).toBe(false);
+    expect(fake.execs.some((command) => command.includes("cmux-resource-stats"))).toBe(false);
+  });
+
+  test("a baked attach still replaces an untrusted daemon with the pinned build", async () => {
+    const fake = bakedAttachFake({ trusted: ["0", "1"] });
+    const endpoint = await fake.provider.openCmuxRemote(VM_ID, BAKED_ATTACH);
+    expect(endpoint.trustedCarrier).toBe(true);
+    expect(fake.bundles()).toBe(2);
+    expect(fake.execs.some((command) => command.includes("systemctl restart cmux-tui-daemon"))).toBe(true);
+    expect(fake.writes).toEqual([]);
+  });
+});
+
 describe("Freestyle openCmuxRemote: agent hooks on a healthy daemon", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const PIN_COMMIT = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
