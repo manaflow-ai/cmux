@@ -96,14 +96,8 @@ extension CMUXCLI {
                 let path = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
                     .standardizedFileURL.resolvingSymlinksInPath().path
                 guard path == root || path.hasPrefix(root + "/") else { continue }
-                let probe = CLIProcessRunner.runProcess(
-                    executablePath: "/usr/bin/env", arguments: ["git", "-C", path, "rev-parse", "--show-toplevel"],
-                    stdinText: "", timeout: 2
-                )
-                guard probe.status == 0, !probe.timedOut else { continue }
-                let candidateRoot = URL(fileURLWithPath: probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .standardizedFileURL.resolvingSymlinksInPath().path
-                if candidateRoot == root { candidates.insert(workspaceID) }
+                guard pullRequestWorkspacePathBelongsToRepository(path, root: root) else { continue }
+                candidates.insert(workspaceID)
             }
         }
         guard candidates.count == 1, let workspaceID = candidates.first else {
@@ -113,6 +107,28 @@ extension CMUXCLI {
             ))
         }
         return workspaceID
+    }
+
+    /// Checks a candidate worktree path using filesystem metadata only. The
+    /// caller's Git root is already known, so walking its descendants does not
+    /// need one `git rev-parse` process per workspace. A nested `.git` marker
+    /// makes the candidate belong to a different repository and is rejected.
+    private func pullRequestWorkspacePathBelongsToRepository(_ path: String, root: String) -> Bool {
+        guard path == root || path.hasPrefix(root + "/") else { return false }
+        let rootURL = URL(fileURLWithPath: root).standardizedFileURL
+        let candidateURL = URL(fileURLWithPath: path).standardizedFileURL
+        let rootComponents = rootURL.pathComponents
+        let candidateComponents = candidateURL.pathComponents
+        guard candidateComponents.starts(with: rootComponents) else { return false }
+
+        var current = rootURL
+        for component in candidateComponents.dropFirst(rootComponents.count) {
+            current.appendPathComponent(component, isDirectory: true)
+            if FileManager.default.fileExists(atPath: current.appendingPathComponent(".git").path) {
+                return false
+            }
+        }
+        return true
     }
 
     private static func pullRequestWindowIDsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
