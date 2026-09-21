@@ -1267,7 +1267,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     showAll: configuration.showAll
                 )
             )
-        case .emptyWorkspaceList:
+        case .emptyWorkspaceList(_):
             return AnyView(MobileWorkspaceListEmptyRow(retry: configuration.refresh))
         }
     }
