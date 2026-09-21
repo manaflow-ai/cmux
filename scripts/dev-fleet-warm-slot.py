@@ -28,6 +28,44 @@ from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
+IDENTIFIER_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
+)
+
+
+def closed_identifier(value: str, label: str, max_length: int) -> str:
+    """Validate one controller identity before it can become local state."""
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= max_length
+        or not value[0].isalnum()
+        or not value[0].isascii()
+        or any(character not in IDENTIFIER_CHARS for character in value)
+    ):
+        raise ValueError(f"{label} must be a closed ASCII identifier")
+    return value
+
+
+def slot_id(value: str) -> str:
+    try:
+        return closed_identifier(value, "slot", 64)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def task_id(value: str) -> str:
+    try:
+        return closed_identifier(value, "task id", 160)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
+def log_token(value: str) -> str:
+    """Return a filesystem-safe correlation token without trusting source syntax."""
+    if len(value) == 40 and all(character in "0123456789abcdef" for character in value):
+        return value[:12]
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
 
 def now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -239,8 +277,8 @@ def disk_bytes(path: Path) -> int:
 class Layout:
     def __init__(self, machine: Path, slot: str):
         self.machine = machine
-        self.slot_id = slot
-        self.slot = machine / "slots" / slot
+        self.slot_id = closed_identifier(slot, "slot", 64)
+        self.slot = machine / "slots" / self.slot_id
         self.record = self.slot / "slot.json"
         self.slot_lock = self.slot / "slot.lock"
         self.lease = self.slot / "lease.json"
@@ -333,6 +371,7 @@ def signal_warmer(layout: Layout) -> bool:
 @contextlib.contextmanager
 def foreground_request(layout: Layout, task_id: str, target: str) -> Iterator[None]:
     """Publish foreground demand and hold the machine gate for its lifetime."""
+    task_id = closed_identifier(task_id, "task id", 160)
     layout.foreground.mkdir(parents=True, exist_ok=True)
     layout.foreground_gate.parent.mkdir(parents=True, exist_ok=True)
     gate = layout.foreground_gate.open("a+")
@@ -950,7 +989,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                 }
                 receipt.update(run_native(
                     layout, checkout, argv, env,
-                    layout.logs / f"warm-{int(time.time())}-{args.target[:12]}.log",
+                    layout.logs / f"warm-{int(time.time())}-{log_token(args.target)}.log",
                     "warm", True, True, preempt_fd,
                 ))
                 receipt["disk_bytes_before"] = before_bytes
@@ -1192,7 +1231,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     switch_exact(checkout, args.target)
                 except RuntimeError as error:
                     return {"status": "cold_fallback_required", "reason": str(error), "plan": p}
-                derived = layout.cache / "cold-tasks" / f"{args.task_id}-{uuid.uuid4().hex[:10]}" / "DerivedData"
+                derived = layout.cache / "cold-tasks" / f"{closed_identifier(args.task_id, 'task id', 160)}-{uuid.uuid4().hex[:10]}" / "DerivedData"
 
             tag = args.tag or f"task-{args.task_id[:24]}"
             argv = build_command(checkout, tag, args.command)
@@ -1210,7 +1249,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 build_started = time.time()
                 run = run_native(
                     layout, checkout, argv, env,
-                    layout.logs / f"task-{args.task_id}-{int(build_started)}.log",
+                    layout.logs / f"task-{log_token(closed_identifier(args.task_id, 'task id', 160))}-{int(build_started)}.log",
                     f"task:{args.task_id}", False, False, None,
                 )
                 receipt = {
@@ -1391,7 +1430,7 @@ def emit(value: dict[str, Any]) -> int:
 
 def common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--machine-state", type=Path, required=True)
-    parser.add_argument("--slot", required=True)
+    parser.add_argument("--slot", type=slot_id, required=True)
     parser.add_argument("--checkout", type=Path, required=True)
 
 
@@ -1420,7 +1459,7 @@ def make_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("task-base")
     common(p)
     p.add_argument("--authoritative-main", required=True)
-    p.add_argument("--task-id", required=True)
+    p.add_argument("--task-id", type=task_id, required=True)
     p.add_argument("--lease-seconds", type=int, default=1800)
     p.add_argument(
         "--max-main-distance",
@@ -1433,7 +1472,7 @@ def make_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("task-run")
     common(p)
     p.add_argument("--target", required=True)
-    p.add_argument("--task-id", required=True)
+    p.add_argument("--task-id", type=task_id, required=True)
     p.add_argument("--lease-id")
     p.add_argument("--warm-generation-id")
     p.add_argument("--tag")
@@ -1443,13 +1482,13 @@ def make_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("release")
     p.add_argument("--machine-state", type=Path, required=True)
-    p.add_argument("--slot", required=True)
-    p.add_argument("--task-id", required=True)
+    p.add_argument("--slot", type=slot_id, required=True)
+    p.add_argument("--task-id", type=task_id, required=True)
     p.add_argument("--lease-id", required=True)
 
     p = sub.add_parser("recover")
     p.add_argument("--machine-state", type=Path, required=True)
-    p.add_argument("--slot", required=True)
+    p.add_argument("--slot", type=slot_id, required=True)
     p.add_argument("--run-id", required=True)
     return parser
 
