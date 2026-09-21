@@ -4,26 +4,21 @@ import Darwin
 import Foundation
 import Network
 
-/// Dials out through the local `ssh -D` SOCKS5 listener ssh-tmux keeps open,
-/// conforming to ``RemoteProxyStreamOpening`` so `RemoteDaemonProxySession`
-/// reuses its SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias HTTP
-/// rewriting unchanged against this non-daemon backend — the accept side
-/// (WKWebView-facing) is a `RemoteDaemonProxySession`, built via
-/// `makeRemoteDaemonProxySession`, fed by ``RemoteTmuxBrowserProxyListener``;
-/// this type is only the outgoing leg.
+/// The outgoing leg of ssh-tmux's browser proxy: dials out through the local
+/// `ssh -D` SOCKS5 listener. Conforms to ``RemoteProxyStreamOpening`` so
+/// ``RemoteTmuxBrowserProxyListener``'s accept side can drive a stock
+/// `RemoteDaemonProxySession` against this non-daemon backend.
 ///
-/// ``openStream(host:port:timeoutMs:)`` performs a bounded, nonblocking-socket
-/// SOCKS5 client handshake (connect + greeting + CONNECT) rather than
-/// bridging `NWConnection`'s callbacks into this synchronous `throws` API —
-/// waiting on a callback from the same queue that would deliver it risks
-/// deadlock, and the existing daemon-backed implementation of this protocol
-/// already blocks its caller's queue for an RPC round-trip, so a bounded
-/// blocking dial here preserves the same contract.
+/// ``openStream(host:port:timeoutMs:)`` does a bounded, nonblocking-socket
+/// SOCKS5 handshake rather than bridging `NWConnection` callbacks into this
+/// synchronous `throws` API — awaiting a callback on the queue that would
+/// deliver it risks deadlock, and the daemon-backed implementation already
+/// blocks its caller's queue for an RPC round-trip, so this matches it.
 ///
 /// `openStreams` is guarded by `stateLock`, a plain `NSLock`, not an actor:
-/// ``RemoteProxyStreamOpening`` is synchronous and non-`async` by design (see
-/// above), so a caller can't `await` into actor isolation without breaking
-/// that shared, production protocol.
+/// ``RemoteProxyStreamOpening`` is synchronous by design (see above), so a
+/// caller can't `await` into actor isolation without changing that shared,
+/// production protocol.
 final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @unchecked Sendable {
     private let localForwardPort: Int
     private let ioQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-stream-io", qos: .userInitiated)
@@ -112,8 +107,9 @@ extension RemoteTmuxSocksProxyStreamClient {
         return Int32(min(nanos / 1_000_000, UInt64(Int32.max)))
     }
 
-    /// Opens a nonblocking TCP connection to `127.0.0.1:port`, waiting up to
-    /// `deadline` via `poll(2)` rather than an unbounded blocking `connect`.
+    /// Opens a TCP connection to `127.0.0.1:port`. Blocks the caller, but on a
+    /// nonblocking socket driven by `poll(2)`, so it is bounded by `deadline`
+    /// rather than by `connect`'s own timeout.
     fileprivate static func connectBlocking(port: Int, deadline: DispatchTime) throws -> Int32 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -158,19 +154,10 @@ extension RemoteTmuxSocksProxyStreamClient {
         return fd
     }
 
-    /// Sends the SOCKS5 greeting + CONNECT request (reusing `SocksV5Client`'s
-    /// pure, host-agnostic pieces — greeting, method-selection check, reply
-    /// parsing) and validates the reply, all with bounded reads/writes
-    /// against `deadline`. `fd` stays nonblocking throughout; each read/write
-    /// is preceded by a `poll(2)`.
-    ///
-    /// Not `SocksV5Client.connectRequest`: it's IP-literal-only by design
-    /// (see its type doc). ssh's `-D` forward is a real OpenSSH SOCKS5
-    /// implementation that resolves a DOMAINNAME request on the remote host
-    /// — the only way to reach a hostname that only exists on that side —
-    /// so `connectRequest(host:port:)` below builds that address type
-    /// locally rather than widening the shared type's contract for its
-    /// other caller.
+    /// Sends the SOCKS5 greeting + CONNECT request, reusing `SocksV5Client`'s
+    /// pure pieces (greeting, method-selection check, reply parsing), and
+    /// validates the reply. Every read and write is `poll(2)`-bounded against
+    /// `deadline`; `fd` stays nonblocking throughout.
     fileprivate static func performSocksHandshake(
         fd: Int32,
         targetHost: String,
@@ -196,10 +183,11 @@ extension RemoteTmuxSocksProxyStreamClient {
         try SocksV5Client.checkReply(header + trailer)
     }
 
-    /// `VER CMD RSV ATYP DST.ADDR DST.PORT` for `host`, using SOCKS5's
-    /// DOMAINNAME address type (RFC 1928 §5) when `host` isn't a literal IP —
-    /// see the doc comment on `performSocksHandshake` for why this can't just
-    /// reuse `SocksV5Client.connectRequest`.
+    /// `VER CMD RSV ATYP DST.ADDR DST.PORT` for `host`. A non-IP `host` uses
+    /// SOCKS5's DOMAINNAME address type (RFC 1928 §5), so ssh's `-D` forward
+    /// resolves it on the remote side — the only way to reach a hostname that
+    /// exists only there. `SocksV5Client.connectRequest` can't be reused for
+    /// this: it is IP-literal-only by design.
     private static func connectRequest(host: String, port: Int) throws -> [UInt8] {
         guard (1...65_535).contains(port) else {
             throw RemoteTmuxError.launchFailed("browser proxy SOCKS request has an invalid port: \(host):\(port)")

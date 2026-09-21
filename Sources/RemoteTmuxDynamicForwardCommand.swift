@@ -1,13 +1,11 @@
 import Foundation
 
 /// Argv construction and stderr classification for adding/removing a SOCKS5
-/// dynamic forward on an ssh-tmux host's already-running SSH ControlMaster,
-/// via OpenSSH's multiplex `-O forward`/`-O cancel` control commands. No
-/// process launching here — that's ``RemoteTmuxSSHTransport``, which holds one
-/// instance and injects it (constructable/injectable per the repository's
-/// no-ambient-global-state policy). Instance methods rather than static
-/// members specifically so argv exactness and stderr classification stay
-/// unit-testable without a real SSH process.
+/// dynamic forward on an ssh-tmux host's already-running ControlMaster, via
+/// OpenSSH's multiplex `-O forward`/`-O cancel` commands. No process launching
+/// here — that's ``RemoteTmuxSSHTransport``, which holds and injects one
+/// instance. Instance methods rather than statics, so argv exactness and
+/// stderr classification stay unit-testable without a real SSH process.
 struct RemoteTmuxDynamicForwardCommand {
     init() {}
 
@@ -50,13 +48,10 @@ struct RemoteTmuxDynamicForwardCommand {
         case unknown(String)
     }
 
-    /// Matches specific OpenSSH phrases rather than broad substrings: several
-    /// looser candidates (`"bind: "`, `"open failed"`, `"port forwarding
-    /// failed"`) were tried and dropped because they also match unrelated
-    /// failures (a plain bind permission error, an ordinary remote connection
-    /// failure, a remote-side forwarding refusal distinct from a local port
-    /// collision) — a wrong classification would make the registry retry or
-    /// give up on the wrong signal.
+    /// Matches specific OpenSSH phrases, never broad substrings: looser
+    /// candidates like `"bind: "` or `"open failed"` were tried and dropped
+    /// because they also match unrelated failures, and a misclassification
+    /// makes the registry retry or give up on the wrong signal.
     func classify(exitCode: Int32, stderr: String) -> Failure? {
         guard exitCode != 0 else { return nil }
         let text = stderr.lowercased()
@@ -78,9 +73,9 @@ struct RemoteTmuxDynamicForwardCommand {
 }
 
 /// A classified `-O forward`/`-O cancel` failure, thrown by
-/// `RemoteTmuxSSHTransport.openDynamicForward(localPort:)` so callers (the
-/// browser-proxy registry) can react to *why* it failed instead of retrying
-/// or giving up on the wrong signal.
+/// `RemoteTmuxSSHTransport.openDynamicForward(localPort:)` so the
+/// browser-proxy registry can react to *why* it failed — `.portInUse` is
+/// retryable with a fresh port, the others are not.
 struct RemoteTmuxDynamicForwardError: Error, Equatable {
     let failure: RemoteTmuxDynamicForwardCommand.Failure
     let exitCode: Int32

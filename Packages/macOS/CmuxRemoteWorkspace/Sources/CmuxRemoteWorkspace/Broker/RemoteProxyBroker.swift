@@ -46,8 +46,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private let tunnelProvider: any RemoteProxyTunnelProviding
     private let clock: any RemoteProxyRetryClock
-    // Not `private`: accessed from the `RemoteProxyBroker+LoopbackPortAllocation.swift`
-    // extension file, and Swift's `private` is file-scoped, not type-scoped.
+    // Not `private`: read from the `+LoopbackPortAllocation` extension file.
     let loopbackPortAllocator: LoopbackPortAllocator
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]

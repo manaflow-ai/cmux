@@ -4,27 +4,20 @@ import Darwin
 public import Foundation
 public import Network
 
-/// The cross-module interface a caller needs to drive one accepted proxy
-/// connection — see ``RemoteDaemonProxySession``, the concrete
-/// (intentionally non-public) implementation. Kept narrow and behind a
-/// protocol + factory function, rather than making the concrete class
-/// `public`, so ssh-tmux's browser-proxy listener (in the app target, a
-/// different module) can construct and drive sessions without depending on
-/// — or being able to reach into — its internals.
+/// The cross-module handle for one accepted proxy connection. Exists so
+/// ssh-tmux's browser-proxy listener (a different module) can drive
+/// ``RemoteDaemonProxySession`` without that concrete type — or its
+/// internals — becoming `public`.
 public protocol RemoteDaemonProxySessionHandling: AnyObject, Sendable {
     var id: UUID { get }
     func start()
     func stop()
 }
 
-/// Constructs a session for one accepted local proxy connection and returns
-/// it as ``RemoteDaemonProxySessionHandling``. The SOCKS5/HTTP-CONNECT
-/// handshake parsing and loopback-alias rewriting behind this are
-/// backend-agnostic (driven only by ``RemoteProxyStreamOpening``), so
-/// ssh-tmux's local browser proxy reuses this verbatim against a
-/// non-daemon backend instead of re-implementing the handshake — this
-/// factory is the seam that lets it do so without the concrete
-/// implementation type crossing the module boundary.
+/// Constructs a session for one accepted local proxy connection. The
+/// SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias rewriting behind
+/// it depend only on ``RemoteProxyStreamOpening``, so ssh-tmux's browser proxy
+/// reuses them verbatim against its non-daemon SOCKS backend.
 public func makeRemoteDaemonProxySession(
     connection: NWConnection,
     rpcClient: any RemoteProxyStreamOpening,
@@ -48,10 +41,6 @@ public func makeRemoteDaemonProxySession(
 /// handshake parsing and close side effects. `@unchecked Sendable` because
 /// the `@Sendable` Network callbacks capture `self`; the queue confinement
 /// above is the safety argument.
-///
-/// Not `public`: cross-module callers reach this only through
-/// ``RemoteDaemonProxySessionHandling``/``makeRemoteDaemonProxySession(connection:rpcClient:queue:onClose:)``
-/// above, never the concrete type directly.
 final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost

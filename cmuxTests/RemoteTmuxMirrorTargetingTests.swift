@@ -408,17 +408,15 @@ struct RemoteTmuxMirrorTargetingTests {
         ])
     }
 
-    /// A mirror workspace with two tmux-window tabs ("one", "two") in its
-    /// single tab-strip pane, matching `programmaticMirrorReorderUpdatesTheTmuxWindowOrderLedger`'s
-    /// setup — shared by the side-by-side browser split tests below.
+    /// A mirror workspace with two tmux-window tabs ("one", "two") in its single
+    /// tab-strip pane — shared by the browser-split tests below.
     ///
-    /// Returns `controller` too, and the caller MUST keep it alive (e.g.
-    /// `withExtendedLifetime`) for as long as it uses `workspace`:
-    /// `RemoteTmuxController.sessionMirrors` is the only strong owner of the
-    /// `RemoteTmuxSessionMirror` backing this workspace (`workspace.remoteTmuxSessionMirror`
-    /// is `weak`), so letting `controller` deallocate silently drops the
-    /// mirror and every mirror-aware pane-resolution call site under test
-    /// falls back to plain `focusedPaneId ?? allPaneIds.first`.
+    /// The caller MUST keep `controller` alive (e.g. `withExtendedLifetime`) for
+    /// as long as it uses `workspace`: `RemoteTmuxController.sessionMirrors` is
+    /// the only strong owner of the mirror (`workspace.remoteTmuxSessionMirror`
+    /// is `weak`), so letting it deallocate silently drops the mirror and every
+    /// mirror-aware pane-resolution call site under test quietly falls back to
+    /// `focusedPaneId ?? allPaneIds.first`.
     private func twoWindowMirrorWorkspace() throws -> (
         controller: RemoteTmuxController, workspace: Workspace, tabStripPaneId: PaneID, panelIds: [UUID]
     ) {
@@ -531,11 +529,10 @@ struct RemoteTmuxMirrorTargetingTests {
             let browserPaneId = try #require(workspace.paneId(forPanelId: browserPanel.id))
             let draggedTabId = try #require(workspace.surfaceIdFromPanelId(panelIds[1]))
 
-            // Simulate a drag of the second tmux-window tab into the browser
-            // pane: Bonsplit's own `moveTab` relocates it and fires
-            // `didMoveTab` synchronously through the same `BonsplitDelegate`
-            // conformance the app uses — exercising the exact veto path in
-            // `Workspace.splitTabBar(_:didMoveTab:fromPane:toPane:)`.
+            // Simulate the drag: Bonsplit's own `moveTab` relocates the tab and
+            // fires `didMoveTab` synchronously through the same
+            // `BonsplitDelegate` conformance the app uses, exercising the
+            // snap-back in `Workspace.splitTabBar(_:didMoveTab:fromPane:toPane:)`.
             _ = workspace.bonsplitController.moveTab(draggedTabId, toPane: browserPaneId)
 
             // Snapped back to the tab-strip pane, not left in the browser pane.

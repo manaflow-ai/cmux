@@ -3,13 +3,11 @@ import Foundation
 import Network
 
 /// The local, WKWebView-facing half of ssh-tmux's browser proxy: a loopback
-/// `NWListener` that feeds every accepted connection into a
-/// ``RemoteDaemonProxySessionHandling`` (built via
-/// `makeRemoteDaemonProxySession`, the same SOCKS5/HTTP-CONNECT handshake
-/// parser and loopback-alias HTTP rewriter `cmux ssh`'s daemon-backed proxy
-/// uses — its concrete `RemoteDaemonProxySession` implementation is
-/// intentionally not public), backed by a ``RemoteTmuxSocksProxyStreamClient``
-/// that dials the second hop out through ssh-tmux's `-D` dynamic forward.
+/// `NWListener` feeding every accepted connection into a
+/// ``RemoteDaemonProxySessionHandling`` — the same SOCKS5/HTTP-CONNECT
+/// handshake parser and loopback-alias HTTP rewriter `cmux ssh`'s daemon-backed
+/// proxy uses — backed by a ``RemoteTmuxSocksProxyStreamClient`` that dials the
+/// second hop out through ssh-tmux's `-D` dynamic forward.
 ///
 /// Two distinct local ports are involved and must never be confused: this
 /// listener's port is the one published to `BrowserPanel` (it does the HTTP
@@ -39,24 +37,19 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-listener.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
-    /// Each session gets its own dedicated queue, distinct from this
-    /// listener's `queue` — a session's SOCKS handshake/dial can block for
-    /// several seconds on a slow or dead second hop, and that must never
-    /// stall `queue`, which also drives `newConnectionHandler` for every
-    /// other connection on this host. The queue is tracked alongside its
-    /// session so `stop()` can dispatch each session's teardown onto the
-    /// queue it actually owns, matching `RemoteDaemonProxySession`'s
-    /// contract that callers are already confined to its `queue` before
-    /// touching it.
+    /// Each session gets its own queue: a session's SOCKS dial can block for
+    /// seconds on a dead second hop, and `queue` also drives
+    /// `newConnectionHandler` for every other connection here. Stored alongside
+    /// the session so `stop()` tears each one down on the queue it is confined
+    /// to, as `RemoteDaemonProxySession` requires.
     private var sessions: [UUID: (session: any RemoteDaemonProxySessionHandling, queue: DispatchQueue)] = [:]
     private var isStopped = false
 
-    /// Fires at most once, on `queue`, if the listener fails or is cancelled
-    /// unexpectedly *after* `start()` already returned successfully (e.g.
-    /// the process hits its socket/file-descriptor limit). Never fired for
-    /// `stop()`'s own, intentional cancellation. Set by the registry before
-    /// calling `start()`, so it can republish a nil endpoint instead of
-    /// leaving one parked pointing at a dead listener.
+    /// Fires on `queue` if the listener fails or is cancelled unexpectedly
+    /// *after* `start()` already returned successfully — never for `stop()`'s
+    /// own, intentional cancellation. Set by the registry before `start()`, so
+    /// it can republish a nil endpoint instead of leaving one parked pointing
+    /// at a dead listener.
     var onUnexpectedFailure: ((Error) -> Void)?
 
     /// - Parameters:
@@ -69,17 +62,14 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
         self.dynamicForwardPort = dynamicForwardPort
     }
 
-    /// Binds the listener and waits for it to actually become ready; throws
-    /// if the port is already taken (the registry retries with a fresh
-    /// port on that failure) or if it's stopped before becoming ready.
+    /// Binds the listener and waits for it to actually become ready; throws if
+    /// the port is already taken (the registry then retries with a fresh port)
+    /// or if it's stopped before becoming ready.
     ///
-    /// `NWListener.start(queue:)` is asynchronous — binding happens on
-    /// `queue`, and a failure (e.g. the exact port-collision race the
-    /// registry's retry loop exists to handle) only ever reaches
-    /// `stateUpdateHandler`. Returning immediately without observing that
-    /// would let a bind failure go completely unreported: the registry would
-    /// think `start()` succeeded and publish an endpoint pointing at a
-    /// listener that will never accept anything.
+    /// `NWListener.start(queue:)` is asynchronous and reports a bind failure
+    /// only through `stateUpdateHandler`, so returning without awaiting
+    /// `.ready` would have the registry publish an endpoint for a listener that
+    /// will never accept anything.
     func start() async throws {
         guard let port = NWEndpoint.Port(rawValue: UInt16(localPort)) else {
             throw ListenerError.invalidPort(localPort)
@@ -97,10 +87,9 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
             }
         }
 
-        // `stateUpdateHandler` always fires serialized on `queue` (the
-        // listener starts with `queue: queue` below), so `didResume` is safe
-        // despite the plain capture, and `self.listener = listener` below is
-        // properly queue-confined too.
+        // `stateUpdateHandler` fires serialized on `queue` (the listener is
+        // started with `queue: queue` below), so the plainly-captured
+        // `didResume` and the `self.listener` write are both queue-confined.
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             var didResume = false
             listener.stateUpdateHandler = { [weak self] state in
@@ -114,10 +103,9 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
                         return
                     }
                     self?.listener = listener
-                    // Startup is done — swap in the steady-state handler so a
-                    // failure occurring *after* this method has already
-                    // returned isn't silently swallowed by `guard !didResume`
-                    // forever.
+                    // Swap in the steady-state handler: with `didResume` now
+                    // set, every later failure would otherwise be swallowed by
+                    // the `guard !didResume` above, forever.
                     listener.stateUpdateHandler = { [weak self] state in
                         guard let self, !self.isStopped else { return }
                         switch state {
@@ -136,11 +124,10 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
                     listener.cancel()
                     continuation.resume(throwing: error)
                 case .waiting(let error):
-                    // A loopback listener that parks in `.waiting` (its bound
-                    // port taken out from under it, e.g.) never recovers on
-                    // its own — treat it as terminal rather than letting the
-                    // registry's `acquire()` task hang forever waiting for a
-                    // `.ready` that will never come.
+                    // A loopback listener never recovers from `.waiting` on its
+                    // own, so treat it as terminal — otherwise the registry's
+                    // `acquire()` task hangs forever on a `.ready` that will
+                    // never come.
                     guard !didResume else { return }
                     didResume = true
                     listener.cancel()

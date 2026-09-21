@@ -2,11 +2,10 @@ internal import Darwin
 
 /// Finds a free `127.0.0.1` TCP port to bind a local proxy/forward listener to.
 ///
-/// Infrastructure, not a value/protocol seam, so it lives here rather than in
-/// `CmuxCore`. Single source of truth for loopback port discovery —
-/// ``RemoteProxyBroker`` and the app target's `RemoteTmuxBrowserProxyRegistry`
-/// each hold their own instance (constructor-injected, default-constructed
-/// in production) instead of keeping separate allocation logic.
+/// Shared by ``RemoteProxyBroker`` and the app target's
+/// `RemoteTmuxBrowserProxyRegistry`, which each inject their own instance
+/// rather than keeping separate allocation logic. Lives here rather than in
+/// `CmuxCore` because it is infrastructure, not a value or protocol seam.
 public struct LoopbackPortAllocator: Sendable {
     public init() {}
 

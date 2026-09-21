@@ -8,7 +8,7 @@ import Foundation
 /// session-wide, so N mirror workspaces on one host share one listener, one
 /// dynamic forward, and one local port.
 ///
-/// Start order (both must be ready before anything is published):
+/// Start order — nothing is published until listener and forward are both up:
 /// 1. Allocate two distinct loopback ports.
 /// 2. Start `RemoteTmuxBrowserProxyListener` on the advertised port.
 /// 3. Open the `ssh -D` dynamic forward on the hidden port.
@@ -24,25 +24,22 @@ final class RemoteTmuxBrowserProxyRegistry {
         var task: Task<BrowserProxyEndpoint, Error>?
         var retainingWorkspaceIDs: Set<UUID> = []
         /// Identifies which `acquire()` call owns this entry's in-flight (or
-        /// most recently completed) `start()`. Without this, a
-        /// teardown-then-reacquire race lets a stale attempt's callbacks act
-        /// on a newer attempt's entry: attempt A's failure handler would clear
-        /// attempt B's `task` and broadcast a false nil endpoint, or A's
-        /// `start()` would commit its listener/forward into B's (or a third
-        /// attempt C's) entry after B already moved it forward. Every commit
-        /// and every callback checks this id first.
+        /// most recently completed) `start()`. Without it, a
+        /// teardown-then-reacquire race lets a stale attempt's callbacks act on
+        /// a newer attempt's entry — clearing its `task` and broadcasting a
+        /// false nil endpoint, or committing a superseded listener/forward over
+        /// it. Every commit and every callback checks this id first.
         var startupID: UUID?
     }
 
     private var entriesByConnectionHash: [String: Entry] = [:]
     private let loopbackPortAllocator = LoopbackPortAllocator()
 
-    /// Set once by `RemoteTmuxController` right after construction (a plain
-    /// `init` parameter would need `self` before it exists, since the
-    /// provider calls back into the controller's own transport registry).
-    /// Force-unwrapped deliberately: every real code path sets this before
-    /// `acquire` can be called. Creates a transport if none exists yet — only
-    /// safe for `start()`, which is establishing a genuinely new forward.
+    /// Set once by `RemoteTmuxController` right after construction — a plain
+    /// `init` parameter would need `self` before it exists, since the provider
+    /// calls back into the controller's own transport registry. Implicitly
+    /// unwrapped because every real path sets it before `acquire` can run.
+    /// Creates a transport if none exists, so only `start()` may use it.
     var transportProvider: ((RemoteTmuxHost) -> RemoteTmuxSSHTransport)!
 
     /// Existing-transport-only lookup, for teardown. Never creates: `releaseHost`
@@ -81,9 +78,8 @@ final class RemoteTmuxBrowserProxyRegistry {
             guard let self else { throw RemoteTmuxError.unreachable("browser proxy registry deallocated") }
             do {
                 let endpoint = try await self.start(host: host, connectionHash: hash, startupID: startupID)
-                // `start()` already verified ownership before returning, but
-                // a newer attempt could have taken over in the gap between
-                // that check and resuming here — check again before
+                // `start()` already checked ownership, but a newer attempt can
+                // take over in the gap before this resumes — recheck before
                 // publishing under this attempt's name.
                 guard self.entriesByConnectionHash[hash]?.startupID == startupID else {
                     throw CancellationError()
@@ -137,19 +133,15 @@ final class RemoteTmuxBrowserProxyRegistry {
         }
     }
 
-    /// Invalidates a host's existing `-D` forward and SOCKS listener without
-    /// tearing down the whole entry — used both when a reconnected SSH
-    /// session makes them stale, and when a live listener fails or is
-    /// cancelled unexpectedly after startup. Unlike ``releaseHost(connectionHash:)``, this must
-    /// never drop the host's `retainingWorkspaceIDs`: every mirror workspace
-    /// still using this host keeps its retention on the SAME entry and gets
-    /// rebuilt exactly once here, rather than each caller racing to tear the
-    /// whole entry down and re-derive retention from whichever workspace
-    /// happens to reacquire first — which would silently drop every OTHER
-    /// retaining workspace's claim, and could leave an already-open browser
-    /// panel elsewhere on the same host permanently without a proxy. Safe to
-    /// call for a host with no entry (nothing to invalidate) or no retainers
-    /// (the entry is simply dropped, matching `releaseHost`).
+    /// Invalidates a host's `-D` forward and SOCKS listener without tearing
+    /// down the whole entry — used when a reconnected SSH session makes them
+    /// stale, and when a live listener fails unexpectedly after startup.
+    ///
+    /// Unlike ``releaseHost(connectionHash:)``, this keeps the host's
+    /// `retainingWorkspaceIDs`: dropping them would strip every OTHER mirror
+    /// workspace's claim on this host and leave their already-open browser
+    /// panels permanently without a proxy. Safe for a host with no entry, or
+    /// with no retainers (the entry is then simply dropped).
     func invalidateAndRebuild(connectionHash hash: String) {
         guard var entry = entriesByConnectionHash[hash] else { return }
         entry.task?.cancel()
@@ -168,21 +160,17 @@ final class RemoteTmuxBrowserProxyRegistry {
         }
         entriesByConnectionHash[hash] = entry
         onEndpointChange?(hash, nil)
-        // Kicks off one fresh acquisition against the preserved entry;
-        // `acquire` reuses it (rather than creating a new one) because its
-        // `task` is nil here, and every existing retainer — not just this
-        // one id — gets the endpoint this attempt eventually publishes.
+        // `acquire` reuses the preserved entry (its `task` is nil here), so
+        // every existing retainer — not just this arbitrary one — gets the
+        // endpoint this attempt eventually publishes.
         acquire(host: entry.host, workspaceID: anyRetainer)
     }
 
     private func start(host: RemoteTmuxHost, connectionHash hash: String, startupID: UUID) async throws -> BrowserProxyEndpoint {
-        // Checked before `transportProvider(host)` runs, not after: a
-        // `releaseHost` landing between `acquire()` returning and this task
-        // body starting cancels this task and removes its registry entry,
-        // and `transportProvider` unconditionally creates-and-registers a
-        // transport if none exists. Without this check first, that race
-        // would resurrect and re-register — and can spawn a ControlMaster
-        // for — a host whose transport was just torn down.
+        // Before `transportProvider(host)`, not after: it creates-and-registers
+        // a transport if none exists, so a `releaseHost` landing since
+        // `acquire()` returned would be silently undone here — resurrecting a
+        // transport, and possibly a ControlMaster, for a torn-down host.
         try Task.checkCancellation()
         let transport = transportProvider(host)
         guard try await transport.ensureMasterReady() else {
@@ -226,26 +214,21 @@ final class RemoteTmuxBrowserProxyRegistry {
                 lastError = error
                 continue
             } catch {
-                // `openDynamicForward` can throw a plain cancellation even
-                // after `ssh -O forward` already exited successfully — its
-                // underlying `runProcess` only checks `Task.checkCancellation()`
-                // once the process has already terminated, so a cancellation
-                // landing in that window discards a forward that is actually
-                // now live on the ControlMaster. Best-effort-cancel it
-                // regardless of which failure this was: a forward that never
-                // actually got installed leaves `-O cancel` nothing to act on.
+                // `openDynamicForward` can throw cancellation after `ssh -O
+                // forward` already succeeded — its `runProcess` only checks
+                // cancellation once the process has exited — leaving a live
+                // forward behind. Cancel unconditionally: if none was ever
+                // installed, `-O cancel` has nothing to act on.
                 listener.stop()
                 Task { await transport.cancelDynamicForward(localPort: forwardPort) }
                 throw error
             }
 
-            // `releaseHost` may have cancelled this task and removed the
-            // registry entry while the forward above was opening (the last
-            // retaining workspace closed mid-acquire), or a newer `acquire()`
-            // may have replaced this entry with its own attempt — commit
-            // only if this attempt's id still owns the entry, or the
-            // listener and forward just opened would run with nothing left
-            // to own them, or would stomp a newer attempt's resources.
+            // The entry may have been torn down (last retainer closed
+            // mid-acquire) or replaced by a newer `acquire()` while the forward
+            // was opening. Commit only if this attempt still owns it —
+            // otherwise the listener and forward just opened would leak with
+            // nothing owning them, or stomp a newer attempt's.
             guard !Task.isCancelled, entriesByConnectionHash[hash]?.startupID == startupID else {
                 listener.stop()
                 Task { await transport.cancelDynamicForward(localPort: forwardPort) }

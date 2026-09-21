@@ -3574,11 +3574,10 @@ final class BrowserPanel: Panel, ObservableObject {
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
         // Decouples "route through `proxyEndpoint` and park navigation until
-        // it lands" from "is a daemon-backed cmux remote workspace" — an
-        // ssh-tmux mirror workspace's browser tab/split routes through a
-        // proxy but isn't `isRemoteWorkspace` (no per-workspace website data
-        // store, no remote status UI). Defaults to `isRemoteWorkspace` when
-        // omitted so every existing call site is unaffected.
+        // it lands" from "is a daemon-backed cmux remote workspace": an
+        // ssh-tmux mirror workspace's browser tab/split needs the former
+        // without being `isRemoteWorkspace`. Defaults to `isRemoteWorkspace`
+        // when omitted, so every existing call site is unaffected.
         routesThroughRemoteProxy: Bool? = nil,
         websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
     ) {
@@ -3599,14 +3598,11 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
-        // Keyed on `usesRemoteWorkspaceProxy`, not the narrower
-        // `isRemoteWorkspace` — an ssh-tmux mirror routes through a remote
-        // proxy without being `isRemoteWorkspace`, and every panel that has
-        // its `proxyConfigurations` mutated (see `applyRemoteProxyEndpointUpdate`)
-        // must own a dedicated store. Falling through to the shared
-        // `BrowserProfileStore` default store here would silently redirect
-        // every other local browser panel's traffic through this panel's
-        // remote proxy, and wipe it on teardown.
+        // Keyed on `usesRemoteWorkspaceProxy`, not `isRemoteWorkspace`: every
+        // panel whose `proxyConfigurations` get mutated must own a dedicated
+        // store. Sharing `BrowserProfileStore`'s default store here would route
+        // every other local browser panel through this panel's remote proxy,
+        // then strip that store's proxy config when the endpoint goes away.
         let websiteDataStore = explicitWebsiteDataStore ?? (
             usesRemoteWorkspaceProxy
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)

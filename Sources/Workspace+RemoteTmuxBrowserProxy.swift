@@ -2,12 +2,11 @@ import CmuxCore
 import CmuxRemoteWorkspace
 import Foundation
 
-/// ssh-tmux's browser-preview proxy: a mirror workspace's browser tab (see
-/// `newBrowserSurface(inPane:)`) routes through a local SOCKS proxy over the
-/// ssh-tmux host's SSH connection (`RemoteTmuxBrowserProxyRegistry`), so it
-/// can preview a port on the remote host the same way a plain `cmux ssh`
-/// workspace's browser already can. This file owns only the forward's
-/// lifecycle — UI placement lives entirely in `Workspace.newBrowserSurface`.
+/// ssh-tmux's browser-preview proxy: a mirror workspace's browser tab or split
+/// routes through a local SOCKS proxy over the host's SSH connection
+/// (`RemoteTmuxBrowserProxyRegistry`), previewing a port on the remote host the
+/// way a plain `cmux ssh` workspace's browser already can. This extension owns
+/// only the forward's lifecycle; UI placement lives in the callers.
 extension Workspace {
     /// The ssh-tmux host backing this mirror workspace, if any.
     var remoteTmuxBrowserProxyHost: RemoteTmuxHost? {
@@ -33,31 +32,23 @@ extension Workspace {
         }
     }
 
-    /// A dropped-and-recovered ssh-tmux control connection reconnects with a
-    /// fresh SSH session; the previously acquired `-D` dynamic forward and
-    /// its SOCKS listener belonged to the old one and are now dead, but
-    /// nothing in ``RemoteTmuxTransportRegistry``/``RemoteTmuxBrowserProxyRegistry``
-    /// treats a reconnect (as opposed to the host being removed outright) as
-    /// invalidating them — so without this, every browser tab on this host
-    /// would keep being handed the same stale, now-unreachable endpoint.
-    /// ``RemoteTmuxBrowserProxyRegistry/invalidateAndRebuild(connectionHash:)``
-    /// preserves the host's existing retainers — see its doc — and no-ops
-    /// when nothing on this host has ever opened a browser, so calling this
-    /// from every mirror workspace sharing the host that just reconnected is
-    /// safe — merely redundant.
+    /// A reconnected ssh-tmux control connection is a fresh SSH session, so the
+    /// previously acquired `-D` forward and its SOCKS listener are dead — and
+    /// nothing else treats a reconnect (as opposed to the host being removed
+    /// outright) as invalidating them, so without this every browser tab on the
+    /// host keeps being handed the same stale endpoint. Harmless to call from
+    /// every mirror sharing the reconnected host: the rebuild preserves existing
+    /// retainers, and no-ops when no browser has ever opened here.
     func remoteTmuxBrowserProxyDidReconnect() {
         guard isRemoteTmuxMirror, let host = remoteTmuxBrowserProxyHost else { return }
         AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.invalidateAndRebuild(connectionHash: host.connectionHash)
     }
 
-    /// The registry's per-host ``RemoteTmuxBrowserProxyRegistry/acquire(host:workspaceID:)``
-    /// is single-flighted across every
-    /// mirror workspace on that host, so this workspace detaching (or
-    /// re-mirroring onto a different host) while another mirror keeps the
-    /// same acquisition alive must not let this now-stale continuation
-    /// resurrect a proxy endpoint here — that would re-apply proxy
-    /// configuration onto whatever (possibly shared, local) website data
-    /// store this workspace's browser panels have since moved to.
+    /// `acquire` is single-flighted per host, so this workspace can detach (or
+    /// re-mirror onto a different host) while another mirror keeps the same
+    /// acquisition alive. The now-stale continuation must not resurrect an
+    /// endpoint here — that would re-apply proxy configuration onto whatever
+    /// (possibly shared, local) data store this workspace's panels moved to.
     private func publishRemoteTmuxBrowserProxyEndpointIfStillMirroring(_ endpoint: BrowserProxyEndpoint?, for host: RemoteTmuxHost) {
         guard isRemoteTmuxMirror, remoteTmuxBrowserProxyHost == host else { return }
         applyRemoteProxyEndpointUpdate(endpoint)
