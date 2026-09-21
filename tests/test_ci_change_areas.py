@@ -1819,10 +1819,68 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
-def test_only_the_history_guard_job_fetches_full_history() -> None:
+def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
+    block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
+    assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
+    assert "fetch-depth: 0" not in block
+    assert "Bind package policy to synthetic merge base" in block
+    assert "github.event_name == 'pull_request'" in block
+    assert "github.event_name == 'merge_group'" in block
     for guard_job in GUARD_JOBS:
-        fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
-        assert fetches_history == (guard_job == "workflow-guard-history"), guard_job
+        assert "fetch-depth: 0" not in workflow_job_block(guard_job, GUARD_WORKFLOW)
+
+    script = workflow_job_step_script(
+        "workflow-guard-history",
+        "Bind package policy to synthetic merge base",
+        GUARD_WORKFLOW,
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        repo = Path(directory)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        (repo / "base.txt").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+        subprocess.run(["git", "branch", "feature"], cwd=repo, check=True)
+
+        (repo / "main.txt").write_text("main\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "main moves"], cwd=repo, check=True)
+        expected_base = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+        ).strip()
+
+        subprocess.run(["git", "checkout", "-q", "feature"], cwd=repo, check=True)
+        (repo / "feature.txt").write_text("feature\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "feature"], cwd=repo, check=True)
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True)
+        subprocess.run(
+            ["git", "merge", "-q", "--no-ff", "feature", "-m", "synthetic merge"],
+            cwd=repo,
+            check=True,
+        )
+        merge_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo, text=True
+        ).strip()
+        output = repo / "github-env.txt"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=repo,
+            env={
+                **os.environ,
+                "CHECKED_OUT_SHA": merge_sha,
+                "GITHUB_ENV": str(output),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert output.read_text(encoding="utf-8").splitlines() == [
+            f"PACKAGE_RESOLVED_POLICY_BASE_REF={expected_base}"
+        ]
 
 
 def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
