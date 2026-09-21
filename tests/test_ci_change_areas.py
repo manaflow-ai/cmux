@@ -1787,7 +1787,7 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
 
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
-    assert "fetch-depth: 2" in block
+    assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
     assert "fetch-depth: 0" not in block
     assert "Bind package policy to synthetic merge base" in block
     assert "github.event_name == 'pull_request'" in block
