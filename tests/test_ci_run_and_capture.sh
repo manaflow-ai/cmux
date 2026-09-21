@@ -13,7 +13,7 @@ trap cleanup EXIT
 
 set +e
 SECONDS=0
-"$ROOT_DIR/scripts/ci/run-and-capture.sh" "$TMP_DIR/capture.log" \
+/bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$TMP_DIR/capture.log" \
   /bin/bash -c '
     echo "command-started"
     sleep 60 >>"$1" 2>&1 &
