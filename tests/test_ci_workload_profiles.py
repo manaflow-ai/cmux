@@ -126,6 +126,30 @@ class WorkloadProfileTests(unittest.TestCase):
             "scripts/ci/workloads/macos-compile-admission.sh",
         )
 
+    def test_dev_check_uses_canonical_tagged_reload(self) -> None:
+        script = (
+            ROOT / "scripts/ci/workloads/macos-dev-check.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('tag="profile-$attempt_id"', script)
+        self.assertIn('cmux_attach_validate_dev_tag "$tag"', script)
+        self.assertIn('cmux_attach_mac_bundle_id "$tag"', script)
+        self.assertIn('./scripts/reload.sh \\', script)
+        self.assertIn('--tag "$tag"', script)
+        self.assertIn('--derived-data "$derived"', script)
+        self.assertIn('--no-global-cli-links', script)
+        self.assertIn('CMUX_DEV_BACKEND_MODE=local', script)
+        self.assertIn('CMUX_DEV_CLOUD_ENABLED=0', script)
+        self.assertNotIn('\nxcodebuild ', script)
+        syntax = subprocess.run(
+            ["bash", "-n", "scripts/ci/workloads/macos-dev-check.sh"],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        self.assertEqual(syntax.returncode, 0, syntax.stderr.decode())
+
     def test_dev_check_does_not_claim_resident_hot_state(self) -> None:
         registry = profile.load_registry()
         dev_check = profile.profile_by_id(registry, "cmux.macos.dev-check")
