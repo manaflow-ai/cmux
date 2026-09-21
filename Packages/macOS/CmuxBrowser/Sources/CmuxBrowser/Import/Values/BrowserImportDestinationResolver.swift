@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Resolves browser-import destination selectors without touching app storage.
 public struct BrowserImportDestinationResolver: Sendable {
