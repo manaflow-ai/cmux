@@ -61,6 +61,23 @@ def main() -> int:
     for kind in ("restore", "save"):
         action = yaml.safe_load((ROOT / ".github/actions" / f"cache-{kind}" / "action.yml").read_text(encoding="utf-8"))
         steps = action["runs"]["steps"]
+        if kind == "restore":
+            # Measurement is not a fourth cache store. Recognize only these
+            # fixed nonblocking commands; all other steps still undergo the
+            # exhaustive store-branch checks below.
+            measurements = {
+                "receipt-clock": (None, 'echo "started_ns=$(python3 -c \'import time; print(time.monotonic_ns())\')" >> "$GITHUB_OUTPUT"'),
+                "receipt": ("always()", 'python3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"'),
+            }
+            for identifier, (condition, command) in measurements.items():
+                matches = [step for step in steps if step.get("id") == identifier]
+                if len(matches) != 1 or any(
+                    step.get("if") != condition or step.get("run") != command
+                    or step.get("shell") != "bash" or step.get("continue-on-error") is not True
+                    or "uses" in step for step in matches
+                ):
+                    failures.append(f"cache-restore: {identifier} must be the fixed nonblocking measurement step")
+            steps = [step for step in steps if step.get("id") not in measurements]
         conditions = [step.get("if") for step in steps]
         if conditions != expected_conditions:
             failures.append(f"cache-{kind}: the store branches must be mutually exclusive and cover every backend, got {conditions}")

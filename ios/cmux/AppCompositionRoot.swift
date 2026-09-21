@@ -236,7 +236,7 @@ final class AppCompositionRoot {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
-                PhonePushActiveAccountStore.clear()
+                PhonePushActiveAccountStore().clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
@@ -358,7 +358,7 @@ final class AppCompositionRoot {
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
+        DiagnosticReport.buildStamp(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {

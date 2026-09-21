@@ -209,7 +209,7 @@ struct MobileWhatsNewPairingSetupContent: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var compatibility: MobileWhatsNewMacCompatibility {
-        MobileWhatsNewCatalog.macCompatibility(
+        MobileWhatsNewCatalog().macCompatibility(
             policy: macCompatCenter?.policy ?? .baked,
             iosVersion: AppVersionInfo.current().marketingVersion,
             buildType: MobileBuildType.current()
@@ -330,7 +330,7 @@ struct MobileWhatsNewPairingSetupContent: View {
             }
 
             if MobileBuildType.current().usesInternalBuildVocabulary {
-                Text(MobileWhatsNewCatalog.macUpdateDetail(
+                Text(MobileWhatsNewCatalog().macUpdateDetail(
                     buildType: MobileBuildType.current(),
                     requiredVersion: compatibility.stableVersion
                 ))

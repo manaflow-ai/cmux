@@ -3091,6 +3091,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: false
             )
         )
+        // WebKit's `loadHTMLString(_:baseURL:)` can defer document-start user
+        // scripts until its synthetic about:blank document commits. Re-run the
+        // idempotent bridge at document end so a parsed `<base>` URL receives
+        // the same loopback rewriting contract as a normal navigation.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false
+            )
+        )
         configuration.userContentController.addUserScript(WKUserScript(source: BrowserWebAuthnBridgeContract.relayScriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: BrowserWebAuthnBridgeContract.contentWorld)); configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserWebAuthnBridgeContract.scriptSource,

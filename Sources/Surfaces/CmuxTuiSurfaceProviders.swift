@@ -851,7 +851,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// A new workspace in the machine's cmux-tui session (`workspace create`),
     /// called directly — not as a side effect of creating a terminal.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
-        try await createRemoteWorkspace(name: name, expectedRevision: nil)
+        let receipt = try await createRemoteWorkspaceReceipt(name: name)
+        return info.remoteWorkspaces?.first(where: { $0.id == receipt.workspace.id }) ?? receipt.workspace
+    }
+
+    func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
+        try await createRemoteWorkspaceReceipt(name: name, expectedRevision: nil)
     }
 
     /// Uses the daemon's revision fence for the name lookup/create, including
@@ -871,7 +876,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
             if let workspace = matches.first { return (workspace, true) }
             do {
-                return (try await createRemoteWorkspace(name: name, expectedRevision: revision), false)
+                return (try await createRemoteWorkspaceReceipt(name: name, expectedRevision: revision).workspace, false)
             } catch let error as CloudMachineLink.LinkError {
                 guard attempt < 7, case .exited(_, let output) = error,
                       let object = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any],
@@ -881,13 +886,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         throw ProviderError.invalidSnapshot(machineID)
     }
 
-    private func createRemoteWorkspace(name: String?, expectedRevision: UInt64?) async throws -> SurfaceRemoteWorkspace {
+    private func createRemoteWorkspaceReceipt(name: String?, expectedRevision: UInt64?) async throws -> SurfaceWorkspaceCreationReceipt {
+        let generation = lifecycleGeneration
+        try Task.checkCancellation()
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = CloudTuiRequests.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
         if let expectedRevision { arguments = arguments.adding(["expected_revision": String(expectedRevision)]) }
+        try Task.checkCancellation()
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
         let created = try await link.run(arguments: arguments)
+        try Task.checkCancellation()
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { throw CancellationError() }
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
             throw ProviderError.noWorkspaceOnMachine(machineID)
@@ -903,11 +914,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [provisional]
             catalog.updateMachine(info, from: self)
         }
-        if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
-            _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
-        }
+        let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object)
+        let terminal = starter.map { recordCreatedTerminal($0, workspaceID: id, name: nil, cwd: nil) }
         scheduleRefresh()
-        return info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional
+        return SurfaceWorkspaceCreationReceipt(
+            workspace: info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional,
+            terminal: terminal,
+            cursor: starter?.cursor ?? CmuxTuiSnapshotParser.mutationCursor(fromResult: object)
+        )
     }
 
     func renameRemoteWorkspace(id: String, name: String) async throws {
@@ -1213,7 +1227,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     // MARK: - internals
 
-    private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
+    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: .cloud(summary.id),
             name: summary.preferredName,
@@ -1271,7 +1285,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The noVNC URL uses only the VM private address. The private network is
     /// the access check, so no public preview token or endpoint is required.
     nonisolated static func privateDesktopURL(privateAddress: String) -> String {
-        let base = CmuxInternalHostnames.directPortURL(
+        let base = CmuxInternalHostnames().directPortURL(
             privateAddress: privateAddress,
             port: CmuxTuiSnapshotParser.desktopPort
         )
@@ -1305,7 +1319,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             updated.url = privateDesktopURL(privateAddress: privateAddress)
         case .browser:
             if resource.id.key.hasPrefix("port:"), let port = resource.port {
-                updated.url = CmuxInternalHostnames.directPortURL(
+                updated.url = CmuxInternalHostnames().directPortURL(
                     privateAddress: privateAddress,
                     port: port
                 )
