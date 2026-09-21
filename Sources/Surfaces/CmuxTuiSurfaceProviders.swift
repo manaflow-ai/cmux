@@ -200,7 +200,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
-        acceptedCloudGenerations.removeAll()
+        acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
