@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxSettings
@@ -124,48 +125,50 @@ struct JSONConfigStoreTests {
         #expect(try String(contentsOf: fileURL, encoding: .utf8).contains(#""light""#))
     }
 
-    @Test func waitsForBriefConcurrentWriterThenAppliesMutation() async throws {
-        let (store, fileURL, _) = makeStore()
-        let directory = fileURL.deletingLastPathComponent()
+    @Test func rollbackFailurePreservesSourceConflictAndRecovery() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-publisher-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        try Data(#"{"app":{"appearance":"dark"}}"#.utf8).write(to: fileURL)
 
-        let readyURL = directory.appendingPathComponent("brief-writer-lock-ready")
-        let script = """
-        import fcntl, os, pathlib, sys, time
-        fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        pathlib.Path(sys.argv[2]).write_text("ready")
-        time.sleep(0.25)
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
-        """
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-        process.arguments = [
-            "-c",
-            script,
-            fileURL.path + ".cmux-write.lock",
-            readyURL.path,
-        ]
-        try process.run()
-        defer {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
+        let target = directory.appendingPathComponent("cmux.json")
+        let expected = Data(#"{"value":"expected"}"#.utf8)
+        let external = Data(#"{"value":"external"}"#.utf8)
+        let candidate = Data(#"{"value":"candidate"}"#.utf8)
+        try external.write(to: target)
+
+        let publisher = JSONConfigAtomicPublisher(exchangeOverride: { left, right in
+            if (try? Data(contentsOf: right)) == candidate {
+                throw POSIXError(.EIO)
             }
+            try JSONConfigAtomicPublisher.exchangePaths(left, right)
+        })
+
+        var captured: JSONConfigWriteConflict?
+        do {
+            try publisher.publish(candidate, to: target, expected: expected)
+            Issue.record("publication unexpectedly succeeded")
+        } catch let error as JSONConfigWriteConflict {
+            captured = error
+        } catch {
+            Issue.record("unexpected publisher error: \(error)")
         }
 
-        for _ in 0..<200 {
-            if FileManager.default.fileExists(atPath: readyURL.path) { break }
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
-        #expect(FileManager.default.fileExists(atPath: readyURL.path))
+        #expect(
+            captured == .sourceChangedRollbackFailed(
+                rollbackErrno: EIO
+            )
+        )
+        #expect(try Data(contentsOf: target) == candidate)
 
-        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
-        try await store.set("light", for: key)
-        #expect(await store.value(for: key) == "light")
-        #expect(try String(contentsOf: fileURL, encoding: .utf8).contains(#""light""#))
+        let recoveryFiles = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix(".cmux-write-") }
+        #expect(recoveryFiles.count == 1)
+        if let recovery = recoveryFiles.first {
+            #expect(try Data(contentsOf: recovery) == external)
+        }
     }
 
     @Test func readsDefaultWhenFileMissing() async {
