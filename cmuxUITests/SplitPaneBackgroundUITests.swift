@@ -56,19 +56,32 @@ final class SplitPaneBackgroundUITests: XCTestCase {
             },
             "Expected control socket at \(socketPath); diagnostics=\(loadDiagnostics())"
         )
-        var target: (workspaceID: String, surfaceID: String)?
-        XCTAssertTrue(waitForCondition(timeout: 20) {
-            target = self.terminalSurface()
-            return target != nil
-        }, "Expected a terminal surface in the selected workspace")
-        let source = try XCTUnwrap(target)
-        let sourceSurfaceID = source.surfaceID
+        // A fresh workspace gives the test its own terminal with known ids,
+        // independent of whatever the launch restored or focused.
+        var created: [String: Any]?
+        var lastEnvelope: [String: Any]?
+        XCTAssertTrue(waitForCondition(timeout: 30) {
+            let envelope = self.socketJSON(
+                method: "workspace.create",
+                params: ["title": "Split pane background 13387", "focus": true]
+            )
+            lastEnvelope = envelope
+            guard let envelope, envelope["ok"] as? Bool == true,
+                  let result = envelope["result"] as? [String: Any],
+                  result["workspace_id"] as? String != nil,
+                  result["surface_id"] as? String != nil else { return false }
+            created = result
+            return true
+        }, "Expected workspace.create to return a terminal; last response: \(String(describing: lastEnvelope))")
+        let source = try XCTUnwrap(created)
+        let sourceWorkspaceID = try XCTUnwrap(source["workspace_id"] as? String)
+        let sourceSurfaceID = try XCTUnwrap(source["surface_id"] as? String)
         // Cmd+Shift+D splits the focused panel, so make the source terminal
         // the focused one explicitly instead of relying on launch focus.
         XCTAssertTrue(
             socketJSON(
                 method: "surface.focus",
-                params: ["workspace_id": source.workspaceID, "surface_id": sourceSurfaceID]
+                params: ["workspace_id": sourceWorkspaceID, "surface_id": sourceSurfaceID]
             )?["ok"] as? Bool == true,
             "Expected surface.focus to succeed"
         )
@@ -382,37 +395,6 @@ final class SplitPaneBackgroundUITests: XCTestCase {
             }
             return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-    }
-
-    /// The selected workspace and its focused (else first) terminal.
-    /// `surface.current` reports no surface while the app has no key window,
-    /// which is the normal state on a headless runner, so the lookup goes
-    /// through the workspace and surface lists instead.
-    private func terminalSurface() -> (workspaceID: String, surfaceID: String)? {
-        guard let workspaceID = selectedWorkspaceID(),
-              let envelope = socketJSON(method: "surface.list", params: ["workspace_id": workspaceID]),
-              envelope["ok"] as? Bool == true,
-              let result = envelope["result"] as? [String: Any],
-              let surfaces = result["surfaces"] as? [[String: Any]] else { return nil }
-        let terminals = surfaces.filter { ($0["type"] as? String) == "terminal" }
-        let preferred = terminals.first(where: { ($0["focused"] as? Bool) == true }) ?? terminals.first
-        guard let surfaceID = preferred?["id"] as? String else { return nil }
-        return (workspaceID, surfaceID)
-    }
-
-    private func selectedWorkspaceID() -> String? {
-        if let envelope = socketJSON(method: "workspace.current", params: [:]),
-           envelope["ok"] as? Bool == true,
-           let result = envelope["result"] as? [String: Any],
-           let workspaceID = result["workspace_id"] as? String {
-            return workspaceID
-        }
-        guard let envelope = socketJSON(method: "workspace.list", params: [:]),
-              envelope["ok"] as? Bool == true,
-              let result = envelope["result"] as? [String: Any],
-              let workspaces = result["workspaces"] as? [[String: Any]] else { return nil }
-        let preferred = workspaces.first(where: { ($0["selected"] as? Bool) == true }) ?? workspaces.first
-        return preferred?["id"] as? String
     }
 
     private func sendText(_ text: String, surfaceID: String) -> Bool {
