@@ -99,6 +99,26 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
                 source.replace('"appearance": "light"', '"appearance": "dark"'),
             )
 
+    def test_set_preserves_crlf_line_endings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            source = (
+                b"{\r\n"
+                b'  "app": {\r\n'
+                b'    "appearance": "light",\r\n'
+                b'    "menuBarOnly": false,\r\n'
+                b"  },\r\n"
+                b"}\r\n"
+            )
+            config.write_bytes(source)
+
+            self.run_helper(config, "set", "app.appearance", "dark")
+
+            self.assertEqual(
+                config.read_bytes(),
+                source.replace(b'"appearance": "light"', b'"appearance": "dark"'),
+            )
+
     def test_nested_creation_inherits_trailing_comma_style(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
@@ -355,35 +375,105 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertEqual(config.read_text(encoding="utf-8"), external_text)
 
-    def test_helper_waits_for_brief_shared_writer_lock(self) -> None:
+    def test_atomic_recovery_preserves_later_external_edit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "cmux.json"
+            original_text = '{"app":{"appearance":"dark"}}\n'
+            first_external = '{"app":{"appearance":"external-one"}}\n'
+            later_external = '{"app":{"appearance":"external-two"}}\n'
+            candidate_text = '{"app":{"appearance":"light"}}\n'
+            config.write_text(original_text, encoding="utf-8")
+            original = helper.current_revision(config)
+            real_exchange = helper.exchange_paths
+            exchanges = 0
+
+            def exchange_with_external_edits(left: Path, right: Path) -> None:
+                nonlocal exchanges
+                exchanges += 1
+                if exchanges == 1:
+                    right.write_text(first_external, encoding="utf-8")
+                elif exchanges == 2:
+                    right.write_text(later_external, encoding="utf-8")
+                real_exchange(left, right)
+
+            with (
+                mock.patch.object(
+                    helper,
+                    "exchange_paths",
+                    side_effect=exchange_with_external_edits,
+                ),
+                self.assertRaisesRegex(
+                    SystemExit,
+                    "cmux config changed while preparing the edit",
+                ),
+            ):
+                helper.atomic_write_text(
+                    config,
+                    candidate_text,
+                    expected_revision=original,
+                )
+
+            self.assertGreaterEqual(exchanges, 2)
+            self.assertEqual(config.read_text(encoding="utf-8"), later_external)
+
+    def test_helper_applies_after_shared_writer_lock_release(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
             config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
             lock_path = Path(str(config.resolve()) + ".cmux-write.lock")
             ready = Path(tmp) / "ready"
-            holder = subprocess.Popen([
-                sys.executable,
-                "-c",
-                (
-                    "import fcntl,os,pathlib,sys,time;"
-                    "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600);"
-                    "fcntl.flock(fd,fcntl.LOCK_EX);"
-                    "pathlib.Path(sys.argv[2]).write_text('ready');"
-                    "time.sleep(0.25);"
-                    "fcntl.flock(fd,fcntl.LOCK_UN);"
-                    "os.close(fd)"
-                ),
-                str(lock_path),
-                str(ready),
-            ])
+            holder = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import fcntl,os,pathlib,sys;"
+                        "fd=os.open(sys.argv[1],os.O_RDWR|os.O_CREAT,0o600);"
+                        "fcntl.flock(fd,fcntl.LOCK_EX);"
+                        "pathlib.Path(sys.argv[2]).write_text('ready');"
+                        "sys.stdin.buffer.read(1);"
+                        "fcntl.flock(fd,fcntl.LOCK_UN);"
+                        "os.close(fd)"
+                    ),
+                    str(lock_path),
+                    str(ready),
+                ],
+                stdin=subprocess.PIPE,
+            )
+            helper_process = None
             try:
                 for _ in range(200):
                     if ready.exists():
                         break
                     time.sleep(0.01)
                 self.assertTrue(ready.exists())
-                self.run_helper(config, "set", "app.appearance", "light")
+
+                env = dict(os.environ)
+                env["CMUX_CLI_BIN"] = "/usr/bin/true"
+                helper_process = subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(HELPER),
+                        "--file",
+                        str(config),
+                        "set",
+                        "app.appearance",
+                        "light",
+                    ],
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                )
+                assert holder.stdin is not None
+                holder.stdin.write(b"x")
+                holder.stdin.close()
+                stdout, stderr = helper_process.communicate(timeout=5)
+                self.assertEqual(helper_process.returncode, 0, stderr + stdout)
             finally:
+                if helper_process is not None and helper_process.poll() is None:
+                    helper_process.terminate()
+                    helper_process.wait(timeout=5)
                 if holder.poll() is None:
                     holder.terminate()
                 holder.wait(timeout=5)
