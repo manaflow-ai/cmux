@@ -30,23 +30,22 @@ export interface AcpMailMessage {
 /**
  * Render a durable message as ordinary ACP prompt text. The existing ACP
  * `session/prompt` request remains unchanged; callers pass this result to
- * `adapter.send` just like any other prompt. Header values are single-line and
- * the body is base64 encoded, so untrusted content cannot forge the closing
- * envelope marker.
+ * `adapter.send` just like any other prompt. JSON keeps untrusted fields
+ * structurally separate while leaving the body readable to the receiving agent.
  */
 export function acpPromptFromMail(message: AcpMailMessage): string {
-  const header = (value: string) => value.replace(/[\r\n]+/g, " ");
-  const lines = [
-    "[cmux-agent-message]",
-    `message-id: ${header(message.id)}`,
-    `thread-id: ${header(message.threadId)}`,
-    `from: ${header(message.sender)}`,
-    `to: ${message.recipients.map(header).join(", ")}`,
-  ];
-  if (message.subject) lines.push(`subject: ${header(message.subject)}`);
-  if (message.inReplyTo) lines.push(`in-reply-to: ${header(message.inReplyTo)}`);
-  lines.push(`body-base64: ${Buffer.from(message.body, "utf8").toString("base64")}`, "[/cmux-agent-message]");
-  return lines.join("\n");
+  return [
+    "cmux-agent-message-json-v1:",
+    JSON.stringify({
+      messageId: message.id,
+      threadId: message.threadId,
+      from: message.sender,
+      to: [...message.recipients],
+      ...(message.subject === undefined ? {} : { subject: message.subject }),
+      ...(message.inReplyTo === undefined ? {} : { inReplyTo: message.inReplyTo }),
+      body: message.body,
+    }, null, 2),
+  ].join("\n");
 }
 
 // Generic Agent Client Protocol (https://agentclientprotocol.com) client over
