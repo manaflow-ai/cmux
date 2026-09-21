@@ -34,11 +34,13 @@ after revalidating the Git revision/tree, Xcode, SDK, architecture,
 `Package.resolved`, submodules, Glaeda lineage evidence, warning budget, and
 early CLI probes. Any dispatch, queue, execution, download, or validation miss
 falls through to the existing hosted compile in that same required job.
-The PR workflow never receives Actions write authority: `changes` publishes a
-small exact-source request artifact, the default-branch
-`persistent-macos-router.yml` workflow validates it against the live PR and
-owns producer dispatch/cancellation, and the PR-side route job observes producer
-state with read-only Actions permission.
+The required hosted macOS job is allocated without waiting for the persistent
+producer. It restores any exact reusable product first, then observes the
+producer with read-only Actions permission before deciding whether to consume
+the persistent artifact or compile hosted. The PR workflow never receives
+Actions write authority: `changes` publishes a small exact-source request
+artifact, and the default-branch `persistent-macos-router.yml` workflow
+validates it against the live PR and owns producer dispatch/cancellation.
 
 The producer is `workflow_dispatch`-only and requires the
 `cmux-persistent-compile` runner group plus the dedicated
