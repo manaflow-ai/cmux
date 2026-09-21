@@ -136,9 +136,15 @@ struct cmuxApp: App {
     @MainActor
     private static func makeV3Runtime(auth: MobileAuthComposition) -> MobileV3RuntimeComposition? {
         let environment = ProcessInfo.processInfo.environment
-        guard let originString = environment["CMUX_V3_CONTROL_ORIGIN"],
+        let info = Bundle.main.infoDictionary ?? [:]
+        func configured(_ key: String, plistKey: String) -> String? {
+            if let value = environment[key], !value.isEmpty { return value }
+            guard let value = info[plistKey] as? String, !value.isEmpty else { return nil }
+            return value
+        }
+        guard let originString = configured("CMUX_V3_CONTROL_ORIGIN", plistKey: "CMUXV3ControlOrigin"),
               let origin = URL(string: originString),
-              let rawKeys = environment["CMUX_V3_AUTHORITY_KEYS"],
+              let rawKeys = configured("CMUX_V3_AUTHORITY_KEYS", plistKey: "CMUXV3AuthorityKeys"),
               let data = rawKeys.data(using: .utf8),
               let encoded = try? JSONDecoder().decode([String: String].self, from: data),
               !encoded.isEmpty else { return nil }
@@ -146,9 +152,9 @@ struct cmuxApp: App {
         guard keys.count == encoded.count else { return nil }
         guard let configuration = try? MobileV3RuntimeComposition.Configuration(
             controlOrigin: origin,
-            audience: environment["CMUX_V3_AUDIENCE"] ?? "cmux-v3-\(auth.authEnvironment.rawValue)",
+            audience: configured("CMUX_V3_AUDIENCE", plistKey: "CMUXV3Audience") ?? "cmux-v3-\(auth.authEnvironment.rawValue)",
             authorityKeys: keys,
-            relayAddresses: (environment["CMUX_V3_RELAY_ADDRESSES"] ?? "")
+            relayAddresses: (configured("CMUX_V3_RELAY_ADDRESSES", plistKey: "CMUXV3RelayAddresses") ?? "")
                 .split(separator: ",")
                 .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty },

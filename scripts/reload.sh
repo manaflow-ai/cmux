@@ -1754,6 +1754,13 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_IROH_V2_ENVIRONMENT "$CMUX_IROH_V2_ENVIRONMENT_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_V2_BASE_URL "$CMUX_IROH_V2_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_V2_FORCE_RELAY "$CMUX_IROH_V2_FORCE_RELAY_VALUE"
+      if [[ -n "${CMUX_V3_CONTROL_ORIGIN:-}" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_V3_HOST "1"
+        set_plist_env "$INFO_PLIST" CMUX_V3_CONTROL_ORIGIN "$CMUX_V3_CONTROL_ORIGIN"
+        set_plist_env "$INFO_PLIST" CMUX_V3_AUTHORITY_KEYS "${CMUX_V3_AUTHORITY_KEYS:-}"
+        set_plist_env "$INFO_PLIST" CMUX_V3_AUDIENCE "${CMUX_V3_AUDIENCE:-cmux-v3-development}"
+        set_plist_env "$INFO_PLIST" CMUX_V3_RELAY_ADDRESSES "${CMUX_V3_RELAY_ADDRESSES:-}"
+      fi
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
@@ -1996,6 +2003,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
+  fi
+  if [[ -n "${CMUX_V3_CONTROL_ORIGIN:-}" ]]; then
+    TAG_LAUNCH_ENV+=(
+      CMUX_V3_HOST=1
+      CMUX_V3_CONTROL_ORIGIN="$CMUX_V3_CONTROL_ORIGIN"
+      CMUX_V3_AUTHORITY_KEYS="${CMUX_V3_AUTHORITY_KEYS:-}"
+      CMUX_V3_AUDIENCE="${CMUX_V3_AUDIENCE:-cmux-v3-development}"
+      CMUX_V3_RELAY_ADDRESSES="${CMUX_V3_RELAY_ADDRESSES:-}"
+    )
   fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")

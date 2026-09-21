@@ -62,6 +62,14 @@ CMUX_IROH_V2_ENVIRONMENT =
 CMUX_IROH_V2_BASE_URL =
 CMUX_IROH_V2_FORCE_RELAY = 0
 
+// Optional transport v3 dogfood configuration. Empty values keep the shipped
+// app on the existing IROH route; tagged reloads may bake a verified staging
+// authority and relay set into the isolated bundle.
+CMUX_V3_CONTROL_ORIGIN =
+CMUX_V3_AUTHORITY_KEYS =
+CMUX_V3_AUDIENCE =
+CMUX_V3_RELAY_ADDRESSES =
+
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.
 CMUX_CRASH_REPORTING_ENABLED = YES

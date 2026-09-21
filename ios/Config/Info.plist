@@ -26,6 +26,14 @@
 	<string>$(CMUX_IROH_V2_BASE_URL)</string>
 	<key>CMUX_IROH_V2_FORCE_RELAY</key>
 	<string>$(CMUX_IROH_V2_FORCE_RELAY)</string>
+	<key>CMUXV3ControlOrigin</key>
+	<string>$(CMUX_V3_CONTROL_ORIGIN)</string>
+	<key>CMUXV3AuthorityKeys</key>
+	<string>$(CMUX_V3_AUTHORITY_KEYS)</string>
+	<key>CMUXV3Audience</key>
+	<string>$(CMUX_V3_AUDIENCE)</string>
+	<key>CMUXV3RelayAddresses</key>
+	<string>$(CMUX_V3_RELAY_ADDRESSES)</string>
 	<key>CMUXDevTag</key>
 	<string>$(CMUX_DEV_TAG)</string>
 	<key>CMUXKeychainAccessGroup</key>
