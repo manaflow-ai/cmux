@@ -161,6 +161,23 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(b"glaeda observe:", result.stderr)
 
+    def test_observe_requires_real_json_booleans_for_zero_authority(self) -> None:
+        receipt = json.loads(RECEIPT.read_text())
+        receipt["authority"]["authorizes_execution"] = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "receipt.json"
+            path.write_text(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n")
+            result = self.run_cli(
+                "glaeda",
+                "observe",
+                "--request",
+                str(REQUEST),
+                "--receipt",
+                str(path),
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"does not correlate", result.stderr)
+
     def test_observe_rejects_false_terminal_without_workload_evidence(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
         receipt["state"] = "succeeded"
