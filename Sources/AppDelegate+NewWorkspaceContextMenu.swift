@@ -73,13 +73,15 @@ extension AppDelegate {
 
     func makeNewWorkspaceContextMenu(
         context: MainWindowContext,
-        cmuxConfigStore: CmuxConfigStore
+        cmuxConfigStore: CmuxConfigStore,
+        isAuthenticated: Bool? = nil
     ) -> NSMenu? {
+        let isAuthenticated = isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true)
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
                 guard case .action(let menuAction) = item,
                       case .builtIn(let builtIn) = menuAction.action.action else { return true }
-                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
+                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn, isAuthenticated: isAuthenticated)
             },
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
             templateNames: savedLayoutNames(),
@@ -100,10 +102,14 @@ extension AppDelegate {
     /// Feature gates for built-in plus-menu rows, evaluated when the menu
     /// opens (not at config load) so flag and setting flips apply at once.
     /// Mirrors the command palette's gates for the same actions.
-    static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
+    static func isBuiltInActionAvailableInNewWorkspaceMenu(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        isAuthenticated: Bool? = nil
+    ) -> Bool {
         switch action {
         case .newCloudWorkspace, .newCloudMachine, .cloudVM:
             guard CloudMachinesFeature.isEnabled else { return false }
+            if let isAuthenticated { return isAuthenticated }
             // Once composition is installed, the coordinator is the shared Cloud
             // availability authority. Its production closure includes the live
             // authenticated account and feature policy; the auth fallback keeps

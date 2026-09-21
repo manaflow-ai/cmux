@@ -24,16 +24,29 @@ enum RemoteLoopbackRuntimeBridge {
             return value;
           };
           const normalizedAliasHost = normalizeHost(aliasHost);
-          const currentHost = normalizeHost(window.location.hostname);
-          let effectiveHost = currentHost;
-          if (!effectiveHost && window.location.protocol === 'about:') {
-            try {
-              effectiveHost = normalizeHost(new URL(document.baseURI).hostname);
-            } catch (_) {}
-          }
-          if (effectiveHost !== normalizedAliasHost && !effectiveHost.endsWith(`.${normalizedAliasHost}`)) {
+          const initialHost = normalizeHost(window.location.hostname);
+          // Preserve the original no-wrapper path for ordinary non-loopback
+          // pages. An about:blank bootstrap has no host yet, so it remains
+          // provisionally wrapped until its base URL becomes available.
+          if (
+            window.location.protocol !== 'about:' &&
+            initialHost !== normalizedAliasHost &&
+            !initialHost.endsWith(`.${normalizedAliasHost}`)
+          ) {
             return true;
           }
+          const isRemoteLoopbackPage = () => {
+            let pageHost = normalizeHost(window.location.hostname);
+            // loadHTMLString(baseURL:) runs this at document start, before the
+            // parser installs its <base> element. Resolve the host lazily for
+            // each request so remote about:blank bootstrap documents work too.
+            if (!pageHost && window.location.protocol === 'about:') {
+              try {
+                pageHost = normalizeHost(new URL(document.baseURI).hostname);
+              } catch (_) {}
+            }
+            return pageHost === normalizedAliasHost || pageHost.endsWith(`.${normalizedAliasHost}`);
+          };
           if (window.__cmuxRemoteLoopbackRuntimeBridgeInstalled) return true;
           window.__cmuxRemoteLoopbackRuntimeBridgeInstalled = true;
 
@@ -50,6 +63,7 @@ enum RemoteLoopbackRuntimeBridge {
           };
 
           const rewriteLoopbackURL = (input) => {
+            if (!isRemoteLoopbackPage()) return input;
             if (typeof input !== 'string' && !(input instanceof URL)) {
               return input;
             }

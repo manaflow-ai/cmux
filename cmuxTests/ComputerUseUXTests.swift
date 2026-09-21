@@ -1298,7 +1298,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+    func computerUseHelperArtworkKeepsItsComposerRenditionAcrossAppearances() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
         let staticArtwork = NSImage(
             size: NSSize(width: 32, height: 32),
@@ -1330,8 +1330,11 @@ struct ComputerUseUXTests {
         let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
         let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
-        #expect(lightPlate.brightnessComponent > 0.7)
+        // The authored macOS rendition owns its plate in both appearances.
+        // Compositing must preserve that dark plate and transparent corners.
+        #expect(lightPlate.brightnessComponent < 0.4)
         #expect(darkPlate.brightnessComponent < 0.4)
+        #expect(abs(lightPlate.brightnessComponent - darkPlate.brightnessComponent) < 0.01)
         #expect(lightCorner.alphaComponent < 0.01)
         #expect(darkCorner.alphaComponent < 0.01)
     }
@@ -1694,12 +1697,16 @@ struct ComputerUseUXTests {
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             authenticationToken: "production-token"
         )
         let staging = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app.staging",
             authenticationToken: "staging-token"

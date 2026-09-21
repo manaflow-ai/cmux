@@ -14,8 +14,7 @@ SUMMARY_RE = re.compile(
     r"\((?P<unexpected>\d+)\s+unexpected\)"
 )
 SWIFT_SUMMARY_RE = re.compile(
-    r"Test run with (?P<tests>\d+) tests? in \d+ suites? "
-    r"(?P<result>passed|failed) after "
+    r"Test run with (?P<tests>\d+) tests?\b[^\n]*?\b(?P<result>passed|failed)\b"
 )
 
 # These runner records invalidate completeness of the selected test run. A
@@ -139,7 +138,7 @@ def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
 
 
 def classify(output: str) -> tuple[bool, str]:
-    """Reject interrupted runs before applying the expected-XCTest-failure gate."""
+    """Require completed XCTest or Swift Testing summaries without failures."""
     for line in io.StringIO(output):
         if _INCOMPLETE_TEST_RUN_RE.search(_ANSI_RE.sub("", line)):
             return False, (
@@ -147,21 +146,31 @@ def classify(output: str) -> tuple[bool, str]:
                 + "; a later passing subset does not establish completion"
             )
 
+    output = _ANSI_RE.sub("", output)
     summaries = list(SUMMARY_RE.finditer(output))
-    if not summaries:
+    swift_summaries = list(SWIFT_SUMMARY_RE.finditer(output))
+    if not summaries and not swift_summaries:
         diagnosis = diagnose(output)
         return False, f"{diagnosis['category']}: no trustworthy XCTest summary was found"
-
-    executed = sum(int(match.group("tests")) for match in summaries)
-    if executed == 0:
-        diagnosis = diagnose(output)
-        return False, f"{diagnosis['category']}: XCTest reported zero executed tests"
 
     unexpected = sum(int(match.group("unexpected")) for match in summaries)
     if unexpected:
         return False, f"{unexpected} unexpected failure(s) found across all XCTest summaries"
 
-    return True, f"{len(summaries)} XCTest summary(ies) contained no unexpected failures"
+    if any(int(match.group("failures")) for match in summaries):
+        return False, "XCTest failures were reported, including ordinary assertion failures"
+
+    if any(match.group("result") == "failed" for match in swift_summaries):
+        return False, "Swift Testing reported a failed test run"
+    if "Test run started." in output and not swift_summaries:
+        return False, "Swift Testing started without a completed test-run summary"
+
+    executed = sum(int(match.group("tests")) for match in summaries + swift_summaries)
+    if executed == 0:
+        diagnosis = diagnose(output)
+        return False, f"{diagnosis['category']}: test summaries reported zero executed tests"
+
+    return True, "completed test summaries reported no failures"
 
 
 def main() -> int:

@@ -764,7 +764,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
     }
 
     @Test("Browser-only dead route is pruned on ledger access")
-    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() throws {
+    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() async throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -813,6 +813,9 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         // No terminal existed when the manager died, so no terminal-registry
         // topology event can retire this route. Ledger access owns the sweep.
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        // The manager's owner registration also enqueues exact-route cleanup
+        // from deinit. Let that MainActor callback release its temporary owner.
+        await Task { @MainActor in }.value
         #expect(retainedRoute == nil)
     }
 
@@ -2637,12 +2640,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot steal or close a live owner")
     func observedSameIdDuplicateCannotStealOrCloseLiveOwner() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let ownerWindow = makeMainWindow(id: windowId)
@@ -2660,11 +2668,6 @@ struct MainWindowKeyObservationOwnershipTests {
             workspace.teardownRemoteConnection()
             ownerWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
@@ -2676,8 +2679,8 @@ struct MainWindowKeyObservationOwnershipTests {
             fileExplorerState: FileExplorerState()
         )
 
-        // Posting through NotificationCenter exercises the observer installed
-        // by applicationDidFinishLaunching, including the production reindex path.
+        // Posting through NotificationCenter exercises the same observer
+        // installed by applicationDidFinishLaunching.
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: ownerWindow)
         #expect(app.tabManager === manager)
 
@@ -2696,12 +2699,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot steal a windowless owner before validated replacement")
     func observedSameIdDuplicateCannotStealWindowlessOwnerBeforeValidatedReplacement() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let originalWindow = makeMainWindow(id: windowId)
@@ -2721,11 +2729,6 @@ struct MainWindowKeyObservationOwnershipTests {
             originalWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
             replacementWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
@@ -2781,12 +2784,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot close a recoverable owner")
     func observedSameIdDuplicateCannotCloseRecoverableOwner() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let ownerWindow = makeMainWindow(id: windowId)
@@ -2804,11 +2812,6 @@ struct MainWindowKeyObservationOwnershipTests {
             workspace.teardownRemoteConnection()
             ownerWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
