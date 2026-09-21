@@ -195,6 +195,8 @@ def is_web_change(path: str) -> bool:
             "Resources/agent-session-react/",
             "Resources/agent-session-solid/",
             "Resources/markdown-viewer/",
+            "config/",
+            "workers/",
         )
     ):
         return True
@@ -204,6 +206,12 @@ def is_web_change(path: str) -> bool:
         "package.json",
         "bun.lock",
         "biome.json",
+        ".vercelignore",
+        "vercel.json",
+        "bunfig.toml",
+        ".npmrc",
+        ".github/workflows/web-validation.yml",
+        "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
         "scripts/check-webviews-react-compiler.mjs",
@@ -295,10 +303,12 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
             release_build = True
             continue
-        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
-            continue
+        # Web validation's own inputs still select its checks in CI, even when
+        # the path is a workflow or guard that is neutral for macOS.
         if is_web_change(path):
             web = True
+        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
+            continue
         if is_agent_session_web_change(path):
             agent_session_web = True
         if is_macos_change(path):
