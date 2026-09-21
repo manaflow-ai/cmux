@@ -64,7 +64,7 @@ _TEST_EXECUTION_EVIDENCE_RE = re.compile(
     r"(?:\bTest Suite ['\"].*['\"] started\b|"
     r"\bTest Case ['\"].*['\"] started\b|"
     r"\bTest run started\.|"
-    r"[◇◆✔✘]\s+Test .+ started\.|"
+    r"[◇◆✔✘▶]\s+Test .+ started\.|"
     r"Executed\s+\d+\s+tests?\b|"
     r"Test run with \d+ tests?\b)",
     re.IGNORECASE,
