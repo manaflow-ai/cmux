@@ -442,7 +442,7 @@ def main() -> int:
                     producer_run_id,
                     dispatched,
                     cleanup_waiter,
-                    now() + 10,
+                    now() + 30,
                 )
             except RetryCancelled:
                 print(
