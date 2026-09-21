@@ -1004,19 +1004,15 @@ enum SurfaceResumeApprovalStore {
         return (try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data)) ?? []
     }
 
+    /// Whether a proposed binding needs the user's "Allow Resume Command?"
+    /// decision. Pure trust policy: it never depends on which thread or lane
+    /// asks, because the decision is always collected asynchronously by
+    /// `SurfaceResumeApprovalPrompter`, never inline in a command (#13369).
     static func shouldPromptForProposal(
         binding: SurfaceResumeBindingSnapshot,
-        existingRecord: SurfaceResumeApprovalRecord?,
-        isMainThread: Bool,
-        isRunningTests: Bool
+        existingRecord: SurfaceResumeApprovalRecord?
     ) -> Bool {
         guard binding.launchFlavor == .local else {
-            return false
-        }
-        guard isMainThread else {
-            return false
-        }
-        guard !isRunningTests else {
             return false
         }
         guard !binding.isCLIBinding else {

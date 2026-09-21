@@ -3330,6 +3330,7 @@
 		842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */; };
 		F6572032A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572033A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift */; };
 		883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */; };
+		A2B476D66762D14301DE3FEE /* SurfaceResumeApprovalPrompterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E28F02304FE458B5FF602B01 /* SurfaceResumeApprovalPrompterTests.swift */; };
 		875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */; };
 		883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
@@ -7421,6 +7422,7 @@
 		842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentBindingGenerationTests.swift; sourceTree = "<group>"; };
 		F6572033A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentHookDowngradeTests.swift; sourceTree = "<group>"; };
 		883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalLookup.swift; sourceTree = "<group>"; };
+		E28F02304FE458B5FF602B01 /* SurfaceResumeApprovalPrompterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalPrompterTests.swift; sourceTree = "<group>"; };
 		875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretCache.swift; sourceTree = "<group>"; };
 		883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretResolution.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
@@ -11563,6 +11565,7 @@
 				FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */,
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */,
 				A5C017000000000000000010 /* AccountSignInModelTests.swift */,
+				E28F02304FE458B5FF602B01 /* SurfaceResumeApprovalPrompterTests.swift */,
 				74A47FAD328D6669A5B40CE3 /* VMTunnelManagerTests.swift */,
 				5C0C4A1E0000000000000004 /* RCChannelIdentityTests.swift */,
 				5C0C4A1E0000000000000006 /* RCChannelSuiteTests.swift */,
@@ -16093,6 +16096,7 @@
 
 				A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */,
 				A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */,
+				A2B476D66762D14301DE3FEE /* SurfaceResumeApprovalPrompterTests.swift in Sources */,
 				5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */,
 				C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */,
 				99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */,

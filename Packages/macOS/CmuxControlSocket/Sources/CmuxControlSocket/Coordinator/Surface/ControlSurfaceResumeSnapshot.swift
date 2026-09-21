@@ -24,6 +24,12 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let restoreRecord: ControlSurfaceRestoreRecord?
     /// Whether an optional compare-and-claim request succeeded.
     public let resumeClaimed: Bool?
+    /// Whether `resume.set` stored the binding without auto-resume trust and
+    /// queued the "Allow Resume Command?" decision for the user. The prompt is
+    /// presented asynchronously by the app, never inside the command, so the
+    /// reply returns immediately; `approval_policy` stays `null` until the
+    /// user answers.
+    public let approvalPromptPending: Bool
 
     /// Creates a resume snapshot.
     ///
@@ -34,6 +40,10 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
+    ///   - restoreRecord: The typed restore record, if any.
+    ///   - resumeClaimed: The claim result for a restore launch, if requested.
+    ///   - approvalPromptPending: Whether the user's approval decision was
+    ///     queued asynchronously (default `false`).
     public init(
         windowID: UUID?,
         workspaceID: UUID,
@@ -42,7 +52,8 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         cleared: Bool,
         binding: ControlSurfaceResumeBinding?,
         restoreRecord: ControlSurfaceRestoreRecord?,
-        resumeClaimed: Bool? = nil
+        resumeClaimed: Bool? = nil,
+        approvalPromptPending: Bool = false
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -52,5 +63,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.binding = binding
         self.restoreRecord = restoreRecord
         self.resumeClaimed = resumeClaimed
+        self.approvalPromptPending = approvalPromptPending
     }
 }

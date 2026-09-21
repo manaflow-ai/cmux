@@ -9,7 +9,7 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator surface.resume.set approval reporting")
 struct ControlCommandCoordinatorSurfaceResumeApprovalTests {
-    private func makeSnapshot() -> ControlSurfaceResumeSnapshot {
+    private func makeSnapshot(approvalPromptPending: Bool) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: UUID(),
             workspaceID: UUID(),
@@ -18,7 +18,8 @@ struct ControlCommandCoordinatorSurfaceResumeApprovalTests {
             cleared: false,
             binding: nil,
             restoreRecord: nil,
-            resumeClaimed: nil
+            resumeClaimed: nil,
+            approvalPromptPending: approvalPromptPending
         )
     }
 
@@ -43,13 +44,20 @@ struct ControlCommandCoordinatorSurfaceResumeApprovalTests {
 
     @Test func resumeSetReportsWhenNoApprovalDecisionIsOutstanding() throws {
         let context = FakeSurfaceControlCommandContext()
-        context.resumeResolution = .result(makeSnapshot())
+        context.resumeResolution = .result(makeSnapshot(approvalPromptPending: false))
 
         let payload = try resumeSetPayload(context)
 
-        // The reply must say whether cmux still owes the user a decision. Before
-        // the fix the key does not exist: the decision was taken inline by an
-        // app-modal alert that blocked the main actor for every other command.
         #expect(payload["approval_prompt_pending"] == .bool(false))
+    }
+
+    @Test func resumeSetReportsAQueuedApprovalPrompt() throws {
+        let context = FakeSurfaceControlCommandContext()
+        context.resumeResolution = .result(makeSnapshot(approvalPromptPending: true))
+
+        let payload = try resumeSetPayload(context)
+
+        #expect(payload["approval_prompt_pending"] == .bool(true))
+        #expect(payload["cleared"] == .bool(false))
     }
 }

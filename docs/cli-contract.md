@@ -668,6 +668,27 @@ surface selection, focus, creation, or closure. The stream is bounded: cmux keep
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.
 
+## Control-socket admission and deadlines
+
+The app never lets one control command block the others. Every accepted
+connection gets a real reply, and a stalled main thread turns into a
+structured error instead of a hung or `EPIPE` connection
+([#13369](https://github.com/manaflow-ai/cmux/issues/13369)):
+
+| Reply | When | Client behavior |
+| --- | --- | --- |
+| `overloaded` (`data.retryable: true`, `data.retry_after_ms`, `data.reason`) | The connection pool had no live or pending slot (`pool_saturated`), the request waited longer than 15 s for a slot (`pending_expired`), too many unauthenticated peers were being read (`preauthorization_saturated`), or the app is stopping (`server_stopping`). The command never ran. | `cmux` retries within its response timeout, honoring `retry_after_ms`. |
+| `timeout` (`data.stage: "main_actor"`, `data.deadline_ms: 10000`, `data.retryable`) | The command's hop onto the main thread did not complete within 10 s (for example the main thread is stalled in a modal dialog or a long synchronous turn). `retryable: true` means the hop was withdrawn before the command ran; `false` means it had started and its result is unknown. | Print the error; retry only when `retryable` is true. |
+
+The v1 line protocol reports the same conditions as
+`ERROR: overloaded retry_after_ms=<n> reason=<reason>` and
+`ERROR: timeout retryable=<bool> <message>`.
+
+`surface.resume.set` never waits on the user. A proposal that needs the
+"Allow Resume Command?" decision is stored without auto-resume trust and the
+sheet is queued for the user; the reply carries `approval_prompt_pending: true`
+and `resume_binding.approval_policy` stays `null` until the user answers.
+
 ## Workspace todos
 
 Each workspace carries a persisted checklist plus a todo lifecycle status,

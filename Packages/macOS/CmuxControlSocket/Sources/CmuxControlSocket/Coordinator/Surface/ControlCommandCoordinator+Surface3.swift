@@ -33,8 +33,7 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
-        guard let command = rawString(params, "command")?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let command = rawString(params, "command")?.trimmingCharacters(in: .whitespacesAndNewlines),
             !command.isEmpty else {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
@@ -207,6 +206,7 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "agent_restore_admission_supported": .bool(true),
+                "approval_prompt_pending": .bool(snapshot.approvalPromptPending),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]

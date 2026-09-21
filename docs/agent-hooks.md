@@ -116,6 +116,8 @@ Tune the idle window and live-terminal limit from Settings, or set them in `~/.c
 
 Use `cmux surface resume set --shell <command>` to attach a resume command to the current terminal surface. Public CLI and socket-created commands are kept for inspection and manual restore by default. To auto-run one on restore, approve the prompt or change its signed command prefix in **Settings > Terminal > Resume Commands**.
 
+The approval prompt is a sheet on the terminal's window and is always asked after the command has returned: `cmux surface resume set` stores the binding without auto-resume trust, reports `approval_prompt_pending: true`, and cmux asks you later, one proposal at a time. No control command ever waits on that dialog, and if no window can show it the binding simply stays manual until you propose it again from the terminal's context menu.
+
 Approvals are prefix-based and signed by cmux. They also bind the working directory and exact environment values when present. A process can propose a command, but it cannot make that command sticky without the user choosing Auto-Restore or Ask Each Time in cmux.
 
 Agent hooks publish their own bindings with automatic resume already granted. A later `--source agent-hook` write for the same session that omits automatic resume (for example, an older Pi extension re-publishing through `cmux surface resume set`) does not downgrade that binding: cmux keeps the trusted binding and returns it as the result.

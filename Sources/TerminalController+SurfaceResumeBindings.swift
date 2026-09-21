@@ -121,7 +121,8 @@ extension TerminalController {
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?,
         cleared: Bool,
-        claimSucceeded: Bool? = nil
+        claimSucceeded: Bool? = nil,
+        approvalPromptPending: Bool = false
     ) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: target.windowID(using: self),
@@ -133,7 +134,8 @@ extension TerminalController {
             restoreRecord: cleared
                 ? nil
                 : controlSurfaceRestoreRecord(target: target, binding: binding),
-            resumeClaimed: claimSucceeded
+            resumeClaimed: claimSucceeded,
+            approvalPromptPending: approvalPromptPending
         )
     }
 
@@ -215,9 +217,16 @@ extension TerminalController {
         )
     }
 
+    /// Resolves the stored trust for a proposed binding without ever waiting
+    /// on the user. When the proposal needs a human decision, the binding is
+    /// returned as-is (manual, no auto-resume) with `needsPrompt == true`, and
+    /// the caller queues it on ``SurfaceResumeApprovalPrompter``. The former
+    /// inline `NSAlert.runModal()` here ran inside the socket command's
+    /// main-actor job and starved every other main-actor job until the alert
+    /// closed, wedging the control socket (#13369).
     private func surfaceResumeBindingWithApproval(
         _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
+    ) -> SurfaceResumeApprovalLookup<(binding: SurfaceResumeBindingSnapshot, needsPrompt: Bool)> {
         let context: (
             effectiveBinding: SurfaceResumeBindingSnapshot,
             existingRecord: SurfaceResumeApprovalRecord?
@@ -228,33 +237,17 @@ extension TerminalController {
         case let .resolved(resolvedContext):
             context = resolvedContext
         }
-        var effectiveBinding = context.effectiveBinding
         if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
             to: binding,
             existingRecord: context.existingRecord
         ) {
-            return .resolved(promptlessCLIManualBinding)
+            return .resolved((promptlessCLIManualBinding, false))
         }
-        guard SurfaceResumeApprovalStore.shouldPromptForProposal(
+        let needsPrompt = SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: context.existingRecord,
-            isMainThread: Thread.isMainThread,
-            isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-        ) else {
-            return .resolved(effectiveBinding)
-        }
-        let approval = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: approval.policy,
-            commandPrefix: approval.commandPrefix
-        ) else {
-            return .resolved(effectiveBinding)
-        }
-        effectiveBinding.approvalPolicy = record.policy
-        effectiveBinding.approvalRecordId = record.id
-        effectiveBinding.autoResume = record.policy == .auto
-        return .resolved(effectiveBinding)
+            existingRecord: context.existingRecord
+        )
+        return .resolved((context.effectiveBinding, needsPrompt))
     }
 
     private var surfaceResumeApprovalPendingMessage: String {
@@ -264,62 +257,26 @@ extension TerminalController {
         )
     }
 
-    private func surfacePromptForResumeApproval(
-        binding: SurfaceResumeBindingSnapshot
-    ) -> (policy: SurfaceResumeApprovalPolicy, commandPrefix: [String]?) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(
-            localized: "surfaceResumeApproval.proposal.title",
-            defaultValue: "Allow Resume Command?"
-        )
-        let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
-        let informativeText = String(
-            format: String(
-                localized: "surfaceResumeApproval.proposal.message",
-                defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\nWorking directory: %@\n\n%@"
-            ),
-            cwd,
-            binding.command
-        )
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
-        let generalizedPrefix = SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
-            forCommand: binding.command
-        )
-        let folderScopedGeneralizedPrefix =
-            SurfaceResumeCommandCanonicalizer.normalizedCWD(binding.cwd) == nil
-            ? nil
-            : generalizedPrefix
-        if let generalizedPrefix = folderScopedGeneralizedPrefix {
-            let renderedPrefix = generalizedPrefix
-                .map(SurfaceResumeCommandCanonicalizer.shellQuoted)
-                .joined(separator: " ")
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(
-                format: String(
-                    localized: "surfaceResumeApproval.proposal.applyToPrefix",
-                    defaultValue: "Apply to all commands starting with “%@” in this folder"
-                ),
-                renderedPrefix
-            )
-        }
-        let content = CmuxAlertContent(
-            flattenedText: informativeText,
-            separatingScrollableDetails: binding.command
-        )
-        content.apply(to: alert, presentingWindow: nil)
-
-        let response = alert.runModal()
-        let commandPrefix = alert.suppressionButton?.state == .on
-            ? folderScopedGeneralizedPrefix
-            : nil
-        return switch response {
-        case .alertFirstButtonReturn: (.auto, commandPrefix)
-        case .alertSecondButtonReturn: (.prompt, commandPrefix)
-        default: (.manual, commandPrefix)
-        }
+    /// Queues the user's approval decision for a binding that was just stored
+    /// on `target`. The decision is applied to the live binding only while the
+    /// surface still holds exactly that binding; the signed record governs
+    /// later proposals and restores either way.
+    private func queueSurfaceResumeApprovalPrompt(
+        for storedBinding: SurfaceResumeBindingSnapshot,
+        target: ControlSurfaceResumeTarget
+    ) -> Bool {
+        surfaceResumeApprovalPrompter.enqueue(SurfaceResumeApprovalProposal(
+            binding: storedBinding,
+            preferredWindow: AppDelegate.shared?.mainWindowContext(for: target.tabManager)?.window,
+            apply: { record in
+                guard target.binding == storedBinding else { return }
+                var approved = storedBinding
+                approved.approvalPolicy = record.policy
+                approved.approvalRecordId = record.id
+                approved.autoResume = record.policy == .auto
+                target.setBinding(approved)
+            }
+        ))
     }
 
     func controlSurfaceResumeSet(
@@ -368,11 +325,13 @@ extension TerminalController {
             return .setFailed
         }
         let effectiveBinding: SurfaceResumeBindingSnapshot
+        let needsPrompt: Bool
         switch surfaceResumeBindingWithApproval(locatedBinding) {
         case .pendingSigningSecret:
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
-        case let .resolved(binding):
-            effectiveBinding = binding
+        case let .resolved(resolution):
+            effectiveBinding = resolution.binding
+            needsPrompt = resolution.needsPrompt
         }
         guard target.setBinding(effectiveBinding) else {
             // A same-session agent-hook write cannot demote a trusted binding.
@@ -385,7 +344,14 @@ extension TerminalController {
             }
             return .emptyResumeCommand
         }
-        return .result(surfaceResumeSnapshot(target: target, binding: effectiveBinding, cleared: false))
+        let approvalPromptPending = needsPrompt
+            && queueSurfaceResumeApprovalPrompt(for: effectiveBinding, target: target)
+        return .result(surfaceResumeSnapshot(
+            target: target,
+            binding: effectiveBinding,
+            cleared: false,
+            approvalPromptPending: approvalPromptPending
+        ))
     }
 
     func controlSurfaceResumeGet(

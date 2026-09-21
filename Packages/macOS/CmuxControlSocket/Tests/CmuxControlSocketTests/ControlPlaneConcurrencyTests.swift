@@ -134,6 +134,79 @@ struct ControlPlaneConcurrencyTests {
         #expect(Set(result.completed) == Set([1, 2, 3]))
     }
 
+    @Test func workerPoolDropsPendingJobsThatOutlivedTheirClientInsteadOfRunningThemLate() async {
+        let clock = TestMonotonicClock()
+        let pool = ControlClientWorkerPool(
+            maximumConcurrentJobs: 1,
+            maximumPendingJobs: 4,
+            maximumPendingAgeNanoseconds: 15_000_000_000,
+            now: { clock.now }
+        )
+        let probe = PoolProbe()
+        let gate = PoolGate()
+        let drops = OSAllocatedUnfairLock(initialState: [ControlClientWorkerPool.DropReason]())
+
+        // A stalled first job holds the only slot, as a main-actor hop parked
+        // behind a modal run loop did in #13369.
+        let first = await pool.submit {
+            await probe.started()
+            await gate.wait()
+            await probe.finished(1)
+        }
+        let second = await pool.submit {
+            await probe.started()
+            await probe.finished(2)
+        } onDrop: { reason in
+            drops.withLock { $0.append(reason) }
+        }
+        #expect(first == .started)
+        #expect(second == .queued)
+
+        // The client of the queued job gives up (15 s CLI timeout) long before
+        // the slot frees.
+        clock.advance(by: 16_000_000_000)
+        let third = await pool.submit {
+            await probe.started()
+            await probe.finished(3)
+        }
+        #expect(third == .queued)
+
+        await gate.openNext()
+        for _ in 0..<10_000 {
+            if await probe.snapshot().completed.contains(3) { break }
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+
+        let result = await probe.snapshot()
+        #expect(result.completed == [1, 3])
+        #expect(drops.withLock { $0 } == [.pendingExpired])
+        let metrics = await pool.metrics()
+        #expect(metrics.expiredJobs == 1)
+        #expect(metrics.pendingJobs == 0)
+        #expect(metrics.rejectedJobs == 0)
+    }
+
+    @Test func workerPoolTellsDroppedJobsWhyTheyWereDropped() async {
+        let pool = ControlClientWorkerPool(maximumConcurrentJobs: 1, maximumPendingJobs: 0)
+        let gate = PoolGate()
+        let drops = OSAllocatedUnfairLock(initialState: [ControlClientWorkerPool.DropReason]())
+
+        _ = await pool.submit { await gate.wait() }
+        let overflow = await pool.submit {} onDrop: { reason in
+            drops.withLock { $0.append(reason) }
+        }
+        #expect(overflow == .rejected)
+
+        await pool.stop()
+        let afterStop = await pool.submit {} onDrop: { reason in
+            drops.withLock { $0.append(reason) }
+        }
+        #expect(afterStop == .rejected)
+        #expect(drops.withLock { $0 } == [.pendingQueueFull, .stopped])
+        await gate.openNext()
+    }
+
     @Test func pollingLimiterAllowsBurstThenAppliesPerClientBackpressure() async {
         let clock = TestMonotonicClock()
         let limiter = ControlClientRateLimiter(
