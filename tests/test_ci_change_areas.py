@@ -158,6 +158,7 @@ def test_cmux_tui_only_skips_macos() -> None:
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
+    assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True, agent_session_web=False)
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
