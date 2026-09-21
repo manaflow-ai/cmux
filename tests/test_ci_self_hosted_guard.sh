@@ -1345,7 +1345,7 @@ check_persistent_compile_router() {
     exit 1
   fi
 
-  local pr_route_block pr_route_permissions observer_step
+  local pr_route_block pr_route_permissions expected_pr_permissions observer_step
   pr_route_block="$(awk '
     /^  persistent-mac-compile-route:$/ { in_job=1; print; next }
     in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
@@ -1366,7 +1366,37 @@ check_persistent_compile_router() {
     }
     in_permissions { exit }
   ')"
-  if [ "$pr_route_permissions" != }
+  expected_pr_permissions=$'actions: read\ncontents: read\npull-requests: read'
+  if [ "$pr_route_permissions" != "$expected_pr_permissions" ]; then
+    echo "FAIL: PR persistent route permissions must be exactly Actions read, contents read, and pull-requests read"
+    printf 'permissions=%s\n' "$pr_route_permissions"
+    exit 1
+  fi
+  if printf '%s\n' "$pr_route_block" | grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write'; then
+    echo "FAIL: PR persistent route must not receive write authority"
+    exit 1
+  fi
+
+  observer_step="$(printf '%s\n' "$pr_route_block" | awk '
+    /^      - name: Observe persistent compile or use hosted fallback$/ { in_step=1; print; next }
+    in_step && /^      - name:/ { exit }
+    in_step { print }
+  ')"
+  if [ -z "$observer_step" ]; then
+    echo "FAIL: PR persistent route observer step is missing"
+    exit 1
+  fi
+  if [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --observe-only \')" -ne 1 ]; then
+    echo "FAIL: PR persistent route observer must invoke persistent_mac_route.py exactly once with --observe-only"
+    exit 1
+  fi
+  if [ "$(printf '%s\n' "$observer_step" | grep -Fc 'scripts/ci/persistent_mac_route.py')" -ne 1 ]; then
+    echo "FAIL: PR persistent route observer must contain exactly one route-helper invocation"
+    exit 1
+  fi
+
+  echo "PASS: persistent dispatch/cancel authority is isolated to the exact default-branch router contract"
+}
 
 check_cla_guard_runner
 
