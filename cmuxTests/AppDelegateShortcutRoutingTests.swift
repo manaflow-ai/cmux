@@ -4363,6 +4363,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        // Ghostty's imported goto_split:next binding (⌘] in its macOS defaults) is
+        // a compatibility fallback that matches the physical ANSI `]` key (keyCode
+        // 30) once Focus Forward / Browser Forward are unbound. It is unrelated to
+        // digit coercion, so take it out of the picture the way the Cmd+Shift+]
+        // sibling does for `.nextSurface`.
+        let originalGhosttyPrevious = appDelegate.ghosttyGotoSplitPreviousShortcut
+        let originalGhosttyNext = appDelegate.ghosttyGotoSplitNextShortcut
+        appDelegate.ghosttyGotoSplitPreviousShortcut = nil
+        appDelegate.ghosttyGotoSplitNextShortcut = nil
+        defer {
+            appDelegate.ghosttyGotoSplitPreviousShortcut = originalGhosttyPrevious
+            appDelegate.ghosttyGotoSplitNextShortcut = originalGhosttyNext
+        }
+
         withTemporaryShortcut(
             action: .showNotifications,
             shortcut: StoredShortcut(key: "8", command: true, shift: false, option: false, control: false)
@@ -4388,6 +4402,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                     }
 
 #if DEBUG
+                    XCTAssertFalse(
+                        appDelegate.debugMatchesConfiguredShortcut(event: event, action: .showNotifications),
+                        "Cmd+* on the ANSI ] key must not match the Cmd+8 digit shortcut"
+                    )
                     XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
 #else
                     XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -7016,6 +7034,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #if DEBUG
         XCTAssertEqual(repairProbe.repairCount(), 1, "window.sendEvent should run the focused terminal repair path")
         XCTAssertTrue(repairProbe.repairResponder() === strayView, "Repair should evaluate the simulated wrong same-window responder")
+        // A cold surface queues the repaired keyDown and requests an input-demand
+        // runtime start, so the forward into libghostty lands only after that
+        // asynchronous start completes. Give it a chance before judging, and skip
+        // loudly (as the stranded-responder sibling does) when this host never
+        // spins a runtime surface up, so the oracle cannot silently vanish.
+        waitUntil(timeout: 5.0) {
+            repairProbe.forwardedKeyDownCount() > 0
+        }
+        try XCTSkipUnless(
+            terminalPanel.surface.hasLiveSurface,
+            "No live libghostty surface on this host, so keyDown forwarding cannot be observed"
+        )
         XCTAssertGreaterThan(
             repairProbe.forwardedKeyDownCount(),
             0,
@@ -7216,7 +7246,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
             XCTFail("Expected focused terminal panel")
             return
         }
@@ -7231,7 +7262,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
+        // The portal mounts the terminal surface asynchronously after the window
+        // is created; Escape can only hand focus back to a mounted surface, and
+        // `focusTerminalSurface` bails out without scheduling a retry otherwise.
+        waitFor(timeout: 1.0, until: { terminalView.window === window })
+        XCTAssertTrue(terminalView.window === window, "Expected terminal surface to mount in the test window")
         terminalPanel.hostedView.moveFocus()
+        waitFor(
+            timeout: 1.0,
+            until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
+        )
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before TextBox focus"
+        )
         terminalPanel.registerTextBoxInputView(textBoxView)
         XCTAssertTrue(terminalPanel.toggleTextBoxInput())
         waitFor(
