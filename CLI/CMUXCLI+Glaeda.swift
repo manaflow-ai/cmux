@@ -316,8 +316,16 @@ extension CMUXCLI {
     private static func glaedaAuthorityIsZero(_ value: [String: Any]) -> Bool {
         guard Set(value.keys) == Set(glaedaZeroAuthority.keys) else { return false }
         return glaedaZeroAuthority.allSatisfy { key, expected in
-            (value[key] as? Bool) == expected
+            glaedaBoolean(value[key]) == expected
         }
+    }
+
+    private static func glaedaBoolean(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID() else {
+            return nil
+        }
+        return number.boolValue
     }
 
     private static func glaedaParseOptions(
