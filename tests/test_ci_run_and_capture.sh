@@ -75,7 +75,7 @@ mkdir -p "$cancel_dir"
 SECONDS=0
 /bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$cancel_dir/capture.log" \
   /bin/bash -c '
-    trap 'echo term-forwarded >"$1/term"; exit 42' TERM
+    trap "echo term-forwarded >\"$1/term\"; exit 42" TERM
     echo $ >"$1/command.pid"
     sleep 60 &
     echo $! >"$1/grandchild.pid"
