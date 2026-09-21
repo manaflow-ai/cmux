@@ -1285,7 +1285,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// The noVNC URL uses only the VM private address. The private network is
     /// the access check, so no public preview token or endpoint is required.
     nonisolated static func privateDesktopURL(privateAddress: String) -> String {
-        let base = CmuxInternalHostnames.directPortURL(
+        let base = CmuxInternalHostnames().directPortURL(
             privateAddress: privateAddress,
             port: CmuxTuiSnapshotParser.desktopPort
         )
@@ -1319,7 +1319,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             updated.url = privateDesktopURL(privateAddress: privateAddress)
         case .browser:
             if resource.id.key.hasPrefix("port:"), let port = resource.port {
-                updated.url = CmuxInternalHostnames.directPortURL(
+                updated.url = CmuxInternalHostnames().directPortURL(
                     privateAddress: privateAddress,
                     port: port
                 )

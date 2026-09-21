@@ -174,10 +174,10 @@ public actor PresenceClient {
                 } catch {
                     if let response = task.response as? HTTPURLResponse,
                        response.statusCode == 429 {
-                        let seconds = CmxRetryAfterPolicy.seconds(
+                        let seconds = CmxRetryAfterPolicy().seconds(
                             from: response,
-                            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                         continuation.finish(
                             throwing: PresenceClientError.rateLimited(
                                 retryAfterSeconds: seconds

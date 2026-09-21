@@ -86,7 +86,7 @@ enum PhonePushHTTPResult: Equatable, Sendable {
         response: HTTPURLResponse,
         data: Data
     ) -> Int? {
-        let header = CmxRetryAfterPolicy.seconds(
+        let header = CmxRetryAfterPolicy().seconds(
             from: response.value(forHTTPHeaderField: "Retry-After")
         )
         let summary = try? JSONDecoder().decode(
@@ -101,7 +101,7 @@ enum PhonePushHTTPResult: Equatable, Sendable {
             .compactMap { $0 }
             .first(where: { $0 > 0 })
         guard let value = directive ?? (response.statusCode == 429
-            ? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ? CmxRetryAfterPolicy().defaultRateLimitSeconds
             : nil) else { return nil }
         return value
     }
