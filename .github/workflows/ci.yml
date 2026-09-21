@@ -2139,6 +2139,14 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
+      - name: Prepare transport v3 native artifact
+        run: |
+          # CmuxV3Transport uses a generated local XCFramework binary target.
+          # SwiftPM resolves the workspace package graph below, so materialize
+          # the artifact before the first resolve instead of relying on a prior
+          # setup or transport-v3 workflow job.
+          ./scripts/ensure-transport-v3.sh
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
