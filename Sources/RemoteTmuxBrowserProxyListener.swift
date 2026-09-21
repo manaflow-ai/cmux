@@ -32,6 +32,13 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
         }
     }
 
+    /// Caps concurrently accepted connections. Every accepted connection holds
+    /// a session, its own queue, and (once it dials out) a socket, none of
+    /// which are bounded by the local handshake's 64 KiB buffer limit — without
+    /// this cap, any local process could open connections indefinitely and
+    /// exhaust descriptors/memory even while sending nothing.
+    private static let maxConcurrentSessions = 256
+
     private let localPort: Int
     private let dynamicForwardPort: Int
     private let queue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-listener.\(UUID().uuidString)", qos: .utility)
@@ -161,6 +168,10 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
 
     private func acceptConnectionLocked(_ connection: NWConnection) {
         guard !isStopped else {
+            connection.cancel()
+            return
+        }
+        guard sessions.count < Self.maxConcurrentSessions else {
             connection.cancel()
             return
         }

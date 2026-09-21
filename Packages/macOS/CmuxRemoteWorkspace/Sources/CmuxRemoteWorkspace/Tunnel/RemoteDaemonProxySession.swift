@@ -43,6 +43,10 @@ public func makeRemoteDaemonProxySession(
 /// above is the safety argument.
 final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
+    /// Caps how much of a loopback-alias response's headers this buffers while
+    /// scanning for `CRLFCRLF`. Without a bound, a remote server that never
+    /// terminates its headers grows this indefinitely.
+    private static let maxPendingRemoteHTTPHeaderBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
 
     private enum HandshakeProtocol {
@@ -424,6 +428,10 @@ final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @uncheck
         guard !hasForwardedRemoteHTTPHeaders else { return data }
 
         pendingRemoteHTTPHeaderBytes.append(data)
+        guard pendingRemoteHTTPHeaderBytes.count <= Self.maxPendingRemoteHTTPHeaderBytes else {
+            close(reason: "proxy remote response headers exceeded \(Self.maxPendingRemoteHTTPHeaderBytes) bytes")
+            return Data()
+        }
         let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
         guard pendingRemoteHTTPHeaderBytes.range(of: marker) != nil else {
             guard eof else { return Data() }
