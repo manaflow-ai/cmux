@@ -29,11 +29,12 @@ enum SurfacePaneFactory {
     /// A terminal pane running `initialCommand` (nil → the login shell) at the destination.
     static func makeTerminalPane(
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
         focus: Bool
     ) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, workingDirectory: workingDirectory, at: destination, focus: focus)
+        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, at: destination, focus: focus)
     }
 
     /// A browser pane loading `url` at the destination.
@@ -174,6 +175,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
         focus: Bool
@@ -195,14 +197,14 @@ enum SurfacePaneFactory {
             switch destination {
             case .tab(_, let paneID, _):
                 guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
             case .workspace(_, .tab):
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
             }
         }
     }
@@ -213,6 +215,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         requestedPane: UUID?,
         focus: Bool
@@ -226,6 +229,7 @@ enum SurfacePaneFactory {
                 urlRaw: url,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,
@@ -248,6 +252,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
@@ -262,6 +267,7 @@ enum SurfacePaneFactory {
                 requestedSourceSurfaceID: anchor,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,

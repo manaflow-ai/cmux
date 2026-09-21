@@ -25,7 +25,21 @@ struct CurrentWorkPalettePresentation {
             parts.append(String(localized: "commandPalette.currentWork.attention", defaultValue: "Attention"))
         }
         let pullRequestFormat = String(localized: "cli.current.pullRequest", defaultValue: "PR: %@")
-        parts.append(contentsOf: item.pullRequests.map { String(format: pullRequestFormat, "#\($0.number)") })
+        if let placeholder = pullRequestFormat.range(of: "%@") {
+            let prefix = String(pullRequestFormat[..<placeholder.lowerBound])
+            let suffix = String(pullRequestFormat[placeholder.upperBound...])
+            for pullRequest in item.pullRequests {
+                let identifier = "#\(pullRequest.number)"
+                var label = String()
+                label.reserveCapacity(prefix.count + identifier.count + suffix.count)
+                label.append(contentsOf: prefix)
+                label.append(contentsOf: identifier)
+                label.append(contentsOf: suffix)
+                parts.append(label)
+            }
+        } else {
+            parts.append(contentsOf: item.pullRequests.map { _ in pullRequestFormat })
+        }
         if item.freshness.state != "current" {
             parts.append(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date"))
         }
