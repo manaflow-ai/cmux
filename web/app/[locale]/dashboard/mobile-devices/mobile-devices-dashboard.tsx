@@ -85,7 +85,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
   </>;
 }
 
-function DeviceCard({ device, canRevoke, busy, failed, onRevoke }: {
+export function DeviceCard({ device, canRevoke, busy, failed, onRevoke }: {
   readonly device: DashboardDirectory["devices"][number];
   readonly canRevoke: boolean;
   readonly busy: boolean;
@@ -110,7 +110,7 @@ function DeviceCard({ device, canRevoke, busy, failed, onRevoke }: {
   </section>;
 }
 
-function EmptyDevices() {
+export function EmptyDevices() {
   const t = useTranslations("dashboard.mobileDevices");
   return <div className="border-y border-border py-4">
     <h2 className="font-medium">{t("emptyTitle")}</h2>
@@ -118,13 +118,13 @@ function EmptyDevices() {
   </div>;
 }
 
-function LoadingState({ label }: { readonly label: string }) {
+export function LoadingState({ label }: { readonly label: string }) {
   return <div className="space-y-3" role="status" aria-label={label}>
     <p className="text-sm text-muted">{label}</p>
   </div>;
 }
 
-function ConnectionError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) {
+export function ConnectionError({ message, onRetry }: { readonly message: string; readonly onRetry: () => void }) {
   const t = useTranslations("dashboard.mobileDevices");
   return <div role="alert" className="flex flex-wrap items-center justify-between gap-3 border border-red-500/40 bg-red-500/5 px-4 py-3 text-sm">
     <p>{message}</p>
@@ -132,7 +132,7 @@ function ConnectionError({ message, onRetry }: { readonly message: string; reado
   </div>;
 }
 
-function RelaySettings({ relayURLs, controllerRef }: {
+export function RelaySettings({ relayURLs, controllerRef }: {
   readonly relayURLs: readonly string[];
   readonly controllerRef: { readonly current: V2DashboardController | null };
 }) {
@@ -160,5 +160,5 @@ function RelaySettings({ relayURLs, controllerRef }: {
 }
 
 function Fact({ label, value }: { readonly label: string; readonly value: string }) {
-  return <div><dt className="sr-only">{label}</dt><dd><span className="text-muted">{label} </span><span className="font-mono text-foreground">{value}</span></dd></div>;
+  return <div><dt className="sr-only">{label}</dt><dd><span className="text-muted" aria-hidden="true">{label} </span><span className="font-mono text-foreground">{value}</span></dd></div>;
 }
