@@ -37,6 +37,7 @@ struct CloudSidebarNativeDropTests {
         #expect(fixture.transferRegistry.resolve(from: board) != nil)
         let session = CloudSidebarDraggingSession(pasteboard: board)
         coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
+        coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
         let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
@@ -96,7 +97,9 @@ struct CloudSidebarNativeDropTests {
         }
         // NSDraggingDestination receives this terminal boundary for a completed
         // drop or Escape, independently of the data source's endedAt forwarding.
-        outline.draggingEnded(info)
+        // Exercise cmux's destination-completion owner without asking AppKit
+        // to end an OS drag session that this synthetic fixture never started.
+        outline.reorderPresentation.ended(info)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragSession == nil)
         #expect(outline.activeNativeDragCoordinator == nil)

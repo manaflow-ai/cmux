@@ -83,7 +83,11 @@ struct CLIRelayQueuedHookRegressionTests {
             ],
             environment: relayEnvironment(
                 home: FileManager.default.temporaryDirectory,
-                extra: ["SSH_TTY": "/dev/pts/8540"]
+                extra: [
+                    "SSH_TTY": "/dev/pts/8540",
+                    "CMUX_WORKSPACE_ID": remoteWorkspaceID,
+                    "CMUX_SURFACE_ID": remoteSurfaceID,
+                ]
             ),
             standardInput: rawPayload,
             timeout: 5
@@ -525,6 +529,7 @@ struct CLIRelayQueuedHookRegressionTests {
                 "CMUX_WORKSPACE_ID": replayWorkspaceID,
                 "CMUX_SURFACE_ID": replaySurfaceID,
                 "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
+                "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
                 "CMUX_AGENT_HOOK_STATE_DIR": (stateDirectory ?? root).path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],

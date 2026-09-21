@@ -11,6 +11,61 @@ import CmuxTerminal
 extension TerminalWindowPortalLifecycleTests {
 
     @MainActor
+    func testWorkspaceUnmountDetachesTerminalAndRebindsOnReveal() async throws {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+        layoutResizeTestWindow(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
+        contentView.addSubview(anchor)
+        let surface = makeTrackedTerminalSurface()
+        TerminalWindowPortalRegistry.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        let initialGeometrySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(initialGeometrySettled)
+
+        let originalHost = try XCTUnwrap(surface.hostedView.superview)
+        let originalRuntime = try XCTUnwrap(surface.surface)
+        surface.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: surface.tabId)
+
+        XCTAssertNil(
+            surface.hostedView.superview,
+            "An unmounted workspace must remove its terminal layer tree from the WindowServer hierarchy"
+        )
+        XCTAssertTrue(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Unmounting must preserve the live PTY")
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.hasEntry(for: surface.hostedView, boundTo: anchor),
+            "Parking must retain the logical portal binding so the workspace can reattach on reveal"
+        )
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: surface.hostedView,
+                visibleInUI: true
+            ),
+            "A parked entry must request a reattach when its workspace becomes visible"
+        )
+        surface.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        let revealedGeometrySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(revealedGeometrySettled)
+        XCTAssertTrue(surface.hostedView.superview === originalHost)
+        XCTAssertTrue(surface.hostedView.window === window)
+        XCTAssertFalse(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Reveal must reuse the terminal process")
+        withExtendedLifetime(surface) {}
+    }
+
+    @MainActor
     func testPortalSkipsSynchronousRefreshForHiddenSurfaces() throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)

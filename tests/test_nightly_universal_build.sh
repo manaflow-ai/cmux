@@ -576,8 +576,16 @@ fi
 # Only the six-hour cache warmup may replace an older scheduled run. The daily
 # 08:47 publication schedule and all push/manual lanes must stay serialized so
 # a newer publication cannot cancel an earlier candidate or race its aliases.
-if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed'" "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour cache warmup must have its own concurrency group"
+if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
+  echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
+  exit 1
+fi
+if ! grep -Fq "inputs.seed_only && 'cache-seed-manual'" "$WORKFLOW_FILE"; then
+  echo "FAIL: manually dispatched cache seeds must have a separate concurrency group"
+  exit 1
+fi
+if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
+  echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
 if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then

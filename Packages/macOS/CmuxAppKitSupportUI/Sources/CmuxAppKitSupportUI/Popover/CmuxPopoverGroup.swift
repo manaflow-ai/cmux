@@ -58,7 +58,10 @@ public final class CmuxPopoverGroup {
             parent: parent,
             contains: contains,
             containsPointer: containsPointer,
-            close: { [weak popover] in popover?.close() }
+            close: { [weak popover] in
+                popover?.animates = false
+                popover?.close()
+            }
         )
         windows[id] = { [weak popover] in popover?.contentViewController?.view.window }
         enableMouseTracking(in: anchor.window, for: id)
