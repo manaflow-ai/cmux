@@ -9,7 +9,7 @@ extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
 }
 
-struct CmuxConfigPackReference: Codable, Sendable, Hashable {
+nonisolated struct CmuxConfigPackReference: Codable, Sendable, Hashable {
     var path: String
 
     private enum CodingKeys: String, CodingKey {
