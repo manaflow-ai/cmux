@@ -61,7 +61,7 @@ extension CmuxTuiSurfaceProvider {
 
     /// The noVNC URL retains each display's own port across VM reconnects.
     nonisolated static func privateDesktopURL(privateAddress: String, port: Int = CmuxTuiSnapshotParser.desktopPort) -> String {
-        let base = CmuxInternalHostnames.directPortURL(privateAddress: privateAddress, port: port)
+        let base = CmuxInternalHostnames().directPortURL(privateAddress: privateAddress, port: port)
         return "\(base)/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
     }
 }
