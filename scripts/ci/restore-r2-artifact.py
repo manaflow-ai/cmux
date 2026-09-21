@@ -38,6 +38,7 @@ def _secret_curl_config(path: Path, header: str) -> None:
         raise ValueError("invalid secret header")
     escaped = header.replace("\\", "\\\\").replace('"', '\\"')
     path.touch(mode=0o600)
+    path.chmod(0o600)
     path.write_text(f'header = "{escaped}"\n')
 
 
@@ -45,8 +46,8 @@ def actions_identity(work: Path) -> str:
     request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
     request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
     parsed = urlsplit(request_url)
-    if (parsed.scheme != "https" or parsed.hostname != OIDC_ISSUER_HOST or parsed.username
-            or parsed.password or parsed.fragment or not request_token):
+    if (parsed.scheme != "https" or parsed.hostname != OIDC_ISSUER_HOST or parsed.port not in (None, 443)
+            or parsed.username or parsed.password or parsed.fragment or not request_token):
         raise ValueError("Actions OIDC identity unavailable")
     query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
              if key != "audience"]
