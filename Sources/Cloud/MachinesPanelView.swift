@@ -21,9 +21,6 @@ struct MachinesPanelView: View {
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
-#if DEBUG
-    @Environment(\.cloudSidebarDebugSettings) private var cloudSidebarDebugSettings
-#endif
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -552,15 +549,6 @@ struct MachinesPanelView: View {
             coordinator: viewModel.createCoordinator
         )
     }
-    private var resolvedTreeStyle: CloudTreeStyle {
-        let base = CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle
-#if DEBUG
-        return cloudSidebarDebugSettings?.metrics.resolvedStyle(base) ?? base
-#else
-        return base
-#endif
-    }
-
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
@@ -615,7 +603,7 @@ struct MachinesPanelView: View {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
-            style: resolvedTreeStyle,
+            style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
             source: treeSource,
             devicesSection: CloudTreeDevicesSection(
