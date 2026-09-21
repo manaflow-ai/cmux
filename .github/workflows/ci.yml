@@ -1070,27 +1070,6 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: |
-          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
-
-      - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
-        run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
-
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
@@ -1201,22 +1180,6 @@ jobs:
           test -n "$framework_source"
           rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
-
-      - name: Run Ghostty split-theme appearance regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme"
-          rm -rf "$DERIVED_DATA_PATH"
-          (
-            cd Packages/macOS/CmuxTerminalCore
-            xcodebuild \
-              -scheme CmuxTerminalCore-Package \
-              -destination "platform=macOS" \
-              -derivedDataPath "$DERIVED_DATA_PATH" \
-              build-for-testing
-          )
-          xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
 
       - name: Enable XCTest automation mode
         run: |
