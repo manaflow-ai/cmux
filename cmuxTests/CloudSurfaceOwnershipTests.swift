@@ -14,6 +14,18 @@ import Testing
 struct CloudSurfaceOwnershipTests {
     private let machine = SurfaceMachineID.cloud("ownership-b")
 
+    @Test("A retired destination fails closed before ownership policy lookup")
+    func missingDestinationRejectsValidation() {
+        let catalog = SurfaceCatalog()
+        let destination = SurfaceDestination.workspace(id: UUID(), placement: .tab)
+        #expect(throws: SurfaceCatalogError.self) {
+            try catalog.validateOwnership(
+                of: [SurfaceResourceID(machine: machine, kind: .display, key: "display:1")],
+                at: destination
+            )
+        }
+    }
+
     @Test("Saved display identities are checked before catalog mutation")
     func rejectsForeignCatalogRestore() throws {
         let workspace = cloudWorkspace()

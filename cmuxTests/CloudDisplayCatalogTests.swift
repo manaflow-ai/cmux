@@ -77,6 +77,7 @@ struct CloudDisplayCatalogTests {
         failed = true
         await service.refresh()
         #expect(service.snapshot == nil && !service.canCreate)
+        #expect(service.displaySnapshot?.displays.count == 1)
     }
 
     @Test("A failed refresh invalidates the cached guest catalog")
@@ -92,6 +93,7 @@ struct CloudDisplayCatalogTests {
         shouldFail = true
         await service.refresh()
         #expect(service.snapshot == nil && !service.canCreate)
+        #expect(service.displaySnapshot?.displays.count == 1)
     }
 
     @Test("Cancelling display creation cancels the guest exec")
