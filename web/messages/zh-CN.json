@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
   },
@@ -387,7 +387,16 @@
       "revoked": "已撤销",
       "relaySettings": "中继设置",
       "relaySettingsDescription": "选择此团队使用的中继服务器。每行输入一个 URL。",
-      "saveRelaySettings": "保存中继设置"
+      "saveRelaySettings": "保存中继设置",
+      "eyebrow": "云端 / 设备",
+      "scopeActive": "正在显示此团队",
+      "emptyTitle": "尚无已连接的设备",
+      "emptyDescription": "cmux 设备与此团队配对后，其平台、版本和访问控制将显示在这里。",
+      "revoking": "正在撤销…",
+      "registeredDevices": "已注册设备",
+      "activeDevices": "有效设备",
+      "directoryRevision": "设备列表修订号",
+      "savingRelaySettings": "正在保存…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "与团队共享",
@@ -1344,7 +1353,7 @@
       "plusButtonScreenshotAlt": "cmux 加号按钮右键菜单显示 Worktree Agents、New Terminal 和 New Browser",
       "plusButtonScreenshotCaption": "右键菜单遵循 ui.newWorkspace.contextMenu 中的顺序。",
       "newWorkspaceButton": "加号按钮的自定义动作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。 New Cloud Workspace 使用最近选中的 Cloud 工作区所属机器，然后使用右侧边栏中的第一台机器；New Cloud Machine 会主动配置一台机器。",
       "newWorkspaceWorktreeNote": "此示例让普通加号点击运行 <action>worktree-agents</action> 操作。来自 <commands>commands</commands> 的工作区命令会先使用可见的设置终端创建 Git <worktree>worktree</worktree>。Codex 和 Claude 同时启动，等待该工作区专用的状态文件，然后在 exec 前进入创建的目录。",
       "simpleCommands": "简单命令",
       "simpleCommandsDesc": "简单命令在当前聚焦的终端中运行 shell 命令：",

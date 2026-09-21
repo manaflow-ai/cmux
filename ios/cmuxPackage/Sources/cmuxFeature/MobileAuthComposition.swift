@@ -174,7 +174,7 @@ public struct MobileAuthComposition {
             isTokenStorageAvailable: { await MainActor.run { availability.isAvailable } },
             onSignedIn: { await deferredSignIn.run() }
         )
-        let pushIdentity = try? PhonePushKeyStore.current(
+        let pushIdentity = try? PhonePushKeyMaterial.current(
             bundleID: bundle.bundleIdentifier ?? "",
             accessGroup: keychainAccessGroup
         )
@@ -187,7 +187,7 @@ public struct MobileAuthComposition {
             pushKeyID: pushIdentity?.keyID,
             pushPublicKey: pushIdentity?.publicKeyData.base64EncodedString(),
             pushIdentityProvider: {
-                guard let identity = try? PhonePushKeyStore.current(
+                guard let identity = try? PhonePushKeyMaterial.current(
                     bundleID: bundle.bundleIdentifier ?? "",
                     accessGroup: keychainAccessGroup
                 ) else { return nil }
@@ -202,7 +202,7 @@ public struct MobileAuthComposition {
         deferredSignIn.set {
             let accountID = await MainActor.run { coordinator.currentUser?.id }
             if let accountID {
-                PhonePushActiveAccountStore.set(accountID)
+                PhonePushActiveAccountStore().set(accountID)
             }
             await push.syncTokenIfPossible()
         }
@@ -225,9 +225,9 @@ public struct MobileAuthComposition {
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator) {
                 if let accountID = coordinator.currentUser?.id {
-                    PhonePushActiveAccountStore.set(accountID)
+                    PhonePushActiveAccountStore().set(accountID)
                 } else {
-                    PhonePushActiveAccountStore.clear()
+                    PhonePushActiveAccountStore().clear()
                 }
                 Task {
                     await pushRegistration.syncTokenIfPossible()
@@ -438,7 +438,7 @@ public struct MobileAuthComposition {
     }
 
     private static func keychainAccessGroup(in bundle: Bundle) -> String? {
-        MobileKeychainAccessGroupPolicy.resolve(
+        String.cmuxKeychainAccessGroup(from:
             bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         )
     }

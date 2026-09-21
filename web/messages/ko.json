@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "현재 이 머신 크기를 사용할 수 없습니다. {max} GiB 이하를 선택하세요.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
   },
@@ -387,7 +387,16 @@
       "revoked": "취소됨",
       "relaySettings": "릴레이 설정",
       "relaySettingsDescription": "이 팀에서 사용할 릴레이 서버를 선택하세요. 한 줄에 URL 하나를 입력하세요.",
-      "saveRelaySettings": "릴레이 설정 저장"
+      "saveRelaySettings": "릴레이 설정 저장",
+      "eyebrow": "클라우드 / 기기",
+      "scopeActive": "이 팀을 표시 중",
+      "emptyTitle": "아직 연결된 기기가 없습니다",
+      "emptyDescription": "cmux 기기를 이 팀과 페어링하면 플랫폼, 버전 및 접근 제어가 여기에 표시됩니다.",
+      "revoking": "접근 권한 취소 중…",
+      "registeredDevices": "등록된 기기",
+      "activeDevices": "활성 기기",
+      "directoryRevision": "목록 리비전",
+      "savingRelaySettings": "저장 중…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "팀과 공유",
@@ -1344,7 +1353,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents, New Terminal, New Browser를 보여 주는 cmux 플러스 버튼 오른쪽 클릭 메뉴",
       "plusButtonScreenshotCaption": "오른쪽 클릭 메뉴는 ui.newWorkspace.contextMenu의 순서를 따릅니다.",
       "newWorkspaceButton": "플러스 버튼 사용자 지정 액션",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다.",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다. New Cloud Workspace는 마지막으로 선택한 Cloud 워크스페이스의 머신을 사용한 뒤 오른쪽 사이드바의 첫 번째 머신을 사용합니다. New Cloud Machine은 의도적으로 머신을 프로비저닝합니다.",
       "newWorkspaceWorktreeNote": "이 예시는 일반 플러스 클릭이 <action>worktree-agents</action> 액션을 실행하게 합니다. <commands>commands</commands>의 워크스페이스 명령은 보이는 설정 터미널을 사용해 먼저 Git <worktree>worktree</worktree>를 만듭니다. Codex와 Claude는 동시에 시작해 워크스페이스별 상태 파일을 기다린 다음, exec 전에 생성된 디렉터리로 이동합니다.",
       "simpleCommands": "단순 명령어",
       "simpleCommandsDesc": "단순 명령어는 현재 포커스된 터미널에서 셸 명령어를 실행합니다:",
