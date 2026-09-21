@@ -5,10 +5,11 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = (ROOT / ".github/workflows/ci.yml").read_text()
+GUARDS = (ROOT / ".github/workflows/ci-guards.yml").read_text()
 
 
-def job(name: str) -> str:
-    match = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", CI)
+def job(name: str, workflow: str = CI) -> str:
+    match = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", workflow)
     assert match, f"missing job {name}"
     return match.group(0)
 
@@ -22,7 +23,7 @@ def step(block: str, name: str) -> str:
 release = job("release-build")
 package = job("swift-package-tests")
 admission = job("macos-compile-admission")
-guards = job("workflow-guard-tests")
+guards = job("workflow-guard-tests", GUARDS)
 
 assert "python3 scripts/ci/reuse_release_product.py restore build-universal" in release
 assert release.index("Restore exact unsigned Release product") < release.index("Build app (Release)")
