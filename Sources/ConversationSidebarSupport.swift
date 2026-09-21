@@ -53,10 +53,12 @@ struct ConversationSidebarProjection {
             ?? SessionAgent(rawValue: record.agentKind.sourceName)
     }
 
+    @MainActor
     func workspacesByID(_ workspaces: [Workspace]) -> [UUID: Workspace] {
         Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
     }
 
+    @MainActor
     func workspacesByPanelID(_ workspaces: [Workspace]) -> [UUID: Workspace] {
         var result: [UUID: Workspace] = [:]
         for workspace in workspaces {
