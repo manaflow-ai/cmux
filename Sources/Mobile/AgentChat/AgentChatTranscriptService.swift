@@ -20,7 +20,7 @@ final class AgentChatTranscriptService {
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
-    private(set) var proseStreamer: AgentChatProseStreamer!
+    private var proseStreamer: AgentChatProseStreamer!
     /// Bridges terminal output/render wakeups into the prose streamer.
     private var proseWakeDriver: AgentChatProseStreamWakeDriver!
     /// Current live prose-stream generation per session, consumed only when a
@@ -115,6 +115,11 @@ final class AgentChatTranscriptService {
         registry.onRecordChanged = nil
         registry.onRecordRemoved = nil
         proseTurnStates.removeAll()
+        let activeTailers = Array(tailers.values)
+        tailers.removeAll()
+        for tailer in activeTailers {
+            Task { await tailer.stop() }
+        }
         proseWakeDriver.stop()
         proseStreamer.stopAll()
     }

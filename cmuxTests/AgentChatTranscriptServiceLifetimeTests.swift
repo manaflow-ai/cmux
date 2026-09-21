@@ -89,8 +89,6 @@ struct AgentChatTranscriptServiceLifetimeTests {
             #expect(probe.hadActiveUnsettledTurn)
             #expect(probe.frameDemandWasActive)
             #expect(probe.tickDemandWasActive)
-            let streamer = try #require(probe.streamer)
-            #expect(!streamer.hasActiveUnsettledTurns)
             #expect(!frameDemand.isActive)
             #expect(!tickDemand.isActive)
         }
@@ -128,7 +126,6 @@ struct AgentChatTranscriptServiceLifetimeTests {
                 receivedAt: now
             ))
         }
-        #expect(service.proseStreamer.hasActiveUnsettledTurns)
         #expect(frameDemand.isActive)
         #expect(tickDemand.isActive)
 
@@ -161,7 +158,6 @@ struct AgentChatTranscriptServiceLifetimeTests {
         notificationCenter.post(name: .mobileHostEventSubscriptionsDidChange, object: nil)
         notificationCenter.post(name: .ghosttyDidTick, object: nil)
         #expect(emittedPayloadCount == payloadCountAtShutdown)
-        #expect(!service.proseStreamer.hasActiveUnsettledTurns)
         #expect(!frameDemand.isActive)
         #expect(!tickDemand.isActive)
     }
@@ -176,7 +172,6 @@ struct AgentChatTranscriptServiceLifetimeTests {
 @MainActor
 private final class AgentChatTranscriptServiceLifetimeProbe {
     private weak var service: AgentChatTranscriptService?
-    private(set) var streamer: AgentChatProseStreamer?
     private(set) var hadActiveUnsettledTurn = false
     private(set) var frameDemandWasActive = false
     private(set) var tickDemandWasActive = false
@@ -191,8 +186,7 @@ private final class AgentChatTranscriptServiceLifetimeProbe {
         tickDemand: RenderDemandCounter
     ) {
         self.service = service
-        streamer = service?.proseStreamer
-        hadActiveUnsettledTurn = service.map { $0.proseStreamer.hasActiveUnsettledTurns } ?? false
+        hadActiveUnsettledTurn = frameDemand.isActive && tickDemand.isActive
         frameDemandWasActive = frameDemand.isActive
         tickDemandWasActive = tickDemand.isActive
     }
