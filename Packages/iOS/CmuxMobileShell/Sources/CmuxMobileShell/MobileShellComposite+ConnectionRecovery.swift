@@ -286,12 +286,7 @@ extension MobileShellComposite {
             }
             return
         }
-        let attempt = preclaimedAttempt ?? connectionRecoveryOwner.begin(
-            trigger: trigger.description,
-            sourceConnectionGeneration: connectionGeneration,
-            probing: probeCurrentConnection
-        )
-        guard let attempt else { return }
+        var claimsWorkspaceRecovery = false
         if workspaceListRecoveryActive,
            workspaceListRecoveryWaitingForConnectionAttempt {
             let currentRecoveryTarget = workspaceListRecoveryTarget
@@ -299,12 +294,20 @@ extension MobileShellComposite {
                     == workspaceListRecoveryOwnerID
                 && currentRecoveryTarget?.instanceTag
                     == workspaceListRecoveryOwnerInstanceTag
-            guard workspaceListRecoveryConnectionGeneration == connectionGeneration,
-                  recoveryOwnerMatches else {
+            claimsWorkspaceRecovery = workspaceListRecoveryConnectionGeneration == connectionGeneration
+                && recoveryOwnerMatches
+            if !claimsWorkspaceRecovery {
                 workspaceListRecoveryWaitingForConnectionAttempt = false
                 workspaceListRecoveryConnectionAttemptID = nil
-                return
             }
+        }
+        let attempt = preclaimedAttempt ?? connectionRecoveryOwner.begin(
+            trigger: trigger.description,
+            sourceConnectionGeneration: connectionGeneration,
+            probing: probeCurrentConnection
+        )
+        guard let attempt else { return }
+        if claimsWorkspaceRecovery {
             workspaceListRecoveryConnectionAttemptID = attempt.id
             workspaceListRecoveryWaitingForConnectionAttempt = false
         }
