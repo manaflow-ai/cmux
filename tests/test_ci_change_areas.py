@@ -1631,7 +1631,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert "cmux-app-host-xcresults" in app_host
     assert ".local/state/cmux/crash" in app_host
     assert "Library/Logs/DiagnosticReports" in app_host
-    assert "if: ${{ failure() }}" in app_host
+    assert "if: ${{ failure() || cancelled() }}" in app_host
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
