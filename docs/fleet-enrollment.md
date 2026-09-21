@@ -109,20 +109,59 @@ mv "$ENROLLMENT_NEXT" "$ENROLLMENT"
 
 The new enrollment starts in `enrolling`. It records the role's exact CMUX profile ID/generation, the observed toolchain generation, the installed Glaeda generation, and bounded machine capability classes.
 
-## 3. Fleet eligibility activation gate
+## 3. Run local acceptance and activate eligibility
 
-The repository-owned workload profiles in this change are usable independently of hardware eligibility. Stop after the enrollment record for now.
+Glaeda #1091 has landed the repaired `accept-local` boundary. Candidate eligibility now comes from a Glaeda-owned local attempt: Glaeda resolves the exact local CMUX commit/tree, launches the enrolled repository-owned profile under its closed child environment, captures the canonical CMUX semantic result, re-observes the same node, and emits `glaeda-cmux-fleet-acceptance/v2`.
 
-Glaeda #1088 added the reviewed local-attempt/v2 acceptance contract, and teamleaderleo/glaeda#1091 is repairing its child-process environment boundary. Until #1091 is merged into Glaeda `main`:
+```bash
+set -euo pipefail
+cd "$GLAEDA_ROOT"
 
-- do not transition a CMUX fleet enrollment to `eligible` using this document;
-- do not treat a standalone `cmux-workload-result/v1` as machine acceptance;
-- keep existing hosted/dev-fleet routing policy unchanged;
-- use the profile runner for semantic CI/dev execution and benchmark comparison only.
+case "$(uname -s)" in
+  Darwin) ACCEPTANCE_ROLE=cmux_macos_native_build ;;
+  Linux) ACCEPTANCE_ROLE=cmux_linux_ci ;;
+  *) echo "unsupported host" >&2; exit 1 ;;
+esac
 
-The activation follow-up will restore the exact `accept-local` operator flow after its execution-safety repair is accepted. CMUX continues to own workload commands, validators, artifacts, environment class, timeout, and semantic terminal result. Glaeda owns the local attempt, post-run machine re-observation, durable acceptance receipt, lifecycle, and fresh local admission.
+ACCEPTANCE="$FLEET_ROOT/acceptance/$ACCEPTANCE_ROLE.json"
+ACCEPTANCE_NEXT="$(mktemp "$FLEET_ROOT/acceptance/.$ACCEPTANCE_ROLE.XXXXXX")"
 
-Delaying activation costs fleet availability only. It leaves the canonical CMUX workload semantics introduced here usable and independently reviewable.
+if [ "$ACCEPTANCE_ROLE" = cmux_macos_native_build ]; then
+  python3 scripts/cmux_fleet.py accept-local "$ENROLLMENT" \
+    --cmux-root "$CMUX_ROOT" \
+    --glaeda "$GLAEDA_BIN" \
+    --cache-root "$CMUX_CACHE_ROOT" \
+    --role "$ACCEPTANCE_ROLE" \
+    > "$ACCEPTANCE_NEXT"
+else
+  python3 scripts/cmux_fleet.py accept-local "$ENROLLMENT" \
+    --cmux-root "$CMUX_ROOT" \
+    --glaeda "$GLAEDA_BIN" \
+    --role "$ACCEPTANCE_ROLE" \
+    > "$ACCEPTANCE_NEXT"
+fi
+
+chmod 600 "$ACCEPTANCE_NEXT"
+mv "$ACCEPTANCE_NEXT" "$ACCEPTANCE"
+
+python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" --to eligible \
+  --acceptance "$ACCEPTANCE"
+
+bash scripts/cmux-fleet status "$ENROLLMENT" \
+  --acceptance "$ACCEPTANCE"
+```
+
+The v2 receipt binds the exact CMUX result digest/state, CMUX environment class/toolchain identity, fresh post-run bootstrap digest, Glaeda fleet-contract generation, local execution class/attempt digest, enrollment/profile/Glaeda/toolchain generations, and process settlement. Externally supplied CMUX semantic evidence can be validated, but cannot mint an accepted fleet receipt.
+
+Both Python front doors inside `accept-local` execute through isolated interpreter mode with an explicit environment allowlist and attempt-private temporary directory. The CMUX workload profile remains the owner of commands, semantic validator, artifacts, environment class, timeout, and pass/fail result; Glaeda owns the machine-local attempt, lifecycle, and admission evidence.
+
+`automaticDispatchAuthorized` remains false after enrollment/acceptance. Higher-level routing and fresh local physical admission still decide whether work actually starts.
+
+After the new generation is accepted, remove only the transient bootstrap evidence and preserved one-step Glaeda rollback:
+
+```bash
+rm -f "$GLAEDA_INSTALL_ROOT/glaeda.rollback" "$BOOTSTRAP"
+```
 
 ## CI and physical proof
 
