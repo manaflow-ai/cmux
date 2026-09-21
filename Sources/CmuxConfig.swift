@@ -2477,7 +2477,7 @@ final class CmuxConfigStore: ObservableObject {
         watchPaths: inout [String]
     ) -> [ConfigEntry] {
         guard depth < 8 else {
-            issues.append(schemaIssue(path: declaringConfigPath, message: String(localized: "config.pack.error.nestingTooDeep", defaultValue: "Pack nesting is too deep.")))
+            issues.append(schemaIssue(path: declaringConfigPath, message: String(localized: "config.pack.error.nestingTooDeep", defaultValue: "Pack nesting is too deep.", table: "ConfigPackErrors")))
             return []
         }
 
@@ -2486,11 +2486,11 @@ final class CmuxConfigStore: ObservableObject {
             let path = resolvedPackPath(reference.path, relativeToConfig: declaringConfigPath)
             let canonical = Self.canonicalPath(path)
             guard !pathStack.contains(canonical) else {
-                issues.append(schemaIssue(path: declaringConfigPath, message: String(localized: "config.pack.error.cycleIgnored", defaultValue: "Pack cycle ignored.")))
+                issues.append(schemaIssue(path: declaringConfigPath, message: String(localized: "config.pack.error.cycleIgnored", defaultValue: "Pack cycle ignored.", table: "ConfigPackErrors")))
                 continue
             }
             guard FileManager.default.fileExists(atPath: path) else {
-                issues.append(schemaIssue(path: path, message: String(localized: "config.pack.error.fileMissing", defaultValue: "Pack file does not exist.")))
+                issues.append(schemaIssue(path: path, message: String(localized: "config.pack.error.fileMissing", defaultValue: "Pack file does not exist.", table: "ConfigPackErrors")))
                 if let recoveryWatchPath = packRecoveryWatchPath(for: path) {
                     watchPaths.append(recoveryWatchPath)
                 }
@@ -2500,7 +2500,7 @@ final class CmuxConfigStore: ObservableObject {
             guard budget.filesVisited < PackLoadBudget.maxFiles else {
                 issues.append(schemaIssue(
                     path: declaringConfigPath,
-                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.")
+                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
                 ))
                 break
             }
@@ -2509,20 +2509,20 @@ final class CmuxConfigStore: ObservableObject {
 
             let attributes = try? FileManager.default.attributesOfItem(atPath: path)
             guard let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value else {
-                issues.append(schemaIssue(path: path, message: String(localized: "config.pack.error.fileSizeUnreadable", defaultValue: "Pack file size could not be read.")))
+                issues.append(schemaIssue(path: path, message: String(localized: "config.pack.error.fileSizeUnreadable", defaultValue: "Pack file size could not be read.", table: "ConfigPackErrors")))
                 continue
             }
             guard fileSize <= PackLoadBudget.maxFileBytes else {
                 issues.append(schemaIssue(
                     path: path,
-                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.")
+                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
                 ))
                 continue
             }
             guard budget.bytesReserved <= PackLoadBudget.maxTotalBytes - fileSize else {
                 issues.append(schemaIssue(
                     path: declaringConfigPath,
-                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.")
+                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
                 ))
                 break
             }
