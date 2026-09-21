@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import AppKit
 import CMUXAgentLaunch
 import CmuxSettings
@@ -108,6 +109,11 @@ final class ComputerUseUXCoordinator {
         _ = ensureOnboardingCoordinator()
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
+        runtimeService.setInitialOnboardingCompletion(
+            userDefaults.bool(
+                forKey: ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
+            )
+        )
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
             await liveSettingRepository.setEnabled(initialComputerUseEnabled)
             await runtimeService.setEnabled(initialComputerUseEnabled)
@@ -349,9 +355,10 @@ final class ComputerUseUXCoordinator {
             // Authenticated hook ingress has already established ownership of a
             // live local terminal. Agent process indexing may lag the first
             // hook, so it is used only for session bookkeeping below.
-            _ = ensureOnboardingCoordinator().requestFromToolInvocation(
-                onboarding: runtimeService.onboarding
-            )
+            let requestedOnboarding = runtimeService.requestAutomaticOnboarding()
+            if requestedOnboarding {
+                _ = ensureOnboardingCoordinator().requestFromToolInvocation()
+            }
             if !runtimeService.desiredEnabled {
                 // An explicit functional request is the opt-in. Persist it
                 // after presenting so the window is never delayed by config I/O.
@@ -361,7 +368,7 @@ final class ComputerUseUXCoordinator {
         }
         if isFunctionalInvocation,
            ownsLocalSurface,
-           runtimeService.permissionPhase == .onboardingRequired {
+           runtimeService.onboardingRequired {
             // A valid-surface hook may precede the initial agent-index scan.
             // Await its authoritative refresh before resolving the session.
             guard await liveAgentIndex.indexRefreshingNow() != nil,

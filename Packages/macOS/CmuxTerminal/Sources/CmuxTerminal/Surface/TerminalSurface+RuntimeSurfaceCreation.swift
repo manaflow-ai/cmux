@@ -107,7 +107,7 @@ extension TerminalSurface {
             let inheritedPath = env["PATH"]
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
-            return CmuxPathEnvironment.components(from: inheritedPath).joined(separator: ":")
+            return CmuxPathEnvironment().components(from: inheritedPath).joined(separator: ":")
         }
 
         let sanitizedPath = currentManagedPath()

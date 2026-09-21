@@ -1,4 +1,6 @@
+import CmuxFoundation
 import Foundation
+import CmuxFoundation
 
 /// Foreground-process evidence that a restored or hook-published agent is
 /// still the command running in its pane.
@@ -21,13 +23,22 @@ enum RestoredAgentForegroundProcess {
         foregroundProcessID: Int?,
         processArguments: (Int) -> CmuxTopProcessArguments? =
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:),
+        processIdentity: ((pid_t) -> AgentPIDProcessIdentity?)? = nil,
         validator: CachedAgentProcessIdentityValidator = CachedAgentProcessIdentityValidator()
     ) -> Bool {
         guard let foregroundProcessID,
               foregroundProcessID > 0,
-              foregroundProcessID <= Int(Int32.max),
-              let process = processArguments(foregroundProcessID) else {
+              foregroundProcessID <= Int(Int32.max) else {
             return false
+        }
+        let capturedIdentity = processIdentity?(pid_t(foregroundProcessID))
+        guard let process = processArguments(foregroundProcessID) else { return false }
+        if let processIdentity {
+            guard let capturedIdentity,
+                  let currentIdentity = processIdentity(pid_t(foregroundProcessID)),
+                  currentIdentity == capturedIdentity else {
+                return false
+            }
         }
         return validator.currentProcess(
             process,

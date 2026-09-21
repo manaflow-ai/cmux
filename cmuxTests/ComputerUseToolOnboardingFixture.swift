@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+@testable import CmuxComputerUse
 import CmuxSettings
 import Foundation
 import Testing

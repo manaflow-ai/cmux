@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxComputerUse
 import Testing
 
 #if canImport(cmux_DEV)

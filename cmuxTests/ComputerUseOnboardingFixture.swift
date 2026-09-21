@@ -1,4 +1,5 @@
 import Darwin
+@testable import CmuxComputerUse
 import Foundation
 import Testing
 

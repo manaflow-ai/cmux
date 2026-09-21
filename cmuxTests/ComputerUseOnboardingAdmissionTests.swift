@@ -1,4 +1,5 @@
 import CmuxControlSocket
+@testable import CmuxComputerUse
 import CmuxSettingsUI
 import Foundation
 import Testing

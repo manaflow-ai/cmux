@@ -128,7 +128,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             diagnosticLog?.recordAppEvent(.pushReplyContextMissing, failure: .credentialUnavailable)
             return false
         }
-        guard let identity = try? PhonePushKeyStore.current(
+        guard let identity = try? PhonePushKeyMaterial.current(
             bundleID: Bundle.main.bundleIdentifier ?? "cmux",
             accessGroup: keychainAccessGroup
         ) else {
@@ -144,7 +144,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             macInstanceTag: reply.macInstanceTag,
             macBuildID: macBuildID
         )
-        guard let peer = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else {
+        guard let peer = PhonePushPeerKeyStore().pinnedDescriptor(for: tuple) else {
             diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
             return false
         }
@@ -162,7 +162,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         var plaintextWithWorkspace = plaintext
         if let workspaceId = reply.workspaceId, !workspaceId.isEmpty { plaintextWithWorkspace["workspaceId"] = workspaceId }
         guard let plaintextData = try? JSONSerialization.data(withJSONObject: plaintextWithWorkspace),
-              let candidate = try? PhonePushCrypto.encrypt(
+              let candidate = try? PhonePushCrypto().encrypt(
                   plaintext: plaintextData,
                   tuple: tuple,
                   recipientPublicKey: peer.publicKey,
@@ -198,9 +198,9 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return false }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http.value(forHTTPHeaderField: "Retry-After")
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
             }
             return (200...299).contains(http.statusCode)

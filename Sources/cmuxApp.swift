@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -215,9 +216,11 @@ struct cmuxApp: App {
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
+        let (cloudMachinePinStore, cloudWorkspaceCoordinator) = Self.makeCloudWorkspaceComposition(auth: authComposition)
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState()
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -287,10 +290,8 @@ struct cmuxApp: App {
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 
-        // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
-        // callbacks (e.g. `.onAppear`) are delayed or skipped.
+        // UI tests need AppDelegate wiring even if SwiftUI appearance callbacks are skipped.
         StartupBreadcrumbLog.append("app.init.delegate.configure.begin")
-        let cloudWorkspaceCoordinator = Self.makeCloudWorkspaceCoordinator(auth: authComposition)
         let cloudWorkspaceOperationController = CloudWorkspaceOperationController(
             isAvailable: { cloudWorkspaceCoordinator.isAvailable }
         )
@@ -300,7 +301,7 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
-            cloudMachinePinStore: Self.makeCloudMachinePinStore(auth: authComposition),
+            cloudMachinePinStore: cloudMachinePinStore,
             cloudWorkspaceCoordinator: cloudWorkspaceCoordinator,
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,
@@ -882,10 +883,10 @@ struct cmuxApp: App {
 
                 if CloudMachinesFeature.isEnabled && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true {
                     splitCommandButton(title: String(localized: "menu.file.newCloudWorkspace", defaultValue: "New Cloud Workspace"), shortcut: menuShortcut(for: .newCloudWorkspace)) {
-                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnDefaultMachineAction(debugSource: "menu.newCloudWorkspace")
+                        _ = AppDelegate.shared?.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: activeTabManager, debugSource: "menu.newCloudWorkspace")
                     }
                     splitCommandButton(title: String(localized: "menu.file.newCloudMachine", defaultValue: "New Cloud Machine"), shortcut: menuShortcut(for: .newCloudMachine)) {
-                        _ = AppDelegate.shared?.performNewCloudWorkspaceAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
+                        _ = AppDelegate.shared?.performNewCloudMachineAction(tabManager: activeTabManager, debugSource: "menu.newCloudMachine")
                     }
                 }
 

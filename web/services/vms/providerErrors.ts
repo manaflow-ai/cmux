@@ -72,6 +72,25 @@ function httpStatus(candidate: ProviderFailure): number | undefined {
   );
 }
 
+function providerStatus(candidate: ProviderFailure): number | undefined {
+  return candidate.status ?? candidate.statusCode ?? candidate.response?.status;
+}
+
+function hasProviderIdentityMissingDetail(candidate: ProviderFailure): boolean {
+  if (hasProviderMissingMessage(candidate.message ?? "", providerIdentitySubjectPattern)) {
+    return true;
+  }
+
+  const responseData = candidate.response?.data;
+  if (typeof responseData === "string") {
+    return hasProviderMissingMessage(responseData, providerIdentitySubjectPattern);
+  }
+  if (responseData && typeof responseData === "object") {
+    return hasProviderMissingMessage(JSON.stringify(responseData), providerIdentitySubjectPattern);
+  }
+  return false;
+}
+
 export function isProviderNotFoundError(err: unknown): boolean {
   const seen = new Set<unknown>();
   let legacyNotFound = false;
@@ -91,44 +110,11 @@ export function isProviderNotFoundError(err: unknown): boolean {
 
 export function isProviderIdentityNotFoundError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
-  const candidate = err as {
-    code?: string | number;
-    name?: string;
-    status?: number;
-    statusCode?: number;
-    response?: { status?: number; data?: unknown };
-    message?: string;
-    cause?: unknown;
-  };
-  const status =
-    candidate.status ??
-    candidate.statusCode ??
-    candidate.response?.status ??
-    undefined;
-  if (status === 404) return true;
+  const candidate = err as ProviderFailure;
+  if (providerStatus(candidate) === 404) return true;
 
   const code = String(candidate.code ?? candidate.name ?? "").toLowerCase();
-  if (
-    code === "not_found" ||
-    code === "notfound" ||
-    code === "404"
-  ) {
-    return true;
-  }
-
-  if (hasProviderMissingMessage(candidate.message ?? "", providerIdentitySubjectPattern)) return true;
-
-  const responseData = candidate.response?.data;
-  if (
-    (typeof responseData === "string" &&
-      hasProviderMissingMessage(responseData, providerIdentitySubjectPattern)) ||
-    (responseData &&
-      typeof responseData === "object" &&
-      hasProviderMissingMessage(JSON.stringify(responseData), providerIdentitySubjectPattern))
-  ) {
-    return true;
-  }
-
-  if (candidate.cause) return isProviderIdentityNotFoundError(candidate.cause);
-  return false;
+  if (["not_found", "notfound", "404"].includes(code)) return true;
+  if (hasProviderIdentityMissingDetail(candidate)) return true;
+  return candidate.cause ? isProviderIdentityNotFoundError(candidate.cause) : false;
 }

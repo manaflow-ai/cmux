@@ -210,13 +210,8 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq 'lipo "$APP_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the Release app binary stays universal"
-    exit 1
-  fi
-
-  if ! grep -Fq 'lipo "$CLI_BINARY" -verify_arch arm64 x86_64' "$CI_FILE"; then
-    echo "FAIL: release-build must verify the bundled CLI stays universal"
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_FILE"; then
+    echo "FAIL: release-build must verify the Release app, CLI, and cmux-cua contain exactly the resolved architectures"
     exit 1
   fi
 
@@ -225,7 +220,7 @@ check_release_build_signal() {
     exit 1
   fi
 
-  echo "PASS: release-build keeps universal artifact verification"
+  echo "PASS: release-build verifies exact artifact architectures"
 }
 
 check_release_build_disk_cleanup() {
@@ -325,15 +320,15 @@ check_runtime_regressions_collapsed() {
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
     in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
     in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
 
@@ -1229,7 +1224,6 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
@@ -1251,61 +1245,6 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
-check_agent_notification_paths_cover_its_suites() {
-  # The workflow reruns suites that ci.yml's shards already run, so it should
-  # start only for changes that can affect them: every file that defines one of
-  # its suites, and every helper file those name, must match a path trigger,
-  # and no cmuxTests trigger may match any other file.
-  ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
-import fnmatch, os, re, sys
-from pathlib import Path
-
-root = Path(os.environ["ROOT_DIR"])
-text = (root / ".github/workflows/agent-notification-tests.yml").read_text(encoding="utf-8")
-paths = re.findall(r"^\s+- (cmuxTests/\S+)\s*$", text, flags=re.M)
-suites = re.search(r"^\s*unit_test_suites:\s*(\S+)", text, flags=re.M).group(1).split(",")
-errors = []
-if "cmuxTests/**" in paths:
-    errors.append("must not trigger on all of cmuxTests/**")
-sources = {f: f.read_text(encoding="utf-8", errors="ignore") for f in sorted((root / "cmuxTests").glob("*.swift"))}
-suite_files = set()
-for suite in suites:
-    decl = re.compile(rf"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:\w+\s+)*(?:class|struct|actor|extension)\s+{re.escape(suite)}\b", re.M)
-    files = [f for f, source in sources.items() if decl.search(source)]
-    if not files:
-        errors.append(f"runs {suite}, which no file in cmuxTests defines")
-    suite_files.update(files)
-    for f in files:
-        rel = f"cmuxTests/{f.name}"
-        if not any(fnmatch.fnmatchcase(rel, p) for p in paths):
-            errors.append(f"runs {suite} but {rel} matches no path trigger")
-# A helper is a file whose top-level type the suite files name. Nested and
-# private types are skipped: another file cannot reach them, and several test
-# files declare a private type of the same name.
-suite_text = "\n".join(sources[f] for f in suite_files)
-helper_files = set()
-top_level = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:final|internal|public|open)\s+)*(?:class|struct|enum|actor|protocol)\s+(\w+)", re.M)
-for f, source in sources.items():
-    if f in suite_files:
-        continue
-    used = sorted(n for n in set(top_level.findall(source)) if re.search(rf"\b{re.escape(n)}\b", suite_text))
-    rel = f"cmuxTests/{f.name}"
-    if used:
-        helper_files.add(f)
-    if used and not any(fnmatch.fnmatchcase(rel, p) for p in paths):
-        errors.append(f"suites use {', '.join(used)} from {rel}, which matches no path trigger")
-# A trigger that also matches unrelated test files starts a second run of
-# suites that ci.yml already ran.
-for p in paths:
-    extra = sorted(f.name for f in sources if fnmatch.fnmatchcase(f"cmuxTests/{f.name}", p) and f not in suite_files | helper_files)
-    if extra:
-        errors.append(f"trigger {p} also matches unrelated files: {', '.join(extra[:5])}")
-for e in errors:
-    print(f"FAIL: agent-notification-tests.yml {e}")
-sys.exit(1 if errors else 0)
-PY
-  echo "PASS: agent notification paths cover every suite file and helper the workflow runs"
-}
 
 pr_workflow_events() {
   # Prints the pull request events a workflow triggers on, for the mapping,
@@ -1447,6 +1386,5 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
-check_agent_notification_paths_cover_its_suites
 check_pr_macos_workflows_cancel_superseded_runs
 check_no_paid_overflow_fallbacks

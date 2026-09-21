@@ -22,16 +22,10 @@ final class ComputerUseOnboardingCoordinator {
         return true
     }
 
-    /// Called after the host matches a functional tool to an owned terminal.
-    /// Claim presentation synchronously so retries and dismissal
-    /// cannot repeatedly raise the window; Settings can always resume the flow.
+    /// Presents setup after runtime admission claims an explicit first-use
+    /// request. Runtime phase claiming remains the source of truth.
     @discardableResult
-    func requestFromToolInvocation(onboarding: ComputerUseOnboardingStore) -> Bool {
-        if case .disabled(onboardingComplete: false) = onboarding.phase {
-            onboarding.apply(.setEnabled(true))
-        }
-        guard onboarding.phase == .onboardingRequired else { return false }
-        onboarding.apply(.onboardingPresented)
+    func requestFromToolInvocation() -> Bool {
         presenter(.overview)
         return true
     }
