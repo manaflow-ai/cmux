@@ -99,11 +99,11 @@ struct SplitPaneGeometryProjectionRenderParityTests {
         let projectedFirstExtent = isHorizontal
             ? projection.sourceContentFrame.width
             : projection.sourceContentFrame.height
+        let context = "for \(testCase.direction) at \(testCase.split): divider \(split.dividerPosition), " +
+            "imposed \(String(describing: split.imposedFirstExtent)), split view \(splitView.bounds.size)"
         #expect(
             abs(projectedFirstExtent - renderedFirstExtent) <= 1,
-            "projected \(projectedFirstExtent) vs rendered \(renderedFirstExtent) for \(testCase) " +
-                "(divider \(split.dividerPosition), imposed \(String(describing: split.imposedFirstExtent)), " +
-                "split view \(splitView.bounds.size))"
+            "projected \(projectedFirstExtent) vs rendered \(renderedFirstExtent) \(context)"
         )
         let renderedSecondExtent = isHorizontal
             ? splitView.arrangedSubviews[1].frame.width

@@ -58,10 +58,16 @@ final class SplitPaneBackgroundUITests: XCTestCase {
         )
         var surfaceID: String?
         XCTAssertTrue(waitForCondition(timeout: 20) {
-            surfaceID = self.currentSurfaceID()
+            surfaceID = self.terminalSurfaceID()
             return surfaceID != nil
-        }, "Expected a focused terminal surface")
+        }, "Expected a terminal surface in the current workspace")
         let sourceSurfaceID = try XCTUnwrap(surfaceID)
+        // Cmd+Shift+D splits the focused panel, so make the source terminal
+        // the focused one explicitly instead of relying on launch focus.
+        XCTAssertTrue(
+            socketJSON(method: "surface.focus", params: ["surface_id": sourceSurfaceID])?["ok"] as? Bool == true,
+            "Expected surface.focus to succeed"
+        )
 
         // Dense magenta text: the only magenta pixels in the window come from
         // the source terminal, so its glyphs can be located in any frame.
@@ -374,11 +380,17 @@ final class SplitPaneBackgroundUITests: XCTestCase {
         }
     }
 
-    private func currentSurfaceID() -> String? {
-        guard let envelope = socketJSON(method: "surface.current", params: [:]),
+    /// The focused terminal of the current workspace, or its first terminal.
+    /// `surface.current` reports no surface while the app has no key window,
+    /// which is the normal state on a headless runner.
+    private func terminalSurfaceID() -> String? {
+        guard let envelope = socketJSON(method: "surface.list", params: [:]),
               envelope["ok"] as? Bool == true,
-              let result = envelope["result"] as? [String: Any] else { return nil }
-        return result["surface_id"] as? String
+              let result = envelope["result"] as? [String: Any],
+              let surfaces = result["surfaces"] as? [[String: Any]] else { return nil }
+        let terminals = surfaces.filter { ($0["type"] as? String) == "terminal" }
+        let preferred = terminals.first(where: { ($0["focused"] as? Bool) == true }) ?? terminals.first
+        return preferred?["id"] as? String
     }
 
     private func sendText(_ text: String, surfaceID: String) -> Bool {
