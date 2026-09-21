@@ -109,6 +109,31 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertEqual(items[0].kind, "finding")
 
+    def test_walkthrough_is_informational(self):
+        pr = make_pr(
+            reviews=[review("coderabbitai"), review("greptile-apps")],
+            threads=[thread(body="<!-- walkthrough_start -->\\n## Walkthrough")],
+        )
+        passed, _, items = gate.evaluate(pr)
+        self.assertTrue(passed)
+        self.assertEqual(items, [])
+
+    def test_dismissed_review_does_not_count_for_coverage(self):
+        import os
+        previous = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE")
+        os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = "1"
+        try:
+            pr = make_pr(reviews=[review("coderabbitai"), review("greptile-apps")])
+            pr["reviews"]["nodes"][0]["state"] = "DISMISSED"
+            passed, reasons, _ = gate.evaluate(pr)
+        finally:
+            if previous is None:
+                os.environ.pop("REQUIRE_BOT_REVIEW_COVERAGE", None)
+            else:
+                os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = previous
+        self.assertFalse(passed)
+        self.assertTrue(any("coderabbitai" in reason for reason in reasons))
+
     def test_outdated_and_informational_threads_are_not_obligations(self):
         informational = thread()
         informational["comments"]["nodes"][0]["body"] = "Review limit reached; no actionable comments"

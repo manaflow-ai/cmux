@@ -40,7 +40,11 @@ def comment_kind(body: str) -> str:
     """Return a stable provider-format classification, never a substring guess."""
     text = normalized_body(body)
     raw = re.sub(r"\s+", " ", body).strip().lower()
-    if "<!-- greptile_summary -->" in raw or "<!-- this is an auto-generated comment: summarize by coderabbit.ai -->" in raw:
+    if (
+        "<!-- greptile_summary -->" in raw
+        or "<!-- this is an auto-generated comment: summarize by coderabbit.ai -->" in raw
+        or "<!-- walkthrough_start -->" in raw
+    ):
         return "summary"
     if text.startswith(UNAVAILABLE_PREFIXES):
         return "unavailable"
@@ -208,7 +212,7 @@ def fetch_pr() -> dict[str, Any]:
             "https://api.github.com/graphql", data=data,
             headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(request) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:
             payload = json.load(response)
         if payload.get("errors"):
             raise RuntimeError("GitHub review data request failed")
