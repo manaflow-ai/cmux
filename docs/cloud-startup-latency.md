@@ -299,6 +299,55 @@ inside the one bundle exec.
 | 3 concurrent creates | create 1.76 s, attach 1.10 s each | allocation 0.45 s each | as sequential |
 | Full features (desktop visible, agents' credentials) | desktop +1–2 s in parallel; edge already up | desktop ~0.3 s | desktop ≤ 0.5 s after link |
 
+### 4.6 After the guest-tools bake and the create/attach removal (2026-09-21)
+
+Per-tag dev backends on `cmux-dev-backend-1` (same VM and Freestyle account,
+so only the code and the image differ), `bench-vm-startup.mjs staging
+--trials 5 --skip-pause --skip-exec`, throwaway Pro user, size `md`, two
+rounds each after a one-trial warm-up; every machine destroyed and every
+throwaway account deleted. `before` is the parent branch at `67b3bfb97c8`,
+`base` the branch point `8c3c6fc535`, `contract` the create-response attach
+block and attach-route timing alone, `after` that plus the baked image
+(`sh-2d4fcd3e944f494da99dba572f5eb516`, epoch 2026-09-21-r1, the create
+response says `attach.guestToolsBaked: true`) and the create/attach removal.
+
+| metric | before (n=10) | base (n=10) | contract (n=10) | after (n=10) |
+|---|---|---|---|---|
+| create (client, ms) | 1958 / 4001 / 5080 | 2234 / 2957 / 4403 | 2130 / 2668 / 3072 | 949 / 1278 / 1747 |
+| create server total | 1352 / 3858 / 4750 | 2033 / 2785 / 3304 | 1945 / 2462 / 2704 | 581 / 866 / 965 |
+| create provider_create | 1236 / 3822 / 4713 | 1950 / 2759 / 3280 | 1869 / 2080 / 2683 | 561 / 648 / 712 |
+| create resolve_network | 2.7 / 248 / 280 | 3.2 / 248 / 248 | 2.7 / 251 / 270 | 3.7 / 244 / 246 |
+| first attach (client, ms) | 1608 / 2385 / 3252 | 2089 / 2490 / 2872 | 2100 / 2326 / 2698 | 753 / 1316 / 1479 |
+| first attach server total | – / – / – | – / – / – | 1518 / 1587 / 1712 | 309 / 385 / 405 |
+| first attach provider_attach | – / – / – | – / – / – | 1477 / 1547 / 1560 | 294 / 373 / 396 |
+| first attach preflight_probe | – / – / – | – / – / – | 0.0 / 0.1 / 0.3 | 0.0 / 0.1 / 0.1 |
+| create → attach ready (client) | 3308 / 5699 / 7369 | 4259 / 5381 / 6613 | 4174 / 4932 / 5164 | 1798 / 2274 / 2309 |
+| warm attach (client, ms) | 1152 / 2101 / 2108 | 2107 / 2606 / 3098 | 2103 / 2629 / 2856 | 554 / 1015 / 1414 |
+| warm attach provider_attach | – / – / – | – / – / – | 1510 / 1606 / 1686 | 323 / 412 / 455 |
+| destroy (client, ms) | 533 / 1043 / 1311 | 761 / 1163 / 1574 | 925 / 1022 / 1046 | 641 / 1067 / 1318 |
+
+Cells are p50 / p90 / max.
+
+Guest work per request, from each container's `cmux.vm.freestyle.request`
+log attributed to the route request that made it (execs, machine creates and
+VPC creates are `POST`, uploads `PUT`, the status probe `GET`):
+
+| backend | `POST /api/vm` (each create) | `POST …/attach-endpoint` (each attach) |
+|---|---|---|
+| before (`67b3bfb97c8`) | 1 machine create + **2 guest execs** + 1 upload (`POST=3 PUT=1`) | 1 status `GET` + **5 guest execs** |
+| base (`8c3c6fc535`) | 1 machine create + **3 guest execs** + 1 upload (`POST=4 PUT=1`) | 1 status `GET` + **7 guest execs** + 1 upload |
+| contract (PR #13309) | 1 machine create + **2 guest execs** + 1 upload (`POST=3 PUT=1`) | **6 guest execs** + 1 upload, no status probe |
+| after (PR #13309 + #13312 + #13326) | **1 machine create, 0 guest execs, 0 uploads** (`POST=1`) | **1 guest exec** (`POST=1`), no probe, no upload |
+
+Every one of the 10 creates and 20 attach-endpoint requests per backend showed exactly these counts (the first create of each throwaway user adds one VPC `POST`). On the after backend the create route's only provider call is the machine create itself (`provider_create` p50 561 ms is the allocation alone), and the attach route's only provider call is the single attach exec (`provider_attach` p50 294 ms).
+
+Functional parity held on a fresh machine from the baked image (guest `cmux`,
+`coderouter`, `xdg-open` routing, resource reporter active, agent hooks
+installed, prompt shows the machine name) and on an older-epoch machine
+attached through the heal path on the same backend. The bench never dials the
+daemon, so the `after` attach always pays its one exec; a client that proves
+the attach itself skips it.
+
 ## 5. Lower-bound budget (explicit assumptions)
 
 Fresh cold create to a usable prompt, everything on the critical path and
