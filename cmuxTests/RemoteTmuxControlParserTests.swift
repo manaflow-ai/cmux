@@ -307,14 +307,19 @@ import Testing
     }
 
     @Test func mirrorTabReorderAnchorsIdsMissingFromRequested() {
-        let a = UUID(), b = UUID(), c = UUID()
-        // `requested` omits `c` entirely — `c` is anchored in place, and `a`/`b`
-        // already match their relative order in `current`, so this is a no-op.
+        let a = UUID(), b = UUID(), c = UUID(), d = UUID()
+        // `c` is omitted but already correctly placed, so anchoring it is a no-op.
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
-        // `requested` omits `a` — `a` stays anchored at its current slot, while
-        // `b` and `c` (both present, just in the opposite relative order) swap
-        // into each other's slots to match `requested`.
+        // `a` is omitted and anchored in place; `b`/`c` swap to match `requested`
+        // — the old strict-permutation contract refused this input (sets differ).
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == [a, c, b])
+        // A middle, non-contiguous anchor: `b`/`c` stay put while `a`/`d` fill
+        // the slots they vacated, in the requested order.
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c, d], requested: [d, a]) == [d, b, c, a])
+        // A duplicate id in `requested` is refused outright.
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [b, b]) == nil)
+        // Every id in `requested` filtered out (none present in `current`) refuses too.
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [UUID()]) == nil)
     }
 
     // MARK: - Reconnect: session-gone classification
