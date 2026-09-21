@@ -1616,11 +1616,55 @@ def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
     assert published == artifact_name("abc", 2)
 
 
-def test_full_suite_runs_still_require_the_suite() -> None:
-    assert run_tests_gate(tests_gate_needs("true", app_host="success")).returncode == 0
-    assert run_tests_gate(tests_gate_needs("true", app_host="skipped")).returncode == 1
-    # A missing output means the suite step did not report, which must not relax the gate.
-    assert run_tests_gate(tests_gate_needs(None, app_host="skipped")).returncode == 1
+def test_macos_status_requires_every_full_suite_lane() -> None:
+    full_suite = {
+        "macos": "true",
+        "full_suite": "true",
+        "compile_admitted": "false",
+        "release_build": "false",
+        "cache_backend": "",
+        "release_archs": "",
+    }
+    results = dict.fromkeys(MACOS_JOBS, "success")
+    results["release-build"] = "skipped"
+    assert run_macos_status(inputs=full_suite, results=results).returncode == 0
+
+    for job_name in ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests", "tests-build-and-lag"):
+        for outcome in ("skipped", "failure", "cancelled"):
+            failed = dict(results)
+            failed[job_name] = outcome
+            assert run_macos_status(inputs=full_suite, results=failed).returncode == 1, (job_name, outcome)
+
+    reused = dict(full_suite)
+    reused["compile_admitted"] = "true"
+    skipped_admission = dict(results)
+    skipped_admission["macos-compile-admission"] = "skipped"
+    assert run_macos_status(inputs=reused, results=skipped_admission).returncode == 1
+
+    release_required = dict(full_suite)
+    release_required["release_build"] = "true"
+    for outcome in ("skipped", "failure", "cancelled"):
+        failed = dict(results)
+        failed["release-build"] = outcome
+        assert run_macos_status(inputs=release_required, results=failed).returncode == 1
+    all_success = dict(results)
+    all_success["release-build"] = "success"
+    assert run_macos_status(inputs=release_required, results=all_success).returncode == 0
+
+def test_macos_status_rejects_invalid_route_values() -> None:
+    valid = {
+        "macos": "true",
+        "full_suite": "true",
+        "compile_admitted": "false",
+        "release_build": "false",
+        "cache_backend": "",
+        "release_archs": "",
+    }
+    for route in ("macos", "full_suite", "compile_admitted", "release_build"):
+        for value in ("", "False", "invalid"):
+            invalid = dict(valid)
+            invalid[route] = value
+            assert run_macos_status(inputs=invalid).returncode == 1, (route, value)
 
 
 def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> None:
@@ -1652,14 +1696,13 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    caller = workflow_job_block("macos")
     admission = workflow_job_block("macos-compile-admission")
 
+    assert "      - changes" in caller
+    assert "      - linux-preflight" in caller
     assert "name: macOS compile admission" in admission
-    assert "      - changes" in admission
-    assert "      - linux-preflight" in admission
-    # The compile lives in one script so the nightly cache seeder runs the same
-    # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
+    assert "inputs.macos == 'true'" in admission
     assert "scripts/ci/compile-app-host-test-product.sh build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
@@ -1667,8 +1710,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "actions/cache@27d5ce7" in admission or "uses: ./.github/actions/cache-restore" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "app_host_test_products.py stamp" in admission
-    assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
-    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+    assert 'framework_root="$(dirname "$framework_source")"' in admission
+    assert 'rsync -aL "$framework_root/" "$products/PackageFrameworks/"' in admission
 
     app_host = workflow_job_block("app-host-unit-tests")
     assert "      - macos-compile-admission" in app_host
@@ -1678,16 +1721,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "EXPECTED_SHA256" in app_host
     assert "-xctestrun" in app_host
 
-    # The focused shard and the logical unit-test batches must both reuse the
-    # admission-produced product. A later test invocation that silently changes
-    # back to `test` would reintroduce six redundant compiles.
     app_host_commands = [line.strip() for line in app_host.splitlines()]
-    assert all(
-        command != "test"
-        for command in app_host_commands
-        if command in {"test", "test-without-building"}
-    )
-
+    assert all(command != "test" for command in app_host_commands)
 
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
     block = workflow_job_block("guards")
@@ -1814,7 +1849,7 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
 
 
 def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> None:
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     runtime_block = workflow_job_block("tests-build-and-lag")
     package_block = workflow_job_block("swift-package-tests")
     release_block = workflow_job_block("release-build")
@@ -1844,7 +1879,6 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install Release helpers" in release_block
-
 
 def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     block = workflow_job_block("app-host-unit-tests")
