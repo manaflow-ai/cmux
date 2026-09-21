@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "ci" / "check_reusable_workflow_permissions.py"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 CI_WORKFLOW = WORKFLOWS_DIR / "ci.yml"
+CI_GUARDS_WORKFLOW = WORKFLOWS_DIR / "ci-guards.yml"
 
 spec = importlib.util.spec_from_file_location("check_reusable_workflow_permissions", CHECKER)
 assert spec and spec.loader
@@ -480,9 +481,9 @@ def test_repository_workflows_stay_within_their_callers_grants() -> None:
 
 
 def test_ci_runs_this_guard_in_workflow_guard_tests() -> None:
-    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    text = CI_GUARDS_WORKFLOW.read_text(encoding="utf-8")
     match = re.search(r"(?ms)^  workflow-guard-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
-    assert match is not None, "workflow-guard-tests job missing from ci.yml"
+    assert match is not None, "workflow-guard-tests job missing from ci-guards.yml"
 
     assert "run: python3 tests/test_ci_reusable_workflow_permissions.py" in match.group(1), match.group(1)
 
