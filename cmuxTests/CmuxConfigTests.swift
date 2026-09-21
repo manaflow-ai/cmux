@@ -1818,9 +1818,9 @@ final class CmuxConfigDecodingTests: XCTestCase {
         })
         let missingIssues = store.configurationIssues.filter { issue in
             issue.kind == .schemaError
-                && issue.message?.contains("pack file does not exist") == true
+                && issue.sourcePath?.contains("/missing-") == true
         }
-        XCTAssertLessThanOrEqual(missingIssues.count, 32)
+        XCTAssertEqual(missingIssues.count, 32)
     }
 
     @MainActor
