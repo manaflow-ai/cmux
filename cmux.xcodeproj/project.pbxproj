@@ -3558,6 +3558,7 @@
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		123810000000000000000002 /* TerminalPaneMetricInvalidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */; };
 		123810000000000000000004 /* TerminalPaneMetricsFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000003 /* TerminalPaneMetricsFixture.swift */; };
+		123810000000000000000008 /* TerminalPaneMetricsWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000007 /* TerminalPaneMetricsWindow.swift */; };
 		B88351000000000000000001 /* TerminalPasteboardReadRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */; };
 		B88355000000000000000001 /* TerminalPastePreparationDestination.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88355000000000000000002 /* TerminalPastePreparationDestination.swift */; };
 		B88357000000000000000009 /* TerminalPastePreparationFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8835700000000000000000A /* TerminalPastePreparationFailure.swift */; };
@@ -7556,6 +7557,7 @@
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricInvalidationTests.swift; sourceTree = "<group>"; };
 		123810000000000000000003 /* TerminalPaneMetricsFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricsFixture.swift; sourceTree = "<group>"; };
+		123810000000000000000007 /* TerminalPaneMetricsWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneMetricsWindow.swift; sourceTree = "<group>"; };
 		B88351000000000000000002 /* TerminalPasteboardReadRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteboardReadRequest.swift; sourceTree = "<group>"; };
 		B88355000000000000000002 /* TerminalPastePreparationDestination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationDestination.swift; sourceTree = "<group>"; };
 		B8835700000000000000000A /* TerminalPastePreparationFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationFailure.swift; sourceTree = "<group>"; };
@@ -11480,6 +11482,7 @@
 				C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */,
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
 				123810000000000000000003 /* TerminalPaneMetricsFixture.swift */,
+				123810000000000000000007 /* TerminalPaneMetricsWindow.swift */,
 				123810000000000000000001 /* TerminalPaneMetricInvalidationTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				804100000000000000000004 /* ReorderShortcutActionTests.swift */,
@@ -16652,6 +16655,7 @@
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				123810000000000000000002 /* TerminalPaneMetricInvalidationTests.swift in Sources */,
 				123810000000000000000004 /* TerminalPaneMetricsFixture.swift in Sources */,
+				123810000000000000000008 /* TerminalPaneMetricsWindow.swift in Sources */,
 				B12715000000000000000001 /* TerminalPastePreparationReapingTests.swift in Sources */,
 				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,
 				C13519000000000000000013 /* TerminalPathEnvironmentTests.swift in Sources */,
