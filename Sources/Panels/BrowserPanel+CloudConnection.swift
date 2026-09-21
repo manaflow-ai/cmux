@@ -36,7 +36,8 @@ extension BrowserPanel {
 
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
-    func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil) {
+    func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
+                             activate: Bool = true) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -49,6 +50,7 @@ extension BrowserPanel {
         cloudAccess.retainResource(resource)
         retainTransferredSurfaceMachine(resource.machine)
         catalog.restore([SurfaceProjectionRecord(panelID: id, resource: resource)], workspaceID: workspaceId)
+        guard activate else { return }
         guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
               let known = catalog.resources[resource] else {
             cloudAccess.showUnavailable(String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."))

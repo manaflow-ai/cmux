@@ -228,7 +228,9 @@ class CloudDisplayCatalogTests(unittest.TestCase):
     def test_start_failure_retains_resource_and_replay_receipt(self):
         service = display.DisplayService(self.catalog(), self.root / "runtime")
         request = str(uuid.uuid4())
-        with mock.patch.object(display.subprocess, "run", side_effect=OSError("starter unavailable")), mock.patch.object(display, "ready", return_value=False):
+        with mock.patch.object(display.subprocess, "run", side_effect=OSError("starter unavailable")), \
+             mock.patch.object(display.shutil, "which", return_value=None), \
+             mock.patch.object(display, "ready", return_value=False):
             try:
                 result = service.handle({"action": "create", "request": request})
                 retried = service.handle({"action": "create", "request": request})
