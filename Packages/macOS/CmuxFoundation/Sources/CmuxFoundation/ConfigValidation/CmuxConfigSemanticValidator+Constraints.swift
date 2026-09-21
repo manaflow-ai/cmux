@@ -200,7 +200,17 @@ extension CmuxConfigSemanticValidator {
         tolerateUnknownProperties: Bool
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
-        if let minimum = schemaInteger(schema["minProperties"]), value.count < minimum {
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        let patternProperties = schema["patternProperties"] as? [String: Any] ?? [:]
+        let additional = schema["additionalProperties"]
+        // Only a newer closed object can have genuinely unknown additions.
+        // Open dictionaries still validate every entry, including name/count limits.
+        let ignoresFutureKeys = tolerateUnknownProperties && (additional as? Bool) == false
+        let constrainedKeys = value.keys.filter { key in
+            !ignoresFutureKeys || properties[key] != nil
+                || patternProperties.keys.contains { matchesPattern(key, pattern: $0) }
+        }
+        if let minimum = schemaInteger(schema["minProperties"]), constrainedKeys.count < minimum {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
@@ -212,12 +222,7 @@ extension CmuxConfigSemanticValidator {
                 )
             )
         }
-        let properties = schema["properties"] as? [String: Any] ?? [:]
-        let patternProperties = schema["patternProperties"] as? [String: Any] ?? [:]
-        let knownKeys = Set(value.keys.filter { key in
-            properties[key] != nil || patternProperties.keys.contains { matchesPattern(key, pattern: $0) }
-        })
-        if let maximum = schemaInteger(schema["maxProperties"]), knownKeys.count > maximum {
+        if let maximum = schemaInteger(schema["maxProperties"]), constrainedKeys.count > maximum {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
@@ -245,12 +250,11 @@ extension CmuxConfigSemanticValidator {
         }
 
         let propertyNameSchema = schema["propertyNames"] as? [String: Any]
-        let additional = schema["additionalProperties"]
 
-        for key in value.keys.sorted() {
+        for key in constrainedKeys.sorted() {
             let child = childPath(path, key: key)
             guard let childValue = value[key] else { continue }
-            if knownKeys.contains(key), let propertyNameSchema {
+            if let propertyNameSchema {
                 issues.append(
                     contentsOf: validate(
                         key,
