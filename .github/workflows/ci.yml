@@ -55,6 +55,7 @@ jobs:
       ghosttykit_release: ${{ steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
+      compile_admission_changed: ${{ steps.admission-change.outputs.changed }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       source_identity_valid: ${{ steps.source-identity.outputs.valid }}
@@ -221,6 +222,28 @@ jobs:
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
 
+      - name: Detect compile-admission changes
+        id: admission-change
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          changed=true
+          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
+            && [ -s /tmp/cmux-ci-changed-files.txt ]; then
+            changed=false
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/ci.yml|.github/actions/*|scripts/ci/*)
+                  changed=true
+                  break
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "compile admission contract changed: $changed"
+
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
       # the repository variable CI_PULL_REQUEST_SUITE is "compile-only". Under
@@ -267,15 +290,13 @@ jobs:
             --event-name "$EVENT_NAME" --macos "$MACOS" \
             --files-from /tmp/cmux-ci-changed-files.txt >> "$GITHUB_OUTPUT"
 
-      # A push that changes nothing the Xcode build reads (a guard test, another
-      # workflow, docs, a merge of main that only moved web) has nothing new to
-      # compile. Each pull request run publishes its build-input fingerprint as
-      # an artifact name, and a compile-only run whose fingerprint an earlier run
-      # of the same in-org branch already compiled skips compile admission. Runs
-      # with the full suite always compile, because the shards need the product.
-      # The artifact name carries the run attempt, so a pass only vouches for the
-      # fingerprint published in its own attempt. These steps are an optimization:
-      # any of them failing leaves compile_admitted unset, which compiles.
+      # Product identity and admission identity are separate. Every routed run
+      # publishes the compiled-product input identity. A compile-only PR may skip
+      # the Mac entirely when an earlier run admitted that exact product identity,
+      # but never when CI/admission implementation changed: those runs execute the
+      # current macOS admission logic and may reuse the compatible product inside
+      # that job. Full-suite runs also keep admission because shards need a product.
+      # Any optimization failure falls back to normal admission/compilation.
       - name: Fingerprint the build inputs
         id: inputs
         continue-on-error: true
@@ -284,7 +305,7 @@ jobs:
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
-          fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
+          fingerprint="$(python3 scripts/ci/product_input_identity.py --key --extra "xcode=$XCODE_APP")"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
           echo "$fingerprint" > "$RUNNER_TEMP/build-inputs.txt"
 
@@ -301,7 +322,7 @@ jobs:
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.admission-change.outputs.changed == 'false' }}
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref }}

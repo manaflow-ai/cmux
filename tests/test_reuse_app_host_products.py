@@ -130,6 +130,16 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.contract = original
 
+    def test_product_identity_key_pins_external_build_selectors(self):
+        value = self.contract["product_inputs"]
+        identity = reuse.product_inputs
+        first = identity.identity_key(value, ["xcode=/Applications/Xcode_26.3.app"])
+        same = identity.identity_key(value, ["xcode=/Applications/Xcode_26.3.app"])
+        changed = identity.identity_key(value, ["xcode=/Applications/Xcode_26.4.app"])
+        self.assertEqual(first, same)
+        self.assertNotEqual(first, changed)
+
+
     def test_product_identity_separates_orchestration_from_product_inputs(self):
         identity = reuse.product_inputs
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()

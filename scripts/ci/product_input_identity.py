@@ -270,7 +270,6 @@ def recipe_projection(workflow: str) -> dict[str, object]:
             controls["env"] = _product_job_environment(block)
             continue
         if name == "defaults":
-            # shell / working-directory semantics can change every retained step.
             controls["defaults"] = block
             continue
         if name == "steps":
@@ -320,11 +319,30 @@ def local_identity(revision: str = "HEAD") -> dict[str, str]:
     return identity_from_tree_lines(tree_lines, workflow)
 
 
+def identity_key(value: dict[str, str], extra: Iterable[str] = ()) -> str:
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    )
+    digest.update(b"\n")
+    for item in sorted(extra):
+        digest.update(b"extra:" + item.encode("utf-8") + b"\n")
+    return digest.hexdigest()
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--revision", default="HEAD")
+    parser.add_argument("--key", action="store_true")
+    parser.add_argument("--extra", action="append", default=[])
     args = parser.parse_args(argv)
-    print(json.dumps(local_identity(args.revision), sort_keys=True))
+    value = local_identity(args.revision)
+    if args.key:
+        print(identity_key(value, args.extra))
+    else:
+        if args.extra:
+            parser.error("--extra requires --key")
+        print(json.dumps(value, sort_keys=True))
     return 0
 
 
