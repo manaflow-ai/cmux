@@ -5,7 +5,7 @@ import Foundation
 /// cannot wedge the empty-state control or accumulate unbounded work.
 actor MobileWorkspaceRetryCoordinator {
     private static let maximumAbandonedAttempts = 3
-    private var activeAttempt: Attempt?
+    private var activeAttempt: MobileWorkspaceRetryAttempt?
     private var abandonedAttempts: [UUID: Task<Void, Never>] = [:]
 
     func start(_ operation: @escaping @Sendable () async -> Void) -> MobileWorkspaceRetryAttempt? {
