@@ -5,7 +5,7 @@ import Testing
 extension CLICallerWorkspaceDefaultTests {
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "explicit", "tty", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -36,6 +36,10 @@ extension CLICallerWorkspaceDefaultTests {
         if [ "$GH_FAILURE" = 1 ]; then
           echo 'provider secret: do not expose this' >&2
           exit 9
+        fi
+        if [ "$GH_MALFORMED" = 1 ]; then
+          echo '{not-json'
+          exit 0
         fi
         case "$1 $2" in
           'repo view') echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
@@ -80,9 +84,12 @@ extension CLICallerWorkspaceDefaultTests {
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.focusedWorkspaceId]
+        case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.otherWorkspaceId]
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
         case "invalid": args[1] = "https://example.com/pull/123"
         case "gh-failure": environment["GH_FAILURE"] = "1"
+        case "gh-malformed": environment["GH_MALFORMED"] = "1"
         case "clear": args[1] = "clear"
         case "blank": args += ["--workspace", ""]
         case "option": args += ["--typo"]
@@ -96,7 +103,7 @@ extension CLICallerWorkspaceDefaultTests {
         #expect(!result.timedOut)
         let lines = state.linesSnapshot()
         let mutations = lines.filter { $0.contains("workspace_pr") }
-        let shouldFail = ["ambiguous", "mismatch", "invalid", "gh-failure", "blank", "option"].contains(scenario)
+        let shouldFail = ["window-mismatch", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "blank", "option"].contains(scenario)
         #expect((result.status != 0) == shouldFail, Comment(rawValue: result.stderr))
         #expect(!lines.contains { $0.contains("workspace.current") || $0.contains("window.focus") })
         if shouldFail {
@@ -105,11 +112,15 @@ extension CLICallerWorkspaceDefaultTests {
                 #expect(!result.stderr.contains("provider secret"))
                 #expect(result.stderr.contains("gh auth status"))
             }
+            if scenario == "gh-malformed" {
+                #expect(result.stderr.contains("invalid pull-request metadata"))
+                #expect(!result.stderr.contains("not-json"))
+            }
             return
         }
         let mutation = try #require(mutations.first)
         #expect(mutations.count == 1)
-        let expected = ["explicit", "tty", "worktree"].contains(scenario) ? Self.otherWorkspaceId : Self.callerWorkspaceId
+        let expected = ["explicit", "tty", "window", "worktree"].contains(scenario) ? Self.otherWorkspaceId : Self.callerWorkspaceId
         #expect(mutation.contains("--tab=\(expected)"))
         if scenario == "clear" {
             #expect(mutation.contains("clear_workspace_pr"))
