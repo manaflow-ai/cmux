@@ -174,14 +174,14 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         func dismiss() {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
-            guard let popover else {
+            guard let popover = self.popover else {
                 isPresented = false
                 return
             }
             closingPopover = popover
             if group != nil { popover.animates = false }
             popover.performClose(nil)
-            popover = nil
+            self.popover = nil
             isPresented = false
         }
 
