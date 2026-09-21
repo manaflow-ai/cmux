@@ -31,8 +31,9 @@ def test_quality_groups_are_parallel_and_owned() -> None:
     block = workflow_job_block("workflow-guard-tests")
 
     assert (
-        "group: [preflight, ci, app-host, release, quality-sharding, "
-        "quality-runtime, quality-determinism]"
+        "group: [preflight, ci, app-host-execution, app-host-process, "
+        "app-host-cache, release, quality-sharding, quality-runtime, "
+        "quality-determinism]"
     ) in block
 
     expected = {
