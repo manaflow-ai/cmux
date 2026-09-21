@@ -21,6 +21,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
     func canonicalCoreResponsesUseAuthenticatedOwnerOnBothIngressLanes(method: String) async throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
+        #expect(fixture.workspace.setCustomTitle("relay-owner-test"))
         let params: [String: Any] = method == "system.ping" ? [:]
             : ["workspace_id": fixture.workspace.id.uuidString]
         let request = try fixture.signedRequest(method: method, params: params)
@@ -43,7 +44,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 #expect(result["window_id"] is NSNull)
                 let owner = try #require(result["workspace"] as? [String: Any])
                 #expect(owner["id"] as? String == fixture.workspace.id.uuidString)
-                #expect((owner["title"] as? String)?.isEmpty == false)
+                #expect(owner["title"] as? String == "relay-owner-test")
                 #expect(Set(owner.keys) == ["id", "title"])
             }
         }
