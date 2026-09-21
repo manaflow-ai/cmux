@@ -152,7 +152,7 @@ extension CLICallerWorkspaceDefaultTests {
             #expect(mutation.contains("clear_workspace_pr"))
         } else {
             #expect(mutation.contains("report_workspace_pr"))
-            let expectedURL = scenario == "fork-upstream"
+            let expectedURL = ["fork-upstream", "fork-number"].contains(scenario)
                 ? "https://github.com/upstream/repo/pull/123"
                 : "https://github.com/owner/repo/pull/123"
             #expect(mutation.contains(expectedURL))
