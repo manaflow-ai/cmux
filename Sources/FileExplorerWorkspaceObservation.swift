@@ -26,7 +26,7 @@ final class FileExplorerWorkspaceObservation {
                 guard let self, let workspace,
                       (notification.object as? Workspace) === workspace ||
                         (notification.userInfo?["workspaceId"] as? UUID) == workspace.id else { return }
-                self.refresh(force: true)
+                self.refresh()
             }
         }
         catalogObserver = NotificationCenter.default.addObserver(
@@ -39,14 +39,14 @@ final class FileExplorerWorkspaceObservation {
                       let machine = workspace.cloudVMBinding?.vmID,
                       let changedMachines = notification.userInfo?["machines"] as? [String],
                       changedMachines.contains(machine) else { return }
-                self.refresh(force: true)
+                self.refresh()
             }
         }
         bindingChangesTask = Task { @MainActor [weak self, weak workspace] in
             guard let workspace else { return }
             for await _ in workspace.cloudBindingState.changes() {
                 guard let self, self.workspace === workspace else { return }
-                self.refresh(force: true)
+                self.refresh()
             }
         }
     }

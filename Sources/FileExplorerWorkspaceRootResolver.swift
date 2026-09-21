@@ -115,8 +115,9 @@ struct FileExplorerWorkspaceRootResolver {
               catalog.cloudStateObservations[.cloud(vmID)]?.freshness == .current else { return nil }
         if let concrete = provider as? CmuxTuiSurfaceProvider,
            concrete.isFeatureSuspended || concrete.fileAccessTeamScope != team { return nil }
-        let projections = catalog.projectionRecords(forWorkspace: workspace.id)
-        guard projections.allSatisfy({ $0.resource.machine.isLocal || $0.resource.machine == .cloud(vmID) }) else { return nil }
+        guard catalog.projectionMachines(forWorkspace: workspace.id).allSatisfy({
+            $0.isLocal || $0 == .cloud(vmID)
+        }) else { return nil }
         guard workspace.cloudBindingState.projectedResources.values.allSatisfy({
             $0.machine.isLocal || $0.machine == .cloud(vmID)
         }) else { return nil }

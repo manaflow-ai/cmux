@@ -36,7 +36,11 @@ with os.scandir(path) as directory:
     for entry in directory:
         if not show_hidden and entry.name.startswith("."):
             continue
-        entries.append({"name": entry.name, "path": entry.path, "directory": entry.is_dir(follow_symlinks=False)})
+        try:
+            is_directory = entry.is_dir(follow_symlinks=True)
+        except OSError:
+            is_directory = False
+        entries.append({"name": entry.name, "path": entry.path, "directory": is_directory})
         if len(entries) > 10000:
             sys.exit(74)
 json.dump(entries, sys.stdout, separators=(",", ":"))

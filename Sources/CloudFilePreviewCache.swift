@@ -35,6 +35,16 @@ actor CloudFilePreviewCache {
         }
     }
 
+    func refresh(_ lease: CloudFilePreviewLease, provider: any RemoteFileExplorerProvider) async throws {
+        guard !ManagedFileTransferPolicy.isDisabled else {
+            throw ManagedFileTransferPolicy.refusalError()
+        }
+        guard entries.contains(lease.url) else { throw FileExplorerError.providerUnavailable }
+        try await provider.downloadFile(path: lease.remotePath, to: lease.url)
+        try Task.checkCancellation()
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: lease.url.path)
+    }
+
     func release(_ url: URL) {
         guard entries.remove(url) != nil else { return }
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())

@@ -24,8 +24,9 @@ struct FileExplorerPreviewCoordinator {
                 if let cloud = provider as? CloudVMFileExplorerProvider {
                     guard let target = cloud.target else { throw FileExplorerError.providerUnavailable }
                     try target.validate(vmID: cloud.vmID)
-                    if Self.focusExistingRemotePreview(
-                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane
+                    if try await Self.refreshExistingRemotePreview(
+                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane,
+                        cache: store.cloudPreviewCache, provider: cloud
                     ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: cloud)
                     guard isCurrent(), store.resourceContextID == context else { return }
@@ -39,8 +40,9 @@ struct FileExplorerPreviewCoordinator {
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
                 } else if let remote = provider as? any RemoteFileExplorerProvider {
-                    if Self.focusExistingRemotePreview(
-                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane
+                    if try await Self.refreshExistingRemotePreview(
+                        path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane,
+                        cache: store.cloudPreviewCache, provider: remote
                     ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: remote)
                     guard isCurrent(), store.resourceContextID == context else { return }
@@ -60,12 +62,14 @@ struct FileExplorerPreviewCoordinator {
         }
     }
 
-    private static func focusExistingRemotePreview(
+    private static func refreshExistingRemotePreview(
         path: String,
         providerIdentity: ObjectIdentifier,
         workspace: Workspace,
-        pane: PaneID
-    ) -> Bool {
+        pane: PaneID,
+        cache: CloudFilePreviewCache,
+        provider: any RemoteFileExplorerProvider
+    ) async throws -> Bool {
         guard let existing = workspace.panels.values
             .compactMap({ $0 as? FilePreviewPanel })
             .first(where: {
@@ -74,6 +78,9 @@ struct FileExplorerPreviewCoordinator {
                     $0.cloudPreviewProviderIdentity == providerIdentity &&
                     FileManager.default.fileExists(atPath: $0.filePath)
             }) else { return false }
+        guard let lease = existing.cloudPreviewLease else { return false }
+        try await cache.refresh(lease, provider: provider)
+        _ = existing.reloadFromDisk()
         _ = workspace.openOrFocusFilePreviewSurface(inPane: pane, filePath: existing.filePath, focus: true)
         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: existing)
         return true
