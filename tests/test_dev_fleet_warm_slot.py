@@ -215,6 +215,16 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(released["status"], "released")
         self.assertFalse((self.state / "slots/slot/lease.json").exists())
 
+    def test_task_base_rejects_stale_warm_generation(self):
+        self.warm(self.base)
+        selected = self.call(
+            "task-base", *self.common(), "--authoritative-main", self.neutral,
+            "--task-id", "stale", "--max-main-distance", "0",
+        )
+        self.assertEqual(selected["status"], "cold")
+        self.assertEqual(selected["reason"], "warm_generation_stale")
+        self.assertEqual(selected["distance_to_main"], 1)
+
     def test_expired_reservation_releases_slot_to_warmer(self):
         self.warm(self.base)
         selected = self.call(

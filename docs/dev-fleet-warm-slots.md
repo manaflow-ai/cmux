@@ -17,7 +17,7 @@ A warm generation records:
 - a persistent cache-lineage id and DerivedData path;
 - whether that lineage is warm-ready or quarantined.
 
-Task creation asks task-base for a compatible generation. That command first publishes foreground demand, waits for the slot, then leaves a durable `reserved-task` lease containing `lease_id`, `base_commit`, and `warm_generation_id`. The task branches from that exact source while the reservation prevents the warmer from changing the slot. `task-run` must present the same lease/generation pair before it can consume warm state. Authoritative main can continue moving independently, and CI continues validating its current main or merge-group source.
+Task creation asks task-base for a compatible generation. That command first publishes foreground demand, waits for the slot, then leaves a durable `reserved-task` lease containing `lease_id`, `base_commit`, and `warm_generation_id`. By default the accepted base may trail authoritative main by at most three first-parent commits; an experiment can set `--max-main-distance` explicitly. Unknown or older distance falls back cold. The task branches from that exact source while the reservation prevents the warmer from changing the slot. `task-run` must present the same lease/generation pair before it can consume warm state. Authoritative main can continue moving independently, and CI continues validating its current main or merge-group source.
 
 This removes a synchronization job from Git refs. The default input proof is the complete tracked Git tree, so any tree change schedules a native warm build. Only an identical tree can advance source metadata without Xcode. A narrower skip policy belongs behind a project-owned, measured input declaration; uncertainty always rebuilds.
 
@@ -52,7 +52,7 @@ The contract is:
 - The warmer lowers its process priority with nice(15). Foreground task builds keep normal priority.
 - Dirty source quarantines a warm lineage. Source movement uses clean detached Git switches; the helper never runs git reset.
 - Xcode/toolchain changes make the prior generation cold.
-- A task miss gets an isolated cold DerivedData directory and still runs the complete native build.
+- A task miss, stale generation, or unprovable main distance gets the cold path; task builds use isolated cold DerivedData and still run the complete native build.
 - Dirty/unavailable/recovery-required source returns cold_fallback_required so the controller can use its existing clean exact-SHA lane.
 - A successful task build that consumed the shared warm lineage marks it warm_ready=false. The slot must be warmed back to main before it can advertise another task base.
 - Reservations expire after a bounded lease interval. An abandoned task can release its exact lease explicitly; mismatched task/lease IDs fail closed.

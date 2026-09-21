@@ -1006,6 +1006,8 @@ def task_base(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.lease_seconds <= 0 or args.lease_seconds > 7200:
         return persist({"status": "cold", "reason": "invalid_lease_seconds"})
+    if args.max_main_distance < 0:
+        return persist({"status": "cold", "reason": "invalid_max_main_distance"})
 
     with foreground_request(layout, args.task_id, args.authoritative_main):
         with locked(layout.slot_lock), locked(checkout_lock_path(layout, checkout)):
@@ -1037,6 +1039,24 @@ def task_base(args: argparse.Namespace) -> dict[str, Any]:
             ):
                 return persist({"status": "cold", "reason": p["reason"], "plan": p})
 
+            main_distance = distance(
+                checkout,
+                str(gen["source_commit"]),
+                args.authoritative_main,
+            )
+            if main_distance is None:
+                return persist({
+                    "status": "cold",
+                    "reason": "warm_generation_distance_unknown",
+                })
+            if main_distance > args.max_main_distance:
+                return persist({
+                    "status": "cold",
+                    "reason": "warm_generation_stale",
+                    "distance_to_main": main_distance,
+                    "max_main_distance": args.max_main_distance,
+                })
+
             lease_id = uuid.uuid4().hex
             expires_epoch = time.time() + args.lease_seconds
             reservation = {
@@ -1048,7 +1068,7 @@ def task_base(args: argparse.Namespace) -> dict[str, Any]:
                 "base_commit": gen["source_commit"],
                 "warm_generation_id": gen["generation_id"],
                 "authoritative_main": args.authoritative_main,
-                "distance_to_main": distance(checkout, str(gen["source_commit"]), args.authoritative_main),
+                "distance_to_main": main_distance,
                 "toolchain_fingerprint": gen["toolchain_fingerprint"],
                 "build_input_fingerprint": gen["build_input_fingerprint"],
                 "reserved_at": now_iso(),
@@ -1387,6 +1407,12 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--authoritative-main", required=True)
     p.add_argument("--task-id", required=True)
     p.add_argument("--lease-seconds", type=int, default=1800)
+    p.add_argument(
+        "--max-main-distance",
+        type=int,
+        default=3,
+        help="maximum first-parent commits a warm task base may trail authoritative main",
+    )
     p.add_argument("--receipt", type=Path)
 
     p = sub.add_parser("task-run")
