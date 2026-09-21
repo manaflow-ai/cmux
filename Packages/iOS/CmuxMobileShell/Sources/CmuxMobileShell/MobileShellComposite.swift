@@ -15778,7 +15778,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
             await inFlight.value
-            return
+            if !inFlight.isCancelled { return }
         }
         await reloadWorkspaceListFromMac()
     }
@@ -15788,7 +15788,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
             await inFlight.value
-            return
+            if !inFlight.isCancelled { return }
         }
         let task = Task { @MainActor [weak self] in
             defer { self?.pullToRefreshTask = nil }

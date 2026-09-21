@@ -67,9 +67,12 @@ struct MobileWorkspaceListEmptyRow: View {
                             return
                         }
                         guard retryAttemptID == attemptID else { return }
+                        retryAttemptID = nil
                         retryTask?.cancel()
                         cancelRetry?()
                         retryTimeoutTask = nil
+                        retryTask = nil
+                        isRetrying = false
                         retryTimedOut = true
                     }
                 } label: {
@@ -93,7 +96,10 @@ struct MobileWorkspaceListEmptyRow: View {
                         retryTask?.cancel()
                         cancelRetry?()
                         retryTimeoutTask?.cancel()
+                        retryAttemptID = nil
+                        retryTask = nil
                         retryTimeoutTask = nil
+                        isRetrying = false
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.regular)
