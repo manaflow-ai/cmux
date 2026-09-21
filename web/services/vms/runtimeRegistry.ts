@@ -155,6 +155,7 @@ export function resolveHiveRuntimeByMachineId(input: {
 /** Resolves a runtime from the provider VM id used by legacy Cloud routes. */
 export function resolveHiveRuntimeByProviderVmId(input: {
   readonly ownerTeamId: string;
+  readonly provider: typeof cloudVms.$inferSelect["provider"];
   readonly providerVmId: string;
   readonly expected?: HiveRuntimePlacement;
 }) {
@@ -162,6 +163,7 @@ export function resolveHiveRuntimeByProviderVmId(input: {
     { ...input, runtimeId: input.expected?.runtimeId ?? "" },
     and(
       eq(cloudRuntimes.ownerTeamId, input.ownerTeamId),
+      eq(cloudVms.provider, input.provider),
       eq(cloudVms.providerVmId, input.providerVmId),
       eq(cloudVms.ownerTeamId, input.ownerTeamId),
     ),

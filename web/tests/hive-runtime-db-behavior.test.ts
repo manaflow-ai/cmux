@@ -94,6 +94,7 @@ dbTest("runtime placement resolver fences owner and generation without waking", 
   }))).toMatchObject({ runtime: { id: placement.runtimeId } });
   expect(await Effect.runPromise(resolveHiveRuntimeByProviderVmId({
     ownerTeamId: owner,
+    provider: "freestyle",
     providerVmId: placement.providerVmId,
     expected: placement,
   }))).toMatchObject({ runtime: { id: placement.runtimeId } });
