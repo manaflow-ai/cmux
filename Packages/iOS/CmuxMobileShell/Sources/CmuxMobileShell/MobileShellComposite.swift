@@ -1362,11 +1362,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// touching a newer retry started for the newly selected Mac.
     var pullToRefreshOwnerID: String?
     var pullToRefreshOwnerInstanceTag: String?
+    var pullToRefreshRecoveryGeneration: UUID?
     /// Stable Mac identity for the connection-recovery waiter currently owned
     /// by the workspace-list Retry action.
     var workspaceListRecoveryOwnerID: String?
     var workspaceListRecoveryOwnerInstanceTag: String?
     var workspaceListRecoveryConnectionGeneration: UUID?
+    var workspaceListRecoveryConnectionAttemptID: UUID?
+    var workspaceListRecoveryWaitingForConnectionAttempt = false
+    var workspaceListRecoveryPreparedGeneration: UUID?
     var workspaceListRecoveryActive = false
     var workspaceListRecoveryGeneration = UUID()
     /// Generation of the task currently occupying ``pullToRefreshTask``.
@@ -1985,9 +1989,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pullToRefreshTask = nil
         self.pullToRefreshOwnerID = nil
         self.pullToRefreshOwnerInstanceTag = nil
+        self.pullToRefreshRecoveryGeneration = nil
         self.workspaceListRecoveryOwnerID = nil
         self.workspaceListRecoveryOwnerInstanceTag = nil
         self.workspaceListRecoveryConnectionGeneration = nil
+        self.workspaceListRecoveryConnectionAttemptID = nil
+        self.workspaceListRecoveryWaitingForConnectionAttempt = false
+        self.workspaceListRecoveryPreparedGeneration = nil
         self.workspaceListRecoveryActive = false
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
@@ -11497,9 +11505,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask = nil
         pullToRefreshOwnerID = nil
         pullToRefreshOwnerInstanceTag = nil
+        pullToRefreshRecoveryGeneration = nil
         workspaceListRecoveryOwnerID = nil
         workspaceListRecoveryOwnerInstanceTag = nil
         workspaceListRecoveryConnectionGeneration = nil
+        workspaceListRecoveryConnectionAttemptID = nil
+        workspaceListRecoveryWaitingForConnectionAttempt = false
+        workspaceListRecoveryPreparedGeneration = nil
         workspaceListRecoveryActive = false
         workspaceListRecoveryGeneration = UUID()
         workspaceChangesSummaryDebounceTask?.cancel()
@@ -15822,6 +15834,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let generation = UUID()
         let ownerID = connectedMacDeviceID
         let ownerInstanceTag = connectedMacInstanceTag
+        let recoveryGeneration = workspaceListRecoveryActive
+            ? workspaceListRecoveryGeneration
+            : nil
         pullToRefreshGeneration = generation
         let task = Task { @MainActor [weak self] in
             defer {
@@ -15829,6 +15844,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.pullToRefreshTask = nil
                     self.pullToRefreshOwnerID = nil
                     self.pullToRefreshOwnerInstanceTag = nil
+                    self.pullToRefreshRecoveryGeneration = nil
                 }
             }
             guard !Task.isCancelled else { return }
@@ -15849,6 +15865,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pullToRefreshTask = task
         pullToRefreshOwnerID = ownerID
         pullToRefreshOwnerInstanceTag = ownerInstanceTag
+        pullToRefreshRecoveryGeneration = recoveryGeneration
         await task.value
     }
 

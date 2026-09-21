@@ -11,11 +11,14 @@ struct MobileWorkspaceListEmptyRow: View {
     let onLayoutChange: (() -> Void)?
     let shouldCancelRetryOnDisappear: (() -> Bool)?
     let isRetryOwnerCurrentOnDisappear: (() -> Bool)?
-    var cancelRetryOnDisappear: (() -> Void)? = nil
+    var beginRetry: (() -> UUID?)? = nil
+    var cancelRetryAttempt: ((UUID?) -> Void)? = nil
+    var cancelRetryOnDisappear: ((UUID?) -> Void)? = nil
     @State private var isRetrying = false
     @State private var retryTask: Task<Void, Never>?
     @State private var retryTimeoutTask: Task<Void, Never>?
     @State private var retryAttemptID: UUID?
+    @State private var retryRecoveryGeneration: UUID?
     @State private var retryTimedOut = false
 
     var body: some View {
@@ -47,6 +50,8 @@ struct MobileWorkspaceListEmptyRow: View {
                 Button {
                     guard !isRetrying else { return }
                     let attemptID = UUID()
+                    let recoveryGeneration = beginRetry?()
+                    retryRecoveryGeneration = recoveryGeneration
                     retryAttemptID = attemptID
                     retryTimedOut = false
                     retryTask?.cancel()
@@ -59,6 +64,7 @@ struct MobileWorkspaceListEmptyRow: View {
                                 retryTimeoutTask?.cancel()
                                 retryTimeoutTask = nil
                                 retryAttemptID = nil
+                                retryRecoveryGeneration = nil
                                 isRetrying = false
                             }
                         }
@@ -73,10 +79,11 @@ struct MobileWorkspaceListEmptyRow: View {
                         guard retryAttemptID == attemptID else { return }
                         retryAttemptID = nil
                         retryTask?.cancel()
-                        cancelRetry?()
+                        (cancelRetryAttempt ?? { _ in cancelRetry?() })(recoveryGeneration)
                         retryTimeoutTask = nil
                         retryTask = nil
                         isRetrying = false
+                        retryRecoveryGeneration = nil
                         retryTimedOut = true
                     }
                 } label: {
@@ -98,12 +105,13 @@ struct MobileWorkspaceListEmptyRow: View {
                 if isRetrying || retryTask != nil {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         retryTask?.cancel()
-                        cancelRetry?()
+                        (cancelRetryAttempt ?? { _ in cancelRetry?() })(retryRecoveryGeneration)
                         retryTimeoutTask?.cancel()
                         retryAttemptID = nil
                         retryTask = nil
                         retryTimeoutTask = nil
                         isRetrying = false
+                        retryRecoveryGeneration = nil
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.regular)
@@ -137,12 +145,19 @@ struct MobileWorkspaceListEmptyRow: View {
                 retryTask?.cancel()
                 let ownerIsCurrent = isRetryOwnerCurrentOnDisappear?() ?? true
                 if !ownerIsCurrent || shouldCancelRetryOnDisappear?() ?? true {
-                    (cancelRetryOnDisappear ?? cancelRetry)?()
+                    if let cancelRetryOnDisappear {
+                        cancelRetryOnDisappear(retryRecoveryGeneration)
+                    } else if let cancelRetryAttempt {
+                        cancelRetryAttempt(retryRecoveryGeneration)
+                    } else {
+                        cancelRetry?()
+                    }
                 }
                 retryTimeoutTask?.cancel()
                 retryTask = nil
                 retryAttemptID = nil
                 retryTimeoutTask = nil
+                retryRecoveryGeneration = nil
                 isRetrying = false
                 retryTimedOut = false
             } else if !hasActiveRetry {
@@ -150,6 +165,7 @@ struct MobileWorkspaceListEmptyRow: View {
                 retryTask = nil
                 retryAttemptID = nil
                 retryTimeoutTask = nil
+                retryRecoveryGeneration = nil
                 isRetrying = false
                 retryTimedOut = false
             }

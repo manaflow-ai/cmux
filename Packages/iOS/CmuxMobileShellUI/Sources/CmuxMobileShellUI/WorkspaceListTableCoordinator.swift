@@ -1293,7 +1293,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     onLayoutChange: configuration.emptyStateLayoutChanged,
                     shouldCancelRetryOnDisappear: configuration.shouldCancelRefreshOnDisappear,
                     isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
-                    cancelRetryOnDisappear: configuration.cancelRefreshOnDisappear
+                    beginRetry: configuration.beginRefresh,
+                    cancelRetryAttempt: configuration.cancelRefreshAttempt,
+                    cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
                 )
             )
         }

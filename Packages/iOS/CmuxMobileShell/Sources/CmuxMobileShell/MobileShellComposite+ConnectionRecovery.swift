@@ -83,6 +83,15 @@ extension MobileShellComposite {
             pendingInactiveRecoveryTrigger = trigger
             return
         }
+        if workspaceListRecoveryActive,
+           workspaceListRecoveryWaitingForConnectionAttempt,
+           trigger != .manual {
+            // A background recovery arriving before the Retry path claims the
+            // shared owner belongs to a different lifecycle. Do not let the
+            // old empty-state row cancel that newer attempt.
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+            workspaceListRecoveryConnectionAttemptID = nil
+        }
         // Launch and explicit stored-Mac restores claim their reconnect
         // generation before awaiting the transport. Starting a recovery owner
         // beside that operation would immediately start a nested restore,
@@ -123,6 +132,10 @@ extension MobileShellComposite {
             // in-flight recovery. The replacement below owns a new generation
             // and is the only attempt allowed to publish a foreground client.
             connectionRecoveryOwner.cancel()
+            if workspaceListRecoveryActive {
+                workspaceListRecoveryConnectionAttemptID = nil
+                workspaceListRecoveryWaitingForConnectionAttempt = false
+            }
             applyConnectionRecoveryOwnerState()
             invalidateStoredMacReconnectAttempt()
         } else {
@@ -209,6 +222,12 @@ extension MobileShellComposite {
             trigger: trigger.description,
             sourceConnectionGeneration: connectionGeneration
         )
+        if superseding != nil,
+           workspaceListRecoveryActive,
+           workspaceListRecoveryConnectionAttemptID != nil {
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+        }
         startConnectionRecovery(
             trigger: trigger,
             expectedClient: expectedClient,
@@ -273,6 +292,11 @@ extension MobileShellComposite {
             probing: probeCurrentConnection
         )
         guard let attempt else { return }
+        if workspaceListRecoveryActive,
+           workspaceListRecoveryWaitingForConnectionAttempt {
+            workspaceListRecoveryConnectionAttemptID = attempt.id
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+        }
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             surface: attempt.diagnosticID,

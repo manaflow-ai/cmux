@@ -72,6 +72,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let refresh: (@Sendable () async -> Void)?
     var cancelRefresh: (() -> Void)? = nil
     var cancelRefreshOnDisappear: (() -> Void)? = nil
+    var beginRefresh: (() -> UUID?)? = nil
+    var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
+    var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
     var emptyStateLayoutChanged: (() -> Void)? = nil
     var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
     var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil

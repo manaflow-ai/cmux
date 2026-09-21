@@ -157,20 +157,59 @@ extension MobileShellComposite {
             }
     }
 
-    public func reconnectOrRefresh() async {
-        let recoveryScope = workspaceListRecoveryTarget
+    /// Reserves the recovery token used by the empty-state Retry action.
+    /// Cancellation passes this token back so a stale row cannot cancel a
+    /// later retry for another Mac.
+    public func prepareWorkspaceListRecovery() -> UUID {
         let recoveryGeneration = UUID()
+        workspaceListRecoveryPreparedGeneration = recoveryGeneration
         workspaceListRecoveryActive = true
         workspaceListRecoveryGeneration = recoveryGeneration
+        let recoveryScope = workspaceListRecoveryTarget
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
         workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
         workspaceListRecoveryConnectionGeneration = connectionGeneration
+        workspaceListRecoveryConnectionAttemptID = nil
+        workspaceListRecoveryWaitingForConnectionAttempt = !connectionRecoveryOwner.isActive
+        return recoveryGeneration
+    }
+
+    /// Runs the prepared Retry operation, or creates a normal recovery token
+    /// when the caller is pull-to-refresh or another non-row entry point.
+    public func runPreparedWorkspaceListRecovery() async {
+        let recoveryGeneration = workspaceListRecoveryPreparedGeneration
+        workspaceListRecoveryPreparedGeneration = nil
+        await reconnectOrRefresh(recoveryGeneration: recoveryGeneration)
+    }
+
+    public func reconnectOrRefresh(recoveryGeneration requestedGeneration: UUID? = nil) async {
+        let recoveryGeneration = requestedGeneration ?? UUID()
+        if let requestedGeneration,
+           workspaceListRecoveryActive,
+           workspaceListRecoveryGeneration != requestedGeneration {
+            return
+        }
+        if !workspaceListRecoveryActive
+            || workspaceListRecoveryGeneration != recoveryGeneration {
+            let recoveryScope = workspaceListRecoveryTarget
+            workspaceListRecoveryActive = true
+            workspaceListRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
+            workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
+            workspaceListRecoveryConnectionGeneration = connectionGeneration
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = !connectionRecoveryOwner.isActive
+        }
+        workspaceListRecoveryPreparedGeneration = nil
         defer {
             if workspaceListRecoveryGeneration == recoveryGeneration {
                 workspaceListRecoveryActive = false
                 workspaceListRecoveryOwnerID = nil
                 workspaceListRecoveryOwnerInstanceTag = nil
                 workspaceListRecoveryConnectionGeneration = nil
+                workspaceListRecoveryConnectionAttemptID = nil
+                workspaceListRecoveryWaitingForConnectionAttempt = false
+                workspaceListRecoveryPreparedGeneration = nil
             }
         }
         let diagnosticStartedAt = appDiagnosticNow()
@@ -239,18 +278,22 @@ extension MobileShellComposite {
     public func cancelWorkspaceListRecovery(
         forMacDeviceID macDeviceID: String? = nil,
         instanceTag: String? = nil,
+        expectedGeneration: UUID? = nil,
         ownerScoped: Bool = false
     ) {
         let pullMatches = pullToRefreshTask != nil
             && pullToRefreshOwnerID == macDeviceID
             && pullToRefreshOwnerInstanceTag == instanceTag
-        let currentRecoveryTarget = workspaceListRecoveryTarget
+            && (expectedGeneration == nil
+                || pullToRefreshRecoveryGeneration == expectedGeneration)
+        let generationMatches = expectedGeneration == nil
+            || workspaceListRecoveryGeneration == expectedGeneration
         let recoveryMatches = workspaceListRecoveryActive
             && workspaceListRecoveryOwnerID == macDeviceID
             && workspaceListRecoveryOwnerInstanceTag == instanceTag
-            && workspaceListRecoveryConnectionGeneration == connectionGeneration
-            && currentRecoveryTarget?.macDeviceID == macDeviceID
-            && currentRecoveryTarget?.instanceTag == instanceTag
+            && generationMatches
+        let recoveryOwnerAttemptMatches = workspaceListRecoveryConnectionAttemptID != nil
+            && workspaceListRecoveryConnectionAttemptID == connectionRecoveryOwner.activeAttempt?.id
         if ownerScoped && !pullMatches && !recoveryMatches {
             return
         }
@@ -260,6 +303,7 @@ extension MobileShellComposite {
             pullToRefreshGeneration = UUID()
             pullToRefreshOwnerID = nil
             pullToRefreshOwnerInstanceTag = nil
+            pullToRefreshRecoveryGeneration = nil
         }
         if !ownerScoped || recoveryMatches {
             workspaceListRecoveryGeneration = UUID()
@@ -267,9 +311,14 @@ extension MobileShellComposite {
             workspaceListRecoveryOwnerID = nil
             workspaceListRecoveryOwnerInstanceTag = nil
             workspaceListRecoveryConnectionGeneration = nil
-            connectionRecoveryOwner.cancel()
-            connectionRecoveryAttemptDeadlineTask?.cancel()
-            connectionRecoveryAttemptDeadlineTask = nil
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+            workspaceListRecoveryPreparedGeneration = nil
+            if !ownerScoped || recoveryOwnerAttemptMatches {
+                connectionRecoveryOwner.cancel()
+                connectionRecoveryAttemptDeadlineTask?.cancel()
+                connectionRecoveryAttemptDeadlineTask = nil
+            }
         }
     }
 

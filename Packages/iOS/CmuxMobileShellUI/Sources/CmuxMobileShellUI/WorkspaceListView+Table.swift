@@ -119,6 +119,23 @@ extension WorkspaceListView {
                 )
             }
         }
+        let beginRefreshForEmptyState: (() -> UUID?)? = store.map { store in
+            {
+                store.prepareWorkspaceListRecovery()
+            }
+        }
+        let cancelRefreshAttemptForEmptyState: ((UUID?) -> Void)? = store.map { store in
+            { generation in
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    expectedGeneration: generation,
+                    ownerScoped: true
+                )
+            }
+        } ?? cancelRefresh.map { suppliedCancel in
+            { _ in suppliedCancel() }
+        }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
@@ -198,6 +215,9 @@ extension WorkspaceListView {
             refresh: refresh,
             cancelRefresh: cancelRefreshForEmptyState,
             cancelRefreshOnDisappear: cancelRefreshOnDisappearForEmptyState,
+            beginRefresh: beginRefreshForEmptyState,
+            cancelRefreshAttempt: cancelRefreshAttemptForEmptyState,
+            cancelRefreshAttemptOnDisappear: cancelRefreshAttemptForEmptyState,
             shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
             isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )
