@@ -352,7 +352,14 @@ struct SidebarWorkspaceTableTests {
         )
         controller.dismantleContainerView(container)
         writer = nil
-        await flushStagedTableMutations()
+        // Writer deallocation notifies the controller through its ownership
+        // token on the next main-actor turn. Wait on the observable teardown
+        // boundary instead of assuming one queued run-loop callback is enough
+        // under a busy app-host shard.
+        await flushUntil {
+            container.tableView.dataSource == nil
+                && container.tableView.delegate == nil
+        }
 
         #expect(container.tableView.activeWorkspaceDragController == nil)
         #expect(container.tableView.dataSource == nil)

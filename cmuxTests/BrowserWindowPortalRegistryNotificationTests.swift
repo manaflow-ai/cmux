@@ -114,26 +114,34 @@ struct BrowserWindowPortalRegistryNotificationTests {
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
 
-        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        // Start hidden so the first visible transition exercises the
+        // presentability notification contract explicitly. A freshly created
+        // slot is already unhidden at the AppKit level and therefore has no
+        // hidden-to-visible transition to report.
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: false)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
-        #expect(notificationCount == 1)
+        BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+        advanceAnimations()
+        let baselineNotificationCount = notificationCount
+        #expect(baselineNotificationCount == 2)
         #expect(presentabilityCount >= 1)
         #expect(BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: true, zPriority: 0)
         #expect(
-            notificationCount == 1,
+            notificationCount == baselineNotificationCount,
             "Reapplying an unchanged portal visibility snapshot should not wake Workspace layout follow-up"
         )
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
-        #expect(notificationCount == 2)
+        #expect(notificationCount == baselineNotificationCount + 1)
         #expect(!BrowserWindowPortalRegistry.isPresented(webView))
 
         BrowserWindowPortalRegistry.updateEntryVisibility(for: webView, visibleInUI: false, zPriority: 0)
         #expect(
-            notificationCount == 2,
+            notificationCount == baselineNotificationCount + 1,
             "Repeated hidden-state updates should not post duplicate registry-change notifications"
         )
 
@@ -146,14 +154,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
         advanceAnimations()
         #expect(slot.isHidden)
         #expect(
-            notificationCount == 3,
+            notificationCount == baselineNotificationCount + 2,
             "A hidden visibility state whose slot still needs presentation sync should notify exactly once"
         )
 
         BrowserWindowPortalRegistry.hide(webView: webView, source: "unitTest")
         advanceAnimations()
         #expect(
-            notificationCount == 3,
+            notificationCount == baselineNotificationCount + 2,
             "A repeated hide after state and presentation are already hidden should not notify"
         )
     }
