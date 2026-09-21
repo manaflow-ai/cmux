@@ -57,6 +57,7 @@ const sectionOrder = [
 
 type ConfigurationTranslation = ReturnType<typeof useTranslations>;
 
+/** Builds the localized JSONC example, including customizable editor shortcuts. */
 function buildSettingsFileExample(t: ConfigurationTranslation) {
   return `{
   "$schema": "${schemaUrl}",

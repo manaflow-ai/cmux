@@ -641,6 +641,7 @@ final class SavingTextView: NSTextView {
             .evaluate(Self.filePreviewTextEditorShortcutContext)
     }
 
+    /// Focus snapshot used by an editor that has not been attached to a window.
     static var filePreviewTextEditorShortcutContext: ShortcutContext {
         ShortcutFocusState(
             browser: false,

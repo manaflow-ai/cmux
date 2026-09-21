@@ -99,6 +99,7 @@ extension KeyboardShortcutSettings.Action {
             }
         }
 
+        /// Projects the event’s responder snapshot into this shortcut scope.
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
             return isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
@@ -110,6 +111,7 @@ extension KeyboardShortcutSettings.Action {
             )
         }
 
+        /// Evaluates command availability against the palette’s captured panel context.
         func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
             if self == .commandPaletteVisible {
                 return true
@@ -124,6 +126,7 @@ extension KeyboardShortcutSettings.Action {
             )
         }
 
+        /// The settings predicate equivalent to this built-in focus scope.
         var defaultWhenClause: ShortcutWhenClause {
             switch self {
             case .application: return .always
@@ -234,6 +237,7 @@ extension KeyboardShortcutSettings.Action {
         }
     }
 
+    /// The built-in focus scope used when no configured when clause overrides it.
     var shortcutContext: ShortcutContext {
         switch self {
         case .diffViewerScrollDown, .diffViewerScrollUp,

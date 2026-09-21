@@ -498,6 +498,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    /// Verifies that cmux.json updates the same preference read by the editor.
     func testSettingsFileParsesFileEditorWordWrap() throws {
         let defaults = UserDefaults.standard
 
@@ -510,7 +511,6 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
-            // Defaults to off until the config opts in.
             XCTAssertFalse(FilePreviewWordWrapSettings(defaults: defaults).isEnabled())
 
             let directoryURL = try makeTemporaryDirectory()
