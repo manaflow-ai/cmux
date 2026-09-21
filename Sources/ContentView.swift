@@ -2703,7 +2703,7 @@ struct ContentView: View {
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
+                .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.resolvedMinimumWindowHeight()))
                 .background(Color.clear)
                 .background(
                     MinimalModeTitlebarEventSurfaceLayer(isFullScreen: isFullScreen)

@@ -38,7 +38,7 @@ final class MainWindowVisibleFrameFitRescue {
                 for: window.frame,
                 displays: displays,
                 minimumWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-                minimumHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+                minimumHeight: CGFloat(SessionPersistencePolicy.resolvedMinimumWindowHeight())
             )
         }
         var fitCompleted = true

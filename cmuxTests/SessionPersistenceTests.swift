@@ -467,6 +467,23 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testMinimumWindowHeightUsesDefaultAndClampsConfiguredValue() {
+        let suiteName = "MinimumWindowHeightTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        XCTAssertEqual(
+            SessionPersistencePolicy.resolvedMinimumWindowHeight(defaults: defaults),
+            SessionPersistencePolicy.defaultMinimumWindowHeight,
+            accuracy: 0.001
+        )
+        defaults.set(220, forKey: SessionPersistencePolicy.minimumWindowHeightKey)
+        XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumWindowHeight(defaults: defaults), 220, accuracy: 0.001)
+        defaults.set(20, forKey: SessionPersistencePolicy.minimumWindowHeightKey)
+        XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumWindowHeight(defaults: defaults), SessionPersistencePolicy.minimumWindowHeightRange.lowerBound, accuracy: 0.001)
+        defaults.set(900, forKey: SessionPersistencePolicy.minimumWindowHeightKey)
+        XCTAssertEqual(SessionPersistencePolicy.resolvedMinimumWindowHeight(defaults: defaults), SessionPersistencePolicy.defaultMinimumWindowHeight, accuracy: 0.001)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
     func testSessionRectSnapshotEncodesXYWidthHeightKeys() throws {
         let snapshot = SessionRectSnapshot(x: 101.25, y: 202.5, width: 903.75, height: 704.5)
         let data = try JSONEncoder().encode(snapshot)

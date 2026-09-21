@@ -4330,7 +4330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let minWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
-        let minHeight = CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+        let minHeight = CGFloat(SessionPersistencePolicy.resolvedMinimumWindowHeight())
         guard frame.width >= minWidth,
               frame.height >= minHeight else {
             return nil
