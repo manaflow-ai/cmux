@@ -842,7 +842,10 @@ def run_native(
         except ProcessLookupError:
             pass
 
-    descendants = False if force_killed[0] else group_alive(proc.pid)
+    # SIGKILL is an action, not settlement evidence. Re-observe the exact
+    # process group even after a forced kill; a surviving descendant keeps the
+    # durable inflight record and requires explicit recovery.
+    descendants = group_alive(proc.pid)
     if descendants:
         outcome = "recovery_required"
     elif forwarded[0] is not None:
