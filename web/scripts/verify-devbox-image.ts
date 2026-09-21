@@ -140,7 +140,7 @@ const INSTANCE_ID = DEVBOX_INSTANCE_ID_COMMAND;
 // cmux-remote keys per-session state by the base64url session name under its
 // default root state dir; the Noise static identity lives in auth/.
 const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
-// cmux-tui's own per-machine secrets, regenerated on first start after the bake wiped them.
+// cmux-tui's own per-machine secrets, regenerated on first start after the bake.
 const MACHINE_SECRETS = `${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/machine-id ${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/resource-effect-pepper`;
 const DAEMON_CHECKS: readonly string[] = [
   // [s]tart: the pattern must not match the exec shell carrying this very command line.
@@ -159,6 +159,7 @@ const DAEMON_CHECKS: readonly string[] = [
   // The static model-plane env is baked; a shell with no boot env sources it.
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
+  "test -x /usr/local/bin/cmux-prompt-sync && python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync >/dev/null && echo prompt-sync-contract-ok",
   cmuxTuiWebsocketSmokeCommand(),
 ];
 

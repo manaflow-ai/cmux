@@ -92,8 +92,8 @@ never on a connection-scoped lease.
 ## Freestyle delivery and state ownership
 
 Freestyle is the only active provider. One pinned
-`cmux-tui-x86_64-unknown-linux-musl` artifact is installed by the Freestyle
-driver at create or restore time, then started by the snapshot's systemd unit.
+`cmux-tui-x86_64-unknown-linux-musl` artifact is baked into the active
+snapshot, then started by the snapshot's systemd unit.
 The active snapshot and its provenance are recorded in
 `web/services/vms/images/manifest.json`. There is no provider-specific daemon
 protocol or alternate image selector.

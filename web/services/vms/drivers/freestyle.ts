@@ -112,8 +112,8 @@ import {
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and
-// create runs no exec and writes no file there (vms.create, the grow-only
-// resize, and a delete on rollback are its only provider calls). Injection
+// create runs no exec and writes no file there (vms.create and a delete on
+// rollback are its only provider calls). Injection
 // becomes active 20-30 s after boot; the first agent request before that
 // reaches the origin without the header and is rejected, then succeeds.
 //
