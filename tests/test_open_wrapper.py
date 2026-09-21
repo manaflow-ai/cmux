@@ -690,40 +690,89 @@ def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
         )
 
 
+_HEREDOC_OPEN_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?")
+_CASE_RE = re.compile(r"^case\b")
+_PATTERN_REMOVAL_RE = re.compile(r'\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?(##?|%%?)')
+
+
+def _top_level_statement_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Return (0-based index, text) for lines bash runs unconditionally at load.
+
+    Excludes function-body lines (indented in this file, and only executed
+    once the function is *called* -- every function here is called after the
+    locale fix) and heredoc bodies (verbatim text, never parsed as bash
+    statements). Does not attempt to special-case indented top-level
+    if/for/while bodies -- this script has none that touch arguments, and
+    distinguishing those from function bodies in general needs real bash
+    parsing, which is out of scope for this guard.
+    """
+    result = []
+    heredoc_terminator: str | None = None
+    for i, line in enumerate(lines):
+        if heredoc_terminator is not None:
+            if line == heredoc_terminator:
+                heredoc_terminator = None
+            continue
+        if line and line[0] not in (" ", "\t") and not line.startswith("#"):
+            result.append((i, line))
+        heredoc_open = _HEREDOC_OPEN_RE.search(line)
+        if heredoc_open:
+            heredoc_terminator = heredoc_open.group(1)
+    return result
+
+
 def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> None:
     """Static guard for the multibyte SIGSEGV fix.
 
     CI does not provision a bash build affected by the crash (see
     test_multibyte_filename_argument_does_not_crash_alternate_bash_builds,
     which is a no-op there), so a dynamic repro alone would not catch someone
-    later dropping the mitigation. This checks the actual fix -- `export
-    LC_ALL=C` positioned before the wrapper's first argument-scanning `case`
-    statement -- is still present in the script source, independent of which
-    bash build runs the test.
+    later dropping the mitigation, or reintroducing a `case` statement or
+    `${var%pattern}`/`${var#pattern}` expansion -- the two constructs that
+    crash on the affected bash builds -- ahead of the fix. This checks the
+    fix statically instead: `export LC_ALL=C` must be present, and no
+    top-level statement before it may contain either construct.
     """
     source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    top_level = _top_level_statement_lines(lines)
 
-    lc_all_match = re.search(r"^export LC_ALL=C\s*$", source, re.MULTILINE)
+    lc_all_index = next(
+        (i for i, line in top_level if re.match(r"^export LC_ALL=C\s*$", line)),
+        None,
+    )
     expect(
-        lc_all_match is not None,
+        lc_all_index is not None,
         "expected 'export LC_ALL=C' in Resources/bin/open to force byte-wise "
         "glob/pattern matching (see the multibyte SIGSEGV fix)",
         failures,
     )
-    if lc_all_match is None:
+    if lc_all_index is None:
         return
 
-    arg_scan_match = re.search(r'^for arg in "\$@"; do', source, re.MULTILINE)
+    for i, line in top_level:
+        if i >= lc_all_index:
+            break
+        if _CASE_RE.match(line) or _PATTERN_REMOVAL_RE.search(line):
+            failures.append(
+                f"Resources/bin/open:{i + 1}: top-level case/pattern-removal "
+                f"construct appears before 'export LC_ALL=C': {line!r}"
+            )
+
+    arg_scan_index = next(
+        (i for i, line in top_level if line.startswith('for arg in "$@"; do')),
+        None,
+    )
     expect(
-        arg_scan_match is not None,
+        arg_scan_index is not None,
         "expected the wrapper's arg-scanning loop ('for arg in \"$@\"; do') to still exist",
         failures,
     )
-    if arg_scan_match is None:
+    if arg_scan_index is None:
         return
 
     expect(
-        lc_all_match.start() < arg_scan_match.start(),
+        lc_all_index < arg_scan_index,
         "'export LC_ALL=C' must be set before the wrapper starts case/pattern "
         "matching against arguments, or the multibyte SIGSEGV fix has no effect",
         failures,
