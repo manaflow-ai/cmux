@@ -761,6 +761,13 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
 
 
+def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
+    result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
+
+    assert "CI router changed; running all CI areas." not in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+
+
 def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:

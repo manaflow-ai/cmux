@@ -144,10 +144,19 @@ jobs:
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
+                scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py)
+                  # These have explicit owning lanes and names that cannot
+                  # shadow Python stdlib imports used by the router.
+                  ghosttykit_guard_only=false
+                  ;;
                 .github/workflows/ci.yml)
                   ci_workflow_changed=true
                   ;;
                 scripts/ci/*)
+                  # Unknown scripts/ci files fail open before invoking the
+                  # PR-controlled Python detector. A new file here could
+                  # otherwise shadow a stdlib import (for example subprocess.py).
+                  ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
                 *)
