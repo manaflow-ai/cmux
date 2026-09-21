@@ -43,6 +43,16 @@ class NodeProductCacheTests(unittest.TestCase):
             product_contract=self.product_key,
             source_revision=self.revision,
             producer_run_id=456,
+            producer_run_attempt=1,
+            artifact_schema="1" * 64,
+            source_identity="2" * 64,
+            build_identity="3" * 64,
+            platform_class="macos",
+            architecture="arm64",
+            sdk_generation="4" * 64,
+            toolchain_generation="5" * 64,
+            build_configuration="6" * 64,
+            product_schema="7" * 64,
         )
         self.provider_created_at = "2026-09-21T09:00:00Z"
 
@@ -350,6 +360,16 @@ class NodeProductCacheTests(unittest.TestCase):
             product_contract=self.product_key,
             source_revision=self.revision,
             producer_run_id=self.identity.producer_run_id,
+            producer_run_attempt=self.identity.producer_run_attempt,
+            artifact_schema=self.identity.artifact_schema,
+            source_identity=self.identity.source_identity,
+            build_identity=self.identity.build_identity,
+            platform_class=self.identity.platform_class,
+            architecture=self.identity.architecture,
+            sdk_generation=self.identity.sdk_generation,
+            toolchain_generation=self.identity.toolchain_generation,
+            build_configuration=self.identity.build_configuration,
+            product_schema=self.identity.product_schema,
         )
         token, _ = self.reserve(identity)
         result = cache.finalize(
