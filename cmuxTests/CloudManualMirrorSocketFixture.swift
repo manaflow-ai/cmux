@@ -177,7 +177,7 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
             Darwin.close(fd)
             throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
         }
-        _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])

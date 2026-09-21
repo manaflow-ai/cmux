@@ -167,11 +167,21 @@ struct CloudPresenceTests {
 @MainActor
 struct CloudPresenceDeliveryTests {
     private func acceptHandshake(_ fixture: CloudManualMirrorSocketFixture) async throws -> UInt64 {
-        let identify = try #require(await fixture.nextCommand(timeout: .seconds(1)))
-        #expect(identify.cmd == "identify")
-        let info = try #require(await fixture.nextCommand(timeout: .seconds(1)))
-        #expect(info.cmd == "set-client-info")
-        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["presence-v1"]]])
+        var identify: CloudManualMirrorFixtureCommand?
+        var sawClientInfo = false
+        while identify == nil || !sawClientInfo {
+            let command = try #require(await fixture.nextCommand(timeout: .seconds(1)))
+            switch command.cmd {
+            case "identify":
+                identify = command
+                fixture.send(["id": command.id, "ok": true, "data": ["capabilities": ["presence-v1"]]])
+            case "set-client-info":
+                sawClientInfo = true
+            default:
+                Issue.record("unexpected handshake command \(command.cmd)")
+            }
+        }
+        _ = try #require(identify)
         let clients = try #require(await fixture.nextCommand(timeout: .seconds(1)))
         #expect(clients.cmd == "list-clients")
         fixture.send(["id": clients.id, "ok": true, "data": [["client": 41, "self": true]]])

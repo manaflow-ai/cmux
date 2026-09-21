@@ -10,6 +10,15 @@ import Testing
 #endif
 
 struct CloudTuiSwiftSDKTests {
+    @Test("typed identify command encodes an empty object payload")
+    func typedIdentifyCommandEncodesWireShape() throws {
+        let line = try CloudTuiGenerated.Command.identify(id: 1, request: .init()).line()
+        let object = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+        #expect(object["cmd"] as? String == "identify")
+        #expect(object["id"] as? NSNumber == 1)
+        #expect(object.count == 2)
+    }
+
     @Test("typed presence command encodes the canonical wire shape")
     func typedPresenceCommandEncodesWireShape() throws {
         let anchor = CloudTuiGenerated.PresenceAnchor.cell(

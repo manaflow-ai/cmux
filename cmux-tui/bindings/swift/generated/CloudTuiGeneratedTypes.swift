@@ -841,11 +841,11 @@ extension CloudTuiGenerated {
         }
 
         init(from decoder: Decoder) throws {
-            _ = decoder
+            _ = try decoder.container(keyedBy: DynamicCodingKey.self)
         }
 
         func encode(to encoder: Encoder) throws {
-            _ = encoder
+            _ = encoder.container(keyedBy: DynamicCodingKey.self)
         }
     }
 

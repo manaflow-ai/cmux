@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "CloudTuiGeneratedCommands.swift",
-      "sha256": "19d3522cc994629852ebd9eeacc3681f3f01a1d8eb9a631b9d0e4137010a6051",
-      "size": 250697
+      "sha256": "da8ea4103d9b550432a91c1bf29b3dca0f0e9a470a38d9cbf21311909c9b5b09",
+      "size": 252017
     },
     {
       "path": "CloudTuiGeneratedEvents.swift",
@@ -22,8 +22,8 @@
     },
     {
       "path": "CloudTuiGeneratedTypes.swift",
-      "sha256": "9b03953ab55d34c0e6eac79ae0c85eab4ffb4140c94c9a0e1ef4d83360d6ee0c",
-      "size": 261877
+      "sha256": "f7a58666c15c480b0516af8c8b068c109e9f75d0baf0044991cf6aed84907f6a",
+      "size": 261965
     }
   ],
   "format": 1,

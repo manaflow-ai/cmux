@@ -91,13 +91,6 @@ final class CloudPresenceLink {
             let identify = self.takeRequestID()
             self.identifyRequestID = identify
             connection.send(commandBuilder.typedIdentify(requestID: identify))
-            let clientInfoID = self.takeRequestID()
-            connection.send(commandBuilder.typedClientInfo(
-                name: clientName,
-                kind: "mac",
-                capabilities: [commandBuilder.presenceCapability],
-                requestID: clientInfoID
-            ))
         }
     }
 
@@ -228,6 +221,13 @@ final class CloudPresenceLink {
                     transition(to: .ready)
                     return
                 }
+                let clientInfoID = takeRequestID()
+                connection.send(commandBuilder.typedClientInfo(
+                    name: clientName,
+                    kind: "mac",
+                    capabilities: [commandBuilder.presenceCapability],
+                    requestID: clientInfoID
+                ))
                 let listRequestID = takeRequestID()
                 listClientsRequestID = listRequestID
                 connection.send(commandBuilder.typedListClients(requestID: listRequestID))

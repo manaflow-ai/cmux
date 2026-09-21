@@ -62,17 +62,18 @@ extension CloudTuiGenerated.PresenceAnchor {
     /// Returns the signed row delta used by highlight rendering.
     func shiftedRow(viewerScrollOffset: UInt64) -> Int64? {
         guard case let .cell(cell) = self,
-              let publisherOffset = cell.scrollOffset.value,
               let row = Int64(exactly: cell.row),
-              let viewerOffset = Int64(exactly: viewerScrollOffset),
-              let publisherOffset = Int64(exactly: publisherOffset) else {
-            if case let .cell(cell) = self,
-               let row = Int64(exactly: cell.row),
-               let viewerOffset = Int64(exactly: viewerScrollOffset) {
-                let (shifted, overflow) = row.addingReportingOverflow(viewerOffset)
-                return overflow ? nil : shifted
-            }
-            return nil
+              let viewerOffset = Int64(exactly: viewerScrollOffset) else { return nil }
+        let publisherOffset: Int64
+        switch cell.scrollOffset {
+        case .missing, .null:
+            publisherOffset = 0
+        case let .value(value):
+            // A UInt64 above Int64.max cannot be represented in the signed
+            // row arithmetic. Treat it as malformed instead of silently
+            // dropping the publisher offset and drawing at the wrong row.
+            guard let converted = Int64(exactly: value) else { return nil }
+            publisherOffset = converted
         }
         let (withViewer, addOverflow) = row.addingReportingOverflow(viewerOffset)
         let (shifted, subtractOverflow) = withViewer.subtractingReportingOverflow(publisherOffset)

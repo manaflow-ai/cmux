@@ -384,7 +384,11 @@ enum CloudTuiGenerated {
         if fields:
             lines.append("            let container = try decoder.container(keyedBy: CodingKeys.self)")
         else:
-            lines.append("            _ = decoder")
+            # Swift's synthesized empty Encodable shape fails with
+            # `Top-level ... did not encode any values`. Open an empty keyed
+            # container explicitly so command payloads such as `identify`
+            # encode as `{}` while still accepting any empty JSON object.
+            lines.append("            _ = try decoder.container(keyedBy: DynamicCodingKey.self)")
         for wire, field in fields:
             swift_name = camel(wire)
             ft = self.type_name(field["type"], f"{path}/fields/{wire}/type")
@@ -413,7 +417,7 @@ enum CloudTuiGenerated {
         if fields:
             lines.append("            var container = encoder.container(keyedBy: CodingKeys.self)")
         else:
-            lines.append("            _ = encoder")
+            lines.append("            _ = encoder.container(keyedBy: DynamicCodingKey.self)")
         for wire, field in fields:
             swift_name = camel(wire)
             key = f".{swift_name}"
