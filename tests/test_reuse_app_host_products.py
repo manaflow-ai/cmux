@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise cross-run artifact reuse through real archives and product relocation."""
+import base64
 import hashlib
 import io
 import json
@@ -128,6 +129,91 @@ class ReuseProducts(TestProductHandoff):
                 self.contract = changed
                 self.assertFalse(self.restore_reuse())
                 self.contract = original
+
+    def test_product_identity_separates_orchestration_from_product_inputs(self):
+        identity = reuse.product_inputs
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        base = [
+            f"100644 blob {'1' * 40}\tSources/App.swift",
+            f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
+            f"100644 blob {'3' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'4' * 40}\t.github/workflows/ci.yml",
+        ]
+        admission_only = [
+            f"100644 blob {'1' * 40}\tSources/App.swift",
+            f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
+            f"100644 blob {'5' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'6' * 40}\t.github/workflows/ci.yml",
+        ]
+        base_identity = identity.identity_from_tree_lines(base, workflow)
+        orchestration_identity = identity.identity_from_tree_lines(
+            admission_only,
+            workflow.replace("name: CI\n", "name: CI orchestration-only\n", 1),
+        )
+        self.assertEqual(base_identity, orchestration_identity)
+
+        changed_source = list(base)
+        changed_source[0] = f"100644 blob {'7' * 40}\tSources/App.swift"
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(changed_source, workflow),
+        )
+
+        changed_helper = list(base)
+        changed_helper[1] = (
+            f"100644 blob {'8' * 40}\tscripts/ci/compile-app-host-test-product.sh"
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(changed_helper, workflow),
+        )
+
+        changed_recipe = workflow.replace(
+            "scripts/ci/compile-app-host-test-product.sh build \\",
+            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+            1,
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_recipe),
+        )
+
+        self.assertFalse(identity.reaches_product(".github/workflows/ci.yml"))
+        self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
+        self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
+        self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
+
+    def test_github_product_identity_is_recomputed_from_git_objects(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        entries = [
+            {"path": "Sources/App.swift", "mode": "100644", "type": "blob", "sha": "1" * 40},
+            {
+                "path": ".github/workflows/ci.yml",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "2" * 40,
+            },
+        ]
+
+        class GitObjects:
+            def get(self, path):
+                if path == "git/commits/abc123":
+                    return {"tree": {"sha": "3" * 40}}
+                if path == f"git/trees/{'3' * 40}?recursive=1":
+                    return {"truncated": False, "tree": entries}
+                if path == f"git/blobs/{'2' * 40}":
+                    return {
+                        "encoding": "base64",
+                        "content": base64.b64encode(workflow.encode()).decode(),
+                    }
+                raise AssertionError(path)
+
+        actual = reuse.github_product_identity(GitObjects(), "abc123")
+        expected = reuse.product_inputs.identity_from_tree_lines(
+            reuse.product_inputs.github_tree_lines(entries),
+            workflow,
+        )
+        self.assertEqual(actual, expected)
 
     def test_changed_product_inputs_are_a_miss(self):
         original = self.api.product_identities["abc123"]
