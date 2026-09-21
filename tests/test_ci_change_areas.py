@@ -316,8 +316,14 @@ def test_other_workflow_changes_skip_macos_and_web() -> None:
 
 
 def test_guard_only_tests_skip_macos() -> None:
-    # Referenced only by Linux jobs in the CI caller or reusable guard workflow.
-    assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
+    for path in (
+        "tests/test_ci_self_hosted_guard.sh",
+        "tests/test_ci_persistent_mac_compile.py",
+        "tests/test_ci_app_host_pipe_capture.py",
+        "tests/test_ci_run_and_capture.sh",
+        "tests/test_ci_workload_profiles.py",
+    ):
+        assert_areas([path], macos=False, web=False)
     assert_areas(
         [".github/workflows/ios-testflight.yml", "tests/test_ios_testflight_main_push_filter.py"],
         macos=False,
@@ -776,22 +782,37 @@ def run_detect_step_for_paths(
 
 
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
-    result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
-
-    assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    for path in (
+        "scripts/ci/subprocess.py",
+        ".github/ci-areas.yml",
+        "tests/test_ci_change_areas.py",
+    ):
+        result, outputs = run_detect_step_for_paths([path])
+        assert "CI router changed; running all CI areas." in result.stdout, path
+        assert outputs == [
+            "macos=true",
+            "web=true",
+            "agent_session_web=true",
+            "release_build=true",
+        ], path
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
-
     assert "CI router changed; running all CI areas." not in result.stdout
     assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
+    result, outputs = run_detect_step_for_paths(["scripts/ci/web_validation.py"])
+    assert "CI router changed; running all CI areas." not in result.stdout
+    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
+
     for path in (
         "scripts/ci/app_host_test_products.py",
+        "scripts/ci/compile-app-host-test-product.sh",
         "scripts/ci/product_input_identity.py",
+        "scripts/ci/restore-app-host-test-product.sh",
         "scripts/ci/reuse_app_host_products.py",
+        "scripts/ci/sanitize-xcode-source-packages-cache.py",
     ):
         result, outputs = run_detect_step_for_paths([path])
         assert "CI router changed; running all CI areas." not in result.stdout, path
@@ -943,24 +964,14 @@ def test_workflow_empty_diff_runs_all_areas() -> None:
 
 
 def test_router_changes_run_everything() -> None:
-    assert_areas(
-        ["scripts/ci/detect_ci_change_areas.py"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(
-        ["scripts/ci/subprocess.py"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
-    assert_areas(
-        ["tests/test_ci_change_areas.py"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
-    )
+    for path in (
+        "scripts/ci/detect_ci_change_areas.py",
+        "scripts/ci/subprocess.py",
+        "tests/test_ci_change_areas.py",
+        ".github/ci-areas.yml",
+        ".github/workflows/ci.yml",
+    ):
+        assert module.classify_files([path]) == module.ChangeAreas.all(), path
 
 
 def test_ghosttykit_checksum_pin_runs_macos() -> None:
@@ -982,25 +993,21 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     ]
 
 
-def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+def test_router_policy_change_overrides_ghosttykit_release_only_shortcut() -> None:
     result, outputs = run_detect_step_for_paths(
         [
             "ghostty",
-            "scripts/download-prebuilt-ghosttykit.sh",
-            "scripts/validate-xcframework-archive.py",
             "scripts/ghosttykit-checksums.txt",
-            "tests/test_ci_ghosttykit_release_check.sh",
-            "tests/test_ci_change_areas.py",
-            ".github/workflows/ci.yml",
+            ".github/ci-areas.yml",
         ]
     )
 
-    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert "CI router changed; running all CI areas." in result.stdout
     assert outputs == [
-        "macos=false",
-        "web=false",
-        "agent_session_web=false",
-        "release_build=false",
+        "macos=true",
+        "web=true",
+        "agent_session_web=true",
+        "release_build=true",
     ]
 
 
