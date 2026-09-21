@@ -53,7 +53,7 @@ import {
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
-import { guestCliDistributionCommand } from "../guestCliDistribution";
+import { guestCliDistributionCommand, type GuestCliDistribution } from "../guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
@@ -184,6 +184,8 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
 export type FreestyleProviderDependencies = {
   readonly client: (timeoutMs?: number) => Freestyle;
   readonly resolveDaemonSource: typeof resolveCmuxTuiSource;
+  /** Optional pinned distribution override for isolated guest filesystem tests. */
+  readonly guestCliDistribution?: GuestCliDistribution;
 };
 
 /**
@@ -1754,7 +1756,9 @@ export class FreestyleProvider implements VMProvider {
    */
   private async installGuestCliFiles(_vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     await withVmSpan("cmux.vm.guest_cli.install", "provider", {}, async (span) => {
-      const result = await Effect.runPromise(Effect.either(installFreestyleGuestCli(this.deps.client, vmId, promptIdentity)));
+      const result = await Effect.runPromise(Effect.either(
+        installFreestyleGuestCli(this.deps.client, vmId, promptIdentity, this.deps.guestCliDistribution),
+      ));
       if (result._tag === "Left") {
         setSpanAttributes(span, {
           "cmux.vm.guest_install.outcome": result.left.outcome,

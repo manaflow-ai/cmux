@@ -3,6 +3,7 @@ import { Clock, Data, Effect, Exit } from "effect";
 import type { Freestyle } from "freestyle";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import type { GuestPromptIdentity } from "../guestPrompt";
+import type { GuestCliDistribution } from "../guestCliDistribution";
 import { guestCliInstallCommand } from "./guestCliInstallCommand";
 
 export type FreestyleClientFactory = (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
@@ -73,7 +74,12 @@ function transportFailure(stage: InstallStage, cause: unknown): GuestCliInstallE
 }
 
 /** One overall deadline includes upload, exec and SDK background polling. */
-export function installFreestyleGuestCli(client: FreestyleClientFactory, vmId: string, identity?: GuestPromptIdentity) {
+export function installFreestyleGuestCli(
+  client: FreestyleClientFactory,
+  vmId: string,
+  identity?: GuestPromptIdentity,
+  distribution?: GuestCliDistribution,
+) {
   return Effect.gen(function* () {
     const started = yield* Clock.currentTimeMillis;
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
@@ -86,7 +92,7 @@ export function installFreestyleGuestCli(client: FreestyleClientFactory, vmId: s
         signal.throwIfAborted();
         stage = "install";
         const result = await vm.exec({
-          command: guestCliInstallCommand(temporaryPath, identity), timeoutMs: 30_000, linuxUser: "root",
+          command: guestCliInstallCommand(temporaryPath, identity, distribution), timeoutMs: 30_000, linuxUser: "root",
         });
         const failure = guestFailure(result);
         if (failure) throw failure;

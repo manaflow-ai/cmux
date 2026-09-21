@@ -1,11 +1,39 @@
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Freestyle } from "freestyle";
 import { FreestyleProvider } from "../../services/vms/drivers/freestyle";
+import type { GuestCliDistribution } from "../../services/vms/guestCliDistribution";
 
 export type GuestExecRequest = {
   command: string;
   timeoutMs: number;
   linuxUser: string;
 };
+
+const testDistribution = (() => {
+  const root = mkdtempSync(join(tmpdir(), "cmux-guest-cli-fixture-"));
+  const source = join(root, "source");
+  mkdirSync(source);
+  const facade = "#!/bin/sh\nprintf 'synthetic facade\\n'\n";
+  const core = "#!/bin/sh\nprintf 'synthetic core\\n'\n";
+  writeFileSync(join(source, "cmux-cloud-cli"), facade, { mode: 0o755 });
+  writeFileSync(join(source, "coderouter"), core, { mode: 0o755 });
+  const archive = join(root, "cli.tar.gz");
+  const tar = spawnSync("tar", ["-czf", archive, "-C", source, "cmux-cloud-cli", "coderouter"], {
+    env: { ...process.env, COPYFILE_DISABLE: "1" },
+  });
+  if (tar.status !== 0) throw new Error("could not create the synthetic guest CLI archive");
+  const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
+  return {
+    url: pathToFileURL(archive).href,
+    archiveSha256: digest(readFileSync(archive)),
+    binaries: { "cmux-cloud-cli": digest(facade), coderouter: digest(core) },
+  } satisfies GuestCliDistribution;
+})();
 
 /** Real pinned SDK, synthetic HTTP only. No provider credentials or network. */
 export function freestyleGuestFixture(options: {
@@ -14,6 +42,7 @@ export function freestyleGuestFixture(options: {
   remove?: (path: string, signal?: AbortSignal | null) => void | Promise<void>;
   deleteFailure?: boolean;
   idPrefix?: string;
+  guestCliDistribution?: GuestCliDistribution;
 } = {}) {
   const requests: Array<{ method: string; path: string }> = [];
   const writes: string[] = [];
@@ -68,6 +97,7 @@ export function freestyleGuestFixture(options: {
   const provider = new FreestyleProvider({
     client,
     resolveDaemonSource: async () => { throw new Error("fixture must never resolve a live daemon"); },
+    guestCliDistribution: options.guestCliDistribution ?? testDistribution,
   });
   return { provider, client, requests, writes, removals, liveVms, allocations: () => allocations };
 }

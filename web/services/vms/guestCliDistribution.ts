@@ -2,6 +2,8 @@
 // daemon. The archive contains the Rust facade and official CodeRouter core.
 import distribution from "./guestCliDistribution.json";
 
+export const defaultGuestCliDistribution: GuestCliDistribution = distribution;
+
 export const GUEST_CMUX_ADAPTER_PATH = "/usr/local/libexec/cmux-cloud-adapter";
 const LIBEXEC = "/usr/local/libexec";
 const BIN = "/usr/local/bin";
@@ -14,7 +16,7 @@ export type GuestCliDistribution = {
 
 /** Every mutable path published by the distribution installer. */
 export function guestCliDistributionInstallPaths(
-  manifest: GuestCliDistribution = distribution,
+  manifest: GuestCliDistribution = defaultGuestCliDistribution,
   libexec = LIBEXEC,
   bin = BIN,
 ): string[] {
@@ -31,7 +33,7 @@ export function guestCliDistributionInstallPaths(
 
 /** Prune stale immutable releases without touching the active release. */
 export function guestCliDistributionPruneCommand(
-  manifest: GuestCliDistribution = distribution,
+  manifest: GuestCliDistribution = defaultGuestCliDistribution,
   libexec = LIBEXEC,
   bin = BIN,
 ): string {
@@ -67,7 +69,7 @@ for obsolete in releases[2:]:
 /** Generate the same installer for create, attach healing, and local fixtures. */
 export function guestCliDistributionCommand(
   verify = false,
-  manifest: GuestCliDistribution = distribution,
+  manifest: GuestCliDistribution = defaultGuestCliDistribution,
   libexec = LIBEXEC,
   bin = BIN,
   prune = true,

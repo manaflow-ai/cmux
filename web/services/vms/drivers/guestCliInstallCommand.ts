@@ -2,14 +2,20 @@ import { createHash } from "node:crypto";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
 import { GUEST_BROWSER_FILES, guestBrowserInstallCommand } from "../guestBrowser";
 import {
+  defaultGuestCliDistribution,
   guestCliDistributionCommand,
   guestCliDistributionInstallPaths,
   guestCliDistributionPruneCommand,
+  type GuestCliDistribution,
 } from "../guestCliDistribution";
 import { guestPromptInstallFiles, type GuestPromptIdentity } from "../guestPrompt";
 import { shellQuote } from "./cmuxTuiDaemon";
 
 const digest = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
+function distributionPaths(manifest: GuestCliDistribution = defaultGuestCliDistribution): string[] {
+  return guestCliDistributionInstallPaths(manifest);
+}
+
 const installPaths = [
   GUEST_CMUX_SHIM_PATH,
   ...GUEST_BROWSER_FILES.map(({ path }) => path),
@@ -20,7 +26,7 @@ const installPaths = [
   "/etc/cmux/vm-name",
   "/etc/bash.bashrc",
   "/etc/zsh/zshenv",
-  ...guestCliDistributionInstallPaths(),
+  ...distributionPaths(),
 ];
 const promptName = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -29,7 +35,7 @@ const promptName = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 // so a rename cannot observe or race a partially-installed generation.
 const install = String.raw`
 import fcntl, hashlib, json, os, shutil, stat, subprocess, sys, tempfile
-source, target, digest, browser, prompt_json, paths_json, transaction_token, cleanup = sys.argv[1:]
+source, target, digest, browser, distribution, prompt_json, paths_json, transaction_token, cleanup = sys.argv[1:]
 stage = "validate"
 lock = None
 backup_root = None
@@ -226,6 +232,8 @@ try:
     subprocess.run([source, "--help"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     stage = "browser"
     subprocess.run(["/bin/sh", "-c", browser], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    stage = "publish"
+    subprocess.run(["/bin/sh", "-c", distribution], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     stage = "prompt"
     install_prompt(json.loads(prompt_json) if prompt_json else None)
     stage = "publish"
@@ -275,7 +283,11 @@ finally:
         lock.close()
 `;
 
-export function guestCliInstallCommand(temporaryPath: string, identity?: GuestPromptIdentity): string {
+export function guestCliInstallCommand(
+  temporaryPath: string,
+  identity?: GuestPromptIdentity,
+  manifest: GuestCliDistribution = defaultGuestCliDistribution,
+): string {
   if (identity && (!promptName.test(identity.name) || !Number.isSafeInteger(identity.revision))) {
     throw new Error("Invalid Cloud prompt identity");
   }
@@ -284,7 +296,14 @@ export function guestCliInstallCommand(temporaryPath: string, identity?: GuestPr
     files: guestPromptInstallFiles,
   }) : "";
   const transactionToken = temporaryPath.replace(/[^A-Za-z0-9_-]/g, "_");
-  const browser = `${guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`)} && ${guestCliDistributionCommand(false, undefined, undefined, undefined, false)}`;
-  const cleanup = guestCliDistributionPruneCommand();
-  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))} ${shellQuote(transactionToken)} ${shellQuote(cleanup)}`;
+  const browser = guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`);
+  const distribution = guestCliDistributionCommand(false, manifest, undefined, undefined, false);
+  const cleanup = guestCliDistributionPruneCommand(manifest);
+  const paths = manifest === defaultGuestCliDistribution
+    ? installPaths
+    : [
+        ...installPaths.filter((path) => !path.startsWith("/usr/local/libexec/cmux-cloud-")),
+        ...distributionPaths(manifest),
+      ];
+  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(distribution)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(paths))} ${shellQuote(transactionToken)} ${shellQuote(cleanup)}`;
 }

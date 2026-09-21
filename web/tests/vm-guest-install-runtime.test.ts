@@ -34,7 +34,7 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
   };
   const rebase = (value: string) => value.replace(/\/usr\/local\/bin|\/usr\/local\/libexec|\/usr\/local\/share|\/etc\/cmux|\/etc(?=\/)/g,
     (prefix) => prefixes[prefix]!);
-  const target = join(root, "bin/cmux");
+  const target = join(root, "libexec/cmux-cloud-adapter");
   const fixture = freestyleGuestFixture({
     write: (path, bytes) => writeFileSync(rebase(path), options.corruptUpload ? "#!/bin/sh\nexit 0\n" : bytes),
     remove: (path) => rmSync(rebase(path), { force: true }),
@@ -77,7 +77,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
     expect(readFileSync(join(root, "daemon-args"), "utf8").trim().split("\n"))
       .toEqual(["--session", "cloud", "--json", "session", "current", "snapshot"]);
-    expect(readdirSync(join(root, "bin")).sort()).toEqual(["cmux", "cmux-open-url", "sensible-browser", "x-www-browser", "xdg-open"]);
+    expect(readdirSync(join(root, "bin")).sort()).toEqual([
+      "cmux", "cmux-open-url", "coderouter", "cr", "sensible-browser", "x-www-browser", "xdg-open",
+    ]);
   });
 
   test("a fresh prompt install keeps its identity when an older revision attaches", async () => {
