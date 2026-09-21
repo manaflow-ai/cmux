@@ -110,6 +110,13 @@ if [ -n "$app_host_home_input" ]; then
 fi
 
 app_host_xcodebuild_arguments=("$@")
+caller_has_result_bundle=0
+for app_host_argument in "${app_host_xcodebuild_arguments[@]}"; do
+  if [ "$app_host_argument" = "-resultBundlePath" ]; then
+    caller_has_result_bundle=1
+    break
+  fi
+done
 
 # Xcode's package-product layout can recreate or empty the top-level
 # PackageFrameworks directory while resolving/test-without-building. The app
@@ -236,11 +243,21 @@ while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
   metadata_path="${log_stem}-attempt-${attempt}.meta"
   : >"$log_path"
+  attempt_xcodebuild_arguments=("${app_host_xcodebuild_arguments[@]}")
+  result_bundle_path=""
+  if [ -n "${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}" ] \
+    && [ "$caller_has_result_bundle" -eq 0 ]; then
+    mkdir -p "$CMUX_APP_HOST_RESULT_BUNDLE_ROOT"
+    result_bundle_path="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT%/}/$(basename "$log_stem")-attempt-${attempt}.xcresult"
+    rm -rf -- "$result_bundle_path"
+    attempt_xcodebuild_arguments+=("-resultBundlePath" "$result_bundle_path")
+  fi
   {
     echo "shard=${CMUX_APP_HOST_SHARD:-unknown}"
     echo "tag=$log_tag"
     echo "attempt=$attempt"
-    printf 'arg=%q\n' "${app_host_xcodebuild_arguments[@]}"
+    [ -z "$result_bundle_path" ] || echo "result_bundle=$result_bundle_path"
+    printf 'arg=%q\n' "${attempt_xcodebuild_arguments[@]}"
   } >"$metadata_path"
   # Recover only this run key's prior attempt. A live foreign key fails the
   # complete preflight without signaling any PID, so one runner service cannot
@@ -251,7 +268,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
     "${app_host_test_runner_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild \
-      "${app_host_xcodebuild_arguments[@]}"
+      "${attempt_xcodebuild_arguments[@]}"
   status=$?
   set -e
 
