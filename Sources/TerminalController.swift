@@ -15981,3 +15981,5 @@ class TerminalController {
         // synchronous stop() on the main actor.
     }
 }
+
+// incremental-worktree-canary: branch-only source mtime probe
