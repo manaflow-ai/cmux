@@ -106,7 +106,13 @@ export class DurableTaskStore {
       if (!raw || raw.version !== STORE_VERSION || !Array.isArray(raw.tasks)) return;
       for (const value of raw.tasks) {
         const record = parseRecord(value);
-        if (record) this.records.set(record.id, record);
+        if (record) {
+          // A journal written with a larger limit can be reopened with a
+          // smaller one. Apply the active limit while recovering as well as
+          // while upserting, so reads and subsequent snapshots stay bounded.
+          record.events = record.events.slice(-this.maxEvents);
+          this.records.set(record.id, record);
+        }
       }
     } catch {
       // A corrupt journal must not prevent the sidecar from starting. The
@@ -172,8 +178,8 @@ function parseRecord(value: unknown): DurableTaskRecord | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Partial<DurableTaskRecord>;
   if (typeof record.id !== "string" || typeof record.conversationId !== "string" || typeof record.provider !== "string" || typeof record.cwd !== "string") return null;
-  if (typeof record.title !== "string" || typeof record.status !== "string") return null;
-  if (!Array.isArray(record.events) || !record.events.every((event) => event && typeof event === "object" && typeof (event as AgentEvent).kind === "string")) return null;
+  if (typeof record.title !== "string" || !isSessionStatus(record.status)) return null;
+  if (!Array.isArray(record.events) || !record.events.every(isAgentEvent)) return null;
   return {
     id: record.id,
     conversationId: record.conversationId,
@@ -190,4 +196,89 @@ function parseRecord(value: unknown): DurableTaskRecord | null {
     ...(typeof record.startRequestId === "string" ? { startRequestId: record.startRequestId } : {}),
     events: record.events.map(cloneEvent),
   };
+}
+
+function isSessionStatus(value: unknown): value is SessionStatus {
+  return value === "idle" || value === "running" || value === "exited" || value === "error";
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
+}
+
+function isOptionChoice(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const choice = value as Record<string, unknown>;
+  if (!isString(choice.value) || !isString(choice.label)) return false;
+  if (choice.description !== undefined && !isString(choice.description)) return false;
+  if (choice.disabled !== undefined && !isBoolean(choice.disabled)) return false;
+  if (choice.disabledReason !== undefined && !isString(choice.disabledReason)) return false;
+  if (choice.defaultEffort !== undefined && !isString(choice.defaultEffort)) return false;
+  return choice.efforts === undefined || (Array.isArray(choice.efforts) && choice.efforts.every(isOptionChoice));
+}
+
+function isSessionOption(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const option = value as Record<string, unknown>;
+  if (!isString(option.id) || !isString(option.label)) return false;
+  if (option.kind !== "select" && option.kind !== "toggle") return false;
+  if (typeof option.value !== "string" && typeof option.value !== "boolean") return false;
+  if (option.role !== undefined && !["effort", "thinking-budget", "approval", "context"].includes(option.role as string)) return false;
+  if (option.disabled !== undefined && !isBoolean(option.disabled)) return false;
+  if (option.description !== undefined && !isString(option.description)) return false;
+  if (option.choices !== undefined && (!Array.isArray(option.choices) || !option.choices.every(isOptionChoice))) return false;
+  return true;
+}
+
+function isAgentEvent(value: unknown): value is AgentEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  switch (event.kind) {
+    case "meta":
+      return (event.model === undefined || isString(event.model)) &&
+        (event.providerSessionId === undefined || isString(event.providerSessionId));
+    case "options":
+      return Array.isArray(event.options) && event.options.every(isSessionOption) &&
+        (event.actions === undefined || (typeof event.actions === "object" && event.actions !== null &&
+          (event.actions as Record<string, unknown>).fork !== undefined &&
+          isBoolean((event.actions as Record<string, unknown>).fork)));
+    case "commands": {
+      if (event.trigger !== "/" && event.trigger !== "$" && event.trigger !== "@") return false;
+      if (!Array.isArray(event.commands)) return false;
+      return event.commands.every((command) => {
+        if (!command || typeof command !== "object") return false;
+        const item = command as Record<string, unknown>;
+        return isString(item.name) &&
+          (item.description === undefined || isString(item.description)) &&
+          (item.source === undefined || isString(item.source));
+      });
+    }
+    case "user": case "status": case "delta": case "assistant": case "thinking":
+      return isString(event.text);
+    case "tool-start":
+      return isString(event.toolId) && isString(event.name) &&
+        (event.detail === undefined || isString(event.detail));
+    case "tool-end":
+      return isString(event.toolId) &&
+        (event.name === undefined || isString(event.name)) &&
+        (event.detail === undefined || isString(event.detail)) &&
+        (event.ok === undefined || isBoolean(event.ok));
+    case "done":
+      return event.stats === undefined || isString(event.stats);
+    case "files-changed":
+      return Array.isArray(event.files) && event.files.every((file) => {
+        if (!file || typeof file !== "object") return false;
+        const item = file as Record<string, unknown>;
+        return isString(item.path) && typeof item.adds === "number" && Number.isFinite(item.adds) &&
+          typeof item.dels === "number" && Number.isFinite(item.dels) && isString(item.status);
+      });
+    case "error":
+      return isString(event.message);
+    default:
+      return false;
+  }
 }
