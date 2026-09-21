@@ -691,8 +691,20 @@ def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
 
 
 _HEREDOC_OPEN_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?")
-_CASE_RE = re.compile(r"^case\b")
+_TRAILING_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+_CASE_RE = re.compile(r"(?:^|[;&|]\s*)case\b")
 _PATTERN_REMOVAL_RE = re.compile(r'\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?(##?|%%?)')
+
+
+def _strip_trailing_comment(line: str) -> str:
+    """Best-effort strip of a ' #...' trailing comment for heuristic matching.
+
+    Does not track quotes, so a literal '#' preceded by whitespace inside a
+    quoted string would be misread as a comment start. No top-level line in
+    this script does that today.
+    """
+    match = _TRAILING_COMMENT_RE.search(line)
+    return line[: match.start()] if match else line
 
 
 def _top_level_statement_lines(lines: list[str]) -> list[tuple[int, str]]:
@@ -701,10 +713,16 @@ def _top_level_statement_lines(lines: list[str]) -> list[tuple[int, str]]:
     Excludes function-body lines (indented in this file, and only executed
     once the function is *called* -- every function here is called after the
     locale fix) and heredoc bodies (verbatim text, never parsed as bash
-    statements). Does not attempt to special-case indented top-level
-    if/for/while bodies -- this script has none that touch arguments, and
-    distinguishing those from function bodies in general needs real bash
-    parsing, which is out of scope for this guard.
+    statements). A heredoc operator is only recognized outside a trailing
+    comment, so e.g. `x=1  # example: <<EOF` does not start heredoc tracking.
+
+    Does not attempt to special-case indented top-level if/for/while bodies
+    (as opposed to function bodies) -- this script has none that touch
+    arguments, and distinguishing those in general needs real bash parsing,
+    out of scope for this guard. Nor does it track quoting, so a heredoc-like
+    `<<NAME` inside a quoted string (e.g. `echo "use <<EOF here"`) would still
+    be misdetected as a real heredoc open; no such line exists in this script
+    today.
     """
     result = []
     heredoc_terminator: str | None = None
@@ -715,10 +733,74 @@ def _top_level_statement_lines(lines: list[str]) -> list[tuple[int, str]]:
             continue
         if line and line[0] not in (" ", "\t") and not line.startswith("#"):
             result.append((i, line))
-        heredoc_open = _HEREDOC_OPEN_RE.search(line)
+        heredoc_open = _HEREDOC_OPEN_RE.search(_strip_trailing_comment(line))
         if heredoc_open:
             heredoc_terminator = heredoc_open.group(1)
     return result
+
+
+def test_top_level_statement_line_heuristics(failures: list[str]) -> None:
+    """Pin the exact behavior of the _top_level_statement_lines heuristic.
+
+    Regression inputs requested in review: a commented-out heredoc-looking
+    line must not start heredoc tracking; a top-level `case` after a `;`
+    separator must still be detected; a heredoc-like token inside a quoted
+    string is a known, documented false positive (no such line exists in
+    Resources/bin/open today).
+    """
+    synthetic = [
+        'before_comment_heredoc="x"',
+        'x=1  # example: <<EOF style heredoc, not a real one',
+        'after_comment_heredoc="y"',
+        "func_with_real_heredoc() {",
+        "    value=\"$(cmd <<'PY'",
+        "heredoc body line that must be skipped, not a top-level statement",
+        "PY",
+        ")\"",
+        "}",
+        'after_real_heredoc="z"',
+        'true; case "$x" in',
+        "esac",
+    ]
+    top_level_texts = [line for _, line in _top_level_statement_lines(synthetic)]
+
+    expect(
+        "after_comment_heredoc=\"y\"" in top_level_texts,
+        "a '#' comment mentioning '<<EOF' must not start heredoc tracking "
+        f"and swallow the next top-level statement, got {top_level_texts!r}",
+        failures,
+    )
+    expect(
+        "heredoc body line that must be skipped, not a top-level statement"
+        not in top_level_texts,
+        "a real heredoc body must not be treated as a top-level statement",
+        failures,
+    )
+    expect(
+        'after_real_heredoc="z"' in top_level_texts,
+        "the statement following a real heredoc's closing delimiter must "
+        f"still be seen as top-level, got {top_level_texts!r}",
+        failures,
+    )
+    expect(
+        any(_CASE_RE.search(_strip_trailing_comment(t)) for t in top_level_texts if t == 'true; case "$x" in'),
+        "a top-level 'case' appearing after a ';' separator must be detected",
+        failures,
+    )
+
+    # Known, documented limitation: no quote-tracking, so a heredoc-like
+    # token inside a quoted string is misdetected as a real heredoc open.
+    # This pins that documented behavior rather than silently drifting.
+    quoted_lookalike = ['echo "use <<EOF here"', "should_be_swallowed=1"]
+    quoted_top_level = [line for _, line in _top_level_statement_lines(quoted_lookalike)]
+    expect(
+        "should_be_swallowed=1" not in quoted_top_level,
+        "documented limitation regressed: a quoted heredoc-like token no "
+        "longer starts (false-positive) heredoc tracking -- if this now "
+        "fails, the limitation note on _top_level_statement_lines is stale "
+        "and should be updated",
+        failures,
+    )
 
 
 def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> None:
@@ -753,7 +835,8 @@ def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> N
     for i, line in top_level:
         if i >= lc_all_index:
             break
-        if _CASE_RE.match(line) or _PATTERN_REMOVAL_RE.search(line):
+        code = _strip_trailing_comment(line)
+        if _CASE_RE.search(code) or _PATTERN_REMOVAL_RE.search(code):
             failures.append(
                 f"Resources/bin/open:{i + 1}: top-level case/pattern-removal "
                 f"construct appears before 'export LC_ALL=C': {line!r}"
@@ -829,6 +912,7 @@ def main() -> int:
     test_local_non_html_file_passthrough(failures)
     test_multibyte_filename_argument_does_not_crash_default_bash(failures)
     test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(failures)
+    test_top_level_statement_line_heuristics(failures)
     test_wrapper_forces_c_locale_before_arg_processing(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
