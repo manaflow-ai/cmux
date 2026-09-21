@@ -48,9 +48,20 @@ runner group must allow this public repository and restrict workflow access to
 That group policy is the external scheduling boundary: branch-modified workflow
 copies cannot acquire the owned Mac. The compile job has empty GitHub-token
 permissions, performs public Git fetches instead of `actions/checkout`, and
-receives no repository secrets. Glaeda owns DerivedData, SwiftPM,
-module-cache, and Xcode compilation-cache persistence; every run still resolves
-packages and performs exact source/toolchain admission.
+receives no repository secrets. Glaeda owns native cache placement, admission,
+recovery, and exact-source locking. CMUX owns compile semantics through
+`cmux.macos.compile-admission@1` and its `cmux-workload-result/v1` receipt.
+The persistent wrapper refuses execution when that canonical profile/generation
+is absent, so rollout begins only after #13411 is present in the candidate
+source. DerivedData, SwiftPM, module-cache, and Xcode compilation-cache state
+then remain resident under Glaeda while the canonical CMUX entrypoint still
+resolves dependencies, compiles, validates the warning budget, records named
+stage timings, and proves artifact/process cleanup.
+
+The current hosted admission path remains the comparison baseline and the
+fallback authority. Persistent results additionally carry the canonical semantic
+comparison key and context key; compare those keys only across runs produced by
+the same profile/generation and toolchain context.
 
 Rollout is reversible through two repository variables:
 
