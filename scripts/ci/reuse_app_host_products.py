@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import gzip
 import json
+import math
 import os
 import platform
 import re
@@ -171,7 +172,8 @@ def load_consumer(api, value, current_run, current_attempt, reasons):
             record_reason(reasons, "consumer_tree_mismatch")
             return None
         return run
-    except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+    except (TypeError, AttributeError, ValueError, KeyError, OSError,
+            subprocess.SubprocessError):
         record_reason(reasons, "consumer_provenance_unavailable")
         return None
 
@@ -389,38 +391,133 @@ def producer_record(run, receipt, artifact):
     }
 
 
+def valid_revision(value):
+    """Return whether a provenance revision has the expected Git SHA form."""
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{6,40}", value) is not None
+
+
+def valid_positive_decimal(value):
+    """Return whether a string contains one positive decimal integer."""
+    return isinstance(value, str) and value.isdecimal() and int(value) > 0
+
+
+def valid_artifact_id(value):
+    """Return whether an artifact identifier is a positive integer."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def valid_digest(value):
+    """Return whether a provenance digest is one complete SHA-256 identifier."""
+    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def valid_metric(value):
+    """Accept unavailable metrics or finite, non-negative numeric measurements."""
+    if value is None:
+        return True
+    return (isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and value >= 0)
+
+
+def valid_producer_record(record):
+    """Validate the full producer identity written by schema-2 provenance."""
+    return (
+        isinstance(record, dict)
+        and valid_positive_decimal(record.get("run_id"))
+        and valid_positive_decimal(record.get("run_attempt"))
+        and isinstance(record.get("run_url"), str)
+        and valid_revision(record.get("revision"))
+        and valid_artifact_id(record.get("artifact_id"))
+        and valid_digest(record.get("artifact_digest"))
+    )
+
+
+def valid_legacy_provenance(record):
+    """Validate the older provenance shape emitted before schema 2."""
+    if not isinstance(record, dict):
+        return False
+    if "schema" in record:
+        return False
+    if not (
+        isinstance(record.get("run_url"), str)
+        and valid_revision(record.get("revision"))
+        and valid_artifact_id(record.get("artifact_id"))
+        and valid_revision(record.get("consumer_revision"))
+    ):
+        return False
+    if "metrics" in record:
+        metrics = record["metrics"]
+        if not isinstance(metrics, dict) or not all(valid_metric(value) for value in metrics.values()):
+            return False
+    upstream = record.get("upstream")
+    return upstream is None or valid_upstream_provenance(upstream)
+
+
+def valid_upstream_provenance(record):
+    """Validate legacy or schema-2 provenance before carrying it to a new hop."""
+    if not isinstance(record, dict):
+        return False
+    schema = record.get("schema")
+    if schema is None:
+        return valid_legacy_provenance(record)
+    if schema != 2:
+        return False
+
+    metrics = record.get("metrics")
+    metric_names = {
+        "compile_seconds_avoided",
+        "lookup_seconds",
+        "transfer_seconds",
+        "restore_seconds",
+        "total_reuse_seconds",
+        "macos_runner_minutes_saved",
+    }
+    if (not isinstance(metrics, dict)
+            or set(metrics) != metric_names
+            or not all(valid_metric(metrics[name]) for name in metric_names)):
+        return False
+
+    consumer = record.get("consumer")
+    if not (
+        valid_producer_record(record.get("original_producer"))
+        and valid_producer_record(record.get("immediate_producer"))
+        and isinstance(consumer, dict)
+        and valid_positive_decimal(consumer.get("run_id"))
+        and valid_positive_decimal(consumer.get("run_attempt"))
+        and valid_revision(consumer.get("revision"))
+        and record.get("restore_route") == "github_artifact"
+        and isinstance(record.get("candidate_misses"), list)
+        and all(isinstance(reason, str) for reason in record["candidate_misses"])
+    ):
+        return False
+
+    # Validate the legacy mirror too: downstream readers may still consume it.
+    if not (
+        isinstance(record.get("run_url"), str)
+        and valid_revision(record.get("revision"))
+        and valid_artifact_id(record.get("artifact_id"))
+        and valid_digest(record.get("artifact_digest"))
+        and valid_revision(record.get("consumer_revision"))
+    ):
+        return False
+    upstream = record.get("upstream")
+    return upstream is None or valid_upstream_provenance(upstream)
+
+
 def original_producer(upstream, immediate):
-    """Preserve the oldest known producer across republished reuse hops."""
-    if not isinstance(upstream, dict):
-        return immediate
-    recorded = upstream.get("original_producer")
-    if isinstance(recorded, dict):
-        return recorded
-    node = upstream
-    oldest = None
-    while isinstance(node, dict):
-        if node.get("revision"):
-            oldest = {
-                "run_id": str(node.get("run_id", "")),
-                "run_attempt": str(node.get("run_attempt", "")),
-                "run_url": node.get("run_url", ""),
-                "revision": node.get("revision", ""),
-                "artifact_id": node.get("artifact_id"),
-                "artifact_digest": node.get("artifact_digest", ""),
-            }
-        node = node.get("upstream")
-    return oldest or immediate
+    """Preserve the oldest fully identified producer across schema-2 reuse hops."""
+    if isinstance(upstream, dict) and upstream.get("schema") == 2:
+        return upstream["original_producer"]
+    return immediate
 
 
 def upstream_compile_seconds(upstream):
     """Carry the original measured compile duration through multi-hop reuse."""
-    if not isinstance(upstream, dict):
+    if not isinstance(upstream, dict) or upstream.get("schema") != 2:
         return None
-    metrics = upstream.get("metrics")
-    if not isinstance(metrics, dict):
-        return None
-    value = metrics.get("compile_seconds_avoided")
-    return float(value) if isinstance(value, (int, float)) else None
+    return upstream["metrics"]["compile_seconds_avoided"]
 
 
 def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None):
@@ -472,7 +569,7 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                     raise ValueError("producer revision mismatch")
                 provenance_path = root / "cmux-original-producer.json"
                 upstream = json.loads(provenance_path.read_text()) if provenance_path.exists() else None
-                if upstream is not None and not isinstance(upstream, dict):
+                if upstream is not None and not valid_upstream_provenance(upstream):
                     raise ValueError("invalid upstream provenance")
                 products.restore(staging, {**current_identity, "revision": original["revision"]})
                 # Relocate once more from staging into the actual consumer location.
