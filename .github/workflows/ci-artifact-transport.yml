@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/ci-artifact-transport.yml
+      - .github/workflows/ci.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
       - scripts/ci/verify-r2-canary.py

@@ -104,6 +104,38 @@ class PreflightTests(unittest.TestCase):
         self.run_mode('delete-worker')
         self.assertEqual(self.calls, [(f'workers/scripts/{self.resource}?force=true', 'DELETE', None)])
 
+    def test_secret_cleanup_ignores_absent_secrets(self):
+        def missing_secret(path, method='GET', value=None):
+            self.calls.append((path, method, value))
+            if '/secrets/' in path:
+                raise cf.CloudflareError(method, path, 404)
+            return {}
+        with patch.object(cf, 'api', missing_secret), patch.object(cf, 'CREATED', self.created), \
+             patch('sys.argv', ['canary', 'delete-secret']), \
+             patch.dict(os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'}):
+            cf.main()
+        self.assertEqual(len(self.calls), 2)
+        self.assertTrue(all(call[1] == 'DELETE' for call in self.calls))
+
+    def test_secret_cleanup_preserves_non_not_found_errors(self):
+        def forbidden_secret(path, method='GET', value=None):
+            self.calls.append((path, method, value))
+            if '/secrets/' in path:
+                raise cf.CloudflareError(method, path, 403)
+            return {}
+        with patch.object(cf, 'api', forbidden_secret), patch.object(cf, 'CREATED', self.created), \
+             patch('sys.argv', ['canary', 'delete-secret']), \
+             patch.dict(os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'}):
+            with self.assertRaises(RuntimeError):
+                cf.main()
+
+    def test_workflow_covers_transport_pushes_and_canary_measurement_budget(self):
+        canary = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
+        self.assertIn('timeout-minutes: 20', canary)
+        transport = (ROOT / '.github/workflows/ci-artifact-transport.yml').read_text()
+        push = transport.split('  push:', 1)[1].split('\n\npermissions:', 1)[0]
+        self.assertIn('- .github/workflows/ci.yml', push)
+
     def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
         workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
         delete_step = workflow.split("name: Remove only the canary's artifact copy", 1)[1]
