@@ -29,16 +29,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-
-      - name: Install guard dependencies
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+      - name: Prepare guard Python
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/testbox-guard-venv"
+          "$RUNNER_TEMP/testbox-guard-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            PyYAML==6.0.3
+          echo "TESTBOX_GUARD_PYTHON=$RUNNER_TEMP/testbox-guard-venv/bin/python" >> "$GITHUB_ENV"
 
       - name: Validate Blacksmith Testbox broker trust boundary
-        run: python3 tests/test_ci_testbox_broker_guard.py
+        run: "$TESTBOX_GUARD_PYTHON" tests/test_ci_testbox_broker_guard.py
 
       - name: Validate receipt-bound cleanup ownership check
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
