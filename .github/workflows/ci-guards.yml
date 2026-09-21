@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [preflight, ci, app-host, release, quality]
+        group: [preflight, ci, app-host, release, quality-sharding, quality-runtime, quality-determinism]
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
@@ -49,6 +49,10 @@ jobs:
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
+
+      - name: Validate quality guard structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quality_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -325,7 +329,7 @@ jobs:
         run: python3 tests/test_ios_selected_test_execution.py
 
       - name: Validate cmuxTests sharding
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-sharding' }}
         run: |
           python3 scripts/ci/cmux_unit_test_shard.py --validate
           python3 tests/test_ci_cmux_unit_test_shard.py
@@ -359,11 +363,11 @@ jobs:
         run: ./tests/test_ghostty_zig_version_sync.sh
 
       - name: Validate bundled-resource incremental outputs
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_build_app_bundled_resources.sh
 
       - name: Validate virtual display lock
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_ci_virtual_display_lock.sh
 
       - name: Validate nightly tag push auth
@@ -387,7 +391,7 @@ jobs:
         run: bash ./tests/test_nightly_universal_build.sh
 
       - name: Validate test compilation cache seeding
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-sharding' }}
         run: bash ./tests/test_ci_test_compilation_cache_seed.sh
 
       - name: Validate cmux-tui client installation
@@ -472,23 +476,23 @@ jobs:
         run: ./tests/test_ci_swift_warning_budget.sh
 
       - name: Validate auxiliary window close shortcut lint
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
 
       - name: Validate bash shell integration job control
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
       - name: Validate focused Dock shortcut routing guard
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_dock_shortcut_routing_guard.py
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
       - name: Validate test determinism gate
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: |
           python3 scripts/check-test-determinism.py --self-test
           python3 scripts/check-test-determinism.py --strict
