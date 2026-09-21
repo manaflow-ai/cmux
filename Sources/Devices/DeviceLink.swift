@@ -128,7 +128,7 @@ final class DeviceLink {
     /// A session or mutation saw the transport fail; reconnect from a fresh dial.
     func reportTransportLost(_ error: any Error) {
         deviceLinkLog.error("device link lost \(self.instance.wireValue, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private)")
-        lastFailure = Self.classify(error).reason
+        lastFailure = DeviceLinkFailure.classify(error, hostName: record.deviceName).message
         transition(applyPolicy(.transportLost))
         onChange?()
     }
@@ -265,10 +265,10 @@ final class DeviceLink {
                 return
             } catch {
                 guard !Task.isCancelled, generation == self.generation else { return }
-                let classified = Self.classify(error)
-                self.lastFailure = classified.reason
-                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.reason, privacy: .private)")
-                self.transition(self.applyPolicy(.connectFailed(retryable: classified.retryable, reason: classified.reason)))
+                let classified = DeviceLinkFailure.classify(error, hostName: record.deviceName)
+                self.lastFailure = classified.message
+                deviceLinkLog.error("device link connect failed \(self.instance.wireValue, privacy: .private(mask: .hash)) attempt=\(attempt): \(classified.code, privacy: .public)")
+                self.transition(self.applyPolicy(.connectFailed(retryable: classified.isRetryable, reason: classified.message)))
                 self.onChange?()
             }
         }
@@ -332,40 +332,6 @@ final class DeviceLink {
             await client.disconnect()
             throw error
         }
-    }
-
-    private static func classify(_ error: any Error) -> (retryable: Bool, reason: String) {
-        if let error = error as? DeviceRouteSelector.SelectionError {
-            switch error {
-            case .noRoutes:
-                return (false, String(localized: "devices.link.error.noRoutes", defaultValue: "This Mac has not published a route yet."))
-            case .needsAuthorization:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            case .noDialableRoute:
-                return (false, String(localized: "devices.link.error.noDialableRoute", defaultValue: "This Mac has no supported connection route. Update cmux on both Macs and try again."))
-            }
-        }
-        if let error = error as? DeviceLinkError {
-            switch error {
-            case .identityUnproven, .identityMismatch:
-                return (false, error.errorDescription ?? String(describing: error))
-            case .blocked(let reason):
-                return (false, reason)
-            case .notConnected, .hostRejected, .malformedResponse:
-                return (true, error.errorDescription ?? String(describing: error))
-            }
-        }
-        if let error = error as? MobileShellConnectionError {
-            switch error {
-            case .accountMismatch, .authorizationFailed:
-                return (false, DeviceLinkError.identityUnproven.localizedDescription)
-            case .insecureManualRoute:
-                return (false, String(localized: "devices.link.error.needsAuthorization", defaultValue: "Pair this Mac in Settings \u{203A} Computers to connect."))
-            default:
-                break
-            }
-        }
-        return (true, String(localized: "devices.link.error.connectionFailed", defaultValue: "Could not connect to this Mac. Check that it is online and try again."))
     }
 
     // MARK: - Sync and events

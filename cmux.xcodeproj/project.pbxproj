@@ -1734,6 +1734,8 @@
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */; };
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000017 /* DeviceLink.swift */; };
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */; };
+				DE1345800000000000000002 /* DeviceLinkFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000001 /* DeviceLinkFailure.swift */; };
+				DE1345800000000000000004 /* DeviceLinkFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1345800000000000000003 /* DeviceLinkFailureTests.swift */; };
 				DEC1CE000000000000000010 /* DeviceLinkReconnectPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000000F /* DeviceLinkReconnectPolicy.swift */; };
 				DEC1CE000000000000000046 /* DeviceLinkReconnectPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */; };
 				DEC1CE000000000000000014 /* DeviceLinkRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */; };
@@ -5864,6 +5866,8 @@
 				E9CE5C9947FB0EB965C69FE8 /* DeviceIrxPeerTransportProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceIrxPeerTransportProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000017 /* DeviceLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLink.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkAuthorization.swift"; sourceTree = "<group>"; };
+				DE1345800000000000000001 /* DeviceLinkFailure.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkFailure.swift"; sourceTree = "<group>"; };
+				DE1345800000000000000003 /* DeviceLinkFailureTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkFailureTests.swift; sourceTree = "<group>"; };
 				DEC1CE00000000000000000F /* DeviceLinkReconnectPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkReconnectPolicy.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceLinkReconnectPolicyTests.swift; sourceTree = "<group>"; };
 				DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceLinkRuntime.swift"; sourceTree = "<group>"; };
@@ -11144,6 +11148,7 @@
 				DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */,
 				DEC1CE000000000000000015 /* DeviceLinkTerminalEvents.swift */,
 				DEC1CE000000000000000017 /* DeviceLink.swift */,
+				DE1345800000000000000001 /* DeviceLinkFailure.swift */,
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */,
 				DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */,
 				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */,
@@ -11423,6 +11428,7 @@
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */,
 				DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */,
 				DEC1CE000000000000000045 /* DeviceLinkReconnectPolicyTests.swift */,
+				DE1345800000000000000003 /* DeviceLinkFailureTests.swift */,
 				DECE17900000000000000001 /* DeviceDirectoryLifecycleTests.swift */,
 				B6F143F6E02543F3899F1E01 /* CodexAutoresumeChainTests.swift */,
 				A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */,
@@ -13801,6 +13807,7 @@
 				DEC1CE000000000000000010 /* DeviceLinkReconnectPolicy.swift in Sources */,
 				DEC1CE00000000000000001A /* DeviceLinkAuthorization.swift in Sources */,
 				DEC1CE000000000000000018 /* DeviceLink.swift in Sources */,
+				DE1345800000000000000002 /* DeviceLinkFailure.swift in Sources */,
 				D44F126C5ADC43644BB030D9 /* DeviceIrxPeerTransportProvider.swift in Sources */,
 				7CE56CC2201E73B994B1DE90 /* DeviceIrxClientContext.swift in Sources */,
 				DF2CA4E950714E03D73EF850 /* DeviceIrxClient.swift in Sources */,
@@ -17215,6 +17222,7 @@
 				6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
 				DECE17900000000000000002 /* DeviceDirectoryLifecycleTests.swift in Sources */,
 				DEC1CE000000000000000046 /* DeviceLinkReconnectPolicyTests.swift in Sources */,
+				DE1345800000000000000004 /* DeviceLinkFailureTests.swift in Sources */,
 				DEC1CE00000000000000004C /* DevicesSidebarModeTests.swift in Sources */,
 				DEC1CE000000000000000048 /* DeviceWorkspaceProjectionTests.swift in Sources */,
 				DEC1CE00000000000000003E /* SurfaceMachineIDDeviceEncodingTests.swift in Sources */,
