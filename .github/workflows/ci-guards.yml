@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           state_root="$RUNNER_TEMP/cmux-ci-guard-profile"
-          result_path="$RUNNER_TEMP/cmux-ci-guard-result.json"
+          result_path="$state_root/result.json"
           rm -rf "$state_root"
           if python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard \
             --generation 1 \
