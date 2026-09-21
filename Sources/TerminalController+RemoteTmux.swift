@@ -235,11 +235,9 @@ extension TerminalController {
         (params["activate"] as? Bool) ?? false
     }
 
-    /// A caller-supplied local display title for the first newly-mirrored
-    /// workspace (`cmux ssh-tmux --name`). Cosmetic only — see
-    /// ``RemoteTmuxController/mirrorSession(host:sessionName:sessionId:into:customTitle:)``,
-    /// which sets it with `propagateToRemoteTmux: false` so it never triggers a
-    /// remote `rename-session`.
+    /// `cmux ssh-tmux --name`; see
+    /// ``RemoteTmuxController/mirrorSession(host:sessionName:sessionId:into:customTitle:)``
+    /// for the cosmetic-only rationale.
     private nonisolated static func remoteTmuxWorkspaceName(from params: [String: Any]) -> String? {
         guard let raw = (params["workspace_name"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty

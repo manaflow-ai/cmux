@@ -56,9 +56,8 @@ struct RemoteTmuxMirrorWorkspaceNameTests {
             .map(String.init)
     }
 
-    /// `--name` sets a cosmetic local title on the mirrored workspace. Unlike an
-    /// interactive rename of an already-mirrored workspace, it must never issue
-    /// `rename-session` on the remote host (propagateToRemoteTmux: false).
+    /// See `RemoteTmuxController.mirrorSession`'s doc for why this must never
+    /// issue `rename-session` on the remote host.
     @Test func mirrorSessionAppliesCustomTitleWithoutRenamingRemoteSession() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let windowID = appDelegate.createMainWindow()
@@ -91,9 +90,8 @@ struct RemoteTmuxMirrorWorkspaceNameTests {
         #expect(commands.allSatisfy { !$0.contains("rename-session") })
     }
 
-    /// A bulk attach can mirror several not-yet-mirrored sessions in one call;
-    /// there is no single unambiguous target for a caller-supplied name among
-    /// them, so it applies only to the first newly-mirrored workspace.
+    /// See `RemoteTmuxController.mirrorSessions`'s doc for the first-session-only
+    /// rationale.
     @Test func mirrorSessionsAppliesWorkspaceNameOnlyToFirstNewlyMirroredSession() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let windowID = appDelegate.createMainWindow()
