@@ -15,22 +15,32 @@ enum MobileHostV3ByteStream {
     }
 }
 
-private final class MobileHostV3ReceiveStream: CmxIrohReceiveStream, @unchecked Sendable {
+private actor MobileHostV3ReceiveStream: CmxIrohReceiveStream {
     let stream: NativeStream
+    private var buffered = Data()
+    private var stopped = false
+
     init(stream: NativeStream) { self.stream = stream }
 
     func receive(maximumByteCount: Int) async throws -> Data? {
-        let data = try await stream.receive(operation: CmuxV3Native.Operation())
-        guard let data else { return nil }
-        if data.isEmpty { return nil }
-        if data.count <= maximumByteCount { return data }
-        // Native v3 promises bounded receive chunks. Oversized data is a
-        // protocol violation, never silently truncated or split with a fake
-        // sequence number.
-        throw MobileHostV3LaneError.receiveLimitExceeded
+        guard !stopped else { return nil }
+        let limit = max(1, maximumByteCount)
+        while buffered.isEmpty {
+            guard let data = try await stream.receive(operation: CmuxV3Native.Operation()) else {
+                stopped = true
+                return nil
+            }
+            if !data.isEmpty { buffered.append(data) }
+        }
+        let count = min(limit, buffered.count)
+        let result = Data(buffered.prefix(count))
+        buffered.removeFirst(count)
+        return result
     }
 
     func stop(errorCode: UInt64) async {
+        stopped = true
+        buffered.removeAll()
         stream.stopReceive()
     }
 }
