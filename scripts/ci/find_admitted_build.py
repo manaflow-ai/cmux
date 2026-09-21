@@ -17,6 +17,8 @@ import argparse
 import json
 import subprocess
 import sys
+import time
+from functools import partial
 from typing import Callable
 from urllib.parse import urlencode
 
@@ -25,12 +27,22 @@ ARTIFACT_PREFIX = "build-inputs-"
 RUNS_TO_CHECK = 6
 JOB_PAGES_TO_CHECK = 3
 JOBS_PER_PAGE = 100
+REQUEST_TIMEOUT_SECONDS = 10
+LOOKUP_TIMEOUT_SECONDS = 30
 
 Api = Callable[[str], dict]
 
 
-def gh_api(path: str) -> dict:
-    return json.loads(subprocess.check_output(["gh", "api", path], text=True))
+def gh_api(path: str, *, deadline: float) -> dict:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("admission lookup deadline reached")
+    result = json.loads(subprocess.check_output(
+        ["gh", "api", path], text=True, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)
+    ))
+    if time.monotonic() >= deadline:
+        raise TimeoutError("admission lookup deadline reached")
+    return result
 
 
 def artifact_name(fingerprint: str, run_attempt: int) -> str:
@@ -59,7 +71,8 @@ def admitted_run(api: Api, repository: str, branch: str, fingerprint: str, curre
                         return run["html_url"]
                 if len(jobs) < JOBS_PER_PAGE:
                     break
-    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError,
+            json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
         print(f"lookup failed, compiling: {error}", file=sys.stderr)
     return None
 
@@ -73,7 +86,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--github-output")
     args = parser.parse_args(argv)
 
-    url = admitted_run(gh_api, args.repository, args.branch, args.fingerprint, args.current_run_id)
+    # Reuse is optional: a slow API must not consume the changes job's entire
+    # timeout and prevent the normal compile fallback. Share one deadline
+    # across every run, jobs page and artifact request in this lookup.
+    api = partial(gh_api, deadline=time.monotonic() + LOOKUP_TIMEOUT_SECONDS)
+    url = admitted_run(api, args.repository, args.branch, args.fingerprint, args.current_run_id)
     print(f"Same build inputs already passed compile admission in {url}" if url else "No earlier run compiled these build inputs.")
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as handle:

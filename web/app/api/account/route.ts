@@ -10,6 +10,7 @@ import {
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
+  cloudRuntimes,
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNotificationDeliveries,
@@ -1583,6 +1584,9 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         : eq(cloudVmSessions.userId, userId),
     );
     await deleteVmPublicationRowsForAccountDeletion(tx, userId);
+    // These are the deleted personal/sole-member team scopes, excluding retained
+    // shared teams. Include detached runtimes; billing no longer defines ownership.
+    await tx.delete(cloudRuntimes).where(inArray(cloudRuntimes.ownerTeamId, deletionTeamIds));
     if (personalVmRows.length > 0) {
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }
