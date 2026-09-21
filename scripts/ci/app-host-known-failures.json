@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "baseline_sha": "2d93494cd37b5a00f31ed58edc07023e3da2464d",
+  "failures": [
+    {
+      "id": "xctest:cmuxTests.CLINotifyProcessIntegrationRegressionTests/testClaudeClearSessionStartMarksWorkspaceRunning",
+      "framework": "xctest",
+      "category": "stale test",
+      "issue": 8565,
+      "first_seen_run": 35530676667,
+      "last_confirmed_run": 35567420859,
+      "repair_pr": 13381
+    }
+  ]
+}
