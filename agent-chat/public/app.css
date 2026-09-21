@@ -652,6 +652,11 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .diff-loading { color: var(--text-faint); font: calc(var(--font-size-base) - 2px) var(--font-sans); padding: 8px; }
 
 #chat-input-row { flex: none; padding: 10px 24px 18px; max-width: 808px; width: 100%; margin: 0 auto; }
+.routing-notice {
+  margin: 0 0 7px; padding: 7px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-input));
+  color: var(--text-dim); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
+}
 #chat-card {
   display: flex; flex-direction: column; gap: 6px; padding: 6px;
   background: var(--bg-input); border: 0; border-radius: 14px;

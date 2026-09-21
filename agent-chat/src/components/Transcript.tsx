@@ -262,7 +262,7 @@ export function TurnActions({
                 {actions.fork ? (
                   <button className="turn-menu-item" type="button" disabled={forkPending} onClick={onFork}>
                     {forkPending ? <PinwheelSpinner size={11} /> : null}
-                    <span>Fork chat</span>
+                    <span>Continue in new chat</span>
                   </button>
                 ) : null}
               </Popover.Popup>

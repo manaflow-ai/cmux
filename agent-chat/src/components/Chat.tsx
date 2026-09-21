@@ -54,7 +54,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, ctrlJ, forkPending, reply, stop, setOption, fork, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState("");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -138,6 +138,11 @@ export function Chat() {
         />
       </div>
       <div id="chat-input-row">
+        {routing?.phase === "handoff" ? (
+          <div className="routing-notice" role="status">Continued in a new chat. Previous context is linked.</div>
+        ) : routing?.phase === "rerouted" ? (
+          <div className="routing-notice" role="status">Moved to another serving route. Conversation context was preserved.</div>
+        ) : null}
         <div id="chat-card">
           <div className="input-wrap chat-text-wrap">
             <textarea
