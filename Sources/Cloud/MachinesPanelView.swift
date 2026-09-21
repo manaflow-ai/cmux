@@ -157,7 +157,7 @@ struct MachinesPanelView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable — showing last known"))
                             .cmuxFont(size: 11)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -317,7 +317,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.unavailable.subtitle",
-            defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
+            defaultValue: "Your machines are still there. cmux couldn’t reach the Cloud service just now; it retries on its own."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -344,7 +344,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.sessionRejected.subtitle",
-            defaultValue: "The Cloud service no longer accepts this Mac\u{2019}s saved session. Sign out and sign back in to reconnect."
+            defaultValue: "The Cloud service no longer accepts this Mac’s saved session. Sign out and sign back in to reconnect."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -374,7 +374,7 @@ struct MachinesPanelView: View {
             .foregroundColor(.primary.opacity(0.85))
         Text(String(
             localized: "machines.requiresPro.subtitle",
-            defaultValue: "This account\u{2019}s plan doesn\u{2019}t include Cloud machine access. Upgrade to create and reconnect machines."
+            defaultValue: "This account’s plan doesn’t include Cloud machine access. Upgrade to create and reconnect machines."
         ))
         .cmuxFont(size: 12)
         .foregroundColor(.secondary)
@@ -439,7 +439,7 @@ struct MachinesPanelView: View {
 
     private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
         viewModel.beginOperation(String(
-            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@\u{2026}"),
+            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@…"),
             agent.displayName
         ))
         Task { @MainActor [weak viewModel] in
