@@ -1403,23 +1403,127 @@ def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
     assert run_macos_status(inputs=inputs, results=skipped).returncode != 0
 
 
-def test_build_input_fingerprint_ignores_only_what_the_build_cannot_read() -> None:
+def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from build_input_fingerprint import fingerprint, reaches_the_build
+    from build_input_fingerprint import fingerprint
+    import product_input_identity as product_inputs
+
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    admission = product_inputs._job_block(
+        workflow,
+        product_inputs.MACOS_ADMISSION_JOB,
+    )
 
     def tree(**files: str) -> list[str]:
-        return [f"100644 blob {object_id}\t{path}" for path, object_id in files.items()]
+        return [
+            f"100644 blob {object_id}\t{path}"
+            for path, object_id in files.items()
+        ]
 
-    base = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b1", "docs/x.md": "c1", ".github/workflows/nightly.yml": "d1"})
-    same_build = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b2", "docs/x.md": "c2", ".github/workflows/nightly.yml": "d2", "web/app/page.tsx": "e1"})
-    assert fingerprint(base, ["xcode=1"]) == fingerprint(same_build, ["xcode=1"])
-    assert fingerprint(base, ["xcode=1"]) != fingerprint(base, ["xcode=2"])
-    for path in ("Sources/App.swift", "Packages/macOS/CmuxCore/Package.swift", "cmuxTests/T.swift", "cmux.xcodeproj/project.pbxproj",
-                 "scripts/build-ghostty-cli-helper.sh", "ghostty", ".github/workflows/ci.yml", ".xcode-version", "unknown/new-dir/file"):
-        assert reaches_the_build(path), path
-        assert fingerprint(base, []) != fingerprint(base + tree(**{path: "z9"}), []), path
-    for path in ("tests/test_ci_change_areas.py", ".github/workflows/nightly.yml", "docs/a.md", "web/app/page.tsx", "README.md", "CLAUDE.md"):
-        assert not reaches_the_build(path), path
+    base_tree = tree(
+        **{
+            "Sources/App.swift": "1" * 40,
+            "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
+            "scripts/ci/persistent_mac_route.py": "3" * 40,
+            ".github/workflows/ci.yml": "4" * 40,
+            "tests/test_x.py": "5" * 40,
+        }
+    )
+    base = fingerprint(base_tree, workflow, ["xcode=/Applications/Xcode.app"])
+
+    # Changing CI orchestration still exercises CI, but it does not make the
+    # already-compiled app-host product stale.
+    orchestration_workflow = workflow.replace(
+        "name: CI\n",
+        "name: CI orchestration-only\n",
+        1,
+    )
+    metrics_admission = admission.replace(
+        "      - name: Record compiled-product reuse metrics\n",
+        "      - name: Record compiled-product reuse metrics\n"
+        "        # metrics-only edit\n",
+        1,
+    )
+    assert metrics_admission != admission
+    orchestration_workflow = orchestration_workflow.replace(
+        admission,
+        metrics_admission,
+        1,
+    )
+    orchestration_tree = tree(
+        **{
+            "Sources/App.swift": "1" * 40,
+            "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
+            "scripts/ci/persistent_mac_route.py": "6" * 40,
+            ".github/workflows/ci.yml": "7" * 40,
+            "tests/test_x.py": "8" * 40,
+        }
+    )
+    assert (
+        fingerprint(
+            orchestration_tree,
+            orchestration_workflow,
+            ["xcode=/Applications/Xcode.app"],
+        )
+        == base
+    )
+
+    changed_source = list(base_tree)
+    changed_source[0] = (
+        f"100644 blob {'9' * 40}\tSources/App.swift"
+    )
+    assert (
+        fingerprint(
+            changed_source,
+            workflow,
+            ["xcode=/Applications/Xcode.app"],
+        )
+        != base
+    )
+
+    changed_helper = list(base_tree)
+    changed_helper[1] = (
+        f"100644 blob {'a' * 40}\t"
+        "scripts/ci/compile-app-host-test-product.sh"
+    )
+    assert (
+        fingerprint(
+            changed_helper,
+            workflow,
+            ["xcode=/Applications/Xcode.app"],
+        )
+        != base
+    )
+
+    changed_admission = admission.replace(
+        '      CMUX_SKIP_ZIG_BUILD: "1"\n',
+        '      CMUX_SKIP_ZIG_BUILD: "0"\n',
+        1,
+    )
+    assert changed_admission != admission
+    changed_recipe = workflow.replace(
+        admission,
+        changed_admission,
+        1,
+    )
+    assert changed_recipe != workflow
+    assert (
+        fingerprint(
+            base_tree,
+            changed_recipe,
+            ["xcode=/Applications/Xcode.app"],
+        )
+        != base
+    )
+
+    assert (
+        fingerprint(
+            base_tree,
+            workflow,
+            ["xcode=/Applications/Xcode_2.app"],
+        )
+        != base
+    )
 
 
 def admission_api(runs: list[dict], artifacts: dict[int, list[str]], jobs: dict[int, list[dict]], branch: str = "feature"):
