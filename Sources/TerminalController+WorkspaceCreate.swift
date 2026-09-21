@@ -28,7 +28,12 @@ extension TerminalController {
                 data: nil
             )
         }
-        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: params),
+        // `workspace.create` arrives without the legacy `workspace_id` routing
+        // key. Route by the selected target before looking up the workspace so
+        // a pane in a background window is handled by its owning TabManager.
+        var routingParams = params
+        routingParams["workspace_id"] = targetWorkspaceID.uuidString
+        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: routingParams),
               let workspace = tabManager.tabs.first(where: { $0.id == targetWorkspaceID }) else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
