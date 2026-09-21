@@ -5788,6 +5788,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 break
             }
         }
+        if previousState == .commandRunning,
+           state == .promptIdle,
+           var restoredBinding = surfaceResumeBindingsByPanelId[panelId] {
+            // Returning to the shell prompt is authoritative evidence that
+            // the restored command lifecycle has reached its settle point.
+            restoredBinding.clearRestoredProcessDetectionObservation()
+            surfaceResumeBindingsByPanelId[panelId] = restoredBinding
+        }
         if previousState == state {
             if let terminalPanel = panels[panelId] as? TerminalPanel {
                 terminalPanel.updateShellActivityState(state)
