@@ -226,8 +226,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         scheduler.stage(reasons: [.bindingRequired]) { _ in
             Issue.record("The superseded reconciliation must not run")
         }
-        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { reasons in
-            observedReasons = reasons
+        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { request in
+            observedReasons = request.reasons
             usedLatestReconciliation = true
         }
 
