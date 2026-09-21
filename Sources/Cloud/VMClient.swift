@@ -2736,7 +2736,8 @@ actor MachineUsageClient {
                 throw MachineUsageClientError.malformedResponse("non-HTTP response")
             }
             if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
-                let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
+                let retryAfter = CmxRetryAfterPolicy()
+                let seconds = TimeInterval(retryAfter.seconds(from: http) ?? retryAfter.defaultRateLimitSeconds)
                 _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
             }
             guard (200...299).contains(http.statusCode) else {
