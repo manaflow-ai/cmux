@@ -1,9 +1,8 @@
 # Agent Rooms: provider-neutral messages between cmux agent sessions
 
-Status: proposed. The first implementation slice is a transport-agnostic
-message and delivery core under `agent-chat`. It proves durable identities,
-threading, idempotent delivery, and provider-neutral receipts before adding a
-new UI, remote federation, or an external mail provider.
+Status: in progress. The provider-neutral broker and ACP prompt seam are
+implemented under `agent-chat`; persistence, UI, remote federation, and
+external mail providers remain proposed.
 
 ## Problem
 
@@ -130,3 +129,18 @@ does not grant that authority.
 Remote agent discovery, cross-organization identity, arbitrary email sending,
 automatic execution of message bodies, transcript replication, and a general
 workflow engine are separate proposals.
+
+## Validation status
+
+The implemented slice currently passes:
+
+```text
+bun run check
+bun test ./test/mail.test.ts ./test/acp-mail.test.ts
+bun ./test/acp-mail.e2e.ts
+```
+
+These checks cover the existing agent-chat suite, broker idempotency and
+threading, per-recipient receipts, fan-out limits, dead-letter state, ACP
+prompt formatting, and delivery through the fake ACP process. No persistence
+or user-facing room UI has been claimed by these checks.
