@@ -43,6 +43,18 @@ type CoderouterApiKeySummary = {
   readonly createdAt: string;
   readonly lastUsedAt: string | null;
   readonly revokedAt: string | null;
+  readonly usage: CoderouterApiKeyUsage | null;
+};
+
+type CoderouterApiKeyUsage = {
+  readonly completions: number;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly apiEquivalentUsd: number;
+  readonly pricedTokens: number;
+  readonly unpricedTokens: number;
 };
 
 type IssuedCoderouterApiKey = Pick<
@@ -189,6 +201,15 @@ function CoderouterApiKeysSection({
   const t = useTranslations("dashboard.coderouterAccounts");
   const format = useFormatter();
   const now = useNow();
+  const compactNumber = new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+  const currency = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
   const [keys, setKeys] = useState<readonly CoderouterApiKeySummary[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -311,6 +332,13 @@ function CoderouterApiKeysSection({
               const statusDetail = lastUsed
                 ? t("apiKeyLastUsed", { at: format.relativeTime(lastUsed, now) })
                 : t("neverUsed");
+              const usageDetail = key.usage
+                ? t("apiKeyUsageDetail", {
+                  completions: compactNumber.format(key.usage.completions),
+                  tokens: compactNumber.format(key.usage.totalTokens),
+                  value: currency.format(key.usage.apiEquivalentUsd),
+                })
+                : t("apiKeyUsageUnavailable");
               return (
                 <li key={key.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.1fr_1fr_1.3fr_auto] md:items-center md:gap-3">
                   <div className="min-w-0">
@@ -325,6 +353,7 @@ function CoderouterApiKeysSection({
                     <div className="mb-1 text-muted md:hidden">{t("apiKeyStatusColumn")}</div>
                     <div className={key.revokedAt ? "text-muted" : "text-foreground"}>{statusText}</div>
                     <div className="mt-0.5 text-muted">{t("apiKeyCreatedAt", { at: format.dateTime(created, { dateStyle: "medium" }) })} · {statusDetail}</div>
+                    <div className="mt-0.5 text-muted">{usageDetail}</div>
                   </div>
                   <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void load()} /> : null}</div>
                 </li>

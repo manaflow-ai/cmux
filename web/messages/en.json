@@ -490,7 +490,9 @@
       "revokingApiKeyAction": "Revoking",
       "apiKeyRevokeError": "API key could not be revoked.",
       "revokeApiKeyConfirmTitle": "Revoke this API key?",
-      "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately."
+      "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately.",
+      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens · {value} API equivalent",
+      "apiKeyUsageUnavailable": "Usage unavailable"
     },
     "accountMenu": {
       "label": "Account menu",
