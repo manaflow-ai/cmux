@@ -39,6 +39,7 @@ actor CloudReadIdentityAuthClient: AuthClient {
     func listTeams() async throws -> [CMUXAuthTeam] {
         [CMUXAuthTeam(id: "selected", displayName: "Selected")]
     }
+    func setSelectedTeam(id: String?) async throws {}
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "fixture" }
     func signInWithMagicLink(code: String) async throws {}
     func signInWithCredential(email: String, password: String) async throws { accountID = "replacement" }
