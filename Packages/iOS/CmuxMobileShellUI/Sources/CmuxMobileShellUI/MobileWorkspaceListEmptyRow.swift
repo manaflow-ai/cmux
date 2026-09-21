@@ -66,7 +66,6 @@ struct MobileWorkspaceListEmptyRow: View {
                         }
                         guard retryAttemptID == attemptID else { return }
                         retryTask?.cancel()
-                        retryTask = nil
                         retryTimeoutTask = nil
                         isRetrying = false
                         retryTimedOut = true
@@ -85,9 +84,9 @@ struct MobileWorkspaceListEmptyRow: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .disabled(isRetrying)
+                .disabled(isRetrying || retryTask != nil)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
-                if isRetrying {
+                if isRetrying || retryTask != nil {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         retryTask?.cancel()
                         retryTimeoutTask?.cancel()

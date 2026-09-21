@@ -1449,7 +1449,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // The refresh closure is owned by the shell store, so connection
             // status and error updates do not change the action's target. Only
             // adding or removing the action changes the row's structure.
-            return (previous.refresh != nil) != (next.refresh != nil)
+            return previous.host != next.host
+                || (previous.refresh != nil) != (next.refresh != nil)
         }
     }
 
