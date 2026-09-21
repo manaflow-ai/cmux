@@ -719,6 +719,46 @@ jobs:
           rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
+      - name: Enumerate built app-host tests
+        if: ${{ matrix.shard == 1 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_inventory="$RUNNER_TEMP/cmux-app-host-test-inventory-raw.json"
+          normalized_inventory="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
+          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-inventory.log"
+          rm -f -- "$raw_inventory" "$normalized_inventory" "$enumeration_log"
+
+          bash scripts/ci/run-and-capture.sh "$enumeration_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=built-inventory CMUX_APP_HOST_CAPTURE_XCRESULTS=0 \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            test-without-building \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -enumerate-tests \
+            -test-enumeration-style flat \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$raw_inventory"
+
+          python3 scripts/ci/app_host_test_inventory.py \
+            "$raw_inventory" \
+            --output "$normalized_inventory" \
+            --require-target cmuxTests
+
+      - name: Upload built app-host test inventory
+        if: ${{ always() && matrix.shard == 1 }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-run-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory-raw.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.log
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1524,8 +1564,29 @@ jobs:
             classification_status=$?
             set -e
 
-            # xcodebuild's non-zero status is always authoritative. For a zero
-            # xcodebuild status, the classifier still requires positive,
+            # Exit 65 may represent a complete assertion-only run. The ratchet
+            # can normalize that status only when every parsed XCTest/Swift
+            # Testing failure is already in the frozen current-main catalog.
+            # Crashes, timeouts, incomplete runs, unparsed failures, and every
+            # new test identifier stay red.
+            if [ "$batch_status" -eq 65 ]; then
+              local ratchet_message ratchet_status
+              set +e
+              ratchet_message="$(python3 scripts/ci/app_host_failure_ratchet.py \
+                "$batch_output" \
+                --catalog scripts/ci/app-host-known-failures.json \
+                --exit-code "$batch_status" 2>&1)"
+              ratchet_status=$?
+              set -e
+              printf '%s\n' "$ratchet_message"
+              printf '%s\n' "$ratchet_message" >>"$batch_output"
+              if [ "$ratchet_status" -eq 0 ]; then
+                return 0
+              fi
+            fi
+
+            # xcodebuild's other non-zero statuses remain authoritative. For a
+            # zero xcodebuild status, the classifier still requires positive,
             # completed XCTest/Swift Testing execution.
             if [ "$batch_status" -ne 0 ]; then
               return "$batch_status"
@@ -1813,6 +1874,8 @@ jobs:
             "$RUNNER_TEMP"/cmux-global-search-shortcuts.txt
             "$RUNNER_TEMP"/cmux-cloud-ordering-*.txt
             "$RUNNER_TEMP"/cmux-notification-*.txt
+            "$RUNNER_TEMP"/cmux-app-host-test-inventory*.json
+            "$RUNNER_TEMP"/cmux-app-host-test-inventory*.log
           )
           if [ "${#capture_files[@]}" -gt 0 ]; then
             cp "${capture_files[@]}" "$diagnostics/captures/" || true
