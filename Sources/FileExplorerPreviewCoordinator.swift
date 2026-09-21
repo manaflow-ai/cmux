@@ -38,6 +38,10 @@ struct FileExplorerPreviewCoordinator {
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewLease = lease
+                        Self.installRemotePreviewRefresh(
+                            on: panel, workspace: workspace, store: store, context: context,
+                            isCurrent: isCurrent, provider: cloud, vmID: cloud.vmID, target: target
+                        )
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
                 } else if let remote = provider as? any RemoteFileExplorerProvider {
@@ -51,6 +55,10 @@ struct FileExplorerPreviewCoordinator {
                     if let panel = workspace.openFilePreviewSurfaces(inPane: pane, filePaths: [lease.url.path],
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewLease = lease
+                        Self.installRemotePreviewRefresh(
+                            on: panel, workspace: workspace, store: store, context: context,
+                            isCurrent: isCurrent, provider: remote, vmID: nil, target: nil
+                        )
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
                     }
                 }
@@ -58,7 +66,7 @@ struct FileExplorerPreviewCoordinator {
                 return
             } catch {
                 guard isCurrent(), store.resourceContextID == context else { return }
-                present(error, window: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id))
+                Self.present(error, window: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id))
             }
         }
     }
@@ -95,7 +103,37 @@ struct FileExplorerPreviewCoordinator {
         return true
     }
 
-    private func present(_ error: Error, window: NSWindow?) {
+    private static func installRemotePreviewRefresh(
+        on panel: FilePreviewPanel,
+        workspace: Workspace,
+        store: FileExplorerStore,
+        context: UUID,
+        isCurrent: @escaping @MainActor () -> Bool,
+        provider: any RemoteFileExplorerProvider,
+        vmID: String?,
+        target: CloudFileExplorerTarget?
+    ) {
+        panel.remotePreviewRefresh = { [weak panel, weak workspace, weak store] in
+            Task { @MainActor [weak panel, weak workspace, weak store] in
+                guard let panel, let workspace, let store, let lease = panel.cloudPreviewLease,
+                      !panel.isClosed, isCurrent(), store.resourceContextID == context else { return }
+                do {
+                    if let target, let vmID { try target.validate(vmID: vmID) }
+                    try await lease.refresh(using: provider)
+                    guard isCurrent(), store.resourceContextID == context,
+                          !panel.isClosed, workspace.panels[panel.id] != nil else { return }
+                    if let target, let vmID { try target.validate(vmID: vmID) }
+                    _ = panel.reloadFromDisk()
+                } catch is CancellationError {
+                    return
+                } catch {
+                    Self.present(error, window: AppDelegate.shared?.mainWindowContainingWorkspace(workspace.id))
+                }
+            }
+        }
+    }
+
+    private static func present(_ error: Error, window: NSWindow?) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "fileExplorer.preview.failedTitle", defaultValue: "Unable to open remote file")

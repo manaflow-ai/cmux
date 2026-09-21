@@ -1280,6 +1280,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
     var cloudPreviewRemotePath: String?
     var cloudPreviewProviderIdentity: String?
+    var remotePreviewRefresh: (@MainActor () -> Void)?
     var cloudPreviewLease: CloudFilePreviewLease? {
         didSet {
             cloudPreviewRemotePath = cloudPreviewLease?.remotePath
@@ -1358,6 +1359,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         cloudPreviewLease = nil
+        remotePreviewRefresh = nil
         cloudPreviewProviderIdentity = nil
         isClosed = true
         unbindTabMetadata()
@@ -1369,6 +1371,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textView = nil
         focusCoordinator.unregisterAll()
     }
+
+    func refreshRemotePreview() { if let remotePreviewRefresh { remotePreviewRefresh() } else { _ = reloadFromDisk() } }
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         guard previewMode == .text else { return .unsupported }
@@ -1791,7 +1795,7 @@ struct FilePreviewPanelView: View {
             PanelHeaderIconButton(
                 systemName: "arrow.clockwise",
                 label: String(localized: "filePreview.refresh", defaultValue: "Refresh"),
-                action: { panel.reloadFromDisk() }
+                action: { panel.refreshRemotePreview() }
             )
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
