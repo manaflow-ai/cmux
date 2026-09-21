@@ -1186,8 +1186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
-    private var processDetectedSessionSaveTask: Task<Void, Never>?
+    private let processDetectedSessionSaveCoordinator = ProcessDetectedSessionSaveCoordinator()
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -4571,8 +4570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSessionAutosaveTimer() {
         sessionAutosaveTimer?.cancel()
         sessionAutosaveTimer = nil
-        processDetectedSessionSaveTask?.cancel()
-        processDetectedSessionSaveTask = nil
+        processDetectedSessionSaveCoordinator.cancel()
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
     }
@@ -5215,8 +5213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
-        processDetectedSessionSaveTask?.cancel()
-        processDetectedSessionSaveTask = Task { @MainActor [weak self] in
+        processDetectedSessionSaveCoordinator.replaceTask(Task { @MainActor [weak self] in
             let resumeIndexes = await ProcessDetectedResumeIndexes.load(
                 ttyDeviceBindings: ttyDeviceBindings
             )
@@ -5230,17 +5227,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
-        }
+        })
     }
 
     @discardableResult
     private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
+        processDetectedSessionSaveCoordinator.beginGeneration()
     }
 
     private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
+        processDetectedSessionSaveCoordinator.isCurrentGeneration(generation)
     }
 
     fileprivate func recordTypingActivity() {
