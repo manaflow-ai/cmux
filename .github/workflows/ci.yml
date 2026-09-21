@@ -449,6 +449,9 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
+      - name: Validate pipe-safe CI capture
+        run: ./tests/test_ci_run_and_capture.sh
+
       - name: Validate focused test launcher
         run: python3 tests/test_run_e2e.py
 
@@ -972,6 +975,7 @@ jobs:
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
+      CMUX_APP_HOST_RESULT_BUNDLE_ROOT: ${{ runner.temp }}/cmux-app-host-xcresults
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -1232,7 +1236,9 @@ jobs:
           # reusing the compile-admission product.
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
-          scripts/ci/run-in-console-session.sh \
+          scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=main-window-zoom-placement \
             scripts/ci/run-app-host-xcodebuild.sh \
             -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
@@ -1241,7 +1247,7 @@ jobs:
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 60 \
             -maximum-test-execution-time-allowance 60 \
-            test-without-building 2>&1 | tee "$test_log"
+            test-without-building
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/MainWindowZoomPlacementTests
 
@@ -1447,12 +1453,9 @@ jobs:
           # app-host processes so renderer teardown from one topology workload
           # cannot crash the next before its assertions execute.
           #
-          # The app host still crashes intermittently mid-suite here
-          # (https://github.com/manaflow-ai/cmux/issues/9348): the crash point
-          # moves between tests and the relaunched host passes every remaining
-          # test. Rerun a suite once, and only when xcodebuild reports that the
-          # host exited, crashed, or timed out. An assertion failure never earns
-          # a rerun, and a second crash still fails the shard.
+          # A crash remains a shard failure. A passing rerun cannot erase tests
+          # completed before the crash, so wrapper retries are limited to
+          # failures that occur before test execution begins.
           set -euo pipefail
           rm -f -- "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
           for suite in \
@@ -1460,29 +1463,20 @@ jobs:
             RemoteTmuxMirrorFocusPolicyTests \
             RemoteTmuxMirrorDedicatedPlacementTests
           do
-            for attempt in 1 2; do
-              suite_output="$RUNNER_TEMP/cmux-remote-tmux-mirror-${suite}-attempt-${attempt}.txt"
-              set +e
+            suite_output="$RUNNER_TEMP/cmux-remote-tmux-mirror-${suite}-attempt-1.txt"
+            scripts/ci/run-and-capture.sh "$suite_output" \
               scripts/ci/run-in-console-session.sh \
-                scripts/ci/run-app-host-xcodebuild.sh \
-                -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-                -destination "platform=macOS" \
-                CMUX_SKIP_ZIG_BUILD=1 \
-                -only-testing:"cmuxTests/$suite" \
-                test-without-building 2>&1 | tee "$suite_output"
-              suite_status="${PIPESTATUS[0]}"
-              set -e
-              if [ "$suite_status" -eq 0 ]; then
-                break
-              fi
-              if [ "$attempt" -eq 1 ] \
-                && grep -Fq 'Restarting after unexpected exit, crash, or test timeout' "$suite_output"; then
-                echo "::warning::app host crashed while running cmuxTests/${suite} (https://github.com/manaflow-ai/cmux/issues/9348); rerunning the suite once"
-                continue
-              fi
-              echo "cmuxTests/${suite} failed with status ${suite_status} on attempt ${attempt}"
-              exit "$suite_status"
-            done
+              env "CMUX_TAG=remote-tmux-${suite}" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 180 \
+              -maximum-test-execution-time-allowance 180 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building
+            scripts/ci/require_selected_test_execution.sh "$suite_output" "cmuxTests/$suite"
           done
 
       - name: Collect RemoteTmuxMirror crash diagnostics
@@ -1852,13 +1846,18 @@ jobs:
           # the test bundle, so this shard only spends time running tests.
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-global-search-shortcuts.txt"
-          scripts/ci/run-in-console-session.sh \
+          scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=global-search-shortcuts \
             scripts/ci/run-app-host-xcodebuild.sh \
             -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 300 \
+            -maximum-test-execution-time-allowance 300 \
             -only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests \
-            test-without-building 2>&1 | tee "$test_log"
+            test-without-building
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
@@ -1871,7 +1870,9 @@ jobs:
           set -euo pipefail
           for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
             test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
-            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-and-capture.sh "$test_log" \
+              scripts/ci/run-in-console-session.sh \
+              env "CMUX_TAG=cloud-ordering-${suite}" \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
               -destination "platform=macOS" \
@@ -1880,7 +1881,7 @@ jobs:
               -default-test-execution-time-allowance 60 \
               -maximum-test-execution-time-allowance 60 \
               -only-testing:"cmuxTests/$suite" \
-              test-without-building 2>&1 | tee "$test_log"
+              test-without-building
             scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
           done
 
@@ -1893,15 +1894,15 @@ jobs:
           LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
 
-          # These suites share process-global UI/runtime state for an app host's
-          # lifetime. Keep cross-machine parallelism, but give each worker two
-          # balanced, sequential app-host processes so each stays inside the
-          # existing per-invocation timeout without changing the shared scheme.
-
+          # Each worker runs two balanced batches sequentially. Every invocation
+          # writes to a regular file; a separately-owned tail process mirrors
+          # that file into the Actions log. Detached test descendants therefore
+          # cannot retain the CI capture pipe after xcodebuild exits.
           run_unit_test_batch() {
             local logical_shard="$1"
+            local execution_attempt="$2"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
-            local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.txt"
+            local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
             local reserve_args=()
             local reservation
             for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
@@ -1930,124 +1931,152 @@ jobs:
               return 1
             fi
 
-            echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} serially"
-            local batch_status
-            # A single test parked on an await that never resumes must not take
-            # the whole batch to CMUX_UNIT_TEST_TIMEOUT_SECONDS: XCTest's
-            # per-test execution allowance fails that one test (with a
-            # spindump) and keeps the batch moving.
-            # Reset this batch's capture before every invocation. The outer
-            # SwiftPM-resolution retry reuses the path, and a failed retry
-            # must not inherit an earlier attempt's expected-failure summary.
-            : > "$batch_output"
-            {
-              # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-              # intermittently crash inside XCTest's post-test memory checker or
-              # leave native display/WebKit work alive on GitHub macOS runners.
-              # When that happens, Swift's crash/backtrace handling or the stale
-              # app-host process keeps xcodebuild alive until the job-level timeout,
-              # hiding the actual unit test summary.
-              # The app-host wrapper also serializes GUI XCTest ownership per Mac,
-              # while still allowing shards on separate Macs to run in parallel.
+            echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
+            : >"$batch_output"
+            CMUX_TAG="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}" \
               scripts/ci/run-in-console-session.sh \
-                scripts/ci/run-app-host-xcodebuild.sh \
-                -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-                -destination "platform=macOS" \
-                "${only_testing_args[@]}" \
-                -test-timeouts-enabled YES \
-                -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-                -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-                CMUX_SKIP_ZIG_BUILD=1 \
-                test-without-building 2>&1 &
-              local xcodebuild_pid=$!
-              local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-              local deadline=$((SECONDS + timeout_seconds))
-              while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-                if [ "$SECONDS" -ge "$deadline" ]; then
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              "${only_testing_args[@]}" \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
+              -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              test-without-building >"$batch_output" 2>&1 &
+            local xcodebuild_pid=$!
+
+            tail -n +1 -f "$batch_output" &
+            local stream_pid=$!
+            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
+            local deadline=$((SECONDS + timeout_seconds))
+            local timed_out=0
+            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                local unfinished="$RUNNER_TEMP/cmux-unit-unfinished-${logical_shard}-run-${execution_attempt}.txt"
+                grep -E "Test Case .* started|[◇◆] Test .* started\." "$batch_output" \
+                  | tail -40 >"$unfinished" || true
+                {
                   echo "xcodebuild unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} timeout after ${timeout_seconds}s; terminating"
-                  # Record what was still alive: the wrapper chain, xcodebuild,
-                  # the xctest runner, and the app host launched from this
-                  # job's DerivedData. Sample the app host before it dies so a
-                  # wedged main actor or WebKit load is diagnosable.
+                  echo "Last observed test starts:"
+                  cat "$unfinished" 2>/dev/null || true
                   # shellcheck disable=SC2009 # include parent/group/elapsed diagnostics
                   ps -axo pid,ppid,pgid,etime,command 2>/dev/null \
                     | grep -E 'xcodebuild|xctest|run-app-host-xcodebuild|app_host_test_lock|Contents/MacOS/cmux' \
                     | grep -v grep || true
-                  for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
-                    hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-${hang_pid}.txt"
-                    if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
-                      echo "::group::app-host hang sample (pid ${hang_pid}, first threads)"
+                } >>"$batch_output" 2>&1
+                for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
+                  hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-run-${execution_attempt}-${hang_pid}.txt"
+                  if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
+                    {
+                      echo "app-host hang sample: $hang_sample"
                       awk '/^Call graph:/{p=1} p' "$hang_sample" | head -900
-                      echo "::endgroup::"
-                    fi
-                  done
-                  kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                  pkill -TERM -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                  sleep 5
-                  kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                  pkill -KILL -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                  wait "$xcodebuild_pid" 2>/dev/null || true
-                  exit 124
-                fi
+                    } >>"$batch_output" 2>&1
+                  fi
+                done
+                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                pkill -TERM -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
                 sleep 5
-              done
-              wait "$xcodebuild_pid"
-            } | tee "$batch_output"
-            batch_status="${PIPESTATUS[0]}"
+                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                pkill -KILL -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
+                timed_out=1
+                break
+              fi
+              sleep 5
+            done
 
-            if [ "$batch_status" -eq 65 ] \
-              && python3 scripts/ci/classify-app-host-test-output.py "$batch_output"; then
-                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
-                return 0
+            local batch_status
+            set +e
+            wait "$xcodebuild_pid"
+            batch_status=$?
+            set -e
+            if [ "$timed_out" -eq 1 ]; then
+              batch_status=124
             fi
-            return "$batch_status"
+
+            sleep 0.2
+            kill "$stream_pid" 2>/dev/null || true
+            wait "$stream_pid" 2>/dev/null || true
+
+            local classification_status
+            set +e
+            python3 scripts/ci/classify-app-host-test-output.py "$batch_output"
+            classification_status=$?
+            set -e
+
+            # xcodebuild's non-zero status is always authoritative. For a zero
+            # xcodebuild status, the classifier still requires positive,
+            # completed XCTest/Swift Testing execution.
+            if [ "$batch_status" -ne 0 ]; then
+              return "$batch_status"
+            fi
+            return "$classification_status"
           }
 
           run_unit_tests() {
+            local execution_attempt="$1"
             local logical_shard combined_status=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
-              run_unit_test_batch "$logical_shard" || {
-                # Keep the other batch visible after a failure, without allowing
-                # a later successful batch to turn this worker green.
-                combined_status=$?
+              run_unit_test_batch "$logical_shard" "$execution_attempt" || {
+                local batch_status=$?
+                if [ "$combined_status" -eq 0 ]; then
+                  combined_status="$batch_status"
+                fi
               }
             done
             return "$combined_status"
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          set +e
-          run_unit_tests | tee "$TEST_OUTPUT"
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
-          set -e
+          collect_unit_test_output() {
+            : >"$TEST_OUTPUT"
+            local output_path
+            shopt -s nullglob
+            local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
+            shopt -u nullglob
+            for output_path in "${output_paths[@]}"; do
+              {
+                echo "===== $(basename "$output_path") ====="
+                cat "$output_path"
+                echo
+              } >>"$TEST_OUTPUT"
+            done
+          }
 
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing the SwiftPM cache to recover from transient corruption.
-          # Keep the admission-produced DerivedData intact: this job is
-          # intentionally forbidden from compiling again after admission.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-              -resolvePackageDependencies
+          set +e
+          run_unit_tests 1
+          EXIT_CODE=$?
+          set -e
+          collect_unit_test_output
+
+          # Retry package resolution only when the failed execution contains no
+          # evidence that tests began. This recovery can never replace a test
+          # verdict from the first execution.
+          if [ "$EXIT_CODE" -ne 0 ] \
+            && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             set +e
-            run_unit_tests | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
+            python3 scripts/ci/classify-app-host-test-output.py "$TEST_OUTPUT" --retry-safe
+            RETRY_SAFE=$?
             set -e
+            if [ "$RETRY_SAFE" -eq 0 ]; then
+              echo "SwiftPM package resolution failed before tests; clearing caches and retrying once"
+              rm -rf ~/Library/Caches/org.swift.swiftpm
+              mkdir -p ~/Library/Caches/org.swift.swiftpm
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+                -resolvePackageDependencies
+              set +e
+              run_unit_tests 2
+              EXIT_CODE=$?
+              set -e
+              collect_unit_test_output
+            else
+              echo "Preserving first execution failure; SwiftPM retry blocked after test execution evidence"
+            fi
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            # Expected failures are normalized inside run_unit_test_batch. Any
-            # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
             echo "App-host unit-test batch failed with status ${EXIT_CODE}"
             exit "$EXIT_CODE"
           fi
@@ -2083,14 +2112,19 @@ jobs:
             OpenCodeHookRegressionTests
           do
             test_log="$RUNNER_TEMP/cmux-notification-${suite}.txt"
-            scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-and-capture.sh "$test_log" \
+              scripts/ci/run-in-console-session.sh \
               env "TEST_RUNNER_PATH=$PATH" "TEST_RUNNER_BUN_INSTALL=$bun_install" \
+                "CMUX_TAG=notification-${suite}" \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 180 \
+              -maximum-test-execution-time-allowance 180 \
               -only-testing:"cmuxTests/$suite" \
-              test-without-building 2>&1 | tee "$test_log"
+              test-without-building
             scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
           done
 
