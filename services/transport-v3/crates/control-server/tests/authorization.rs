@@ -87,3 +87,27 @@ fn enrollment_cannot_assign_privileges_and_no_claimed_source_identity() {
     )
     .is_err());
 }
+
+#[test]
+fn enrollment_metadata_is_bounded_and_cannot_claim_authority() {
+    let valid = serde_json::json!({"platform":"mac","instance_tag":"v3dog","display_name":"Office Mac","pairing_enabled":true,"client_namespace":"mac:com.cmuxterm.app.debug.v3dog"});
+    let metadata: cmux_v3_control_server::DeviceMetadata = serde_json::from_value(valid.clone()).unwrap();
+    assert!(metadata.valid());
+    for (field, value) in [
+        ("instance_tag", serde_json::json!("")),
+        ("instance_tag", serde_json::json!("a".repeat(129))),
+        ("display_name", serde_json::json!("a".repeat(257))),
+        ("display_name", serde_json::json!("name\nforged")),
+        ("client_namespace", serde_json::json!("")),
+        ("client_namespace", serde_json::json!("ios:com.cmuxterm.app")),
+        ("platform", serde_json::json!("ios")),
+    ] {
+        let mut input = valid.clone();
+        input[field] = value;
+        let metadata: cmux_v3_control_server::DeviceMetadata = serde_json::from_value(input).unwrap();
+        assert!(!metadata.valid(), "accepted invalid {field}");
+    }
+    let mut forged = valid;
+    forged["tags"] = serde_json::json!(["admin"]);
+    assert!(serde_json::from_value::<cmux_v3_control_server::DeviceMetadata>(forged).is_err());
+}
