@@ -703,6 +703,7 @@ async function probeCodexCapacity(
   const body = response.body;
   if (!body) return { kind: "response", response };
   const reader = body.getReader();
+  const format = codexResponseStreamFormat(response);
   const chunks: Uint8Array[] = [];
   let total = 0;
   let text = "";
@@ -720,8 +721,8 @@ async function probeCodexCapacity(
       chunks.push(next.value);
       total += next.value.byteLength;
       text += decoder.decode(next.value, { stream: true });
-      const verdict = classifyCodexCapacityPrefix(text);
-      if (verdict.kind === "capacity" || isCodexCapacityText(text)) {
+      const verdict = classifyCodexCapacityPrefix(text, format);
+      if (verdict.kind === "capacity" || (format !== "ndjson" && isCodexCapacityText(text))) {
         await reader.cancel();
         return verdict.kind === "capacity"
           ? verdict
@@ -734,8 +735,8 @@ async function probeCodexCapacity(
       if (verdict.kind === "output" || total >= MAX_PREOUTPUT_PROBE_BYTES) break;
     }
     text += decoder.decode();
-    const finalVerdict = classifyCodexCapacityPrefix(`${text}\n\n`);
-    if (finalVerdict.kind === "capacity" || isCodexCapacityText(text)) {
+    const finalVerdict = classifyCodexCapacityPrefix(format === "ndjson" ? text : `${text}\n\n`, format, true);
+    if (finalVerdict.kind === "capacity" || (format !== "ndjson" && isCodexCapacityText(text))) {
       await reader.cancel();
       return finalVerdict.kind === "capacity"
         ? finalVerdict
@@ -813,13 +814,50 @@ function throwIfAbortedSignal(signal: AbortSignal): void {
   throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
-function classifyCodexCapacityPrefix(text: string):
+type CodexResponseStreamFormat = "sse" | "ndjson";
+
+function codexResponseStreamFormat(response: Response): CodexResponseStreamFormat {
+  const mediaType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  return mediaType === "application/x-ndjson" ? "ndjson" : "sse";
+}
+
+function classifyCodexCapacityPrefix(
+  text: string,
+  format: CodexResponseStreamFormat = "sse",
+  complete = false,
+):
   | { readonly kind: "waiting" }
   | { readonly kind: "output" }
   | { readonly kind: "capacity"; readonly failureCode: CodexCapacityFailureCode; readonly retryAfterMs?: number } {
+  if (format === "ndjson") return classifyCodexNdjsonPrefix(text, complete);
   const events = text.split(/\r?\n\r?\n/);
   for (const event of events.slice(0, -1)) {
     const data = event.match(/^data:\s*(.*)$/m)?.[1]?.trim();
+    if (!data) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    const failureCode = codexCapacityFailureCode(JSON.stringify(parsed));
+    if (failureCode) {
+      return { kind: "capacity", failureCode, retryAfterMs: retryAfterFromCodexPayload(parsed) };
+    }
+    if (isCodexOutputPayload(parsed)) return { kind: "output" };
+  }
+  return { kind: "waiting" };
+}
+
+/** Parses complete newline-delimited JSON records without treating a partial trailing line as an event. */
+function classifyCodexNdjsonPrefix(
+  text: string,
+  complete: boolean,
+): Extract<ReturnType<typeof classifyCodexCapacityPrefix>, { readonly kind: "waiting" | "output" | "capacity" }> {
+  const lines = text.split(/\r?\n/);
+  if (!complete) lines.pop();
+  for (const line of lines) {
+    const data = line.trim();
     if (!data) continue;
     let parsed: unknown;
     try {
