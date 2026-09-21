@@ -46,6 +46,11 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var launches: [UUID: CancellableLaunch] = [:]
     @ObservationIgnored private var handles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
     @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
+    /// Receipts that arrived before anyone waited for them. A create that finishes
+    /// in its submit turn would otherwise lose its receipt to a caller that reaches
+    /// ``awaitWorkspaceID(operationID:)`` one hop later; the first waiter takes it,
+    /// and retirement releases it.
+    @ObservationIgnored private var unclaimedReceipts: [UUID: UUID] = [:]
     /// The operation whose launcher is being invoked right now, for the duration of
     /// that synchronous call: an in-process launcher keys its create on it.
     @ObservationIgnored private(set) var launchingOperationID: UUID?
@@ -152,11 +157,19 @@ final class MachineCreateCoordinator {
         })
     }
 
-    /// Waits for a running operation's exact receipt: nil once it fails, is cancelled,
-    /// or has already finished. Cancelling the wait cancels the operation, as
-    /// ``startAndAwaitWorkspaceID(_:cancellableLaunch:)`` does; one waiter per operation.
+    /// Waits for a running operation's exact receipt, or takes the one that arrived
+    /// before the wait began: nil once it fails, is cancelled, or its receipt was
+    /// already taken. Cancelling the wait, even before it starts, cancels the operation,
+    /// as ``startAndAwaitWorkspaceID(_:cancellableLaunch:)`` does; one waiter per operation.
     func awaitWorkspaceID(operationID id: UUID) async -> UUID? {
-        guard !Task.isCancelled, operation(id: id)?.isRunning == true, workspaceWaiters[id] == nil else { return nil }
+        if let receipt = unclaimedReceipts.removeValue(forKey: id) {
+            return Task.isCancelled ? nil : receipt
+        }
+        guard operation(id: id)?.isRunning == true, workspaceWaiters[id] == nil else { return nil }
+        guard !Task.isCancelled else {
+            cancel(id)
+            return nil
+        }
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 guard operation(id: id)?.isRunning == true, workspaceWaiters[id] == nil else {
@@ -279,6 +292,7 @@ final class MachineCreateCoordinator {
             )
 #endif
             if case .created(_, let workspaceID) = finished.outcome {
+                if let workspaceID, workspaceWaiters[id] == nil { unclaimedReceipts[id] = workspaceID }
                 resumeWaiter(id, workspaceID: workspaceID)
                 if let workspaceID {
                     didSelectCreatedWorkspace = selectWorkspace(workspaceID, finished.operation.request)
@@ -316,6 +330,7 @@ final class MachineCreateCoordinator {
             requests[id] = nil
             launches[id] = nil
             handles[id] = nil
+            unclaimedReceipts[id] = nil
             resumeWaiter(id, workspaceID: nil)
         }
     }
