@@ -35,6 +35,9 @@ GUARD_ROUTE_JOBS = {
 }
 WEB_JOBS = (
     "web-typecheck",
+    "web-production-build",
+    "web-tests",
+    "web-instant-navigation",
     "react-apps-check",
     "diff-sidecar-check",
     "web-db-migrations",
@@ -1092,7 +1095,8 @@ def test_web_typecheck_retries_native_tsgo_abort() -> None:
 
 def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
-    workflow = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
     web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
     assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
@@ -1100,17 +1104,13 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
     assert '"test:instant:checked"' not in package_json
 
-    ci_typecheck = workflow.index("      - name: Typecheck")
-    ci_instant = workflow.index("      - name: Instant navigation tests")
-    assert ci_typecheck < ci_instant
-    # The only second invocation is the bounded retry owned by the Typecheck
-    # step; the Instant navigation step must never own a typecheck.
-    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
-    ci_instant_step = workflow[ci_instant:]
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
-    assert "        env:" in ci_instant_step
-    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
-    assert "        run: bun run test:instant" in ci_instant_step
+    # The only second invocation is the bounded retry owned by the independent
+    # Typecheck job. The browser job must never own a typecheck.
+    assert typecheck.count("bun run typecheck") == 2
+    assert "bun run typecheck" not in instant
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in instant
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
+    assert "        run: bun run test:instant" in instant
 
     validation_typecheck = web_validation.index("      - run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
@@ -1740,6 +1740,25 @@ def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
     for route in ("web", "macos", "agent_session_web"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
         assert f"needs.changes.outputs.{route} != 'false'" in block
+
+
+def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    production = workflow_job_block("web-production-build", WEB_WORKFLOW)
+    tests = workflow_job_block("web-tests", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
+
+    assert "bun run typecheck" in typecheck
+    assert "bun run test" not in typecheck
+    assert "playwright" not in typecheck
+    assert "bun run vercel-build" in production
+
+    assert 'shard: ["1/4", "2/4", "3/4", "4/4"]' in tests
+    assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
+
+    assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
+    assert "bunx playwright install --with-deps chromium" in instant
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
 
 
 def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:

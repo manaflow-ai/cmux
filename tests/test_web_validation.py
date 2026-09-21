@@ -128,14 +128,16 @@ class WebValidationTests(unittest.TestCase):
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},
-                     "build": {"result": "success"},
+                     "build": {"result": "skipped"},
                      "tests": {"result": "skipped"}, "database": {"result": "skipped"}}
         for event in ("pull_request", "merge_group"):
             with self.subTest(event=event):
                 self.assertEqual(self.check_results(delegated, event), 0)
-                for result in ("failure", "cancelled", "skipped"):
+                for result in ("failure", "cancelled"):
                     self.assertNotEqual(self.check_results(
                         {**delegated, "build": {"result": result}}, event), 0)
+                self.assertEqual(self.check_results(
+                    {**delegated, "build": {"result": "skipped"}}, event), 0)
                 for job in ("tests", "database"):
                     for result in ("failure", "cancelled"):
                         self.assertNotEqual(self.check_results(

@@ -59,17 +59,102 @@ jobs:
 
           exit "$status"
 
-      - name: Web tests
-        run: bun run test
+  web-production-build:
+    if: ${{ inputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Vercel production build
+        env:
+          RESEND_API_KEY: re_ci_build
+          CMUX_FEEDBACK_FROM_EMAIL: ci@example.test
+          STACK_SECRET_SERVER_KEY: ci-build-only
+          NEXT_PUBLIC_STACK_PROJECT_ID: 00000000-0000-4000-8000-000000000000
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ci-build-only
+          DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          CMUX_ANALYTICS_TEST_MODE: "1"
+        run: bun run vercel-build
+
+  web-tests:
+    if: ${{ inputs.web == 'true' }}
+    name: Web tests (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run web test shard
+        run: ./scripts/run-tests.sh --shard "${{ matrix.shard }}"
+
+  web-instant-navigation:
+    if: ${{ inputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install browser for instant navigation tests
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
         env:
-          # The preceding Typecheck step owns the repository-wide tsgo gate;
-          # avoid launching a second tsgo process inside Playwright's server
-          # command on constrained Linux runners.
+          # web-typecheck is an independent required sibling in the same
+          # reusable workflow, so this browser lane does not launch tsgo again.
           CMUX_INSTANT_SKIP_TYPECHECK: "1"
         run: bun run test:instant
 
@@ -217,6 +302,9 @@ jobs:
     name: Web status
     needs:
       - web-typecheck
+      - web-production-build
+      - web-tests
+      - web-instant-navigation
       - react-apps-check
       - diff-sidecar-check
       - web-db-migrations
@@ -244,6 +332,9 @@ jobs:
 
           required = {
               "web-typecheck": inputs["web"] == "true",
+              "web-production-build": inputs["web"] == "true",
+              "web-tests": inputs["web"] == "true",
+              "web-instant-navigation": inputs["web"] == "true",
               "react-apps-check": inputs["web"] == "true",
               "diff-sidecar-check": inputs["macos"] == "true" or inputs["web"] == "true",
               "web-db-migrations": inputs["web"] == "true",
