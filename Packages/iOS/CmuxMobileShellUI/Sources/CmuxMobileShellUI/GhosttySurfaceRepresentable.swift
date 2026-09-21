@@ -1081,11 +1081,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             )
             viewportReportRetryTask = Task { @MainActor [weak self, weak surfaceView] in
                 defer {
-                    guard let self,
-                          self.viewportReportRetryGeneration == retryGeneration else {
-                        return
+                    if let self,
+                       self.viewportReportRetryGeneration == retryGeneration {
+                        self.viewportReportRetryTask = nil
                     }
-                    self.viewportReportRetryTask = nil
                 }
                 do {
                     try await clock.sleep(for: delay, tolerance: nil)
