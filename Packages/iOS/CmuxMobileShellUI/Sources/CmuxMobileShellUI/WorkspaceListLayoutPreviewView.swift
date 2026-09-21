@@ -31,24 +31,30 @@ private final class WorkspaceListLayoutPreviewModel {
     var groups: [MobileWorkspaceGroupPreview]
     private let liveUpdateMode: LiveUpdateMode
     var refreshIsWaiting = false
-    @ObservationIgnored private var refreshCompletion: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var refreshCompletions: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     func waitForRefreshReleaseIfNeeded() async {
         guard ProcessInfo.processInfo.environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH"
         ] == "1" else { return }
         let (stream, completion) = AsyncStream<Void>.makeStream()
-        refreshCompletion = completion
+        let refreshID = UUID()
+        refreshCompletions[refreshID] = completion
         refreshIsWaiting = true
         defer {
-            refreshIsWaiting = false
-            refreshCompletion = nil
+            refreshCompletions.removeValue(forKey: refreshID)
+            refreshIsWaiting = !refreshCompletions.isEmpty
         }
         for await _ in stream { break }
     }
 
     func finishRefresh() {
-        refreshCompletion?.finish()
+        let completions = Array(refreshCompletions.values)
+        refreshCompletions.removeAll()
+        refreshIsWaiting = false
+        for completion in completions {
+            completion.finish()
+        }
     }
 
     /// Creates a preview model with an optional continuous update feed.
