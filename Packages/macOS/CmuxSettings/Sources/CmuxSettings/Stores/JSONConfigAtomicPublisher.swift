@@ -51,6 +51,10 @@ struct JSONConfigAtomicPublisher: Sendable {
             return
         }
 
+        guard let expected else {
+            return
+        }
+
         if let permissions = try? fileManager.attributesOfItem(atPath: target.path)[.posixPermissions] {
             try? fileManager.setAttributes([.posixPermissions: permissions], ofItemAtPath: staging.path)
         }
@@ -65,34 +69,31 @@ struct JSONConfigAtomicPublisher: Sendable {
         do {
             recovered = try Data(contentsOf: staging)
         } catch {
-            // The swap already installed our candidate, but a non-participating
-            // editor can still replace the live path. Reverse the exchange only
-            // if both entries still contain the bytes this publisher installed
-            // and expected to recover.
-            let currentPublished = try? Data(contentsOf: target)
-            let currentRecovery = try? Data(contentsOf: staging)
-            if currentPublished == data,
-               currentRecovery == expected,
-               (try? exchange(staging, target)) != nil {
+            // The swap already installed our candidate. If the recovery read
+            // failed transiently, use the same ownership-checked rollback path
+            // as every other post-swap failure so rollback errors cannot erase
+            // the source-conflict state.
+            if try rollbackIfStillOwned(
+                candidate: data,
+                recovery: expected,
+                staging: staging,
+                target: target
+            ) {
                 stagingContainsRecovery = false
             }
             throw error
         }
         guard recovered == expected else {
             // The live path changed after our source read. Restore the entry
-            // that won that race only while the published candidate and the
-            // recovery entry still have the bytes we just observed.
-            let currentPublished = try? Data(contentsOf: target)
-            let currentRecovery = try? Data(contentsOf: staging)
-            if currentPublished == data, currentRecovery == recovered {
-                do {
-                    try exchange(staging, target)
-                    stagingContainsRecovery = false
-                } catch let rollbackError as POSIXError {
-                    throw JSONConfigWriteConflict.sourceChangedRollbackFailed(
-                        rollbackErrno: Int32(rollbackError.code.rawValue)
-                    )
-                }
+            // that won that race only while this publisher still owns both
+            // sides of the exchange.
+            if try rollbackIfStillOwned(
+                candidate: data,
+                recovery: recovered,
+                staging: staging,
+                target: target
+            ) {
+                stagingContainsRecovery = false
             }
             throw JSONConfigWriteConflict.sourceChanged
         }
@@ -109,6 +110,26 @@ struct JSONConfigAtomicPublisher: Sendable {
         // cleanup error here must not make the caller believe publication failed.
         try? fileManager.removeItem(at: staging)
         stagingContainsRecovery = false
+    }
+
+    private func rollbackIfStillOwned(
+        candidate: Data,
+        recovery: Data,
+        staging: URL,
+        target: URL
+    ) throws -> Bool {
+        guard (try? Data(contentsOf: target)) == candidate,
+              (try? Data(contentsOf: staging)) == recovery else {
+            return false
+        }
+        do {
+            try exchange(staging, target)
+            return true
+        } catch let rollbackError as POSIXError {
+            throw JSONConfigWriteConflict.sourceChangedRollbackFailed(
+                rollbackErrno: Int32(rollbackError.code.rawValue)
+            )
+        }
     }
 
     private func exchange(_ left: URL, _ right: URL) throws {
