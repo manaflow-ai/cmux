@@ -1100,6 +1100,8 @@
 		C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12986000000000000000001 /* CloudWorkspaceRenameSurfaceParityTests.swift */; };
 		B12438010000000000000001 /* CloudWorkspaceRestoreNamesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */; };
 		D3D88AECC723469EAF760A5D /* CloudWorkspaceSidebarPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AD117951D664D05A4D9612C /* CloudWorkspaceSidebarPresentation.swift */; };
+		D13184000000000000000008 /* CloudWorkspaceTargetingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */; };
+		D1318400000000000000000A /* CloudWorkspaceTargetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		9758A0029758A0029758A002 /* cmux-amp-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = 9758A0019758A0019758A001 /* cmux-amp-wrapper */; };
 		C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */; };
@@ -3206,6 +3208,7 @@
 		60F0BFF9693191820D31D62D /* SurfaceCatalog+ProjectionQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6775F6F996E44AB577BF9A5 /* SurfaceCatalog+ProjectionQueries.swift */; };
 		A00556106BC44BBCA98B00AC /* SurfaceCatalog+SidebarOrganization.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BB38209A13D4676972174E4 /* SurfaceCatalog+SidebarOrganization.swift */; };
 		C12575000000000000000034 /* SurfaceCatalog+Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000035 /* SurfaceCatalog+Snapshot.swift */; };
+		D13184000000000000000006 /* SurfaceCatalog+WindowWorkspaceHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000005 /* SurfaceCatalog+WindowWorkspaceHost.swift */; };
 		C12575000000000000000036 /* SurfaceCatalog+WorkspaceDeletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */; };
 		00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */; };
 		F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */; };
@@ -3291,9 +3294,11 @@
 		A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */; };
 		186A0F2EE1C92446E0A2D1E3 /* TabItemView+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EA28B32C38ED8C753C82D3 /* TabItemView+WorkspaceTodo.swift */; };
 		804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */; };
+		D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000001 /* TabManager+AppBootstrap.swift */; };
 		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
 		2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */; };
+		D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
 		D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000016 /* TabManager+DockSessionRestore.swift */; };
 		E3309A03 /* TabManager+EqualizeSplits.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A04 /* TabManager+EqualizeSplits.swift */; };
@@ -5208,6 +5213,8 @@
 		C12986000000000000000001 /* CloudWorkspaceRenameSurfaceParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceRenameSurfaceParityTests.swift"; sourceTree = "<group>"; };
 		B12438010000000000000002 /* CloudWorkspaceRestoreNamesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceRestoreNamesTests.swift; sourceTree = "<group>"; };
 		7AD117951D664D05A4D9612C /* CloudWorkspaceSidebarPresentation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceSidebarPresentation.swift; sourceTree = "<group>"; };
+		D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceTargetingFixture.swift"; sourceTree = "<group>"; };
+		D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWorkspaceTargetingTests.swift"; sourceTree = "<group>"; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 		9758A0019758A0019758A001 /* cmux-amp-wrapper */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/cmux-amp-wrapper"; sourceTree = SOURCE_ROOT; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -7188,6 +7195,7 @@
 		B6775F6F996E44AB577BF9A5 /* SurfaceCatalog+ProjectionQueries.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+ProjectionQueries.swift"; sourceTree = "<group>"; };
 		6BB38209A13D4676972174E4 /* SurfaceCatalog+SidebarOrganization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/SurfaceCatalog+SidebarOrganization.swift"; sourceTree = "<group>"; };
 		C12575000000000000000035 /* SurfaceCatalog+Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+Snapshot.swift"; sourceTree = "<group>"; };
+		D13184000000000000000005 /* SurfaceCatalog+WindowWorkspaceHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WindowWorkspaceHost.swift"; sourceTree = "<group>"; };
 		C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceDeletion.swift"; sourceTree = "<group>"; };
 		0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "SurfaceCatalog+WorkspaceMembership.swift"; sourceTree = "<group>"; };
 		EA63D377742D3A6A0BAB499B /* SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SurfaceCatalog.swift; sourceTree = "<group>"; };
@@ -7273,9 +7281,11 @@
 		A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceNotificationsMenu.swift"; sourceTree = "<group>"; };
 		56EA28B32C38ED8C753C82D3 /* TabItemView+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceTodo.swift"; sourceTree = "<group>"; };
 		804100000000000000000002 /* TabManager+AdjacentWorkspaceReordering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AdjacentWorkspaceReordering.swift"; sourceTree = "<group>"; };
+		D13184000000000000000001 /* TabManager+AppBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+AppBootstrap.swift"; sourceTree = "<group>"; };
 		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
 		C44A6E55470245C0B3228917 /* TabManager+CloudAgentTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudAgentTitle.swift"; sourceTree = "<group>"; };
+		D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CloudWorkspaceSelection.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
 		D86840000000000000000016 /* TabManager+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A04 /* TabManager+EqualizeSplits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+EqualizeSplits.swift"; sourceTree = "<group>"; };
@@ -8438,6 +8448,7 @@
 				C11323120000000000000001 /* SurfacePaneFactory+CloudManualMirror.swift */,
 				C11323220000000000000001 /* CmuxTuiSurfaceProvider+ManualMirror.swift */,
 				660286CE22B478E887361407 /* SurfaceCatalog+Groups.swift */,
+				D13184000000000000000005 /* SurfaceCatalog+WindowWorkspaceHost.swift */,
 				7DF4946E3C7A4AEEBD2E8933 /* SurfaceProjection+WorkspaceMembership.swift */,
 				0B8876F3CE1A40FB83FF5463 /* SurfaceCatalog+WorkspaceMembership.swift */,
 				3FB8309C25B29D6CEE17BD64 /* SurfaceSocketCommands+VMFileDelivery.swift */,
@@ -9368,6 +9379,8 @@
 				A10507000000000000000004 /* WindowTitleWriter.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
+				D13184000000000000000001 /* TabManager+AppBootstrap.swift */,
+				D13184000000000000000003 /* TabManager+CloudWorkspaceSelection.swift */,
 				C12537000000000000000302 /* TabManager+TerminalSplitAction.swift */,
 				7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */,
 				C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */,
@@ -12020,6 +12033,8 @@
 				A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */,
 				A5FB1401 /* NewWorkspaceMenuModelTests.swift */,
 				C5B101D46CA6769FBE609F05 /* NewCloudWorkspaceShortcutTests.swift */,
+				D13184000000000000000007 /* CloudWorkspaceTargetingFixture.swift */,
+				D13184000000000000000009 /* CloudWorkspaceTargetingTests.swift */,
 				0FF9A4B0D9B449959FCB5E54 /* CloudWorkspaceDestinationTests.swift */,
 				354EFE0948893997052F830F /* DelayedNewMachineSheetPresenter.swift */,
 				A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */,
@@ -14736,6 +14751,7 @@
 				60F0BFF9693191820D31D62D /* SurfaceCatalog+ProjectionQueries.swift in Sources */,
 				A00556106BC44BBCA98B00AC /* SurfaceCatalog+SidebarOrganization.swift in Sources */,
 				C12575000000000000000034 /* SurfaceCatalog+Snapshot.swift in Sources */,
+				D13184000000000000000006 /* SurfaceCatalog+WindowWorkspaceHost.swift in Sources */,
 				C12575000000000000000036 /* SurfaceCatalog+WorkspaceDeletion.swift in Sources */,
 				00B9FC4EDB2E47F6819B01C4 /* SurfaceCatalog+WorkspaceMembership.swift in Sources */,
 				F7F3BED81BD5FE96D52055C0 /* SurfaceCatalog.swift in Sources */,
@@ -14805,9 +14821,11 @@
 				A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */,
 				186A0F2EE1C92446E0A2D1E3 /* TabItemView+WorkspaceTodo.swift in Sources */,
 				804100000000000000000001 /* TabManager+AdjacentWorkspaceReordering.swift in Sources */,
+				D13184000000000000000002 /* TabManager+AppBootstrap.swift in Sources */,
 				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
 				2E0FF72B848C4AB6B0EB787F /* TabManager+CloudAgentTitle.swift in Sources */,
+				D13184000000000000000004 /* TabManager+CloudWorkspaceSelection.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
 				D86840000000000000000015 /* TabManager+DockSessionRestore.swift in Sources */,
 				E3309A03 /* TabManager+EqualizeSplits.swift in Sources */,
@@ -16025,6 +16043,8 @@
 				4779459FFFB041CB8FD46938 /* CloudWorkspaceMembershipTests.swift in Sources */,
 				C12986000000000000000002 /* CloudWorkspaceRenameSurfaceParityTests.swift in Sources */,
 				B12438010000000000000001 /* CloudWorkspaceRestoreNamesTests.swift in Sources */,
+				D13184000000000000000008 /* CloudWorkspaceTargetingFixture.swift in Sources */,
+				D1318400000000000000000A /* CloudWorkspaceTargetingTests.swift in Sources */,
 				C0DE43000000000000000009 /* CmuxAgentChatConfigTests.swift in Sources */,
 				8295A0058295A0058295A005 /* CmuxAlertContentTests.swift in Sources */,
 				947194719471947194719472 /* CmuxBundledBinPathIntegrationTests.swift in Sources */,

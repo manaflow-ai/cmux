@@ -16,7 +16,12 @@ struct CloudWorkspaceCreationHost {
 
     var isAvailable: Bool { manager?.isFinalizedForWindowClose == false }
 
-    func reserve(title: String, machine: SurfaceMachineID, receipt: SurfaceWorkspaceCreationReceipt, focus: Bool) throws -> CloudTerminalPaneReservation {
+    func reserve(
+        title: String,
+        machine: SurfaceMachineID,
+        receipt: SurfaceWorkspaceCreationReceipt? = nil,
+        focus: Bool
+    ) throws -> CloudTerminalPaneReservation {
         guard let manager,
               let workspace = manager.addWorkspaceIfActive(
                 title: title, titleSource: .auto, initialSurface: .cloudVMLoading,
@@ -27,9 +32,10 @@ struct CloudWorkspaceCreationHost {
               let reservation = workspace.reserveCloudTerminalPane(
                 machine: machine, at: .tab(workspaceID: workspace.id, paneID: pane.id.uuidString, index: nil),
                 focus: false,
-                sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: receipt.workspace.id, remoteTabID: nil),
-                attachmentPlacement: receipt.terminal.map {
-                    SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first { $0.workspace.id == receipt.workspace.id }, remoteWorkspaceID: receipt.workspace.id)
+                sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: receipt?.workspace.id, remoteTabID: nil),
+                attachmentPlacement: receipt.flatMap { receipt in
+                    guard let terminal = receipt.terminal else { return nil }
+                    return SurfaceResourcePlacement(resource: terminal.id, remoteView: terminal.remoteViews?.first { $0.workspace.id == receipt.workspace.id }, remoteWorkspaceID: receipt.workspace.id)
                 }
               ) else {
             manager.closeWorkspace(workspace, recordHistory: false)
@@ -44,6 +50,29 @@ struct CloudWorkspaceCreationHost {
             workspace.terminalPanel(for: reservation.panelID)?.surface.requestInputDemandSurfaceStartIfNeeded()
         }
         return reservation
+    }
+
+    /// Publishes the remote identity and final title after local admission.
+    /// User navigation or a rename that happened while the request awaited
+    /// the provider always wins over this automatic title update.
+    func updateReservation(
+        _ reservation: CloudTerminalPaneReservation,
+        receipt: SurfaceWorkspaceCreationReceipt,
+        generatedTitle: String,
+        catalog: SurfaceCatalog
+    ) {
+        reservation.updateRemoteWorkspaceID(receipt.workspace.id)
+        guard let workspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+              workspace.effectiveCustomTitleSource != .user,
+              let manager = workspace.owningTabManager ?? manager else { return }
+        _ = manager.setCustomTitle(
+            tabId: reservation.workspaceID,
+            title: generatedTitle,
+            source: .remote,
+            propagateToRemoteTmux: false,
+            propagateToCloud: false,
+            catalog: catalog
+        )
     }
 
     func isLive(_ reservation: CloudTerminalPaneReservation) -> Bool {
@@ -73,10 +102,13 @@ struct CloudWorkspaceCreationHost {
               workspace.panels[reservation.panelID] != nil else { return }
         catalog.endProjections(panelID: reservation.panelID, reason: .replaced)
         workspace.cancelReservedCloudTerminalPane(panelID: reservation.panelID)
-        if workspace.panels.count == 1, let owner = workspace.owningTabManager ?? manager {
+        if workspace.panels.count == 1,
+           workspace.effectiveCustomTitleSource != .user,
+           let owner = workspace.owningTabManager ?? manager {
             _ = owner.closeWorkspaceNonInteractively(workspace, recordHistory: false, allowPinned: true)
         } else {
-            // User-added panes belong to the user, even if this create fails.
+            // User-added panes and user-renamed workspaces belong to the user,
+            // even if this create fails.
             catalog.withProjectionEndReason(for: [reservation.panelID], reason: .replaced) {
                 _ = workspace.closePanel(reservation.panelID, force: true)
             }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAgentChat
+import CmuxCloudMachines
 import CmuxFoundation
 import CmuxTerminalCore
 import SwiftUI
@@ -222,6 +223,7 @@ class TabManager: ObservableObject {
         (windowDockTitleRoutingStores.objectEnumerator()?.allObjects as? [DockSplitStore]) ?? []
     }
     let workspaceSwitchCoordinator = WorkspaceSwitchCoordinator()
+    let cloudWorkspaceSelection: CloudWorkspaceSelectionState
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -285,6 +287,7 @@ class TabManager: ObservableObject {
     /// Legacy `@Published selectedTabId` willSet; `selectedTabId` still
     /// reads the old value here, exactly like the original property observer.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
+        recordCloudWorkspaceSelection()
         if !isRestoringSessionSnapshot {
             let terminalTarget = newValue
                 .flatMap { workspacesById[$0] }
@@ -335,6 +338,7 @@ class TabManager: ObservableObject {
     /// chain, run synchronously after storage changed.
     func selectedWorkspaceIdDidChange(from oldValue: UUID?) {
             guard selectedTabId != oldValue else { return }
+            recordCloudWorkspaceSelection()
             defer {
                 workspaceSwitchCoordinator.selectionDidCommit(
                     from: oldValue,
@@ -565,10 +569,12 @@ class TabManager: ObservableObject {
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         closeTabWarningDefaults: UserDefaults = .standard,
         managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
-        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
+        cloudWorkspaceSelection: CloudWorkspaceSelectionState? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.managedDevicePolicy = managedDevicePolicy
+        self.cloudWorkspaceSelection = cloudWorkspaceSelection ?? CloudWorkspaceSelectionState(scopeProvider: { nil })
         self.settings = settings
         self.defaultWorkspaceWorkingDirectoryProvider = defaultWorkspaceWorkingDirectoryProvider
         self.workspaceCustomizationStore = workspaceCustomizationStore ?? WorkspaceCustomizationStore()
@@ -740,22 +746,6 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
-    }
-
-    /// Creates the process-level command-routing fallback used before AppKit
-    /// registers a real per-window manager.
-    ///
-    /// This bootstrap owner must remain terminal-free because SwiftUI may
-    /// initialize the app value more than once during launch.
-    static func makeAppBootstrap(
-        workspaceCustomizationStore: WorkspaceCustomizationStore? = nil,
-        nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
-    ) -> TabManager {
-        TabManager(
-            createInitialWorkspace: false,
-            workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: nativeSSHConnectionBroker
-        )
     }
 
     deinit {
