@@ -98,6 +98,15 @@ extension WorkspaceListView {
                     && store.workspaces.isEmpty
             }
         }
+        let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
+            }
+        }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
             workspacesByID: workspacesByID,
@@ -175,7 +184,7 @@ extension WorkspaceListView {
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
             reconnect: reconnect,
             refresh: refresh,
-            cancelRefresh: cancelRefresh,
+            cancelRefresh: cancelRefreshForEmptyState,
             shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
             isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )

@@ -206,10 +206,22 @@ extension MobileShellComposite {
     /// Cancels the user-visible workspace-list recovery operation. The UI owns
     /// the waiting task, while the shell owns the reconnect and pull-to-refresh
     /// tasks that can outlive that waiter.
-    public func cancelWorkspaceListRecovery() {
+    public func cancelWorkspaceListRecovery(
+        forMacDeviceID macDeviceID: String? = nil,
+        instanceTag: String? = nil,
+        ownerScoped: Bool = false
+    ) {
+        if ownerScoped {
+            guard pullToRefreshOwnerID == macDeviceID,
+                  pullToRefreshOwnerInstanceTag == instanceTag else {
+                return
+            }
+        }
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
         pullToRefreshGeneration = UUID()
+        pullToRefreshOwnerID = nil
+        pullToRefreshOwnerInstanceTag = nil
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         connectionRecoveryAttemptDeadlineTask = nil

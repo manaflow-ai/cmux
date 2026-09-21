@@ -1357,6 +1357,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     // Internal so the workspace-list recovery owner can cancel the same
     // coalesced task that backs pull-to-refresh and the empty-state Retry.
     var pullToRefreshTask: Task<Void, Never>?
+    /// Stable Mac identity for the task occupying ``pullToRefreshTask``.
+    /// Empty-state rows use this to cancel a departing Mac's recovery without
+    /// touching a newer retry started for the newly selected Mac.
+    var pullToRefreshOwnerID: String?
+    var pullToRefreshOwnerInstanceTag: String?
     /// Generation of the task currently occupying ``pullToRefreshTask``.
     /// Cancelled attempts advance it before detaching their handle so a late
     /// completion cannot clear or mutate a newer retry.
@@ -1971,6 +1976,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTask = nil
         self.workspaceListRefreshTask = nil
         self.pullToRefreshTask = nil
+        self.pullToRefreshOwnerID = nil
+        self.pullToRefreshOwnerInstanceTag = nil
         self.foregroundWorkspaceMutationRefreshTask = nil
         self.foregroundWorkspaceMutationRefreshPending = false
         self.foregroundWorkspaceMutationRefreshGeneration = UUID()
@@ -11477,6 +11484,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshOperationID = nil
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
+        pullToRefreshOwnerID = nil
+        pullToRefreshOwnerInstanceTag = nil
         workspaceChangesSummaryDebounceTask?.cancel()
         workspaceChangesSummaryDebounceTask = nil
         workspaceChangesSummaryDebounceTaskID = nil
@@ -15795,11 +15804,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let generation = UUID()
+        let ownerID = connectedMacDeviceID
+        let ownerInstanceTag = connectedMacInstanceTag
         pullToRefreshGeneration = generation
         let task = Task { @MainActor [weak self] in
             defer {
                 if let self, self.pullToRefreshGeneration == generation {
                     self.pullToRefreshTask = nil
+                    self.pullToRefreshOwnerID = nil
+                    self.pullToRefreshOwnerInstanceTag = nil
                 }
             }
             guard !Task.isCancelled else { return }
@@ -15818,6 +15831,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         pullToRefreshTask = task
+        pullToRefreshOwnerID = ownerID
+        pullToRefreshOwnerInstanceTag = ownerInstanceTag
         await task.value
     }
 

@@ -134,8 +134,8 @@ struct MobileWorkspaceListEmptyRow: View {
             let hasActiveRetry = isRetrying || retryTask != nil
             if hasActiveRetry {
                 retryTask?.cancel()
-                if isRetryOwnerCurrentOnDisappear?() ?? true,
-                   shouldCancelRetryOnDisappear?() ?? true {
+                let ownerIsCurrent = isRetryOwnerCurrentOnDisappear?() ?? true
+                if !ownerIsCurrent || shouldCancelRetryOnDisappear?() ?? true {
                     cancelRetry?()
                 }
                 retryTimeoutTask?.cancel()
