@@ -59,6 +59,7 @@ def is_other_workflow_config(path: str) -> bool:
 
 CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
+    "scripts/ci/web_validation.py",
 })
 
 
@@ -221,6 +222,7 @@ def is_web_change(path: str) -> bool:
         "bunfig.toml",
         ".npmrc",
         ".github/workflows/web-validation.yml",
+        "scripts/ci/web_validation.py",
         "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
