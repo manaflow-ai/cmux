@@ -298,7 +298,11 @@ impl NativeStream {
     /// Finish this half of the stream after queued data, preserving the
     /// reverse direction for replies. Cancellation leaves the stream usable.
     pub async fn finish_send(&self, operation: Arc<Operation>) -> Result<(), NativeError> {
-        self.run(&operation, self.sending.finish()).await
+        self.run(&operation, async {
+            let _write = self.writing.lock().await;
+            self.sending.finish().await
+        })
+        .await
     }
     /// Stop receiving without aborting outbound data or the remote half.
     pub fn stop_receive(&self) {
