@@ -80,8 +80,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     }
 
     public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.dismiss()
-        coordinator.isPresented = false
+        coordinator.dismiss(resetPresentation: false)
     }
 
     /// Bridges popover lifecycle between AppKit's `NSPopover` and the SwiftUI binding.
@@ -188,14 +187,18 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
         }
 
-        func dismiss() {
+        func dismiss(resetPresentation: Bool = true) {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
-            guard let closing = popover else { return }
-            popover = nil
-            closingPopovers[ObjectIdentifier(closing)] = closing
-            if group != nil { closing.animates = false }
-            closing.performClose(nil)
+            guard let popover else {
+                if resetPresentation { isPresented = false }
+                return
+            }
+            closingPopovers[ObjectIdentifier(popover)] = popover
+            if group != nil { popover.animates = false }
+            popover.performClose(nil)
+            self.popover = nil
+            if resetPresentation { isPresented = false }
         }
 
         public func popoverWillClose(_ notification: Notification) {
@@ -214,16 +217,8 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
         public func popoverDidClose(_ notification: Notification) {
             guard let closing = notification.object as? NSPopover else { return }
-            let closingID = ObjectIdentifier(closing)
-            let isCurrentPopover = closing === popover
-            guard isCurrentPopover || closingPopovers[closingID] != nil else { return }
-            closingPopovers[closingID] = nil
-            guard isCurrentPopover else {
-                if popover == nil, isPresented {
-                    isPresented = false
-                }
-                return
-            }
+            if closingPopovers.removeValue(forKey: ObjectIdentifier(closing)) != nil { return }
+            guard closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
