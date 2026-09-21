@@ -405,6 +405,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { self.jsonObject($0) }
             .filter { $0["method"] as? String == "workspace.cloud_vm_bind" }
         XCTAssertEqual(bindCommands.count, 2)
+        // A missing bind is a failed expectation above, not a fatal index error
+        // that takes the whole app host down with it.
+        guard bindCommands.count == 2 else { return }
         XCTAssertNil((bindCommands[0]["params"] as? [String: Any])?["remote_workspace_id"])
         XCTAssertEqual(
             (bindCommands[1]["params"] as? [String: Any])?["remote_workspace_id"] as? String,
