@@ -228,6 +228,76 @@ struct CloudDesktopAccessTests {
         #expect(model.failureMessage?.isEmpty == false)
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/12290
+    ///
+    /// The desktop page reaches its machine through a per-VM browser carrier
+    /// whose loopback port and WebSocket token are injected into the document
+    /// when it loads. noVNC reuses whatever the document was built with for its
+    /// own `reconnect=1` retries, so a replaced carrier leaves the viewer
+    /// dialing a port that no longer exists and silently dropping every click.
+    /// The page URL cannot catch this: it is the machine's private address,
+    /// which is identical across carrier restarts.
+    @Test("A replaced browser carrier rebinds the live desktop document")
+    func desktopRebindsAfterCarrierReplacement() async throws {
+        let store = CloudPortAccessStore()
+        let target = CloudPortForwardTarget(host: "10.0.0.7", port: 6901)
+        let first = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 47_101, username: "cmux", password: "first", websocketToken: "token-first"
+        )
+        let replacement = CloudBrowserProxyEndpoint(
+            host: "127.0.0.1", port: 47_202, username: "cmux", password: "second", websocketToken: "token-second"
+        )
+        var carrierStarts = 0
+        let model = store.model(machineID: "test-desktop", target: target) {
+            CloudPortAccessModel(
+                target: target, coordinator: nil, wake: {},
+                startForward: { _ in
+                    Issue.record("The desktop route must not fall back to a loopback forward")
+                    return 1
+                },
+                stopForward: {},
+                startBrowserProxy: {
+                    carrierStarts += 1
+                    return carrierStarts <= 1 ? first : replacement
+                }
+            )
+        }
+        let provider = provider(store: store, catalog: SurfaceCatalog())
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let remote = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: target.host)))
+
+        provider.configureBrowser(browser, url: remote)
+        #expect(await wait { model.browserProxy == first })
+        let local = try #require(browser.cloudAccess.nextURL())
+        browser.navigate(to: local)
+        browser.cloudAccess.didCommit(url: local)
+        browser.cloudAccess.didFinish(url: local)
+        #expect(bridgesCarrierPort(browser, port: first.port), "The first document carries the first carrier")
+
+        // The shared carrier is replaced while the page URL stays identical.
+        model.retry()
+        #expect(await wait { model.browserProxy == replacement })
+        // What the Cloud browser view re-runs on every route phase change.
+        if let next = browser.cloudAccess.nextURL() { browser.navigate(to: next) }
+
+        #expect(
+            bridgesCarrierPort(browser, port: replacement.port),
+            "A live desktop document must not keep dialing the replaced carrier"
+        )
+        #expect(!bridgesCarrierPort(browser, port: first.port), "The dead carrier's credentials must be dropped")
+        await store.remove(machineID: "test-desktop")
+    }
+
+    /// The injected document-start bridge rewrites the VM WebSocket to the
+    /// carrier's loopback port, so the port in its source is the route the
+    /// live document will actually dial.
+    private func bridgesCarrierPort(_ browser: BrowserPanel, port: UInt16) -> Bool {
+        browser.webView.configuration.userContentController.userScripts.contains {
+            $0.source.contains("__cmuxCloudWebSocketBridgeInstalled") && $0.source.contains("String(\(port))")
+        }
+    }
+
     private func provider(
         store: CloudPortAccessStore,
         catalog: SurfaceCatalog,
