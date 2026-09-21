@@ -2,13 +2,14 @@
 import CmuxMobileSupport
 import SwiftUI
 
-// MARK: - Regular-width detail chrome
+// MARK: - Workspace detail chrome
 
 extension WorkspaceDetailView {
-    /// A stable detail-column bar for iPad. The system navigation bar may
-    /// re-arbitrate toolbar items as a split sidebar changes width, which makes
-    /// the terminal picker animate out and back in. This row stays in the
-    /// detail column's layout and only changes its available title width.
+    /// A stable detail bar for every iOS width. The system navigation bar may
+    /// re-arbitrate toolbar items as a split sidebar changes width or a compact
+    /// surface scrolls, which can move the terminal picker into `More`. This
+    /// row stays in the detail column's layout and only changes its available
+    /// title width.
     var workspaceOwnedTopBar: some View {
         HStack(spacing: 13) {
             if showsSidebarToggle, let toggleSidebar {

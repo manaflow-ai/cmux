@@ -61,9 +61,6 @@ struct WorkspaceDetailView: View {
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
-#if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-#endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -235,11 +232,6 @@ struct WorkspaceDetailView: View {
             // plain view background only covers the content bounds, leaving
             // the split view's top safe area on the default system color.
             .mobileNavigationContainerBackground(store.activeTerminalTheme.terminalBackgroundColor)
-            // The browser and chat surfaces scroll; without this the system
-            // minimizes the whole bar into a floating "…" pill, unlike the
-            // terminal surface, which has no system scroll view.
-            .mobilePinnedNavigationBar()
-            .trackBarPresence(barPresence)
 
         detailNavigationChrome(navigationContent)
             .task(id: workspace.rpcWorkspaceID.rawValue) {
@@ -345,24 +337,18 @@ struct WorkspaceDetailView: View {
     }
 
 #if os(iOS)
-    /// The regular-width detail column uses a SwiftUI-owned bar. A system
-    /// navigation toolbar is allowed to recompute its item placement when the
-    /// split sidebar changes width, which briefly removes and re-inserts the
-    /// terminal picker. Owning this row keeps the trailing controls attached to
-    /// the detail column throughout that transition. Compact iPhone navigation
-    /// retains the existing system toolbar unchanged.
+    /// Workspace details use a SwiftUI-owned bar. A system navigation toolbar
+    /// can recompute its item placement when the split sidebar changes width or
+    /// when a compact surface scrolls, which folds the terminal picker into a
+    /// `More` menu. Owning this row keeps every detail control attached to the
+    /// detail column across those transitions.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
-        if horizontalSizeClass == .regular {
-            content
-                .toolbar(.hidden, for: .navigationBar)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    workspaceOwnedTopBar
-                }
-        } else {
-            content
-                .toolbar { workspaceDetailToolbar }
-        }
+        content
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                workspaceOwnedTopBar
+            }
     }
 #endif
 
