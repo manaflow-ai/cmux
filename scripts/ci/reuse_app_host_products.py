@@ -31,7 +31,7 @@ import app_host_test_products as products
 import product_input_identity as product_inputs
 
 RECEIPT = "cmux-product-reuse.json"
-PREFIX = "app-host-products-v2-"
+PREFIX = "app-host-products-v1-"
 # Current product archives are ~0.8 GiB compressed. Bound every expansion layer
 # independently, including hardlink copies, with room for the UI product set.
 MAX_ARCHIVE_BYTES = 2 * 1024**3
