@@ -1103,31 +1103,29 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "guards",
         "web",
         "linux-preflight",
-        "macos-compile-admission",
-        "app-host-unit-tests",
+        "macos",
         "tests",
-        "tests-build-and-lag",
-        "release-build",
     ]:
         assert f"      - {job_name}" in block
+    for job_name in MACOS_JOBS:
+        assert f"      - {job_name}" not in block
 
     assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
-
-def test_required_tests_status_waits_for_app_host_matrix() -> None:
+def test_required_tests_status_waits_for_platform_aggregates() -> None:
     block = workflow_job_block("tests")
 
     assert "name: tests" in block
-    assert "      - changes" in block
-    assert "      - linux-preflight" in block
-    assert "      - macos-compile-admission" in block
-    assert "      - app-host-unit-tests" in block
+    for job_name in ("changes", "linux-preflight", "macos", "web"):
+        assert f"      - {job_name}" in block
+    for job_name in MACOS_JOBS:
+        assert f"      - {job_name}" not in block
     assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
-    assert 'suite_required and tests["result"] != "success"' in block
-    assert 'tests["result"] not in {"success", "skipped"}' in block
-
+    assert 'macos_route not in {"true", "false"}' in block
+    assert 'macos_result != "success"' in block
+    assert 'web_result not in {"success", "skipped"}' in block
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
@@ -1210,45 +1208,44 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 0 and invoked == ["version", "help"]
 
 
-def test_macos_jobs_wait_for_linux_preflight() -> None:
-    # The staged macOS jobs must gate on their direct needs explicitly.
-    # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit
-    # success() gate, which GitHub evaluates over the transitive needs chain:
-    # routed linux jobs that legitimately skip (web/agent-session paths)
-    # then mark every macOS job skipped even though linux-preflight succeeded.
-    for job_name in [
-        "app-host-unit-tests",
-        "macos-compile-admission",
-        "swift-package-tests",
-        "tests-build-and-lag",
-        "release-build",
-    ]:
-        block = workflow_job_block(job_name)
-        assert "      - changes" in block
-        assert "      - linux-preflight" in block
-        assert "if: ${{ needs.changes.outputs.macos == 'true' }}" not in block
-        expected_needs = ["changes", "linux-preflight"]
-        if job_name == "release-build":
-            expected_needs.append("swift-package-tests")
-        if job_name in {"app-host-unit-tests", "tests-build-and-lag", "release-build"}:
-            expected_needs.append("macos-compile-admission")
-        route = "release_build" if job_name == "release-build" else "macos"
-        expected_if = (
-            "if: ${{ !cancelled() && "
-            + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
-            + f" && needs.changes.outputs.{route} == 'true'"
-            + (
-                " && needs.changes.outputs.compile_admitted != 'true'"
-                if job_name == "macos-compile-admission"
-                else " && needs.changes.outputs.full_suite == 'true'"
-            )
-            + " }}"
-        )
-        assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+def test_macos_workflow_waits_for_linux_preflight_and_preserves_internal_needs() -> None:
+    caller = workflow_job_block("macos")
+    assert "      - changes" in caller
+    assert "      - linux-preflight" in caller
+    assert "needs.changes.result == 'success'" in caller
+    assert "needs.linux-preflight.result == 'success'" in caller
+    assert "needs.changes.outputs.macos != 'false'" in caller
+    assert "uses: ./.github/workflows/ci-macos.yml" in caller
+    assert "actions: read" in caller
+    for route in ("macos", "full_suite", "compile_admitted", "release_build"):
+        assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in caller
+    assert "cache_backend: ${{ inputs.cache_backend }}" in caller
+    assert "release_archs: ${{ inputs.release_archs }}" in caller
 
+    admission = workflow_job_block("macos-compile-admission")
+    assert "needs.changes" not in admission
+    assert "needs.linux-preflight" not in admission
+    assert "if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}" in admission
+
+    app_host = workflow_job_block("app-host-unit-tests")
+    lag = workflow_job_block("tests-build-and-lag")
+    for block in (app_host, lag):
+        assert "      - macos-compile-admission" in block
+        assert "inputs.macos == 'true'" in block
+        assert "inputs.full_suite == 'true'" in block
+
+    package = workflow_job_block("swift-package-tests")
+    assert "needs.changes" not in package
+    assert "if: ${{ inputs.macos == 'true' && inputs.full_suite == 'true' }}" in package
+
+    release = workflow_job_block("release-build")
+    assert "      - swift-package-tests" in release
+    assert "      - macos-compile-admission" in release
+    assert "inputs.release_build == 'true'" in release
+    assert "inputs.full_suite == 'true'" in release
 
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
-    script = workflow_job_step_script("tests", "Check app-host unit test routing")
+    script = workflow_job_step_script("tests", "Check platform workflow routing")
     body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(body)],
@@ -1258,45 +1255,46 @@ def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
         check=False,
     )
 
-
 def tests_gate_needs(
-    full_suite: str | None, app_host: str, admission: str = "success", compile_admitted: str | None = None
+    macos: str = "true",
+    macos_result: str = "success",
+    web_result: str = "skipped",
 ) -> dict:
-    outputs = {"macos": "true"}
-    if full_suite is not None:
-        outputs["full_suite"] = full_suite
-    if compile_admitted is not None:
-        outputs["compile_admitted"] = compile_admitted
     return {
-        "changes": {"result": "success", "outputs": outputs},
+        "changes": {"result": "success", "outputs": {"macos": macos, "full_suite": "true"}},
         "linux-preflight": {"result": "success"},
-        "macos-compile-admission": {"result": admission},
-        "app-host-unit-tests": {"result": app_host},
-        "swift-package-tests": {"result": "skipped" if app_host == "skipped" else "success"},
-        "web": {"result": "skipped"},
+        "macos": {"result": macos_result},
+        "web": {"result": web_result},
     }
 
+def test_platform_tests_gate_accepts_successful_macos_aggregate() -> None:
+    assert run_tests_gate(tests_gate_needs()).returncode == 0
+    assert run_tests_gate(tests_gate_needs(macos_result="failure")).returncode == 1
+    assert run_tests_gate(tests_gate_needs(macos_result="cancelled")).returncode == 1
+    assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
+    assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
 
-def test_compile_only_runs_pass_the_tests_gate_without_the_suite() -> None:
-    assert run_tests_gate(tests_gate_needs("false", app_host="skipped")).returncode == 0
-    # Compile admission still has to pass, and a suite job that ran and failed still blocks.
-    assert run_tests_gate(tests_gate_needs("false", app_host="skipped", admission="failure")).returncode == 1
-    assert run_tests_gate(tests_gate_needs("false", app_host="failure")).returncode == 1
+def test_macos_status_preserves_compile_only_admission_reuse() -> None:
+    compile_only = {
+        "macos": "true",
+        "full_suite": "false",
+        "compile_admitted": "true",
+        "release_build": "false",
+        "cache_backend": "",
+        "release_archs": "",
+    }
+    skipped_suite = dict.fromkeys(MACOS_JOBS, "skipped")
+    assert run_macos_status(inputs=compile_only, results=skipped_suite).returncode == 0
 
+    needs_compile = dict(compile_only)
+    needs_compile["compile_admitted"] = "false"
+    results = dict(skipped_suite)
+    results["macos-compile-admission"] = "success"
+    assert run_macos_status(inputs=needs_compile, results=results).returncode == 0
 
-def test_a_skipped_admission_passes_only_when_an_earlier_run_compiled_the_same_inputs() -> None:
-    def gate(**kwargs) -> int:
-        return run_tests_gate(tests_gate_needs(app_host="skipped", admission="skipped", **kwargs)).returncode
-
-    assert gate(full_suite="false", compile_admitted="true") == 0
-    assert gate(full_suite="false", compile_admitted="false") == 1
-    assert gate(full_suite="false") == 1
-    # The shards need this revision's product, so a full-suite run never reuses a verdict.
-    assert gate(full_suite="true", compile_admitted="true") == 1
-    assert run_tests_gate(
-        tests_gate_needs("false", app_host="skipped", admission="failure", compile_admitted="true")
-    ).returncode == 1
-
+    for outcome in ("skipped", "failure", "cancelled"):
+        results["macos-compile-admission"] = outcome
+        assert run_macos_status(inputs=needs_compile, results=results).returncode == 1
 
 def test_build_input_fingerprint_ignores_only_what_the_build_cannot_read() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
