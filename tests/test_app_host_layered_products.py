@@ -60,10 +60,10 @@ class LayerRoundTrip(unittest.TestCase):
     def write_manifest(self, value):
         self.manifest_path.write_text(json.dumps(value))
 
-    def assert_rejected(self, expected=IDENTITY):
+    def assert_rejected(self, expected=IDENTITY, selected=None):
         target = self.root / "restored"
         with self.assertRaises((ValueError, KeyError, TypeError)):
-            layers.restore(self.manifest_path, target, expected)
+            layers.restore(self.manifest_path, target, expected, selected)
         self.assertFalse(target.exists())
 
     def test_round_trip_preserves_tree_modes_links_xattrs_and_signatures(self):
@@ -77,6 +77,38 @@ class LayerRoundTrip(unittest.TestCase):
         self.assertEqual(owners["Build/Products/Debug/input.o.keep"], "app-cli")
         self.assertEqual(owners["Build/Products/Debug/CmuxTerminalCoreTests.xctest/test"], "tests")
         self.assertEqual(owners["Build/Products/Debug/cmux DEV.app/Contents/Frameworks/F.framework/Versions/A/Modules/F.swiftmodule/arm64.swiftmodule"], "runtime")
+
+    def test_selected_consumer_subset_restores_complete_authorized_groups(self):
+        (self.output / "diagnostics.aar").unlink()
+        destination = self.root / "selected-restored"
+        selected = ("app-cli", "runtime", "tests")
+        layers.restore(self.manifest_path, destination, IDENTITY, selected)
+
+        products = destination / layers.ROOT
+        for relative in (
+            "Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            "Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/MacOS/test",
+            "Debug/cmux DEV.app/Contents/Frameworks/F.framework/Versions/A/F",
+            "Debug/cmux DEV.app/Contents/Frameworks/F.framework/Versions/A/Modules/F.swiftmodule/arm64.swiftmodule",
+            "Debug/CmuxTerminalCoreTests.xctest/test",
+            "Debug/cmux",
+            "Debug/input.o.keep",
+            "cmux-unit.xctestrun",
+        ):
+            self.assertTrue((products / relative).exists() or (products / relative).is_symlink(), relative)
+        self.assertFalse((products / "Debug/input.o").exists())
+        self.assertFalse((products / "Debug/cmux.dSYM").exists())
+
+    def test_selected_consumer_subset_rejects_corrupt_required_layer(self):
+        (self.output / "diagnostics.aar").unlink()
+        with (self.output / "tests.aar").open("ab") as stream:
+            stream.write(b"corrupt")
+        self.assert_rejected(selected=("app-cli", "runtime", "tests"))
+
+    def test_selected_consumer_subset_still_validates_full_canonical_ownership(self):
+        self.manifest["layers"][3]["entries"].append(copy.deepcopy(self.manifest["layers"][0]["entries"][0]))
+        self.write_manifest(self.manifest)
+        self.assert_rejected(selected=("app-cli", "runtime", "tests"))
 
     def test_corrupt_archive(self):
         with (self.output / "tests.aar").open("ab") as stream:
