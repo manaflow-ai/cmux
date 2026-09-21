@@ -37,6 +37,26 @@ final class WorkspacePresenceController {
             case lastSeenAt
         }
 
+        init(
+            deviceID: String,
+            tag: String,
+            workspaceID: String?,
+            viewerID: String?,
+            displayName: String?,
+            avatarURL: URL?,
+            online: Bool,
+            lastSeenAt: Date
+        ) {
+            self.deviceID = deviceID
+            self.tag = tag
+            self.workspaceID = workspaceID
+            self.viewerID = viewerID
+            self.displayName = displayName
+            self.avatarURL = avatarURL
+            self.online = online
+            self.lastSeenAt = lastSeenAt
+        }
+
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             deviceID = try container.decode(String.self, forKey: .deviceID)
