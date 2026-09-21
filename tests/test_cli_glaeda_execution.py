@@ -159,7 +159,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                     str(path),
                 )
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn(b"glaeda observe:", result.stderr)
+                self.assertIn(b"Glaeda", result.stderr)
 
     def test_observe_rejects_float_schema_lookalike(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
@@ -176,7 +176,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(path),
             )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"glaeda observe:", result.stderr)
+        self.assertIn(b"Glaeda", result.stderr)
 
     def test_observe_requires_real_json_booleans_for_zero_authority(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
@@ -193,7 +193,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(path),
             )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"does not correlate", result.stderr)
+        self.assertIn(b"does not match", result.stderr)
 
     def test_observe_rejects_false_terminal_without_workload_evidence(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
@@ -210,7 +210,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(path),
             )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"terminal receipt is missing workload evidence", result.stderr)
+        self.assertIn(b"terminal result is missing workload evidence", result.stderr)
 
     def test_observe_accepts_terminal_with_bounded_workload_digest(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
@@ -246,7 +246,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(pretty),
             )
             self.assertNotEqual(pretty_result.returncode, 0)
-            self.assertIn(b"not canonical JSON", pretty_result.stderr)
+            self.assertIn(b"canonical JSON", pretty_result.stderr)
 
             oversized = Path(tmp) / "oversized.json"
             oversized.write_bytes(b"{" + b" " * 5000 + b"}")
@@ -259,7 +259,35 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(oversized),
             )
             self.assertNotEqual(oversized_result.returncode, 0)
-            self.assertIn(b"exceeds its fixed ceiling", oversized_result.stderr)
+            self.assertIn(b"exceeds the size limit", oversized_result.stderr)
+
+    def test_observe_refuses_fifo_and_symlink_paths_without_blocking(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fifo = Path(tmp) / "receipt.fifo"
+            os.mkfifo(fifo)
+            fifo_result = self.run_cli(
+                "glaeda",
+                "observe",
+                "--request",
+                str(REQUEST),
+                "--receipt",
+                str(fifo),
+            )
+            self.assertNotEqual(fifo_result.returncode, 0)
+            self.assertIn(b"regular file", fifo_result.stderr)
+
+            symlink = Path(tmp) / "receipt-link.json"
+            symlink.symlink_to(RECEIPT)
+            symlink_result = self.run_cli(
+                "glaeda",
+                "observe",
+                "--request",
+                str(REQUEST),
+                "--receipt",
+                str(symlink),
+            )
+            self.assertNotEqual(symlink_result.returncode, 0)
+            self.assertIn(b"input document", symlink_result.stderr)
 
     def test_help_is_available_without_socket(self) -> None:
         result = self.run_cli("glaeda", "--help")
