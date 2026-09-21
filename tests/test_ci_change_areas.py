@@ -701,11 +701,13 @@ def run_web_status(
             "db": "true",
             "diff_sidecar": "true",
             "instant": "true",
+            "production_build": "true",
             "react_apps": "true",
         } if scope_required else {
             "db": "false",
             "diff_sidecar": "false",
             "instant": "false",
+            "production_build": "false",
             "react_apps": "false",
         }
     else:
@@ -1805,19 +1807,21 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
 
 def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
     cases = (
-        (["web/messages/fr.json"], (False, False, True, False)),
-        (["web/app/[locale]/page.tsx"], (False, False, True, False)),
-        (["web/services/vms/workflows.ts"], (True, False, False, False)),
-        (["web/app/api/account/route.ts"], (True, False, True, False)),
-        (["webviews/src/App.tsx"], (False, False, False, True)),
-        (["webviews/src/diff/App.tsx"], (False, True, False, True)),
-        (["Native/DiffSidecar/src/server.rs"], (False, True, False, False)),
-        (["Sources/Panels/DiffSidecarBridge.swift"], (False, True, False, False)),
-        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, True)),
-        (["web/public/logo.png"], (False, False, False, False)),
-        (["web/e2e/other.spec.ts"], (False, False, False, False)),
-        ([".github/workflows/ci-web.yml"], (True, True, True, True)),
-        (["scripts/ci/web_subareas.py"], (True, True, True, True)),
+        (["web/messages/fr.json"], (False, False, True, True, False)),
+        (["web/app/[locale]/page.tsx"], (False, False, True, True, False)),
+        (["web/services/vms/workflows.ts"], (True, False, False, True, False)),
+        (["web/app/api/account/route.ts"], (True, False, True, True, False)),
+        (["webviews/src/App.tsx"], (False, False, False, False, True)),
+        (["webviews/src/diff/App.tsx"], (False, True, False, False, True)),
+        (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False)),
+        (["Sources/Panels/DiffSidecarBridge.swift"], (False, True, False, False, False)),
+        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True)),
+        (["web/public/logo.png"], (False, False, False, True, False)),
+        (["web/tests/account-route.test.ts"], (True, False, False, False, False)),
+        (["web/e2e/instant/locale-navigation.instant.ts"], (False, False, True, False, False)),
+        (["web/playwright.instant.config.ts"], (False, False, True, False, False)),
+        ([".github/workflows/ci-web.yml"], (True, True, True, True, True)),
+        (["scripts/ci/web_subareas.py"], (True, True, True, True, True)),
     )
     for paths, expected in cases:
         actual = web_subareas.classify_paths(paths)
@@ -1825,6 +1829,7 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
             actual.db,
             actual.diff_sidecar,
             actual.instant,
+            actual.production_build,
             actual.react_apps,
         ) == expected, (paths, actual)
 
@@ -1832,6 +1837,7 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
+            "web-production-build": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
             "diff-sidecar-check": "skipped",
@@ -1841,6 +1847,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "db": "false",
             "diff_sidecar": "false",
             "instant": "false",
+            "production_build": "false",
             "react_apps": "false",
         },
     )

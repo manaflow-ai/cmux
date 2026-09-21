@@ -15,23 +15,32 @@ class WebSubareas:
     db: bool
     diff_sidecar: bool
     instant: bool
+    production_build: bool
     react_apps: bool
 
     @classmethod
     def all(cls) -> "WebSubareas":
-        return cls(db=True, diff_sidecar=True, instant=True, react_apps=True)
+        return cls(
+            db=True,
+            diff_sidecar=True,
+            instant=True,
+            production_build=True,
+            react_apps=True,
+        )
 
     def emit(self, output: Path) -> None:
         with output.open("a", encoding="utf-8") as handle:
             handle.write(f"db={str(self.db).lower()}\n")
             handle.write(f"diff_sidecar={str(self.diff_sidecar).lower()}\n")
             handle.write(f"instant={str(self.instant).lower()}\n")
+            handle.write(f"production_build={str(self.production_build).lower()}\n")
             handle.write(f"react_apps={str(self.react_apps).lower()}\n")
         print(
             "web subareas: "
             f"db={str(self.db).lower()} "
             f"diff_sidecar={str(self.diff_sidecar).lower()} "
             f"instant={str(self.instant).lower()} "
+            f"production_build={str(self.production_build).lower()} "
             f"react_apps={str(self.react_apps).lower()}"
         )
 
@@ -94,6 +103,27 @@ DIFF_SIDECAR_PREFIXES = (
     "webviews/src/diff/",
 )
 
+PRODUCTION_BUILD_EXACT = {
+    ".npmrc",
+    ".vercelignore",
+    "CHANGELOG.md",
+    "bun.lock",
+    "bunfig.toml",
+    "config/iroh/managed-relay-catalog.json",
+    "package.json",
+    "vercel.json",
+    "workers/presence/src/generated/managedRelayCatalog.ts",
+}
+PRODUCTION_BUILD_EXCLUDED_PREFIXES = (
+    "web/e2e/",
+    "web/tests/",
+)
+PRODUCTION_BUILD_EXCLUDED_EXACT = {
+    "web/playwright.instant.config.ts",
+    "web/scripts/run-db-behavior-tests.sh",
+    "web/scripts/run-tests.sh",
+}
+
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-react-compiler.mjs",
@@ -108,11 +138,12 @@ def classify_paths(paths: list[str]) -> WebSubareas:
     db = False
     diff_sidecar = False
     instant = False
+    production_build = False
     react_apps = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
-            db = diff_sidecar = instant = react_apps = True
+            db = diff_sidecar = instant = production_build = react_apps = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES):
@@ -124,6 +155,15 @@ def classify_paths(paths: list[str]) -> WebSubareas:
         if path in INSTANT_EXACT or path.startswith(INSTANT_PREFIXES):
             instant = True
 
+        if path in PRODUCTION_BUILD_EXACT:
+            production_build = True
+        elif (
+            path.startswith("web/")
+            and path not in PRODUCTION_BUILD_EXCLUDED_EXACT
+            and not path.startswith(PRODUCTION_BUILD_EXCLUDED_PREFIXES)
+        ):
+            production_build = True
+
         if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
             react_apps = True
 
@@ -131,6 +171,7 @@ def classify_paths(paths: list[str]) -> WebSubareas:
         db=db,
         diff_sidecar=diff_sidecar,
         instant=instant,
+        production_build=production_build,
         react_apps=react_apps,
     )
 
