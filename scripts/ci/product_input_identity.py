@@ -31,18 +31,35 @@ BUILD_ENV_KEYS = (
     "CMUX_SKIP_ZIG_BUILD",
 )
 
-# Hash only workflow steps that define how the reusable product is produced.
-# Routing, metrics, fallback observation, cache lookup, and publication remain
-# admission identity rather than product identity.
-PRODUCT_RECIPE_STEPS = (
-    "Select Xcode",
-    "Install Rust",
-    "Download pre-built GhosttyKit.xcframework",
-    "Resolve Swift packages",
-    "Compile app-host test product",
-    "Stage compiled package frameworks",
-    "Package compiled app-host test product",
-)
+# Product recipe projection is fail-closed: every named admission step is part
+# of product identity unless it is explicitly classified as orchestration-only.
+# New/unknown steps therefore invalidate reuse until their role is reviewed.
+NON_PRODUCT_RECIPE_STEPS = frozenset({
+    "Start compile admission timers",
+    "Clear stale git locks (self-hosted reused workspace)",
+    "Diagnose checkout network failure",
+    "Record hosted source preparation",
+    "Measure hosted queue-to-start",
+    "Identify reusable compiled products",
+    "Reuse exact compatible compiled products",
+    "Record compiled-product reuse metrics",
+    "Observe persistent Mac compile candidate",
+    "Download persistent Mac compile product",
+    "Revalidate persistent Mac compile product",
+    "Capture Ghostty revision",
+    "Cache GhosttyKit.xcframework",
+    "Cache Swift packages",
+    "Compute test compilation cache key",
+    "Restore test compilation cache",
+    "Validate Swift warning budget",
+    "Run early CLI binary smoke checks",
+    "Start product publication timer",
+    "Choose product artifact publication",
+    "Upload compiled app-host test product",
+    "Record compile admission metrics",
+    "Upload compile admission metrics",
+    "Seed node-local compiled product cache",
+})
 
 
 def normalize_path(path: str) -> str:
@@ -139,19 +156,29 @@ def _job_block(workflow: str, job_name: str) -> str:
     raise ValueError(f"workflow job {job_name!r} not found")
 
 
-def _step_block(job: str, step_name: str) -> str:
+def _step_blocks(job: str) -> list[tuple[str, str]]:
     lines = job.splitlines()
-    marker = f"      - name: {step_name}"
-    for index, line in enumerate(lines):
-        if line != marker:
-            continue
-        body = [line]
-        for following in lines[index + 1 :]:
-            if following.startswith("      - ") and following.strip():
-                break
-            body.append(following)
-        return "\n".join(body) + "\n"
-    raise ValueError(f"workflow step {step_name!r} not found")
+    starts = [
+        index
+        for index, line in enumerate(lines)
+        if line.startswith("      - ")
+    ]
+    blocks: list[tuple[str, str]] = []
+    names: set[str] = set()
+    for position, index in enumerate(starts):
+        end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+        first = lines[index]
+        marker = "      - name: "
+        if not first.startswith(marker):
+            raise ValueError("macOS admission workflow contains an unnamed step")
+        name = first[len(marker):]
+        if not name or name in names:
+            raise ValueError(f"macOS admission workflow step name is not unique: {name!r}")
+        names.add(name)
+        blocks.append((name, "\n".join(lines[index:end]) + "\n"))
+    if not blocks:
+        raise ValueError("macOS admission workflow has no steps")
+    return blocks
 
 
 def recipe_projection(workflow: str) -> dict[str, object]:
@@ -162,7 +189,13 @@ def recipe_projection(workflow: str) -> dict[str, object]:
         if match is None:
             raise ValueError(f"build environment key {key!r} not found")
         environment[key] = match.group(1)
-    steps = {name: _step_block(job, name) for name in PRODUCT_RECIPE_STEPS}
+    steps = {
+        name: block
+        for name, block in _step_blocks(job)
+        if name not in NON_PRODUCT_RECIPE_STEPS
+    }
+    if not steps:
+        raise ValueError("macOS admission product recipe is empty")
     return {"environment": environment, "steps": steps}
 
 
