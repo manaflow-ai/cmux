@@ -87,6 +87,41 @@ class ProductPublicationTests(unittest.TestCase):
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
         self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
 
+    def test_app_host_shards_only_consume_the_admission_product(self):
+        job = self.workflow["jobs"]["app-host-unit-tests"]
+        steps = job["steps"]
+        names = [step["name"] for step in steps]
+
+        # Every physical shard takes the exact compile-admission artifact through
+        # the shared restore path before launching any app-host XCTest process.
+        self.assertIn("needs.macos-compile-admission.outputs.artifact_id", str(job))
+        restore_index = names.index("Restore compiled app-host test product")
+        app_host_indices = [
+            index for index, step in enumerate(steps)
+            if "scripts/ci/run-app-host-xcodebuild.sh" in step.get("run", "")
+        ]
+        self.assertTrue(app_host_indices)
+        self.assertLess(restore_index, min(app_host_indices))
+
+        # Consumers own execution only. Project/package resolution belongs to the
+        # compile producer; bringing the project back into a shard can silently
+        # duplicate work or mutate the restored DerivedData.
+        run_text = "\n".join(step.get("run", "") for step in steps)
+        self.assertNotIn("-project cmux.xcodeproj", run_text)
+        self.assertNotIn("-resolvePackageDependencies", run_text)
+        self.assertNotIn(".ci-source-packages", str(job))
+        self.assertNotIn("Cache Swift packages", names)
+        self.assertNotIn("Resolve Swift packages", names)
+
+        # Focused and broad app-host invocations must execute the restored
+        # xctestrun without compiling an equivalent app/test product.
+        for step in steps:
+            run = step.get("run", "")
+            if "scripts/ci/run-app-host-xcodebuild.sh" not in run:
+                continue
+            self.assertIn("-xctestrun", run, step["name"])
+            self.assertIn("test-without-building", run, step["name"])
+
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
         for name in ("Compile app-host test product", "Validate Swift warning budget",
