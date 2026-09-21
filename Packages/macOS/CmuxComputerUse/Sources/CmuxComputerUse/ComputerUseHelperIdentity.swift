@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 /// The signing digest changes whenever the helper's signed code or resources change.
-nonisolated public struct ComputerUseHelperIdentity: Sendable {
+public struct ComputerUseHelperIdentity: Sendable {
     /// The installed helper bundle whose signature is being checked.
     public let bundleURL: URL
 

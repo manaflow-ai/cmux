@@ -19,6 +19,9 @@ extension CMUXCLI {
         ) {
             return target
         }
+        // A relay hook's PID and TTY belong to the remote host. Never ask the
+        // local process table or ambient local TTY to choose its destination.
+        guard !client.isRelayBacked else { return nil }
         guard let binding = resolveAgentHookProcessBinding(
             pid: agentPid > 0 ? agentPid : nil,
             resolution: .controllingTTY,

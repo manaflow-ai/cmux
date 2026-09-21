@@ -1,7 +1,7 @@
 import Foundation
 
 /// The host's remaining Computer Use setup step; TCC grants alone are not completion.
-nonisolated public enum ComputerUseSetupStatus: Equatable, Sendable {
+public enum ComputerUseSetupStatus: Equatable, Sendable {
     /// The user or organization has disabled Computer Use.
     case disabled
     /// The helper could not report authoritative permission status.

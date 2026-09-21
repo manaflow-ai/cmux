@@ -1,7 +1,7 @@
 import Foundation
 
 /// Versioned host evidence for one helper's explicit capture setup in one runtime scope.
-nonisolated public struct ComputerUseOnboardingCompletion: Codable, Sendable {
+public struct ComputerUseOnboardingCompletion: Codable, Sendable {
     /// Completion schema version used for migration and invalidation.
     public let version: Int
     /// Runtime scope to which this completion belongs.

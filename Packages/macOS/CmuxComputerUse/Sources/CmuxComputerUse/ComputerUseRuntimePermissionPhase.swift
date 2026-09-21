@@ -1,5 +1,5 @@
 /// The host-authoritative permission phase for the standalone Computer Use helper.
-nonisolated public enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
+public enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
     /// Computer Use is disabled; the associated value preserves verified setup.
     case disabled(onboardingComplete: Bool)
     /// Computer Use is enabled but explicit setup has not been completed.

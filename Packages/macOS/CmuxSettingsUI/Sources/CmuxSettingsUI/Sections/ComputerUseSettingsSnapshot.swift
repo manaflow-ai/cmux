@@ -1,7 +1,7 @@
 import Foundation
 
 /// One runtime-owned view of Computer Use enablement and setup evidence.
-nonisolated public struct ComputerUseSettingsSnapshot: Equatable, Sendable {
+public struct ComputerUseSettingsSnapshot: Equatable, Sendable {
     /// Effective enablement from the runtime owner.
     public let enabled: Bool
     /// Runtime-owned setup phase projected for Settings.
