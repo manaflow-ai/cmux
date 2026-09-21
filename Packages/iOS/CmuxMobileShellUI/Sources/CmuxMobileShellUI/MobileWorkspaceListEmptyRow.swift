@@ -64,6 +64,8 @@ struct MobileWorkspaceListEmptyRow: View {
                             return
                         }
                         guard retryAttemptID == attemptID else { return }
+                        retryTask?.cancel()
+                        retryTask = nil
                         retryTimeoutTask = nil
                         isRetrying = false
                         retryTimedOut = true

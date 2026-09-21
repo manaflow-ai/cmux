@@ -6,26 +6,6 @@ import CmuxMobileSupport
 import Observation
 import SwiftUI
 
-private actor WorkspaceListPreviewRefreshGate {
-    private var completions: [UUID: AsyncStream<Void>.Continuation] = [:]
-
-    func wait() async {
-        let (stream, completion) = AsyncStream<Void>.makeStream()
-        let refreshID = UUID()
-        completions[refreshID] = completion
-        defer { completions.removeValue(forKey: refreshID) }
-        for await _ in stream { break }
-    }
-
-    func finish() {
-        let currentCompletions = Array(completions.values)
-        completions.removeAll()
-        for completion in currentCompletions {
-            completion.finish()
-        }
-    }
-}
-
 /// Owns the mutable rows and live-update stimulus for the DEBUG preview.
 @MainActor
 @Observable
