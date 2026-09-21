@@ -1,6 +1,6 @@
 "use client";
 
-import { useStackApp } from "@stackframe/stack";
+import { useStackApp } from "@hexclave/next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useDashboardTeamScope } from "../dashboard-team-scope";
