@@ -187,7 +187,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             }
         }
 
-        private func makePopover() -> NSPopover {
+        func makePopover() -> NSPopover {
             let popover = NSPopover()
             popover.behavior = group == nil ? .semitransient : .applicationDefined
             popover.animates = group == nil

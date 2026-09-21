@@ -1,10 +1,21 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import CmuxAppKitSupportUI
 
 @MainActor
 @Suite
 struct CmuxPopoverGroupTests {
+    @Test func groupedRootPopoverUsesNativeOpeningHint() {
+        let coordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: .constant(true), group: CmuxPopoverGroup()
+        )
+        let popover = coordinator.makePopover()
+        #expect(popover.behavior == .applicationDefined)
+        #expect(popover.animates)
+        coordinator.dismiss()
+    }
+
     @Test func clicksInsideEitherMenuKeepBothOpen() {
         let group = CmuxPopoverGroup()
         let parent = UUID()
