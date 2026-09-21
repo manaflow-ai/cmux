@@ -2038,6 +2038,36 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    /// Waits for the initial load to settle on both sides: WebKit's `isLoading`
+    /// and the panel's own `isLoading`, which stays true for the loading
+    /// indicator's minimum duration after WebKit finishes. Either flag is a
+    /// "loading" discard blocker, so polling `webView.isLoading` for one second
+    /// raced both the indicator floor and the WebContent process launch on the
+    /// CI hosts.
+    private func waitForInitialLoadToSettle(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panel.webView.isLoading || panel.isLoading, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertFalse(
+            panel.webView.isLoading,
+            "Timed out waiting for about:blank to finish loading",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            panel.isLoading,
+            "Timed out waiting for the panel loading indicator to settle",
+            file: file,
+            line: line
+        )
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -2072,9 +2102,18 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
+            // Stored values outside [minimum, maximum] are rejected, not clamped:
+            // `resolvedHiddenDelay` returns nil so the cmux.json loader can report
+            // an invalid `browser.hiddenWebViewDiscardDelaySeconds`, and the runtime
+            // falls back to the default delay. Clamping is only the in-range helper.
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertNil(BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(7200))
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(7200),
                 BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
             )
 
@@ -2237,15 +2276,16 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
+        XCTAssertEqual(
+            panel.webViewLifecycleTopPayload(now: discardedAt)["discard_blockers"] as? [String],
+            [],
+            "A hidden, idle about:blank webview must be discard-eligible"
+        )
         XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertFalse(panel.shouldRenderWebView)
@@ -2286,11 +2326,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.noteWebViewVisibility(true, reason: "test.visible.first")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
@@ -2333,11 +2369,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
@@ -2347,6 +2379,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.canGoBack)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        XCTAssertEqual(
+            panel.webViewLifecycleTopPayload(now: discardedAt)["discard_blockers"] as? [String],
+            [],
+            "A hidden, idle about:blank webview must be discard-eligible"
+        )
         XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
@@ -2574,11 +2611,23 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
 
+        // Every panel-driven load applies the destination identity before it
+        // starts (`browserLoadRequest`). A direct `loadHTMLString` with an HTTP
+        // base URL skips that step, so the navigation delegate's user-agent
+        // restart cancels the data navigation and replays a plain request for
+        // the base URL, which a remote pane without a proxy endpoint defers;
+        // the JavaScript below would then run in the initial empty document.
+        panel.webView.applyBrowserUserAgentPolicy(for: baseURL)
         panel.webView.loadHTMLString(
             "<!doctype html><html><body>remote loopback bridge</body></html>",
             baseURL: baseURL
         )
         try await waitForBrowserWebViewLoad(panel.webView)
+        XCTAssertEqual(
+            panel.webView.url,
+            baseURL,
+            "The HTML document must be the current navigation; a cancelled or replayed load leaves the initial empty document"
+        )
 
         let result = try await panel.evaluateJavaScript(
             """
@@ -2627,7 +2676,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "localhost")
     }
 
-    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
+    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 10.0) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while webView.isLoading {
             if Date() >= deadline {
