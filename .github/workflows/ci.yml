@@ -2824,7 +2824,10 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          metrics = json.load(open(os.environ["METRICS"]))
+          metrics_path = Path(os.environ["METRICS"])
+          metrics = json.load(open(metrics_path))
+          semantic_path = metrics_path.with_name("cmux-workload-result.json")
+          semantic = json.load(open(semantic_path))
           expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
           expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
 
@@ -2841,6 +2844,44 @@ jobs:
           source = metrics.get("source", {})
           if source != {"commit": expected_sha, "tree": expected_tree}:
               raise SystemExit("persistent producer source identity mismatch")
+          if metrics.get("semantic") != semantic:
+              raise SystemExit("persistent semantic receipt differs from producer metrics")
+          if semantic.get("document_type") != "cmux-workload-result" or semantic.get("schema_version") != 1:
+              raise SystemExit("persistent semantic receipt identity mismatch")
+          if semantic.get("result") != "passed":
+              raise SystemExit("persistent semantic compile result did not pass")
+          if semantic.get("source") != {
+              "repository": "manaflow-ai/cmux",
+              "commit": expected_sha,
+              "tree": expected_tree,
+          }:
+              raise SystemExit("persistent semantic source identity mismatch")
+          if semantic.get("profile") != {
+              "id": "cmux.macos.compile-admission",
+              "generation": 1,
+          }:
+              raise SystemExit("persistent semantic profile identity mismatch")
+          if semantic.get("semantic_validator") != "cmux.compile-admission/v1":
+              raise SystemExit("persistent semantic validator mismatch")
+          validation = semantic.get("validation", {})
+          if validation.get("missing_required_artifact_classes") != []:
+              raise SystemExit("persistent semantic artifact validation incomplete")
+          cleanup = semantic.get("cleanup", {})
+          if cleanup.get("state") != "complete" or cleanup.get("process_group_settled") is not True:
+              raise SystemExit("persistent semantic cleanup incomplete")
+          benchmark = semantic.get("benchmark", {})
+          state_class = benchmark.get("state_class")
+          if state_class not in {"cold", "compiler-warm"}:
+              raise SystemExit("persistent semantic benchmark state is invalid")
+          for key in ("semantic_comparison_key", "comparison_context_key"):
+              value = benchmark.get(key, "")
+              if not isinstance(value, str) or len(value) != 71 or not value.startswith("sha256:"):
+                  raise SystemExit(f"persistent semantic {key} is invalid")
+              try:
+                  int(value[7:], 16)
+              except ValueError as error:
+                  raise SystemExit(f"persistent semantic {key} is invalid") from error
+
           if output("git", "rev-parse", "HEAD") != expected_sha:
               raise SystemExit("hosted checkout revision mismatch")
           if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
@@ -2856,18 +2897,30 @@ jobs:
               raise SystemExit("submodule identity mismatch")
 
           toolchain = metrics.get("toolchain", {})
-          if toolchain.get("xcode") != output("xcodebuild", "-version"):
+          current_xcode = output("xcodebuild", "-version")
+          current_sdk = output("xcrun", "--sdk", "macosx", "--show-sdk-version")
+          if toolchain.get("xcode") != current_xcode:
               raise SystemExit("Xcode identity mismatch")
-          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
+          if toolchain.get("sdk_version") != current_sdk:
               raise SystemExit("macOS SDK version mismatch")
           if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
               raise SystemExit("macOS SDK build mismatch")
+          semantic_toolchain = semantic.get("toolchain", {})
+          observations = semantic_toolchain.get("observations", {})
+          if observations.get("xcode") != current_xcode:
+              raise SystemExit("persistent semantic Xcode identity mismatch")
+          if observations.get("macos_sdk") != current_sdk:
+              raise SystemExit("persistent semantic SDK identity mismatch")
           if platform.machine() != "arm64":
               raise SystemExit("persistent product validation requires Apple Silicon")
 
           classification = metrics.get("classification")
           if classification not in {"hot", "partially-warm", "cold-reset"}:
               raise SystemExit("invalid persistent cache classification")
+          if state_class == "cold" and classification != "cold-reset":
+              raise SystemExit("cold semantic state must report cold-reset")
+          if state_class == "compiler-warm" and classification not in {"hot", "partially-warm"}:
+              raise SystemExit("warm semantic state has incompatible cache classification")
           glaeda = metrics.get("glaeda", {})
           for key in ("cache_key", "invocation_identity", "generation"):
               if not isinstance(glaeda.get(key), str) or not glaeda[key]:
