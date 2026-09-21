@@ -16,7 +16,7 @@
 # sudo), so every terminal pane is a non-root shell and coding agents start.
 # The command picks that layout on the machine; a machine from an image baked
 # before the work user existed keeps a root daemon and its /root state. This
-# script reads the same selection so the state it wipes on a clone is the
+# script reads the same selection so the state it refreshes on a clone is the
 # state the daemon actually writes.
 #
 # Per-machine daemon identity. A Freestyle snapshot is a memory image: every
@@ -29,8 +29,9 @@
 # is bound to that id, cloud-init style, and re-checked every tick:
 #   * /etc/cmux/daemon-instance-id names the machine whose identity the
 #     state dir holds. A different id means "this is a clone": a running
-#     daemon (another machine's identity) is stopped, the remote state is
-#     wiped, and the daemon starts with a fresh identity bound to this id.
+#     daemon (another machine's identity) is stopped, its authorization state
+#     is replaced, and the daemon starts with a fresh identity bound to this
+#     id. The journaled workspace and first terminal survive the identity turn.
 #   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
 #     from. While it matches, the daemon is kept parked so the snapshot never
 #     carries a live identity. The bake and derive scripts write it right
@@ -177,7 +178,13 @@ while true; do
     else
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
         stop_daemon
-        rm -rf "$REMOTE_STATE_DIR"
+        # Keep the journaled session graph and first terminal from the warm
+        # snapshot. Only auth/connection material belongs to the builder and
+        # must be regenerated for this clone. Running PTYs are recreated by
+        # cmux-tui when it restores the journal; prompt-sync clears the resumed
+        # bytes and sends Ctrl-C once the new machine name is published.
+        find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
+        rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
         ( rekey_ssh_host & )
         ( announce_network & )
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"

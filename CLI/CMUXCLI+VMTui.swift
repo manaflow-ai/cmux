@@ -457,7 +457,12 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                // The snapshot contract creates the first remote workspace and
+                // terminal before the daemon accepts clients. Read the
+                // already-journaled catalog here. A forced provider refresh
+                // repeats the whole remote graph sync on every New Machine
+                // click and races the boot-time seed we are about to project.
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):

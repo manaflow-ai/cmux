@@ -589,9 +589,24 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  // Seed the durable first workspace and terminal while the daemon is already
+  // hot. A clone keeps this journaled layout, then cmux-prompt-sync clears the
+  // builder's rendered prompt and interrupts it after the clone name arrives.
+  // This removes workspace/terminal creation from the New Machine critical
+  // path while keeping the operation idempotent across a rebake.
+  await step(
+    "cmux-tui-first-terminal",
+    `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json workspace list`)} >/tmp/cmux-first-workspaces.json && ` +
+      `if ! jq -e '.. | objects | select(.terminal_id? != null)' /tmp/cmux-first-workspaces.json >/dev/null 2>&1; then ` +
+      `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json workspace create --name Cloud`)} >/tmp/cmux-first-workspaces.json; fi && ` +
+      `jq -e '.. | objects | select(.terminal_id? != null)' /tmp/cmux-first-workspaces.json >/dev/null && echo cmux-tui-first-terminal-ok`,
+  );
+  // Let the daemon, first PTY and desktop settle before the memory snapshot.
+  // Freestyle resumes the snapshot rather than replaying these startup steps.
+  await step("cmux-tui-settle-before-snapshot", "sleep 30");
   // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
-  // the machine's id equals the recorded bake id, its identity and session
-  // state are wiped, and a clone (different id) starts fresh within one tick.
+  // the machine's id equals the recorded bake id. A clone rotates only the
+  // daemon authorization state and preserves this journaled first terminal.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
   await step(

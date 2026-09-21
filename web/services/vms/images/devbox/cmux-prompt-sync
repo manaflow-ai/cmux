@@ -57,26 +57,90 @@ def fetch_name(url):
     return payload
 
 
+def tui_layout():
+    user = "cmux"
+    home = "/home/cmux"
+    try:
+        import pwd
+        pwd.getpwnam(user)
+        if not os.access(home, os.W_OK) or subprocess.run(
+            ["setpriv", "--reuid=cmux", "--regid=cmux", "--init-groups", "sudo", "-n", "true"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            check=False,
+        ).returncode != 0:
+            raise OSError("cmux work user is not usable")
+    except (KeyError, OSError, subprocess.SubprocessError):
+        user = "root"
+        home = "/root"
+    return user, home, os.environ.get("CMUX_TUI_BIN", f"{home}/.cmux/bin/cmux-tui")
+
+
 def tui(*args):
-    binary = os.environ.get("CMUX_TUI_BIN", "/home/cmux/.cmux/bin/cmux-tui")
-    return subprocess.run([binary, "--session", "cloud", *args], capture_output=True, text=True, timeout=10, check=False)
+    user, home, binary = tui_layout()
+    environment = {
+        **os.environ,
+        "HOME": home,
+        "TERM": "xterm-256color",
+        "TERM_PROGRAM": "ghostty",
+    }
+    command = [binary, "--session", "cloud", *args]
+    if user == "root":
+        return subprocess.run(command, capture_output=True, text=True, timeout=10, check=False, env=environment)
+    environment.update({"USER": user, "LOGNAME": user, "SHELL": "/bin/bash"})
+    return subprocess.run(
+        ["setpriv", f"--reuid={user}", f"--regid={user}", "--init-groups", "env", *[f"{key}={value}" for key, value in environment.items()], *command],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
 
 
-def seed_terminal(ready):
+def terminal_id(value):
+    return next((item.get("terminal_id") for item in walk(value) if isinstance(item, dict) and isinstance(item.get("terminal_id"), str) and item.get("terminal_id")), None)
+
+
+def find_existing_terminal():
+    result = tui("workspace", "list", "--json")
+    if result.returncode != 0:
+        return None
+    try:
+        return terminal_id(json.loads(result.stdout))
+    except (ValueError, TypeError):
+        return None
+
+
+def seed_terminal(ready, directory):
+    marker = directory / "first-terminal.json"
     terminal = None
-    for _ in range(30):
+    try:
+        if marker.is_file():
+            terminal = terminal_id(json.loads(marker.read_text()))
+    except (OSError, ValueError, TypeError):
+        terminal = None
+    for _ in range(60):
         if terminal:
             break
-        result = tui("workspace", "create", "--name", "Cloud", "--json")
-        if result.returncode == 0:
-            try:
-                value = json.loads(result.stdout)
-                terminal = next((item.get("terminal_id") for item in walk(value) if isinstance(item, dict) and item.get("terminal_id")), None)
-            except (ValueError, TypeError):
-                pass
+        terminal = find_existing_terminal()
+        if not terminal:
+            result = tui("workspace", "create", "--name", "Cloud", "--json")
+            if result.returncode == 0:
+                try:
+                    value = json.loads(result.stdout)
+                    terminal = terminal_id(value)
+                    if terminal:
+                        marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
+                except (OSError, ValueError, TypeError):
+                    pass
         if not terminal:
             time.sleep(1)
-    if terminal and ready.wait(timeout=30):
+    if terminal and ready.wait(timeout=60):
+        # The snapshot can resume with the builder's prompt already rendered.
+        # Clear that bytes/history and interrupt it after the clone identity is
+        # published. These two calls are deliberately detached from the name
+        # refresh loop, so New Machine never waits on them.
         tui("terminal", terminal, "history", "clear", "--quiet")
         tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
 
@@ -98,7 +162,7 @@ def main():
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     ready = threading.Event()
-    threading.Thread(target=seed_terminal, args=(ready,), daemon=True).start()
+    threading.Thread(target=seed_terminal, args=(ready, args.directory), daemon=True).start()
     delay = 1
     while True:
         try:
