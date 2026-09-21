@@ -10,14 +10,80 @@ import Testing
 @testable import cmux
 #endif
 
-/// The remote tmux shim (`cmux claude-teams` on the SSH host) drives teammate
-/// panes through relayed `surface.split` requests. The relay ingress gate
-/// must admit those workspace-scoped pane mutations while
-/// still refusing cross-workspace methods and foreign surface selectors.
+/// Exercises core discovery and admitted remote surface operations through
+/// authenticated ingress and both app dispatch lanes.
 @MainActor
 @Suite(.serialized)
 struct RemoteRelayTmuxCompatAuthorizationTests {
     private static let relayToken = String(repeating: "b", count: 64)
+
+    @Test(arguments: ["system.ping", "workspace.current"])
+    func canonicalCoreResponsesUseAuthenticatedOwnerOnBothIngressLanes(method: String) async throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let params: [String: Any] = method == "system.ping" ? [:]
+            : ["workspace_id": fixture.workspace.id.uuidString]
+        let request = try fixture.signedRequest(method: method, params: params)
+        let data = try JSONSerialization.data(withJSONObject: [
+            "id": request.id?.foundationObject ?? NSNull(), "method": request.method,
+            "params": request.params.mapValues(\.foundationObject)
+        ])
+        let command = String(decoding: data, as: UTF8.self)
+        let sync = TerminalController.shared.handleSocketLine(command)
+        let async = try #require(await TerminalController.shared.processCommandUsingSocketExecutionPolicyAsync(command))
+        for response in [sync, async] {
+            let decoded = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+            #expect(decoded["ok"] as? Bool == true)
+            let result = try #require(decoded["result"] as? [String: Any])
+            if method == "system.ping" {
+                #expect(Set(result.keys) == ["pong"])
+                #expect(result["pong"] as? Bool == true)
+            } else {
+                #expect(result["workspace_id"] as? String == fixture.workspace.id.uuidString)
+                #expect(result["window_id"] is NSNull)
+                let owner = try #require(result["workspace"] as? [String: Any])
+                #expect(owner["id"] as? String == fixture.workspace.id.uuidString)
+                #expect(owner["title"] as? String == fixture.workspace.title)
+                #expect(Set(owner.keys) == ["id", "title"])
+            }
+        }
+    }
+
+    @Test
+    func sameNamespaceMoveDoesNotGrantDestinationRelaySurfaceAuthority() throws {
+        let source = try Fixture()
+        defer { source.tearDown() }
+        let destination = try Fixture()
+        defer { destination.tearDown() }
+        let transfer = try #require(source.workspace.detachSurface(panelId: source.panelID))
+        let pane = try #require(destination.workspace.bonsplitController.allPaneIds.first)
+        #expect(destination.workspace.attachDetachedSurface(transfer, inPane: pane, focus: false) == source.panelID)
+        #expect(destination.workspace.isRemoteTerminalContext(source.panelID))
+        for fixture in [source, destination] {
+            let denied = try fixture.authorize(method: "surface.send_text", params: [
+                "workspace_id": fixture.workspace.id.uuidString,
+                "surface_id": source.panelID.uuidString, "text": "echo must-not-run\n"
+            ])
+            #expect(denied.errorResponse != nil)
+        }
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        for method in ["surface.list", "surface.current"] {
+            let admitted = try destination.authorize(method: method, params: [
+                "workspace_id": destination.workspace.id.uuidString
+            ])
+            try #require(admitted.errorResponse == nil)
+            for response in [coordinator.handle(admitted.request), coordinator.handleSocketWorkerV2(
+                admitted.request, context: TerminalController.shared
+            )] {
+                guard case .ok(let result)? = response else {
+                    Issue.record("Expected scoped surface discovery")
+                    continue
+                }
+                let bytes = try JSONSerialization.data(withJSONObject: result.foundationObject)
+                #expect(!String(decoding: bytes, as: UTF8.self).contains(source.panelID.uuidString))
+            }
+        }
+    }
 
     @Test
     func workspaceDiscoveryReturnsOnlyOwnerIdentityOnBothDispatchLanes() throws {
