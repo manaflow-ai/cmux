@@ -1854,6 +1854,7 @@ def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
             "instant": "false",
             "production_build": "false",
             "react_apps": "false",
+            "unit_tests": "false",
         },
     )
     assert result.returncode == 0, result.stderr
