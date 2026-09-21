@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,6 +77,42 @@ class RoutingTests(unittest.TestCase):
         waiter.cancel()
         with self.assertRaises(route.RetryCancelled):
             waiter.until(route.now() + 10, lambda: (False, None))
+
+    def test_cancelled_router_retries_until_owned_producer_is_observable(self):
+        current = [0.0]
+        waits = []
+
+        def clock():
+            return current[0]
+
+        def wait(delay):
+            waits.append(delay)
+            current[0] += delay
+            return False
+
+        waiter = route.RetryWait(clock=clock, wait=wait)
+        api = object()
+        with (
+            mock.patch.object(
+                route,
+                "matching_run",
+                side_effect=[None, {"id": 77}],
+            ) as matching,
+            mock.patch.object(route, "cancel") as cancel,
+        ):
+            run_id = route.cancel_owned_producer(
+                api,
+                "request",
+                None,
+                True,
+                waiter,
+                5.0,
+            )
+
+        self.assertEqual(run_id, 77)
+        self.assertEqual(matching.call_count, 2)
+        self.assertEqual(waits, [0.25])
+        cancel.assert_called_once_with(api, 77)
 
     def test_only_trusted_same_repository_members_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
