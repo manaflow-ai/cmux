@@ -6,84 +6,40 @@ import XCTest
 /// Splitting a text-filled pane must never paint the source pane's glyphs
 /// inside the new pane (https://github.com/manaflow-ai/cmux/issues/13387).
 ///
-/// The test fills the focused terminal with magenta text, presses
-/// Cmd+Shift+D through the real key path, and captures the window as fast as
-/// XCTest allows for the next few seconds. A frame is acceptable while it still
-/// shows the pre-split layout (the split has not committed yet) and once the
-/// region the new pane occupies is free of magenta. A frame that shows the new
-/// pane's chrome at the pre-split midline together with the source text below
-/// it is the reported glitch. The first frames of the transition are attached
-/// to the result bundle as evidence.
-final class SplitPaneBackgroundUITests: XCTestCase {
-    private var socketPath = ""
-    private var diagnosticsPath = ""
-    private var launchTag = ""
-
-    override func setUp() {
-        super.setUp()
-        continueAfterFailure = false
-        let run = UUID().uuidString
-        socketPath = "/tmp/cmux-ui-test-socket-\(run).sock"
-        diagnosticsPath = "/tmp/cmux-ui-test-split-bg-\(run).diagnostics.json"
-        launchTag = "ui-split-bg-\(run.prefix(8))"
-        try? FileManager.default.removeItem(atPath: socketPath)
-        try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
-        try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        addTeardownBlock { [socketPath, diagnosticsPath] in
-            try? FileManager.default.removeItem(atPath: socketPath)
-            try? FileManager.default.removeItem(atPath: "\(socketPath).lock")
-            try? FileManager.default.removeItem(atPath: diagnosticsPath)
-        }
-    }
-
+/// The test fills a terminal with magenta text, presses Cmd+Shift+D through
+/// the real key path, and captures the window as fast as XCTest allows for
+/// the next few seconds. A frame is acceptable while it still shows the
+/// pre-split layout (the split has not committed yet) and once the region the
+/// new pane occupies is free of magenta. A frame that shows the new pane's
+/// chrome at the pre-split midline together with the source text below it is
+/// the reported glitch. The first frames of the transition are attached to
+/// the result bundle as evidence.
+///
+/// `BrowserFixtureSocketTestCase` owns the app launch and the control socket
+/// (it probes the configured and the tagged socket paths), the same way the
+/// browser fixture suites and the working-directory spawn suite do.
+final class SplitPaneBackgroundUITests: BrowserFixtureSocketTestCase {
     func testSplitDownNeverPaintsSourceTextInsideNewPane() throws {
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_TAG"] = launchTag
-        launchAndEnsureForeground(app)
-        defer { app.terminate() }
+        let app = try launchApp()
 
-        XCTAssertTrue(
-            waitForControlSocketReady(socketPath: socketPath, pingTimeout: 30) {
-                self.socketLine("ping") == "PONG" ||
-                    self.controlSocketDiagnosticsReportReady(self.loadDiagnostics())
-            },
-            "Expected control socket at \(socketPath); diagnostics=\(loadDiagnostics())"
-        )
         // A fresh workspace gives the test its own terminal with known ids,
         // independent of whatever the launch restored or focused.
-        var created: [String: Any]?
-        var lastEnvelope: [String: Any]?
-        XCTAssertTrue(waitForCondition(timeout: 30) {
-            let envelope = self.socketJSON(
-                method: "workspace.create",
-                params: ["title": "Split pane background 13387", "focus": true]
-            )
-            lastEnvelope = envelope
-            guard let envelope, envelope["ok"] as? Bool == true,
-                  let result = envelope["result"] as? [String: Any],
-                  result["workspace_id"] as? String != nil,
-                  result["surface_id"] as? String != nil else { return false }
-            created = result
-            return true
-        }, "Expected workspace.create to return a terminal; last response: \(String(describing: lastEnvelope))")
-        let source = try XCTUnwrap(created)
-        let sourceWorkspaceID = try XCTUnwrap(source["workspace_id"] as? String)
-        let sourceSurfaceID = try XCTUnwrap(source["surface_id"] as? String)
+        let workspace = try socketResult(
+            method: "workspace.create",
+            params: ["title": "Split pane background 13387", "focus": true],
+            responseTimeout: 20.0
+        )
+        let sourceWorkspaceID = try XCTUnwrap(
+            workspace["workspace_id"] as? String, "workspace.create returned no workspace_id: \(workspace)"
+        )
+        let sourceSurfaceID = try XCTUnwrap(
+            workspace["surface_id"] as? String, "workspace.create returned no surface_id: \(workspace)"
+        )
         // Cmd+Shift+D splits the focused panel, so make the source terminal
         // the focused one explicitly instead of relying on launch focus.
-        XCTAssertTrue(
-            socketJSON(
-                method: "surface.focus",
-                params: ["workspace_id": sourceWorkspaceID, "surface_id": sourceSurfaceID]
-            )?["ok"] as? Bool == true,
-            "Expected surface.focus to succeed"
+        try socketResult(
+            method: "surface.focus",
+            params: ["workspace_id": sourceWorkspaceID, "surface_id": sourceSurfaceID]
         )
 
         // Dense magenta text: the only magenta pixels in the window come from
@@ -91,7 +47,7 @@ final class SplitPaneBackgroundUITests: XCTestCase {
         let fill = "clear; i=1; while [ $i -le 400 ]; do printf '\\033[38;2;255;0;255mSOURCE-13387 %03d " +
             "################################################################\\033[0m\\n' \"$i\"; " +
             "i=$((i + 1)); done\r"
-        XCTAssertTrue(sendText(fill, surfaceID: sourceSurfaceID), "Expected surface.send_text to succeed")
+        try socketResult(method: "surface.send_text", params: ["surface_id": sourceSurfaceID, "text": fill])
         XCTAssertTrue(waitForCondition(timeout: 30) {
             (self.readText(surfaceID: sourceSurfaceID) ?? "").contains("SOURCE-13387 400")
         }, "Expected the fill command to finish")
@@ -293,132 +249,13 @@ final class SplitPaneBackgroundUITests: XCTestCase {
         }
     }
 
-    // MARK: - Socket
-
-    /// In-process client first; `nc -U` is the fallback for hosted runners
-    /// where the Darwin client occasionally fails to connect.
-    private func socketLine(_ line: String) -> String? {
-        ControlSocketClient(path: socketPath, responseTimeout: 3.0).sendLine(line)
-            ?? controlSocketCommandViaNetcat(line, socketPath: socketPath, responseTimeout: 3.0)
-    }
-
-    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
-        let request: [String: Any] = ["id": UUID().uuidString, "method": method, "params": params]
-        return ControlSocketClient(path: socketPath, responseTimeout: 5.0).sendJSON(request)
-            ?? controlSocketJSONViaNetcat(request, socketPath: socketPath, responseTimeout: 5.0)
-    }
-
-    private func loadDiagnostics() -> [String: String] {
-        guard let data = FileManager.default.contents(atPath: diagnosticsPath),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return object.reduce(into: [String: String]()) { result, entry in
-            result[entry.key] = "\(entry.value)"
-        }
-    }
-
-    private final class ControlSocketClient {
-        private let path: String
-        private let responseTimeout: TimeInterval
-
-        init(path: String, responseTimeout: TimeInterval) {
-            self.path = path
-            self.responseTimeout = responseTimeout
-        }
-
-        deinit {}
-
-        func sendJSON(_ object: [String: Any]) -> [String: Any]? {
-            guard JSONSerialization.isValidJSONObject(object),
-                  let data = try? JSONSerialization.data(withJSONObject: object),
-                  let line = String(data: data, encoding: .utf8),
-                  let response = sendLine(line),
-                  let responseData = response.data(using: .utf8) else {
-                return nil
-            }
-            return (try? JSONSerialization.jsonObject(with: responseData)) as? [String: Any]
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var timeout = timeval(
-                tv_sec: Int(responseTimeout),
-                tv_usec: Int32((responseTimeout - floor(responseTimeout)) * 1_000_000)
-            )
-            withUnsafePointer(to: &timeout) { ptr in
-                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
-            }
-
-            var addr = sockaddr_un()
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-            let pathBytes = Array(path.utf8CString)
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            guard pathBytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-                for index in 0..<pathBytes.count {
-                    raw[index] = pathBytes[index]
-                }
-            }
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + pathBytes.count)
-            let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.connect(fd, sockaddrPtr, addrLen)
-                }
-            }
-            guard connected == 0 else { return nil }
-
-            let payload = Array((line + "\n").utf8)
-            let wrote = payload.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else { return true }
-                return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
-            }
-            guard wrote else { return nil }
-
-            var buffer = [UInt8](repeating: 0, count: 65536)
-            var accumulator = ""
-            let deadline = Date().addingTimeInterval(responseTimeout)
-            while Date() < deadline {
-                let count = Darwin.read(fd, &buffer, buffer.count)
-                guard count > 0 else { break }
-                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                    accumulator.append(chunk)
-                    if let newline = accumulator.firstIndex(of: "\n") {
-                        return String(accumulator[..<newline])
-                    }
-                }
-            }
-            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    private func sendText(_ text: String, surfaceID: String) -> Bool {
-        let envelope = socketJSON(method: "surface.send_text", params: ["surface_id": surfaceID, "text": text])
-        return envelope?["ok"] as? Bool == true
-    }
+    // MARK: - Harness
 
     private func readText(surfaceID: String) -> String? {
-        guard let envelope = socketJSON(method: "surface.read_text", params: ["surface_id": surfaceID]),
+        guard let envelope = socketEnvelope(method: "surface.read_text", params: ["surface_id": surfaceID]),
               envelope["ok"] as? Bool == true,
               let result = envelope["result"] as? [String: Any] else { return nil }
         return result["text"] as? String
-    }
-
-    // MARK: - Harness
-
-    private func launchAndEnsureForeground(_ app: XCUIApplication) {
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
-            app.launch()
-        }
-        if app.state == .runningForeground || app.state == .runningBackground { return }
-        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     private func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
