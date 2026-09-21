@@ -46,7 +46,7 @@ final class MobileTerminalByteTee {
     /// copy-on-write memmove of the retained window on the main actor
     /// (the multi-second mobile typing freezes under agent output floods).
     /// A main-actor-confined class box mutates in place.
-    private final class SurfaceState {
+    final class SurfaceState {
         /// Monotonic byte-stream sequence. Each emitted chunk advances by
         /// chunk length so the iPhone can detect drops.
         var seq: UInt64 = 0
@@ -63,7 +63,7 @@ final class MobileTerminalByteTee {
     }
 
     /// Get-or-create the mutable state box for a surface.
-    private func state(for surfaceID: UUID) -> SurfaceState {
+    func state(for surfaceID: UUID) -> SurfaceState {
         if let existing = statesBySurfaceID[surfaceID] { return existing }
         let created = SurfaceState()
         statesBySurfaceID[surfaceID] = created
@@ -224,7 +224,7 @@ final class MobileTerminalByteTee {
         }
     }
 
-    private func publishFromMain(surfaceID: UUID, data: Data) {
+    func publishFromMain(surfaceID: UUID, data: Data) {
         let state = state(for: surfaceID)
         let chunkSeq = state.seq
         state.seq &+= UInt64(data.count)
@@ -278,22 +278,6 @@ final class MobileTerminalByteTee {
         ]
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
     }
-
-    #if DEBUG
-    /// Test-only synchronous publish, bypassing the cross-thread hop so
-    /// append cost is observable deterministically from the main actor.
-    func debugPublishForTesting(surfaceID: UUID, data: Data) {
-        publishFromMain(surfaceID: surfaceID, data: data)
-    }
-
-    /// Test-only identity of the live replay buffer's backing storage.
-    /// A copy-on-write relocation changes it; an in-place append does not.
-    func debugReplayBufferAddressForTesting(surfaceID: UUID) -> UInt? {
-        statesBySurfaceID[surfaceID]?.replayBuffer.withUnsafeBytes { raw in
-            UInt(bitPattern: raw.baseAddress)
-        }
-    }
-    #endif
 
     private func removeLaneContinuation(id: UUID, surfaceID: UUID) {
         guard laneContinuationsBySurfaceID[surfaceID]?.removeValue(forKey: id) != nil else {

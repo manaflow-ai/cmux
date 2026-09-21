@@ -24,6 +24,15 @@ import Testing
 @MainActor
 @Suite("Byte tee append cost")
 struct MobileTerminalByteTeeAppendCostTests {
+    private func replayBufferAddress(
+        _ tee: MobileTerminalByteTee,
+        surfaceID: UUID
+    ) -> UInt? {
+        tee.state(for: surfaceID).replayBuffer.withUnsafeBytes { raw in
+            UInt(bitPattern: raw.baseAddress)
+        }
+    }
+
     @Test func steadyStateAppendsDoNotCopyTheRetainedWindowPerChunk() {
         let tee = MobileTerminalByteTee.shared
         let surfaceID = UUID()
@@ -32,13 +41,13 @@ struct MobileTerminalByteTeeAppendCostTests {
         // Fill past the retention budget so every measured append runs at
         // steady state (trim active), the regime agent floods live in.
         for _ in 0..<80 {
-            tee.debugPublishForTesting(surfaceID: surfaceID, data: chunk)
+            tee.publishFromMain(surfaceID: surfaceID, data: chunk)
         }
         var relocations = 0
-        var previous = tee.debugReplayBufferAddressForTesting(surfaceID: surfaceID)
+        var previous = replayBufferAddress(tee, surfaceID: surfaceID)
         for _ in 0..<200 {
-            tee.debugPublishForTesting(surfaceID: surfaceID, data: chunk)
-            let current = tee.debugReplayBufferAddressForTesting(surfaceID: surfaceID)
+            tee.publishFromMain(surfaceID: surfaceID, data: chunk)
+            let current = replayBufferAddress(tee, surfaceID: surfaceID)
             if current != previous { relocations += 1 }
             previous = current
         }
@@ -61,7 +70,7 @@ struct MobileTerminalByteTeeAppendCostTests {
         var pattern: UInt8 = 0
         while stream.count < 700 * 1024 {
             let chunk = Data(repeating: pattern, count: 4_096)
-            tee.debugPublishForTesting(surfaceID: surfaceID, data: chunk)
+            tee.publishFromMain(surfaceID: surfaceID, data: chunk)
             stream.append(chunk)
             pattern = pattern &+ 1
         }
@@ -77,16 +86,16 @@ struct MobileTerminalByteTeeAppendCostTests {
         defer { tee.dropSurface(surfaceID: surfaceID) }
         let chunk = Data(repeating: 0x62, count: 4_096)
         for _ in 0..<8 {
-            tee.debugPublishForTesting(surfaceID: surfaceID, data: chunk)
+            tee.publishFromMain(surfaceID: surfaceID, data: chunk)
         }
         // Warm probe so a possible exact-capacity growth happens before the
         // measurement, then hold a cold-attach handout across an append.
-        tee.debugPublishForTesting(surfaceID: surfaceID, data: Data(repeating: 0x63, count: 64))
+        tee.publishFromMain(surfaceID: surfaceID, data: Data(repeating: 0x63, count: 64))
         let handout = tee.replayState(surfaceID: surfaceID)
         #expect(handout != nil)
-        let before = tee.debugReplayBufferAddressForTesting(surfaceID: surfaceID)
-        tee.debugPublishForTesting(surfaceID: surfaceID, data: Data(repeating: 0x64, count: 64))
-        let after = tee.debugReplayBufferAddressForTesting(surfaceID: surfaceID)
+        let before = replayBufferAddress(tee, surfaceID: surfaceID)
+        tee.publishFromMain(surfaceID: surfaceID, data: Data(repeating: 0x64, count: 64))
+        let after = replayBufferAddress(tee, surfaceID: surfaceID)
         withExtendedLifetime(handout) {}
         #expect(
             before == after,
