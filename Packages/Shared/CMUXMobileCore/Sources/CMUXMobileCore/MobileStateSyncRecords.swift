@@ -35,6 +35,46 @@ public struct MobileSyncCollectionID: RawRepresentable, Codable, Hashable, Senda
 /// `mobile.workspace.list` payload (same snake_case wire names) plus an
 /// explicit `sort_index` so list order syncs without positional inference.
 public struct WorkspaceSyncRecord: MobileSyncRecord {
+    /// One pane rectangle within a workspace.
+    public struct Pane: Codable, Equatable, Sendable {
+        public let paneID: String
+        public let x: Double
+        public let y: Double
+        public let width: Double
+        public let height: Double
+        public let surfaceIDs: [String]
+        public let selectedSurfaceID: String?
+        public let isFocused: Bool
+
+        public init(
+            paneID: String,
+            x: Double,
+            y: Double,
+            width: Double,
+            height: Double,
+            surfaceIDs: [String] = [],
+            selectedSurfaceID: String? = nil,
+            isFocused: Bool = false
+        ) {
+            self.paneID = paneID
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+            self.surfaceIDs = surfaceIDs
+            self.selectedSurfaceID = selectedSurfaceID
+            self.isFocused = isFocused
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case paneID = "pane_id"
+            case x, y, width, height
+            case surfaceIDs = "surface_ids"
+            case selectedSurfaceID = "selected_surface_id"
+            case isFocused = "is_focused"
+        }
+    }
+
     /// One surface row within a workspace.
     public struct Surface: Codable, Equatable, Sendable {
         /// Stable surface identifier.
@@ -165,6 +205,8 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
     public let surfaces: [Surface]?
     /// Simulator panes belonging to this workspace, in spatial order.
     public let simulators: [MobileSimulatorPanelDescriptor]
+    /// Workspace panes and normalized layout rectangles.
+    public let panes: [Pane]?
 
     /// ``MobileSyncRecord`` identity: the workspace id.
     public var syncID: String { id }
@@ -191,6 +233,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         sortIndex: Int,
         terminals: [Terminal],
         surfaces: [Surface]? = nil,
+        panes: [Pane]? = nil,
         simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
@@ -211,6 +254,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         self.sortIndex = sortIndex
         self.terminals = terminals
         self.surfaces = surfaces
+        self.panes = panes
         self.simulators = simulators
     }
 
@@ -238,6 +282,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         sortIndex = try container.decode(Int.self, forKey: .sortIndex)
         terminals = try container.decode([Terminal].self, forKey: .terminals)
         surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+        panes = try container.decodeIfPresent([Pane].self, forKey: .panes)
         simulators = try container.decodeIfPresent(
             [MobileSimulatorPanelDescriptor].self,
             forKey: .simulators
@@ -263,6 +308,7 @@ public struct WorkspaceSyncRecord: MobileSyncRecord {
         case sortIndex = "sort_index"
         case terminals
         case surfaces
+        case panes
         case simulators
     }
 }

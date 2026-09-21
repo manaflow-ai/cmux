@@ -11,6 +11,130 @@ extension TerminalController {
         let candidate: TaskCreateWorkspaceCandidate
     }
 
+    /// Creates a task terminal as a new surface in an existing workspace pane.
+    /// The operation uses the same durable acceptance cache as workspace task
+    /// creation, so a retry cannot execute the command twice.
+    func v2MobileTaskCreateInPane(
+        params: [String: Any],
+        tabManager resolvedTabManager: TabManager? = nil,
+        idempotencyCache suppliedIdempotencyCache: WorkspaceCreateIdempotencyCache? = nil,
+        workingDirectoryValidator: WorkspaceCreateWorkingDirectoryValidator? = nil
+    ) async -> V2CallResult {
+        guard let targetWorkspaceID = v2UUID(params, "target_workspace_id"),
+              let targetPaneID = v2UUID(params, "target_pane_id") else {
+            return .err(
+                code: "invalid_params",
+                message: "target_workspace_id and target_pane_id are required",
+                data: nil
+            )
+        }
+        // `workspace.create` arrives without the legacy `workspace_id` routing
+        // key. Route by the selected target before looking up the workspace so
+        // a pane in a background window is handled by its owning TabManager.
+        var routingParams = params
+        routingParams["workspace_id"] = targetWorkspaceID.uuidString
+        guard let tabManager = resolvedTabManager ?? v2ResolveTabManager(params: routingParams),
+              let workspace = tabManager.tabs.first(where: { $0.id == targetWorkspaceID }) else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let paneID = workspace.bonsplitController.allPaneIds.first(where: { $0.id == targetPaneID }) else {
+            return .err(code: "not_found", message: "Pane not found", data: [
+                "workspace_id": targetWorkspaceID.uuidString,
+                "pane_id": targetPaneID.uuidString,
+            ])
+        }
+
+        let operationID: UUID?
+        if v2HasNonNullParam(params, "operation_id") {
+            guard let parsed = v2UUID(params, "operation_id") else {
+                return .err(code: "invalid_params", message: "operation_id must be a UUID", data: nil)
+            }
+            operationID = parsed
+            let idempotencyCache = suppliedIdempotencyCache ?? workspaceCreateIdempotencyCache
+            if idempotencyCache.workspaceID(for: parsed) == targetWorkspaceID {
+                var retryParams = params
+                retryParams["workspace_id"] = targetWorkspaceID.uuidString
+                return v2MobileWorkspaceList(
+                    params: retryParams,
+                    tabManager: tabManager,
+                    createdWorkspaceID: targetWorkspaceID.uuidString
+                )
+            }
+        } else {
+            operationID = nil
+        }
+        let idempotencyCache = suppliedIdempotencyCache ?? workspaceCreateIdempotencyCache
+        let rawWorkingDirectory = v2RawString(params, "working_directory")
+        let validation = await (workingDirectoryValidator ?? Self.v2ValidateMobileWorkingDirectory)(
+            rawWorkingDirectory,
+            v2HasNonNullParam(params, "working_directory")
+        )
+        let workingDirectory: String?
+        switch validation {
+        case .notProvided:
+            workingDirectory = nil
+        case let .valid(path):
+            workingDirectory = path
+        case .invalid:
+            return Self.v2InvalidWorkingDirectoryResult
+        case .busy:
+            return .err(code: "busy", message: "working_directory validation is busy", data: ["field": "working_directory"])
+        case .timedOut:
+            return .err(code: "request_timeout", message: "working_directory validation timed out", data: ["field": "working_directory"])
+        case .cancelled:
+            return .err(code: "cancelled", message: "Workspace creation was cancelled", data: nil)
+        }
+        if let operationID {
+            guard !idempotencyCache.containsCompletedOperation(operationID) else {
+                return Self.v2MobileCompletedOperationResult(operationID: operationID)
+            }
+            do {
+                guard try await idempotencyCache.acceptAsynchronously(operationID: operationID) else {
+                    return Self.v2MobileCompletedOperationResult(operationID: operationID)
+                }
+            } catch {
+                return .err(
+                    code: "persistence_failed",
+                    message: "Workspace task could not be reserved safely",
+                    data: nil
+                )
+            }
+        }
+
+        let initialCommand = v2RawString(params, "initial_command").flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? nil
+                : WorkspaceInitialCommandLoginShell.wrap($0)
+        }
+        let initialEnvironment = sanitizedInitialEnvironment(
+            v2StringMap(params, "initial_env") ?? [:]
+        )
+        guard let terminal = workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: false,
+            workingDirectory: workingDirectory,
+            initialCommand: initialCommand,
+            startupEnvironment: initialEnvironment,
+            autoRefreshMetadata: false,
+            preserveFocusWhenUnfocused: false,
+            inheritWorkingDirectoryFallback: true,
+            allowTextBoxFocusDefault: false
+        ) else {
+            return .err(code: "internal_error", message: "Failed to create terminal", data: nil)
+        }
+        if let operationID {
+            idempotencyCache.associate(operationID: operationID, workspaceID: workspace.id)
+        }
+        var resultParams = params
+        resultParams["workspace_id"] = targetWorkspaceID.uuidString
+        return v2MobileWorkspaceList(
+            params: resultParams,
+            tabManager: tabManager,
+            createdWorkspaceID: targetWorkspaceID.uuidString,
+            createdTerminalID: terminal.id.uuidString
+        )
+    }
+
     nonisolated static func v2ExpandedWorkingDirectory(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -312,6 +436,15 @@ extension TerminalController {
         tabManager resolvedTabManager: TabManager? = nil,
         idempotencyCache: WorkspaceCreateIdempotencyCache? = nil
     ) async -> V2CallResult {
+        if v2HasNonNullParam(params, "target_workspace_id")
+            || v2HasNonNullParam(params, "target_pane_id") {
+            return await v2MobileTaskCreateInPane(
+                params: params,
+                tabManager: resolvedTabManager,
+                idempotencyCache: idempotencyCache,
+                workingDirectoryValidator: workingDirectoryValidator
+            )
+        }
         var createParams = params
         createParams["focus"] = false
         createParams["eager_load_terminal"] = false

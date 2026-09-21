@@ -110,7 +110,9 @@ extension TaskComposerSheet {
             initialCommand: composition.initialCommand,
             initialEnv: composition.initialEnv.isEmpty ? nil : composition.initialEnv,
             workspaceGroupID: snapshot.workspaceGroupID,
-            operationID: snapshot.operationID
+            operationID: snapshot.operationID,
+            targetWorkspaceID: snapshot.targetWorkspaceID,
+            targetPaneID: snapshot.targetPaneID
         )
     }
 

@@ -517,6 +517,31 @@ import Testing
         #expect(decoded.workspaceGroupID == nil)
     }
 
+    @Test func existingPaneTargetSurvivesEquivalenceAndDraftRoundTrip() throws {
+        let target = snapshot(
+            template: MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex"),
+            targetWorkspaceID: "workspace-a",
+            targetPaneID: "pane-a"
+        )
+        let differentPane = snapshot(
+            template: MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex"),
+            targetWorkspaceID: "workspace-a",
+            targetPaneID: "pane-b"
+        )
+
+        #expect(target.isRequestEquivalent(to: target.withOperationID(UUID())))
+        #expect(!target.isRequestEquivalent(to: differentPane))
+        #expect(target.draft.targetWorkspaceID == "workspace-a")
+        #expect(target.draft.targetPaneID == "pane-a")
+
+        let decoded = try JSONDecoder().decode(
+            MobileTaskComposerDraft.self,
+            from: JSONEncoder().encode(target.draft)
+        )
+        #expect(decoded.targetWorkspaceID == "workspace-a")
+        #expect(decoded.targetPaneID == "pane-a")
+    }
+
     private func snapshot(
         template: MobileTaskTemplate,
         prompt: String = "ship it",
@@ -526,6 +551,8 @@ import Testing
         workspaceName: String = "",
         modelID: String? = nil,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
+        targetWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        targetPaneID: MobilePanePreview.ID? = nil,
         attachments: [MobileTaskSubmissionAttachment] = []
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
@@ -537,6 +564,8 @@ import Testing
             directory: directory,
             workspaceName: workspaceName,
             workspaceGroupID: workspaceGroupID,
+            targetWorkspaceID: targetWorkspaceID,
+            targetPaneID: targetPaneID,
             didEditDirectory: false,
             attachments: attachments,
             operationID: UUID()

@@ -54,6 +54,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let terminals: [Terminal]
         /// All workspace surfaces. `nil` when an older Mac omits the field.
         public let surfaces: [Surface]?
+        /// Workspace panes and normalized layout rectangles. `nil` when an
+        /// older Mac omits pane topology.
+        public let panes: [Pane]?
         /// Simulator panes belonging to this workspace.
         public let simulators: [MobileSimulatorPanelDescriptor]
 
@@ -75,6 +78,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case unreadCount = "unread_count"
             case terminals
             case surfaces
+            case panes
             case simulators
         }
 
@@ -99,6 +103,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             unreadCount: Int? = nil,
             terminals: [Terminal],
             surfaces: [Surface]? = nil,
+            panes: [Pane]? = nil,
             simulators: [MobileSimulatorPanelDescriptor] = []
         ) {
             self.id = id
@@ -118,6 +123,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.unreadCount = unreadCount
             self.terminals = terminals
             self.surfaces = surfaces
+            self.panes = panes
             self.simulators = simulators
         }
 
@@ -141,10 +147,63 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
             terminals = try container.decode([Terminal].self, forKey: .terminals)
             surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
+            panes = try container.decodeIfPresent([Pane].self, forKey: .panes)
             simulators = try container.decodeIfPresent(
                 [MobileSimulatorPanelDescriptor].self,
                 forKey: .simulators
             ) ?? []
+        }
+    }
+
+    /// A workspace pane with a normalized rectangle and its surface order.
+    public struct Pane: Decodable, Equatable, Sendable {
+        public let paneID: String
+        public let x: Double
+        public let y: Double
+        public let width: Double
+        public let height: Double
+        public let surfaceIDs: [String]
+        public let selectedSurfaceID: String?
+        public let isFocused: Bool
+
+        private enum CodingKeys: String, CodingKey {
+            case paneID = "pane_id"
+            case x, y, width, height
+            case surfaceIDs = "surface_ids"
+            case selectedSurfaceID = "selected_surface_id"
+            case isFocused = "is_focused"
+        }
+
+        public init(
+            paneID: String,
+            x: Double,
+            y: Double,
+            width: Double,
+            height: Double,
+            surfaceIDs: [String] = [],
+            selectedSurfaceID: String? = nil,
+            isFocused: Bool = false
+        ) {
+            self.paneID = paneID
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+            self.surfaceIDs = surfaceIDs
+            self.selectedSurfaceID = selectedSurfaceID
+            self.isFocused = isFocused
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            paneID = try container.decode(String.self, forKey: .paneID)
+            x = try container.decode(Double.self, forKey: .x)
+            y = try container.decode(Double.self, forKey: .y)
+            width = try container.decode(Double.self, forKey: .width)
+            height = try container.decode(Double.self, forKey: .height)
+            surfaceIDs = try container.decodeIfPresent([String].self, forKey: .surfaceIDs) ?? []
+            selectedSurfaceID = try container.decodeIfPresent(String.self, forKey: .selectedSurfaceID)
+            isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
         }
     }
 

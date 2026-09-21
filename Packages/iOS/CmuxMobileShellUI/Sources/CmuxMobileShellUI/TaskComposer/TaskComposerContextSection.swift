@@ -15,6 +15,11 @@ struct TaskComposerContextSection: View {
     let workspaceGroupSelectionPending: Bool
     let workspaceGroupSelectionRequiresResolution: Bool
     let showsWorkspaceGroupPicker: Bool
+    let paneWorkspaces: [MobileWorkspacePreview]
+    let selectedTargetWorkspaceID: MobileWorkspacePreview.ID?
+    let selectedTargetPaneID: MobilePanePreview.ID?
+    let selectTargetPane: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
+    let presentDestinationPicker: () -> Void
     let directory: String
     let isDisabled: Bool
     let endWorkspaceNameEditing: () -> Void
@@ -40,6 +45,11 @@ struct TaskComposerContextSection: View {
                 workspaceGroupSelectionPending: workspaceGroupSelectionPending,
                 workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
                 showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
+                paneWorkspaces: paneWorkspaces,
+                selectedTargetWorkspaceID: selectedTargetWorkspaceID,
+                selectedTargetPaneID: selectedTargetPaneID,
+                selectTargetPane: selectTargetPane,
+                presentDestinationPicker: presentDestinationPicker,
                 directory: directory,
                 isDisabled: isDisabled,
                 selectMachine: selectMachine,

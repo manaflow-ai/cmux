@@ -95,6 +95,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var terminals: [MobileTerminalPreview]
     /// Every Mac-rendered surface, in the Mac workspace's spatial order.
     public var surfaces: [MobileSurfacePreview]
+    /// The workspace panes and their normalized rectangles, in spatial order.
+    public var panes: [MobilePanePreview]
     /// The Simulator panes contained in the workspace, in display order.
     public var simulators: [MobileSimulatorPanelDescriptor]
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
@@ -160,6 +162,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         unreadCount: Int? = nil,
         terminals: [MobileTerminalPreview],
         surfaces: [MobileSurfacePreview] = [],
+        panes: [MobilePanePreview] = [],
         simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
@@ -181,6 +184,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.unreadCount = unreadCount
         self.terminals = terminals
         self.surfaces = surfaces
+        self.panes = panes
         self.simulators = simulators
     }
 }

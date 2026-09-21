@@ -26,6 +26,10 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
     public let trimmedWorkspaceName: String
     /// Selected workspace group, or `nil` for an ungrouped workspace.
     public let workspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    /// Existing workspace targeted by the task, when the user chose a pane.
+    public let targetWorkspaceID: MobileWorkspacePreview.ID?
+    /// Existing pane targeted by the task, when the user chose a pane.
+    public let targetPaneID: MobilePanePreview.ID?
     /// Unmodified working-directory text captured from the composer.
     public let directory: String
     /// Working directory with surrounding whitespace removed for validation.
@@ -69,6 +73,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         directory: String,
         workspaceName: String = "",
         workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
+        targetWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        targetPaneID: MobilePanePreview.ID? = nil,
         didEditDirectory: Bool,
         attachments: [MobileTaskSubmissionAttachment] = [],
         operationID: UUID
@@ -86,6 +92,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = workspaceName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.workspaceGroupID = workspaceGroupID
+        self.targetWorkspaceID = targetWorkspaceID
+        self.targetPaneID = targetPaneID
         self.directory = directory
         self.trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         self.didEditDirectory = didEditDirectory
@@ -112,6 +120,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             && Self.hasEqualUTF8(composition.initialEnv, other.composition.initialEnv)
             && Self.hasEqualUTF8(workspaceTitle, other.workspaceTitle)
             && Self.hasEqualUTF8(workspaceGroupID?.rawValue, other.workspaceGroupID?.rawValue)
+            && Self.hasEqualUTF8(targetWorkspaceID?.rawValue, other.targetWorkspaceID?.rawValue)
+            && Self.hasEqualUTF8(targetPaneID?.rawValue, other.targetPaneID?.rawValue)
             && Self.hasEqualUTF8(trimmedDirectory, other.trimmedDirectory)
             && attachments == other.attachments
     }
@@ -129,6 +139,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             effortID: effortID,
             workspaceName: workspaceName,
             workspaceGroupID: workspaceGroupID,
+            targetWorkspaceID: targetWorkspaceID,
+            targetPaneID: targetPaneID,
             directory: directory,
             didEditDirectory: didEditDirectory,
             attachments: attachments,
@@ -191,6 +203,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName.isEmpty ? nil : workspaceName,
             workspaceGroupID: workspaceGroupID,
+            targetWorkspaceID: targetWorkspaceID,
+            targetPaneID: targetPaneID,
             operationID: operationID
         )
     }
@@ -204,6 +218,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         effortID: String?,
         workspaceName: String,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID?,
+        targetWorkspaceID: MobileWorkspacePreview.ID?,
+        targetPaneID: MobilePanePreview.ID?,
         directory: String,
         didEditDirectory: Bool,
         attachments: [MobileTaskSubmissionAttachment],
@@ -221,6 +237,8 @@ public struct MobileTaskSubmissionSnapshot: Equatable, Sendable {
         self.workspaceName = workspaceName
         self.trimmedWorkspaceName = trimmedWorkspaceName
         self.workspaceGroupID = workspaceGroupID
+        self.targetWorkspaceID = targetWorkspaceID
+        self.targetPaneID = targetPaneID
         self.directory = directory
         self.trimmedDirectory = trimmedDirectory
         self.didEditDirectory = didEditDirectory

@@ -25,6 +25,10 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
     /// Selected workspace group, or `nil` for an ungrouped workspace. Missing
     /// keys decode as `nil` so drafts written by older builds remain valid.
     public var workspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    /// Existing workspace targeted by the task, when the user chose a pane.
+    public var targetWorkspaceID: MobileWorkspacePreview.ID?
+    /// Existing pane targeted by the task, when the user chose a pane.
+    public var targetPaneID: MobilePanePreview.ID?
     /// Stable identity for retrying this logical task creation without duplication.
     public var operationID: UUID?
     /// Accepted identity awaiting an explicit refresh before this draft may be
@@ -46,6 +50,8 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         didEditDirectory: Bool,
         workspaceName: String? = nil,
         workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
+        targetWorkspaceID: MobileWorkspacePreview.ID? = nil,
+        targetPaneID: MobilePanePreview.ID? = nil,
         operationID: UUID? = nil,
         completedOperationID: UUID? = nil,
         attachments: [MobileTaskComposerDraftAttachment] = []
@@ -69,6 +75,8 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         self.didEditDirectory = didEditDirectory
         self.workspaceName = workspaceName
         self.workspaceGroupID = workspaceGroupID
+        self.targetWorkspaceID = targetWorkspaceID
+        self.targetPaneID = targetPaneID
         self.operationID = operationID
         self.completedOperationID = completedOperationID
         self.attachments = attachments
@@ -88,6 +96,14 @@ public struct MobileTaskComposerDraft: Codable, Equatable, Sendable {
         workspaceGroupID = try container.decodeIfPresent(
             MobileWorkspaceGroupPreview.ID.self,
             forKey: .workspaceGroupID
+        )
+        targetWorkspaceID = try container.decodeIfPresent(
+            MobileWorkspacePreview.ID.self,
+            forKey: .targetWorkspaceID
+        )
+        targetPaneID = try container.decodeIfPresent(
+            MobilePanePreview.ID.self,
+            forKey: .targetPaneID
         )
         operationID = try container.decodeIfPresent(UUID.self, forKey: .operationID)
         completedOperationID = try container.decodeIfPresent(UUID.self, forKey: .completedOperationID)

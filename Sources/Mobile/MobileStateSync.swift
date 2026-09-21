@@ -242,6 +242,7 @@ final class MobileStateSyncHost {
             sortIndex: sortIndex,
             terminals: terminals,
             surfaces: controller.mobileSurfaceDescriptors(in: workspace),
+            panes: controller.mobileWorkspacePanes(in: workspace),
             simulators: simulators
         )
     }

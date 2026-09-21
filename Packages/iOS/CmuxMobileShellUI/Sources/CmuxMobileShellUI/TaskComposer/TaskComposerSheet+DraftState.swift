@@ -44,6 +44,8 @@ extension TaskComposerSheet {
         selectedMacDeviceID = snapshot.macDeviceID
         selectedMacInstanceTag = snapshot.macInstanceTag
         selectedWorkspaceGroupID = snapshot.workspaceGroupID
+        selectedTargetWorkspaceID = snapshot.targetWorkspaceID
+        selectedTargetPaneID = snapshot.targetPaneID
         pendingRestoredWorkspaceGroupID = snapshot.workspaceGroupID
         workspaceGroupSelectionRequiresResolution = false
         directory = snapshot.directory
@@ -171,6 +173,8 @@ extension TaskComposerSheet {
             didEditDirectory: didEditDirectory,
             workspaceName: workspaceName,
             workspaceGroupID: persistedWorkspaceGroupID,
+            targetWorkspaceID: selectedTargetWorkspaceID,
+            targetPaneID: selectedTargetPaneID,
             operationID: resolved?.operationID ?? submissionIdentity.id,
             completedOperationID: completedOperationID
         )
@@ -178,6 +182,7 @@ extension TaskComposerSheet {
 
     private func makeSubmissionSnapshot(operationID: UUID) -> MobileTaskSubmissionSnapshot? {
         guard let selectedTemplate else { return nil }
+        guard selectedTargetPaneIsAvailable else { return nil }
         guard selectedWorkspaceGroupID == nil || resolvedWorkspaceGroupID != nil else {
             // Never construct an outbound snapshot that silently drops a
             // selected group while its exact Mac inventory is unavailable.
@@ -193,6 +198,8 @@ extension TaskComposerSheet {
             directory: directory,
             workspaceName: workspaceName,
             workspaceGroupID: resolvedWorkspaceGroupID,
+            targetWorkspaceID: selectedTargetWorkspaceID,
+            targetPaneID: selectedTargetPaneID,
             didEditDirectory: didEditDirectory,
             attachments: attachments.map(\.submissionAttachment),
             operationID: operationID
