@@ -1246,8 +1246,8 @@
       "exampleConfig": "Пример конфигурации",
       "metaTitle": "Конфигурация",
       "schemaDescriptions": {
-        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
-        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "root": "Конфигурация cmux. Глобальный cmux.json поддерживает настройки приложения, сочетания клавиш, действия, пользовательские команды, хуки уведомлений и макеты рабочих пространств. Проектный .cmux/cmux.json или cmux.json поддерживает действия, команды, хуки уведомлений, привязку действий интерфейса, переопределения Agent Chat, агентов vault, переопределения групп рабочих пространств и настройку запуска и кнопок рабочего пространства.",
+        "rightSidebar": "Устаревшая и принадлежащая расширениям конфигурация правой боковой панели, сохраняемая в cmux.json.",
         "paneBorderColor": "Переопределяет цвет разделителя панелей cmux в разделенных рабочих пространствах. Это влияет на границы панелей cmux, а не на внутренние разделения Ghostty.",
         "activePaneBorderColor": "Необязательный цвет рамки, рисуемой вокруг сфокусированной панели cmux в разделенных рабочих пространствах.",
         "automation": {
