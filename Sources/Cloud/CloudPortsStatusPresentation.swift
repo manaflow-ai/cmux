@@ -48,7 +48,7 @@ struct CloudPortsStatusPresentation: Equatable {
     var message: String {
         switch state {
         case .notRequested:
-            return String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it.")
+            return Self.routeNote
         case .loading:
             return String(localized: "cloudTree.ports.loading.detail", defaultValue: "Checking services through cmux’s authenticated Cloud link. No system VPN is needed.")
         case .available:
