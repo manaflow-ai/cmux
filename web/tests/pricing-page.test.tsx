@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToReadableStream } from "react-dom/server";
+import { renderSettled } from "./helpers/render-settled";
+import { readInitialMain } from "./helpers/render-stream";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
@@ -103,7 +105,7 @@ describe("localized pricing page", () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
     process.env.CMUX_TEST_GO_PLAN_DISABLED = "1";
     try {
-      const html = renderToStaticMarkup(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+      const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(html).toContain("Get Pro");
       expect(html).toContain("Get Max");
       expect(html).not.toContain("Get Go");
@@ -117,9 +119,30 @@ describe("localized pricing page", () => {
     }
   });
 
+  test("streams real prices and features while the account request is unresolved", async () => {
+    stackConfigured = true;
+    let release!: () => void;
+    const pending = new Promise<typeof proUser>((resolve) => { release = () => resolve(proUser); });
+    getUser.mockImplementation(() => pending);
+    const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
+    const stream = await renderToReadableStream(element);
+    const reader = stream.getReader();
+    try {
+      const first = await readInitialMain(reader);
+      expect(first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first.includes("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs")).toBe(true);
+      expect(first.includes("animate-pulse")).toBe(false);
+      expect(first.includes("Current plan")).toBe(false);
+    } finally {
+      release();
+      while (!(await reader.read()).done) { /* Drain the completed response. */ }
+      getUser.mockImplementation(async () => proUser);
+    }
+  });
+
   test("shows monthly prices only even for old annual pricing links", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
     expect(html).toContain("$50");
     expect(html).toContain("$200");
     expect(html).not.toContain('role="radiogroup"');
@@ -185,7 +208,7 @@ describe("localized pricing page", () => {
 
   test("shows the Founder's Edition recovery link once, after every card and before comparison", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
     const recoveryIndex = html.indexOf('href="/billing/recover"');
     expect(html.match(/href="\/billing\/recover"/g)).toHaveLength(1);
     for (const plan of ["free", "pro", "max", "team", "enterprise"] as const) {
@@ -218,7 +241,7 @@ describe("localized pricing page", () => {
 
   test("defaults public pricing to monthly billing with full-size paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).not.toContain("/api/billing/portal");
     expect(html).not.toContain("Manage billing");
@@ -250,7 +273,7 @@ describe("localized pricing page", () => {
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     // The annual selector must not touch Max: no interval on its checkout
     // link and no "billed yearly" label on its card or table column.
@@ -264,7 +287,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 64 GB RAM per machine");
+    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
@@ -288,7 +311,7 @@ describe("localized pricing page", () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("cmux Vault");
   });
@@ -297,7 +320,7 @@ describe("localized pricing page", () => {
     stackConfigured = true;
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).not.toContain('href="/api/billing/portal"');
     // PRO_CHECKOUT_URL appends the external-browser intent param, so match the
@@ -310,11 +333,14 @@ describe("localized pricing page", () => {
     stripeSubscriptionRows = [{ id: "sub_123", plan: "pro" }];
 
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
+    expect(card.match(/Current plan/g)).toHaveLength(1);
+    expect(card.includes("Manage billing")).toBe(true);
     // A Pro subscriber can still upgrade: the Max card keeps its checkout
     // link (the server routes an active Pro subscription to the portal).
     expect(html).toContain("/api/billing/portal?flow=switch_plan&amp;plan=max");
@@ -326,7 +352,7 @@ describe("localized pricing page", () => {
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("$50");
     expect(html).toContain("/mo");
@@ -359,11 +385,11 @@ describe("localized pricing page", () => {
         utm_campaign: "sept",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("plan%253Dpro%2526cmux_external_browser");
     expect(html).toContain("utm_source%253Dnewsletter");
-    expect(html).not.toContain("cmux_source=pricing_page");
+    expect(html).toContain("cmux_source%253Dcli_free_access_expiry");
   });
 
   test("honors an explicit monthly billing interval", async () => {
@@ -371,7 +397,7 @@ describe("localized pricing page", () => {
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "month" }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("$50");
     expect(html).toContain("$60");
@@ -387,7 +413,7 @@ describe("localized pricing page", () => {
 
   test("shows individual plans first and includes the team audience view", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("Individual");
     expect(html).toContain("Team &amp; Enterprise");

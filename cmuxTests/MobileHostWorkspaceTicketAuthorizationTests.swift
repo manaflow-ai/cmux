@@ -71,6 +71,30 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() async throws {
+        let previous = MobileHostPublicStatusCache.currentV2DeviceID()
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previous)
+            MobileHostPublicStatusCache.update(routes: previousRoutes)
+        }
+        let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        MobileHostPublicStatusCache.update(routes: [try irohRoute()])
+        MobileHostPublicStatusCache.updateV2DeviceID(nil)
+        await #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try await MobileHostService.shared.createAttachTicket(
+                workspaceID: "", terminalID: nil, ttl: 60, target: .physicalDevice
+            )
+        }
+        MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
+        let payload = try await MobileHostService.shared.createAttachTicket(
+            workspaceID: "", terminalID: nil, ttl: 60, target: .physicalDevice
+        )
+        let url = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
+        #expect(decoded.macDeviceID == deviceID)
+    }
+
     @Test func attachTargetsPreferSanitizedIrohThenUseDestinationFallbacks() throws {
         let loopback = try loopbackRoute()
         let tailscale = try tailscaleRoute()

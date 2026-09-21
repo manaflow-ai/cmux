@@ -17,6 +17,12 @@ extension CmuxTuiSurfaceProvider {
         adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         try catalog.validateOwnership(of: [resource.id], at: destination)
+        let savedPlacement = try reservation?.validatedAttachmentPlacement(
+            resourceID: resource.id, remoteTabID: remoteTabID, catalog: catalog
+        )
+        let requiresExistingView = remoteTabID != nil || savedPlacement != nil
+        let preferredWorkspaceID = savedPlacement?.workspaceID ?? resource.remoteWorkspace?.id
+            ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(forLocalWorkspace: destination.workspaceID, on: machine)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
@@ -25,27 +31,47 @@ extension CmuxTuiSurfaceProvider {
         try catalog.validateOwnership(of: [resource.id], at: destination)
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
-        let resolved = try await resolveSurfaceIDForMaterialization(
-            terminalID: resource.id.key,
-            socketPath: connected.socketPath,
-            link: link,
-            requiresExistingView: remoteTabID != nil,
-            correlationID: correlationID,
-            // A newly-created terminal carries the workspace selected by the
-            // creation request even before its first tab receipt arrives. Keep
-            // that identity ahead of the local binding or daemon focus so a
-            // missing tab_id cannot redirect projection to another workspace.
-            preferredWorkspaceID: resource.remoteWorkspace?.id
-                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
-                    forLocalWorkspace: destination.workspaceID, on: machine
-                )
-        )
-
+        let resolved: (surfaceID: UInt64, placement: SurfaceRemotePlacement?)
+        if resource.creationAttachment != nil {
+            resolved = (0, nil)
+        } else {
+            resolved = try await resolveSurfaceIDForMaterialization(
+                terminalID: resource.id.key,
+                socketPath: connected.socketPath,
+                link: link,
+                requiresExistingView: requiresExistingView,
+                correlationID: correlationID,
+                // A newly-created terminal carries the workspace selected by the
+                // creation request even before its first tab receipt arrives. Keep
+                // that identity ahead of the local binding or daemon focus so a
+                // missing tab_id cannot redirect projection to another workspace.
+                preferredWorkspaceID: preferredWorkspaceID
+            )
+        }
+        let knownPlacement = remoteTabID.flatMap { tabID in
+            resource.remoteViews?.first(where: { $0.tabID == tabID })
+                .map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        }
+        let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
+            resourceID: resource.id, remoteTabID: remoteTabID,
+            materializedPlacement: resolved.placement, catalog: catalog
+        ) ?? resolved.placement ?? knownPlacement
+        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
+            creationAttachment: resource.creationAttachment,
+            resolveLegacySurfaceID: { [weak self] in
+                guard let self else { throw CancellationError() }
+                let resolved = try await self.resolveSurfaceIDForMaterialization(
+                    terminalID: resource.id.key, socketPath: connected.socketPath, link: link,
+                    requiresExistingView: requiresExistingView, correlationID: correlationID,
+                    preferredWorkspaceID: preferredWorkspaceID
+                )
+                return resolved.surfaceID
+            },
             correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
@@ -108,7 +134,7 @@ extension CmuxTuiSurfaceProvider {
                 panelID: created.panelID,
                 surface: created.surface,
                 session: session,
-                remotePlacement: resolved.placement
+                remotePlacement: confirmedPlacement
             )
         } catch {
             session.stop()
@@ -192,7 +218,7 @@ extension CmuxTuiSurfaceProvider {
         if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
         let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
             guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
-            let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
+            let snapshot = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
                 throw ProviderError.noWorkspaceOnMachine(self.machineID)
             }
@@ -303,6 +329,16 @@ extension CmuxTuiSurfaceProvider {
                         self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
                         return
                     }
+                    do {
+                        _ = try reservation.validatedAttachmentPlacement(
+                            resourceID: resource.id, remoteTabID: remoteTabID,
+                            materializedPlacement: materialized.remotePlacement, catalog: self.catalog
+                        )
+                    } catch {
+                        self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
+                        reservation.inputRelay.discard()
+                        throw error
+                    }
                     if let placement = materialized.remotePlacement {
                         self.catalog.cloudPlacementCoordinator.confirmPlacement(placement, on: self.machine)
                         if let current = self.catalog.projection(forPanel: panelID) {
@@ -316,6 +352,11 @@ extension CmuxTuiSurfaceProvider {
                     return
                 } catch {
                     guard !Task.isCancelled else { return }
+                    if error as? CloudDiagnosticFailure == .placement {
+                        self.restoredAttachTasks[panelID] = nil
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
+                        return
+                    }
                     if let providerError = error as? CmuxTuiSurfaceProvider.ProviderError,
                        case .terminalExited = providerError {
                         // The shell ended while the pane was waiting: the pane

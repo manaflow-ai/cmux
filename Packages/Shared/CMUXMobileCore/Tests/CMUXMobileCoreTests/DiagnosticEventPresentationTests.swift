@@ -46,7 +46,7 @@ import Testing
                 c: 1
             )
         )
-        #expect(plan.name == "Transport dial plan built")
+        #expect(plan.name == "Direct dial plan assembled")
         #expect(plan.fields == [
             .init(key: "public_paths", value: "2"),
             .init(key: "private_fallback_paths", value: "0"),
@@ -75,7 +75,7 @@ import Testing
             b: 2,
             c: 0
         ))
-        #expect(join.name == "Private address candidate joined")
+        #expect(join.name == "Private addresses joined broker port")
         #expect(join.fields.contains(
             .init(key: "join", value: "Broker ports missing or stale")
         ))
@@ -89,7 +89,7 @@ import Testing
             a: DiagnosticLANDiscoveryOutcome.policyDenied.rawValue,
             b: 0
         ))
-        #expect(lan.name == "LAN discovery completed")
+        #expect(lan.name == "LAN discovery resolved")
         #expect(lan.fields.contains(
             .init(key: "outcome", value: "Local Network permission denied")
         ))
@@ -111,7 +111,7 @@ import Testing
             a: DiagnosticLANPublicationState.policyDenied.rawValue,
             b: 0
         ))
-        #expect(publication.name == "LAN publication state changed")
+        #expect(publication.name == "LAN advertisement state changed")
         #expect(publication.fields.contains(
             .init(key: "state", value: "Local Network permission denied")
         ))
@@ -172,8 +172,8 @@ import Testing
             .init(key: "session", value: "9"),
         ])
         let closeSummary = englishPresentation.summary(close)
-        #expect(closeSummary.contains("Session"))
-        #expect(closeSummary.contains("9"))
+        #expect(!closeSummary.contains("Session"))
+        #expect(!closeSummary.contains("9"))
     }
 
     @Test func describesLifecycleAndReachability() {
@@ -260,15 +260,16 @@ import Testing
             .browserInputReplayed: "Browser input replayed",
             .browserEditableFocus: "Browser editable focus",
             .browserPanelCreateResolved: "Browser panel create resolved",
-            .transportDialPlanBuilt: "Transport dial plan built",
-            .transportPrivateAddressJoin: "Private address candidate joined",
-            .transportLANDiscovery: "LAN discovery completed",
-            .transportDialLegSucceeded: "Direct dial leg succeeded",
+            .transportDialPlanBuilt: "Direct dial plan assembled",
+            .transportPrivateAddressJoin: "Private addresses joined broker port",
+            .transportLANDiscovery: "LAN discovery resolved",
+            .transportDialLegSucceeded: "Direct dial leg connected",
             .transportDialLegFailed: "Direct dial leg failed",
-            .lanPublicationState: "LAN publication state changed",
+            .lanPublicationState: "LAN advertisement state changed",
             .transportDialSessionLinked: "Transport dial linked to session",
             .transportDialCancelled: "Transport dial cancelled",
             .transportCloseReason: "Remote close reason",
+            .terminalTrace: "Terminal operation trace",
             .simulatorStreamLifecycle: "Simulator stream state changed",
             .simulatorFrameLifecycle: "Simulator frame pipeline changed",
             .simulatorInputLifecycle: "Simulator input state changed",

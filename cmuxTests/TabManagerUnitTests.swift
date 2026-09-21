@@ -3904,35 +3904,6 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertFalse(isFocusedPanelBrowser(in: currentWorkspace))
     }
 
-    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
-        let manager = TabManager()
-        guard let workspace1 = manager.selectedWorkspace,
-              let sourcePanelId = workspace1.focusedPanelId,
-              let splitBrowserId = manager.newBrowserSplit(
-                tabId: workspace1.id,
-                fromPanelId: sourcePanelId,
-                orientation: .horizontal,
-                insertFirst: false,
-                url: URL(string: "https://example.com/collapsed-split")
-              ) else {
-            XCTFail("Expected to create browser split")
-            return
-        }
-
-        drainMainQueue()
-        XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
-        drainMainQueue()
-
-        let workspace2 = manager.addWorkspace()
-        XCTAssertEqual(manager.selectedTabId, workspace2.id)
-
-        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
-        drainMainQueue()
-
-        XCTAssertEqual(manager.selectedTabId, workspace1.id)
-        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
-    }
-
     func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,

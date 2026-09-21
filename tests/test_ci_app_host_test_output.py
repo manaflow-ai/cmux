@@ -100,6 +100,46 @@ class AppHostTestOutputTests(unittest.TestCase):
         self.assertFalse(passed)
         self.assertIn("zero executed tests", message)
 
+    def test_timeout_or_restart_cannot_be_erased_by_a_passing_subset(self) -> None:
+        fixture = (ROOT / "tests/fixtures/app-host-timeout-restart.txt").read_text()
+        for output in (
+            fixture,
+            fixture.replace("Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.\n", ""),
+            fixture.replace("✘ Test remoteManualInputPreservesLiteralAndNamedKeyOrder() recorded an issue: Time limit was exceeded: 300.000 seconds\n", ""),
+            "\n".join("2026-09-20T07:30:00.000Z \x1b[31m" + line + "\x1b[0m" for line in fixture.splitlines()),
+        ):
+            with self.subTest(output=output):
+                passed, message = MODULE.classify(output)
+                self.assertFalse(passed)
+                self.assertIn("incomplete app-host test run", message)
+
+    def test_timeout_words_in_successful_test_names_or_app_logs_are_not_failures(self) -> None:
+        passed, _ = MODULE.classify(
+            "2026-09-20 07:11:24 cmux DEV[4667:30096] Receive failed: Operation timed out\n"
+            "✔ Test handlesTimeoutAndRestart() passed after 0.001 seconds.\n"
+            "Executed 2 tests, with 0 failures (0 unexpected)\n"
+            "✔ Test run with 6 tests in 1 suite passed after 2.562 seconds.\n"
+        )
+        self.assertTrue(passed)
+
+    def test_real_wrapper_and_cli_reject_timeout_restart_final_pass_replay(self) -> None:
+        fixture = (ROOT / "tests/fixtures/app-host-timeout-restart.txt").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = pathlib.Path(directory) / "output.log"
+            replay = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/xcodebuild_noninteractive.py"),
+                 sys.executable, "-c", "import sys; print(" + repr(fixture) + "); sys.exit(65)"],
+                env={**os.environ, "CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH": str(output_path)},
+                capture_output=True, text=True, check=False, timeout=60,
+            )
+            self.assertEqual(replay.returncode, 65, replay.stderr)
+            gate = subprocess.run(
+                [sys.executable, str(SCRIPT), str(output_path)],
+                capture_output=True, text=True, check=False, timeout=60,
+            )
+        self.assertEqual(gate.returncode, 1, gate.stdout + gate.stderr)
+        self.assertIn("incomplete app-host test run", gate.stderr)
+
     def test_diagnoses_compile_failure_before_tests(self) -> None:
         diagnosis = MODULE.diagnose(
             "Sources/AppDelegate.swift:8:3: error: cannot find type 'Missing' in scope\n"

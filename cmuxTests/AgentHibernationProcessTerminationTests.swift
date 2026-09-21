@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
@@ -77,6 +78,7 @@ struct AgentHibernationProcessTerminationTests {
             processID, processTTYDevice, processGroupID in
             CmuxTopProcessInfo(
                 pid: processID,
+                processIdentity: AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: Int64(processID), startMicroseconds: processID == 202 ? 2 : processID == 303 ? 3 : 1),
                 parentPID: 1,
                 name: "test",
                 path: nil,
@@ -104,17 +106,17 @@ struct AgentHibernationProcessTerminationTests {
         )
         let rootIdentity = AgentPIDProcessIdentity(
             pid: 101,
-            startSeconds: 10,
+            startSeconds: 101,
             startMicroseconds: 1
         )
         let lateIdentity = AgentPIDProcessIdentity(
             pid: 202,
-            startSeconds: 20,
+            startSeconds: 202,
             startMicroseconds: 2
         )
         let unrelatedIdentity = AgentPIDProcessIdentity(
             pid: 303,
-            startSeconds: 30,
+            startSeconds: 303,
             startMicroseconds: 3
         )
         let identities = [
@@ -146,7 +148,6 @@ struct AgentHibernationProcessTerminationTests {
         #expect(epoch.signalableProcessIdentities == [rootIdentity])
         #expect(probedProcessIDs.withLock { $0 } == [101, 202])
     }
-
     @MainActor
     @Test
     func terminationSignalsValidatedProcessGroupWithoutRedundantPIDSignal() async {

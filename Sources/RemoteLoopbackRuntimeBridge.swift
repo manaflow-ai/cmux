@@ -2,14 +2,16 @@ import Foundation
 import CmuxCore
 
 enum RemoteLoopbackRuntimeBridge {
-    static let runtimeBridgeScriptSource: String = {
+    static let runtimeBridgeScriptSource = scriptSource(aliasHost: RemoteLoopbackProxyAlias.aliasHost)
+
+    static func scriptSource(aliasHost: String, preservesSubdomains: Bool = true) -> String {
         let exactLoopbackHostLiterals = RemoteLoopbackProxyAlias.exactLoopbackHosts
             .sorted()
             .map(javaScriptStringLiteral)
             .joined(separator: ", ")
         return """
         (() => {
-          const aliasHost = \(javaScriptStringLiteral(RemoteLoopbackProxyAlias.aliasHost));
+          const aliasHost = \(javaScriptStringLiteral(aliasHost));
           const canonicalLoopbackHost = \(javaScriptStringLiteral(RemoteLoopbackProxyAlias.canonicalLoopbackHost));
           const exactLoopbackHosts = new Set([\(exactLoopbackHostLiterals)]);
           const normalizeHost = (host) => {
@@ -55,7 +57,7 @@ enum RemoteLoopbackRuntimeBridge {
             }
             const suffix = `.${canonicalLoopbackHost}`;
             if (normalizedHost.endsWith(suffix) && normalizedHost.length > suffix.length) {
-              return `${normalizedHost.slice(0, -suffix.length)}.${aliasHost}`;
+              return \(preservesSubdomains ? "`${normalizedHost.slice(0, -suffix.length)}.${aliasHost}`" : "aliasHost");
             }
             return null;
           };
@@ -143,7 +145,7 @@ enum RemoteLoopbackRuntimeBridge {
           return true;
         })();
         """
-    }()
+    }
 
     private static func javaScriptStringLiteral(_ value: String) -> String {
         let escaped = value

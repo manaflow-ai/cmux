@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 import CmuxControlSocket

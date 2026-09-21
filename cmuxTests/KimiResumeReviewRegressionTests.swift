@@ -1,7 +1,7 @@
 import CMUXAgentLaunch
 import Foundation
 import Testing
-@_implementationOnly import XCTest
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

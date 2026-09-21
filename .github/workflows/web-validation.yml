@@ -5,6 +5,9 @@ on:
   # The changes job owns routing; no separate fallback may report success.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue waits for this required status on the merge group commit.
+  # The router has no diff for this event, so the full validation runs.
+  merge_group:
   push:
     branches: [main]
   workflow_dispatch:
@@ -51,6 +54,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Vercel production build
         env:
@@ -79,6 +84,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run test
@@ -114,6 +121,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
       - run: bun install --frozen-lockfile
       - name: Apply migrations, including an idempotent second pass
         run: |

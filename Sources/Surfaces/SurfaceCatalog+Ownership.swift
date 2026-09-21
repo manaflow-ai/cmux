@@ -1,6 +1,32 @@
 import Foundation
 
 extension SurfaceCatalog {
+    /// The staged restore identity owns a placeholder until its provider materializes it.
+    /// Retains workspace coordinates so routing can validate ownership in the same read.
+    func projectionIncludingPendingRestore(forPanel panelID: UUID) -> SurfaceProjection? {
+        pendingRestoredProjections.projection(forPanel: panelID) ?? projection(forPanel: panelID)
+    }
+
+    /// Captures the authoritative identity, including Cloud resources still awaiting a provider.
+    /// Pending remote identity takes precedence over a live local placeholder.
+    func projectionRecord(forPanel panelID: UUID) -> SurfaceProjectionRecord? {
+        guard let projection = projectionIncludingPendingRestore(forPanel: panelID) else { return nil }
+        return SurfaceProjectionRecord(
+            panelID: panelID,
+            resource: projection.resource,
+            remoteWorkspaceID: projection.remoteWorkspaceID,
+            remoteTabID: projection.remoteTabID
+        )
+    }
+
+    /// Only a provider's remote materialization supersedes a pending Cloud identity.
+    /// The local shell/browser registered during restore is still its placeholder.
+    func consumePendingProjectionIfMaterialized(_ projection: SurfaceProjection) {
+        if !projection.resource.machine.isLocal {
+            pendingRestoredProjections.remove(panelID: projection.panelID)
+        }
+    }
+
     func projection(forPanel panelID: UUID) -> SurfaceProjection? {
         projections.first { $0.panelID == panelID }
     }
@@ -8,8 +34,7 @@ extension SurfaceCatalog {
 
     /// Restored projections retain their owner even before the provider reconnects.
     func machineOwningPanel(_ panelID: UUID) -> SurfaceMachineID? {
-        pendingRestoredProjections.machineOwningPanel(panelID)
-            ?? projection(forPanel: panelID)?.resource.machine
+        projectionIncludingPendingRestore(forPanel: panelID)?.resource.machine
     }
 
     func validateOwnership(of resources: [SurfaceResourceID], at destination: SurfaceDestination) throws {

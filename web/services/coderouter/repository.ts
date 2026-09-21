@@ -1,8 +1,12 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
+  cloudVms,
+  coderouterPools,
+  coderouterPoolAccounts,
   coderouterAccounts,
   coderouterApiKeys,
   coderouterCredentials,
@@ -19,6 +23,8 @@ import {
   type CodeRouterCredential,
   type CodeRouterProvider,
 } from "./types";
+
+import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -59,6 +65,7 @@ export type RouteTokenPrincipal = {
   readonly vmId: string | null;
   /** Opaque database id when a long-lived API key authenticated the request. */
   readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
 };
 
 export async function issueRouteToken(
@@ -180,7 +187,15 @@ export async function authenticateRouteToken(
       stackUserId: coderouterRouteTokens.stackUserId,
       vmId: coderouterRouteTokens.vmId,
     });
-  return row ?? null;
+  if (!row) return null;
+  if (row.vmId === null) return row;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.vmId)) return null;
+  const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(cloudVms)
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId),
+      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
+  return vm ? { ...row, poolId: vm.poolId } : null;
 }
 
 export type CoderouterApiKeySummary = {
@@ -407,7 +422,9 @@ export async function revokeRouteToken(
 }
 
 export async function deleteAccount(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly teamId: string;
+  readonly stackUserId?: string;
   readonly accountId: string;
   readonly now?: Date;
 }): Promise<{ removed: boolean; lastAccount: boolean }> {
@@ -420,6 +437,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
+        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -455,6 +473,7 @@ export async function deleteAccount(input: {
 
 export async function listAccounts(
   teamId: string,
+  access?: CoderouterAccountAccess,
 ): Promise<readonly CodeRouterAccountSummary[]> {
   const [rows, sessionCounts] = await Promise.all([
     cloudDb()
@@ -464,12 +483,14 @@ export async function listAccounts(
         providerAccountId: coderouterAccounts.providerAccountId,
         label: coderouterAccounts.label,
         state: coderouterAccounts.state,
+        visibility: coderouterAccounts.visibility,
+        createdBy: coderouterAccounts.createdBy,
         credentialExpiresAt: coderouterAccounts.credentialExpiresAt,
         lastFailureCode: coderouterAccounts.lastFailureCode,
         cooldownUntil: coderouterAccounts.cooldownUntil,
       })
       .from(coderouterAccounts)
-      .where(eq(coderouterAccounts.teamId, teamId)),
+      .where(and(eq(coderouterAccounts.teamId, teamId), nativeAccess(access))),
     countActiveSessionsByAccount(teamId),
   ]);
   return rows.map((row) => ({
@@ -541,10 +562,12 @@ export async function transferEncryptedAccount(input: {
       ))
       .returning({ accountId: coderouterCredentials.accountId });
     if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
+    await tx.delete(coderouterPoolAccounts).where(and(eq(coderouterPoolAccounts.teamId, input.sourceTeamId), eq(coderouterPoolAccounts.accountId, input.accountId)));
     const [updated] = await tx.update(coderouterAccounts)
       .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
+        nativeAccess({ kind: "user", userId: input.stackUserId }),
         eq(coderouterAccounts.teamId, input.sourceTeamId),
         eq(coderouterAccounts.provider, input.credential.provider),
         eq(coderouterAccounts.vaultRevision, expectedRevision),
@@ -616,6 +639,9 @@ export async function encryptedCredentialForAccount(
 }
 
 export async function insertAccountWithCredential(input: {
+  readonly access?: CoderouterAccountAccess;
+  readonly createdBy?: string;
+  readonly visibility?: "private" | "team";
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
 }): Promise<boolean> {
@@ -632,6 +658,8 @@ export async function insertAccountWithCredential(input: {
       .values({
         id: input.encrypted.accountId,
         teamId: input.encrypted.teamId,
+        createdBy: input.createdBy ?? null,
+        visibility: input.visibility ?? "private",
         provider: input.credential.provider,
         providerAccountId: providerIdentityKey(input.credential),
         label,
@@ -650,11 +678,13 @@ export async function insertAccountWithCredential(input: {
       .returning({ id: coderouterAccounts.id });
     if (!inserted) return false;
     await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    await grantVmImportedAccount(tx, input.encrypted.teamId, inserted.id, "native", input.access);
     return true;
   });
 }
 
 export async function replaceAccountCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
   readonly expectedRevision: number;
@@ -689,6 +719,7 @@ export async function replaceAccountCredential(input: {
       })
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
+        nativeAccess(input.access),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
         eq(coderouterAccounts.vaultRevision, input.expectedRevision),
       ))
@@ -784,10 +815,13 @@ export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
   providerAccountId: string,
-): Promise<{ id: string; state: string; vaultRevision: number } | null> {
+  access?: CoderouterAccountAccess,
+): Promise<{ id: string; state: string; vaultRevision: number; visibility: "private" | "team"; createdBy: string | null } | null> {
   const [row] = await cloudDb()
     .select({
       id: coderouterAccounts.id,
+      visibility: coderouterAccounts.visibility,
+      createdBy: coderouterAccounts.createdBy,
       state: coderouterAccounts.state,
       vaultRevision: coderouterAccounts.vaultRevision,
     })
@@ -796,6 +830,7 @@ export async function findAccountByProviderIdentity(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.providerAccountId, providerAccountId),
+      nativeAccess(access),
     ))
     .limit(1);
   return row ?? null;
@@ -829,9 +864,9 @@ export async function bindCodexOwnerIdentity(input: {
   return row !== undefined;
 }
 
-export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential, access?: CoderouterAccountAccess): Promise<void> {
   await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
-    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId), nativeAccess(access)));
 }
 
 export type RoutedAccount = {
@@ -907,6 +942,7 @@ export async function findSessionAccount(
   sessionKey: string,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   let result: unknown;
   try {
@@ -916,6 +952,7 @@ export async function findSessionAccount(
       sessionKey,
       excludedAccountIds,
       signal,
+      access,
     );
   } catch (error) {
     // The session table's migration has not been applied yet. Route without
@@ -940,6 +977,7 @@ async function findSessionAccountStatement(
   sessionKey: string,
   excludedAccountIds: readonly string[],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<unknown> {
   return await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
       update "coderouter_session_accounts" as binding
@@ -949,6 +987,8 @@ async function findSessionAccountStatement(
         and binding."provider" = ${bindingProvider(provider)}
         and binding."session_key" = ${sessionKey}
         and account."id" = binding."account_id"
+        and account."team_id" = binding."team_id"
+        and ${nativeAccess(access, true)}
         -- 'refreshing' is a healthy account with a credential refresh in
         -- flight (seconds). Moving the session would discard its prompt
         -- cache for no reason, so the binding stays usable.
@@ -976,14 +1016,15 @@ export async function claimAccountForPlacement(
   provider: ProviderPool,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   try {
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, true, signal);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, true, signal, access);
   } catch (error) {
     // The session table's migration has not been applied yet. Claim without
     // the session-load ordering term rather than failing the request.
     if (!isMissingSessionTableError(error)) throw error;
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, false, signal);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, false, signal, access);
   }
 }
 
@@ -993,6 +1034,7 @@ async function claimWithOrdering(
   excludedAccountIds: readonly string[],
   withSessionLoad: boolean,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   // First pass skips rows other placements hold locked, so overlapping claims
   // fan out across different accounts instead of herding onto one.
@@ -1003,6 +1045,7 @@ async function claimWithOrdering(
     true,
     withSessionLoad,
     signal,
+    access,
   );
   if (spread) return spread;
   // Every usable account was locked by a concurrent claim (or none exists).
@@ -1015,6 +1058,7 @@ async function claimWithOrdering(
     false,
     withSessionLoad,
     signal,
+    access,
   );
 }
 
@@ -1025,12 +1069,14 @@ async function claimStatement(
   skipLocked: boolean,
   withSessionLoad: boolean,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   const result = await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
       with candidate as (
         select account."id"
         from "coderouter_accounts" as account
         where account."team_id" = ${teamId}
+          and ${nativeAccess(access, true)}
           and ${providerMatch(sql`account."provider"`, provider)}
           and account."state" = 'active'
           and (account."cooldown_until" is null or account."cooldown_until" <= now())
@@ -1144,19 +1190,22 @@ export function createSessionAccountSelector(
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
   signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
 }) => Promise<StickyRoutedAccount | null> {
   return async (input) => {
     throwIfAborted(input.signal);
     const excluded = input.excludedAccountIds ?? [];
+    const sessionKey = scopedSessionKey(input.sessionKey, input.access);
     await dependencies.sweepLeases(input.teamId, input.signal);
     throwIfAborted(input.signal);
-    if (input.sessionKey) {
+    if (sessionKey) {
       const bound = await dependencies.findBound(
         input.teamId,
         input.provider,
-        input.sessionKey,
+        sessionKey,
         excluded,
         input.signal,
+        input.access,
       );
       throwIfAborted(input.signal);
       if (bound) return { ...bound, sticky: true };
@@ -1166,14 +1215,15 @@ export function createSessionAccountSelector(
       input.provider,
       excluded,
       input.signal,
+      input.access,
     );
     throwIfAborted(input.signal);
     if (!placed) return null;
-    if (input.sessionKey) {
+    if (sessionKey) {
       await dependencies.bind(
         input.teamId,
         bindingProvider(input.provider),
-        input.sessionKey,
+        sessionKey,
         placed.id,
         input.signal,
       );
@@ -1200,11 +1250,12 @@ export async function selectAccountForRequest(
   provider: ProviderPool,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   throwIfAborted(signal);
   await sweepExpiredRefreshLeases(teamId, signal);
   throwIfAborted(signal);
-  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds, signal);
+  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds, signal, access);
   throwIfAborted(signal);
   return account;
 }
@@ -1445,4 +1496,13 @@ function encryptedCredentialRow(row: {
     ...row,
     algorithm: "aes-256-gcm",
   };
+}
+
+function nativeAccess(access?: CoderouterAccountAccess, alias = false) {
+  return accountAccessPredicate(alias ? {
+    id: sql`account.id`, teamId: sql`account.team_id`, visibility: sql`account.visibility`, createdBy: sql`account.created_by`,
+  } : {
+    id: sql`${coderouterAccounts.id}`, teamId: sql`${coderouterAccounts.teamId}`,
+    visibility: sql`${coderouterAccounts.visibility}`, createdBy: sql`${coderouterAccounts.createdBy}`,
+  }, "native", access);
 }

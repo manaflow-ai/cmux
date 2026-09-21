@@ -42,7 +42,7 @@ PostHog events go to the main cmux project (`POSTHOG_PROJECT_KEY` / `POSTHOG_HOS
 
 Route outcomes, failures, tokens, models, providers, latency, and Cloud VM attribution are stored in ClickHouse `route_events` and `usage_events`. This avoids a second usage ledger in PostHog and keeps billing and product reporting on one authoritative dataset.
 
-Fault classification (`classifyCoderouterFault`) decides who is paged. `operator` (RDS, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
+Fault classification (`classifyCoderouterFault`) decides who is paged. `operator` (PlanetScale, KMS, config, an unhandled throw): `$exception` at `error` level. `upstream` (provider 5xx/429 that survived failover, transport timeouts) and `tenant` (no usable account): `warning`. `caller` (bad token, 4xx): trace only, no exception. Fingerprints are `coderouter:<outcome>:<stage>:<provider>` for route outcomes and `coderouter.<failure>:<provider>` for reported failures, so one condition is one PostHog issue.
 
 Unhandled throws in a route are no longer swallowed as a bare 503: the wrapper reports `route_crash` with the real stack (PostHog `$exception`, Sentry), then answers with the surface's own 503 shape.
 
@@ -61,7 +61,7 @@ Investigating one failure: take the `x-coderouter-request-id`, query ClickHouse 
 | key | condition | severity | env |
 | --- | --- | --- | --- |
 | `coderouter-health` | health is `degraded` or `down` | warning / critical | |
-| `coderouter-operator-failures` | `provider_unavailable` from our side (RDS/KMS/config), ≥ 1 | critical | `CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M` |
+| `coderouter-operator-failures` | `provider_unavailable` from our side (PlanetScale/KMS/config), ≥ 1 | critical | `CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M` |
 | `coderouter-upstream-failures` | provider 5xx/transport after failover, ≥ 5 | warning | `CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M` |
 | `coderouter-no-usable-account` | tenants with no healthy account, ≥ 10 (names the teams) | warning | `CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M` |
 | `coderouter-auth-rejected` | unauthorized requests ≥ 25 | warning | `CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M` |
@@ -76,3 +76,78 @@ Why the threshold checks stay in code rather than moving to PostHog insight aler
 Required env (audited by `bun scripts/cloud-vm/audit-env.mjs production`): `CLICKHOUSE_URL/USER/PASSWORD/DATABASE`, `CODEROUTER_KMS_KEY_ID` + `AWS_REGION`, and `CRON_SECRET`. Configure `CMUX_ALERTS_SLACK_WEBHOOK_URL` unless `CMUX_ALERTS_SINK_UNCONFIGURED_ACK` records the approved unconfigured sink. `POSTHOG_PROJECT_KEY` has an in-code default. The retired `POSTHOG_CODEROUTER_*` and `CODEROUTER_ANALYTICS_SCOPE_SECRET` keys are flagged as legacy by the audit and can be deleted from Vercel.
 
 Before merging a PR with a new `web/db/migrations/*` directory, run `bun run cloud-vm:migrate -- staging` then `-- production`; a merge deploys immediately and the new code selects the new columns first. ClickHouse DDL under `web/db/clickhouse/` is applied with `bun scripts/clickhouse-migrate.ts <db>` for `coderouter_dev` then `coderouter`, also before the merge.
+
+## VM team and account access
+
+A managed VM has an immutable `cloud_vms.owner_team_id` and one
+`coderouter_pool_id` from that same team. `user_id` records its creator;
+`billing_team_id` remains billing attribution. Existing machines are backfilled
+from their billing scope (or their user id for historical personal machines).
+Changing a payer does not reauthorize the VM. Moving ownership is unsupported.
+
+Every VM token lookup checks that its machine still exists, is live, and belongs
+to the token's team. The request must also carry the matching edge-injected VM
+id. Invalid machine credentials never fall through to a browser cookie or a
+caller-selected organization. Account listing, native and Claude routing, and
+session reuse apply the same team, visibility, and pool membership predicates.
+Removing a pool grant takes effect on the next request, including existing
+sessions. An empty pool returns `no_usable_account` rather than routing through
+another team or a private account. Requests already sent upstream may finish.
+
+New account API writes explicitly set private visibility and their importing user.
+The database default remains shared for compatibility with older servers during
+a rolling deployment; old writes must not create ownerless private accounts. Human route tokens and API
+keys can use that user's private accounts and the selected team's shared
+accounts. An organization VM never inherits its creator's private access.
+Private accounts in a personal scope (`team_id = created_by`) are available to
+that user's personal VMs. Importing privately into an organization, even a
+one-person organization, does not grant its VMs access until the account is
+explicitly shared.
+
+The default pool contains that team's shared accounts. Its membership follows
+explicit sharing changes. Custom pools have the same composite foreign-key
+constraints; custom pool management UI is not part of this change.
+
+`PATCH /api/coderouter/accounts/:id/sharing` accepts
+`{"family":"native"|"claude","visibility":"private"|"team"}` with a Stack
+session and the selected team. Account administration requires Stack's
+`$manage_api_keys` permission, or the user's own personal scope. A private
+account additionally belongs to its importer. The dashboard exposes **Share
+with team** and **Make private**. A VM token cannot administer accounts or mint
+an organization session. The organization catalog returned to a VM contains
+only its own team and `fixed: true`.
+
+Inside a managed machine, `cmux coderouter accounts --json` returns native and
+Claude account metadata under one team id, and `cmux coderouter org current
+--json` reports that fixed team. Organization switching is host-owned. These
+restrictions cover cmux's managed credential path; they do not claim to prevent
+a shell user from manually supplying independent provider credentials.
+
+The migration preserves existing account visibility by placing existing
+accounts in shared default pools. It does not infer that historical imports
+were private. Operators can inspect the preserved set without reading secrets:
+
+```sql
+SELECT team_id, provider, count(*) AS shared_accounts
+FROM coderouter_accounts WHERE visibility = 'team' GROUP BY team_id, provider;
+SELECT team_id, kind, count(*) AS shared_accounts
+FROM coderouter_claude_accounts WHERE visibility = 'team' GROUP BY team_id, kind;
+```
+
+The database tests in `tests/coderouter-vm-scope-db-behavior.test.ts` cover
+cross-team grants, spoofed headers, private visibility, pool revocation, and
+VM deletion. `scripts/coderouter/verify-vm-scope.ts` exercises the real Freestyle
+edge and guest CLI against an isolated development backend using disposable
+Stack identities and account metadata. The runner requires
+`CMUX_SCOPE_E2E_ENVIRONMENT=isolated-development`, the approved development
+Stack project, and matching API/SQL instances on the shared backend host. It verifies account listing and routing
+denial after revocation, without importing customer credentials or invoking a
+paid upstream model. Route traces include `cmux.coderouter.pool_id`.
+
+The ownership migration is an atomic cutover for small catalogs, with an
+explicit precondition of at most 10,000 rows and 32 MiB per existing table.
+It aborts before schema changes above either limit. A two-second lock timeout
+and fifteen-second statement timeout bound interference with live requests;
+a failure rolls back and must be retried. Installations above these limits
+require separate online index/backfill phases rather than disabling the guard.
+The schema and compatibility triggers must land before deploying new readers.

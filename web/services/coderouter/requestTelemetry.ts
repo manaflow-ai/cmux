@@ -104,7 +104,7 @@ export type CoderouterRequestContext = {
   readonly startedAt: number;
   readonly startedAtEpochMs: number;
   readonly vercelRequestId?: string;
-  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
+  identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">;
   authMode?: "api_key" | "route_token" | "control_plane";
   /** Stack user id for control-plane routes (no route token). */
   userId?: string;
@@ -158,7 +158,7 @@ export function currentCoderouterRequestId(): string {
 }
 
 export function recordCoderouterIdentity(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId" | "poolId">,
   authMode: "api_key" | "route_token" | "control_plane" = identity.apiKeyId ? "api_key" : "route_token",
 ): void {
   const context = storage.getStore();
@@ -167,6 +167,7 @@ export function recordCoderouterIdentity(
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
     vmId: identity.vmId,
+    ...(identity.poolId ? { poolId: identity.poolId } : {}),
     ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
   };
   context.authMode = authMode;
@@ -176,6 +177,7 @@ export function recordCoderouterIdentity(
       "cmux.coderouter.bound_to_vm": identity.vmId !== null,
       "cmux.coderouter.vm_id": identity.vmId ?? undefined,
       "cmux.coderouter.auth_mode": authMode,
+      "cmux.coderouter.pool_id": identity.poolId ?? undefined,
     });
   }
 }

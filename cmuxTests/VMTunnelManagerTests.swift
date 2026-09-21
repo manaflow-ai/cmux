@@ -232,6 +232,52 @@ struct VMTunnelManagerTests {
     }
 
     @Test
+    func rcBuildOwnsItsOwnInterfaceAndCredentialPaths() {
+        let home = URL(fileURLWithPath: "/tmp/cmux-tunnel-path-tests", isDirectory: true)
+        let productionURL = URL(string: "https://cmux.com")!
+        let rc = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.rc",
+            apiBaseURL: productionURL
+        )
+
+        let nightlyManager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        // RC is a non-legacy channel like nightly: same credential file shape,
+        // keyed by its own interface name, never the stable `private.key`.
+        func rcName(_ nightlyName: String) -> String {
+            nightlyName.replacingOccurrences(of: "cmux-nightly", with: "cmux-rc")
+        }
+        #expect(rc.interfaceName == "cmux-rc")
+        #expect(rc.privateKeyURL.lastPathComponent == rcName(nightlyManager.privateKeyURL.lastPathComponent))
+        #expect(rc.deviceIDURL.lastPathComponent == rcName(nightlyManager.deviceIDURL.lastPathComponent))
+        #expect(rc.configURL.lastPathComponent == rcName(nightlyManager.configURL.lastPathComponent))
+        #expect(rc.privateKeyURL.lastPathComponent != "private.key")
+
+        let taggedRC = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.rc.candidate1",
+            apiBaseURL: productionURL
+        )
+        let stable = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        #expect(taggedRC != rc.interfaceName)
+        #expect(taggedRC.hasPrefix("cmux-r-"))
+        #expect(rc.interfaceName != stable)
+        #expect(rc.interfaceName != nightly)
+        #expect(taggedRC.utf8.count <= 15)
+        #expect(taggedRC.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
+    }
+
+    @Test
     func taggedBuildIdentityWinsOverItsBackendOrigin() {
         let productionURL = URL(string: "https://cmux.com")!
         let localURL = URL(string: "http://localhost:9170")!

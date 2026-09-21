@@ -82,7 +82,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
                 "CMUXCMUXFISH",
             ]
         }
-        outerLines.append(contentsOf: commonShellExportLines)
+        outerLines.append(contentsOf: commonShellExportLines + Self.remoteInitialWorkingDirectoryLines())
         outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
             protectsFromHangup
