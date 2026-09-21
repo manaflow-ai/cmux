@@ -37,10 +37,14 @@ final class SplitPaneBackgroundUITests: BrowserFixtureSocketTestCase {
            let surfaceID = result["surface_id"] as? String {
             resolved = (workspaceID, surfaceID)
         } else {
-            XCTAssertTrue(waitForCondition(timeout: 20) {
-                resolved = self.restoredTerminal()
-                return resolved != nil
-            }, "No terminal from workspace.create (\(String(describing: created))) or the list methods")
+            XCTAssertTrue(
+                waitForCondition(timeout: 20) {
+                    resolved = self.restoredTerminal()
+                    return resolved != nil
+                },
+                "No terminal from workspace.create (\(String(describing: created))) or the list methods; " +
+                    "raw socket replies: \(rawSocketDiagnostics())"
+            )
         }
         let target = try XCTUnwrap(resolved)
         let sourceWorkspaceID = target.workspaceID
@@ -275,6 +279,21 @@ final class SplitPaneBackgroundUITests: BrowserFixtureSocketTestCase {
         guard let surface = terminals.first(where: { ($0["focused"] as? Bool) == true }) ?? terminals.first,
               let surfaceID = surface["id"] as? String else { return nil }
         return (workspaceID, surfaceID)
+    }
+
+    /// Raw first-line replies for a few requests, sent through `nc -U`, so a
+    /// failure report shows what the app actually answered (a plain-text
+    /// refusal, an error envelope, or nothing).
+    private func rawSocketDiagnostics() -> String {
+        let requests: [(String, String)] = [
+            ("ping", "ping"),
+            ("workspace.list", #"{"id":"diag-1","method":"workspace.list","params":{}}"#),
+            ("workspace.create", #"{"id":"diag-2","method":"workspace.create","params":{"title":"diag"}}"#),
+        ]
+        return requests.map { name, line in
+            let reply = controlSocketCommandViaNetcat(line, socketPath: socketPath, responseTimeout: 10.0)
+            return "\(name) -> \(reply.map { String($0.prefix(400)) } ?? "nil")"
+        }.joined(separator: " | ")
     }
 
     private func readText(surfaceID: String) -> String? {
