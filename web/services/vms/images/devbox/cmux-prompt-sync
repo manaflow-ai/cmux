@@ -136,10 +136,12 @@ def seed_terminal(ready, directory):
                 try:
                     value = json.loads(result.stdout)
                     terminal = terminal_id(value)
-                    if terminal:
-                        marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
                 except (OSError, ValueError, TypeError):
                     pass
+                if not terminal:
+                    terminal = find_existing_terminal()
+                if terminal:
+                    marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
         if not terminal:
             time.sleep(1)
     if terminal and ready.wait(timeout=60):
