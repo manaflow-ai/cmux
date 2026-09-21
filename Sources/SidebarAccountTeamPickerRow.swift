@@ -39,6 +39,7 @@ struct SidebarAccountTeamPickerRow: View {
                 isPresented: $isPresented,
                 preferredEdge: .maxX,
                 detachedGap: 4,
+                presentationAnimation: .enabled,
                 group: popoverGroup
             ) {
                 SidebarAccountTeamPicker(accountFlow: accountFlow)
