@@ -83,7 +83,13 @@ extension CLICallerWorkspaceDefaultTests {
                 return directory.appendingPathComponent("missing-workspace").path
             case "nested-repository":
                 let nested = worktree.appendingPathComponent("nested-repository", isDirectory: true)
-                try? FileManager.default.createDirectory(at: nested.appendingPathComponent(".git", isDirectory: true), withIntermediateDirectories: true)
+                let result = Self.runProcess(
+                    executablePath: "/usr/bin/git",
+                    arguments: ["init", nested.path],
+                    environment: environment,
+                    timeout: 10
+                )
+                precondition(result.status == 0, result.stderr)
                 return nested.path
             default:
                 return worktreePath
