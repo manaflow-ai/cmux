@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 
 /// Cross-process serialization for cmux writers of the same JSON config.
@@ -10,12 +11,22 @@ import Foundation
 /// grants ownership. Never unlink the sidecar: replacing it would split the
 /// lock domain.
 struct JSONConfigWriteLock: Sendable {
+    private static let waitQueue = DispatchQueue(
+        label: "com.cmux.settings.json-write-lock",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
+
     private let descriptor: Int32
 
     static func acquire(target: URL) async throws -> JSONConfigWriteLock {
-        try await Task.detached(priority: .userInitiated) {
-            try JSONConfigWriteLock(blockingTarget: target)
-        }.value
+        try await withCheckedThrowingContinuation { continuation in
+            waitQueue.async {
+                continuation.resume(with: Result {
+                    try JSONConfigWriteLock(blockingTarget: target)
+                })
+            }
+        }
     }
 
     private init(blockingTarget target: URL) throws {
@@ -60,4 +71,5 @@ struct JSONConfigWriteLock: Sendable {
 /// A config mutation that was refused before publication.
 enum JSONConfigWriteConflict: Error, Equatable {
     case sourceChanged
+    case sourceChangedRollbackFailed(rollbackErrno: Int32)
 }
