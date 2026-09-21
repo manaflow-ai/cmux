@@ -119,6 +119,46 @@ extension TerminalSurface {
         )
         guard fit.width > 0, fit.height > 0 else { return nil }
 
+        // A changed report can still resolve to the grid Ghostty already has
+        // (for example when the Mac pane constrains both the old and new phone
+        // limits to 72x60). Pixel fitting may propose a different box for that
+        // same cell grid. Calling set_size for pixel-only drift updates the PTY
+        // winsize and emits SIGWINCH, which is exactly the replay trigger in
+        // #13474. Keep the live pixel box whenever the effective grid is
+        // already current.
+        let liveAfterFit = ghostty_surface_size(surface)
+        let liveGrid = (
+            columns: max(Int(liveAfterFit.columns), 1),
+            rows: max(Int(liveAfterFit.rows), 1)
+        )
+        if Self.mobileViewportLimitMatches(
+            current: liveGrid,
+            requestedColumns: fit.columns,
+            requestedRows: fit.rows
+        ) {
+            let liveWidth = liveAfterFit.width_px
+            let liveHeight = liveAfterFit.height_px
+            lastPixelWidth = liveWidth
+            lastPixelHeight = liveHeight
+            updateMobileViewportBorder(
+                appliedWidth: liveWidth,
+                appliedHeight: liveHeight,
+                baseWidth: baseWidth > 0 ? baseWidth : liveWidth,
+                baseHeight: baseHeight > 0 ? baseHeight : liveHeight
+            )
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.gridCurrent surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(fit.columns)x\(fit.rows) proposedPx=\(fit.width)x\(fit.height) " +
+                "livePx=\(liveWidth)x\(liveHeight) reason=\(reason)"
+            )
+            #endif
+            if fit.fontChanged {
+                ghostty_surface_refresh(surface)
+            }
+            return liveGrid
+        }
+
         let appliedWidth = fit.width
         let appliedHeight = fit.height
         let sizeChanged = appliedWidth != lastPixelWidth || appliedHeight != lastPixelHeight
