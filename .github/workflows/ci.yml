@@ -474,6 +474,9 @@ jobs:
       - name: Validate app-host failure census
         run: python3 tests/test_ci_app_host_failure_census.py
 
+      - name: Validate built app-host test inventory parser
+        run: python3 tests/test_ci_app_host_test_inventory.py
+
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
 
@@ -1201,6 +1204,50 @@ jobs:
           test -n "$framework_source"
           rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+
+      - name: Enumerate built app-host tests
+        if: ${{ matrix.shard == 1 }}
+        run: |
+          set -euo pipefail
+          inventory_dir="$RUNNER_TEMP/cmux-app-host-test-inventory"
+          raw_inventory="$inventory_dir/xcode-enumeration.json"
+          normalized_inventory="$inventory_dir/normalized.json"
+          enumeration_log="$inventory_dir/xcode-enumeration.log"
+          rm -rf -- "$inventory_dir"
+          mkdir -p "$inventory_dir"
+
+          set +e
+          scripts/ci/run-in-console-session.sh \
+            xcodebuild test-without-building \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -enumerate-tests \
+            -test-enumeration-style flat \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$raw_inventory" \
+            >"$enumeration_log" 2>&1
+          enumeration_status=$?
+          set -e
+          cat "$enumeration_log"
+          if [ "$enumeration_status" -ne 0 ]; then
+            echo "Built app-host test enumeration failed with status $enumeration_status" >&2
+            exit "$enumeration_status"
+          fi
+
+          python3 scripts/ci/app_host_test_inventory.py \
+            "$raw_inventory" \
+            --output "$normalized_inventory" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --print-suites
+
+      - name: Upload built app-host test inventory
+        if: ${{ always() && matrix.shard == 1 }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-test-inventory
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
