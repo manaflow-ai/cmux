@@ -889,6 +889,11 @@ public final class ComputerUseRuntimeService {
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
+        // Rehydrate identity-scoped completion before either daemon receives
+        // its first readiness publication after a host restart.
+        if let helperIdentity = ComputerUseHelperIdentity(bundleURL: helperURL).read() {
+            onboarding.restore(for: helperIdentity)
+        }
         let nativeListening = await Self.isDaemonListening(
             paths: paths,
             transport: transport,
