@@ -1,11 +1,12 @@
 import Darwin
+import Dispatch
 import Foundation
 
 /// Cross-process serialization for cmux writers of the same JSON config.
 ///
 /// Actor isolation only serializes one in-process store. The stable sidecar
 /// inode is shared with the cmux-settings helper so every participating writer
-/// takes the same nonblocking lock before reading the persisted source of truth.
+/// takes the same bounded-wait lock before reading the persisted source of truth.
 /// Never unlink the sidecar: replacing it would split the lock domain.
 struct JSONConfigWriteLock {
     private let descriptor: Int32
@@ -33,13 +34,21 @@ struct JSONConfigWriteLock {
             throw POSIXError(.EPERM)
         }
 
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+        // Ordinary overlapping cmux writes should serialize, then re-read
+        // the authoritative file under the lock. Bound the wait so a wedged
+        // helper/editor path cannot pin a synchronous settings call forever.
+        let deadline = DispatchTime.now().uptimeNanoseconds + 2_000_000_000
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
             let code = errno
-            Darwin.close(descriptor)
-            if code == EWOULDBLOCK || code == EAGAIN {
+            guard code == EWOULDBLOCK || code == EAGAIN else {
+                Darwin.close(descriptor)
+                throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            }
+            guard DispatchTime.now().uptimeNanoseconds < deadline else {
+                Darwin.close(descriptor)
                 throw JSONConfigWriteConflict.busy
             }
-            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
+            usleep(10_000)
         }
     }
 
