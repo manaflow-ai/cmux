@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +10,16 @@ import Testing
 
 @MainActor
 struct TerminalPortalReconciliationReentrancyTests {
+    @Test func bindingWorkDoesNotEstablishARevealTransition() {
+        let scheduler = TerminalPortalReconciliationScheduler()
+        var delivered: TerminalWorkContext.Transition?
+        scheduler.stage(reasons: .bindingRequired) { request in
+            delivered = request.transition
+        }
+        scheduler.flushPendingReconciliation()
+        #expect(delivered == .unknown)
+    }
+
     @Test func nestedFlushWaitsForTheActiveGeometryPass() {
         let scheduler = TerminalPortalReconciliationScheduler()
         var events: [String] = []

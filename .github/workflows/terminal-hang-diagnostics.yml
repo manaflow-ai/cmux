@@ -7,6 +7,9 @@ on:
       - Packages/Shared/CmuxSentryTelemetry/**
       - scripts/terminal-hang-release-gate.py
       - tests/test_terminal_hang_release_gate.py
+      - Sources/TerminalPortalReconciliation*.swift
+      - cmuxTests/TerminalPortalReconciliationReentrancyTests.swift
+      - tests/run_terminal_portal_reconciliation_tests.sh
       - .github/workflows/terminal-hang-diagnostics.yml
   workflow_dispatch:
 
@@ -18,6 +21,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  portal-reconciliation:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify portal reconciliation delivery
+        run: bash tests/run_terminal_portal_reconciliation_tests.sh
+
   release-gate:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
