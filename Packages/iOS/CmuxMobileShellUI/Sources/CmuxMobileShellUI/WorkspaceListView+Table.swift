@@ -83,22 +83,30 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
-        let emptyStateMacDeviceID = store?.connectedMacDeviceID
-        let emptyStateMacInstanceTag = store?.connectedMacInstanceTag
+        let emptyStateRecoveryTarget = store?.workspaceListRecoveryTarget
+        let emptyStateMacDeviceID = emptyStateRecoveryTarget?.macDeviceID
+        let emptyStateMacInstanceTag = emptyStateRecoveryTarget?.instanceTag
         let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
             {
-                store.connectedMacDeviceID == emptyStateMacDeviceID
-                    && store.connectedMacInstanceTag == emptyStateMacInstanceTag
+                let currentTarget = store.workspaceListRecoveryTarget
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
             }
         }
         let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
             {
-                store.connectedMacDeviceID == emptyStateMacDeviceID
-                    && store.connectedMacInstanceTag == emptyStateMacInstanceTag
+                let currentTarget = store.workspaceListRecoveryTarget
+                return currentTarget?.macDeviceID == emptyStateMacDeviceID
+                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
                     && store.workspaces.isEmpty
             }
         }
         let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
+            {
+                store.cancelWorkspaceListRecovery()
+            }
+        }
+        let cancelRefreshOnDisappearForEmptyState: (() -> Void)? = store.map { store in
             {
                 store.cancelWorkspaceListRecovery(
                     forMacDeviceID: emptyStateMacDeviceID,
@@ -185,6 +193,7 @@ extension WorkspaceListView {
             reconnect: reconnect,
             refresh: refresh,
             cancelRefresh: cancelRefreshForEmptyState,
+            cancelRefreshOnDisappear: cancelRefreshOnDisappearForEmptyState,
             shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
             isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )

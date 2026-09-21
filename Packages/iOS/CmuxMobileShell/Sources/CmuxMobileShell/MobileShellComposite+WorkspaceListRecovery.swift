@@ -142,9 +142,8 @@ extension MobileShellComposite {
     /// UI-facing recover action for the workspace list when it is showing an
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
-    public func reconnectOrRefresh() async {
-        let recoveryScope: (macDeviceID: String, instanceTag: String?)? =
-            workspaceListReconnectTarget()
+    public var workspaceListRecoveryTarget: (macDeviceID: String, instanceTag: String?)? {
+        workspaceListReconnectTarget()
             ?? workspaceListConnectedRefreshTarget()
             ?? connectedMacDeviceID.map {
                 (macDeviceID: $0, instanceTag: connectedMacInstanceTag)
@@ -152,6 +151,10 @@ extension MobileShellComposite {
             ?? foregroundMacDeviceID.map {
                 (macDeviceID: $0, instanceTag: activeMacInstanceTag)
             }
+    }
+
+    public func reconnectOrRefresh() async {
+        let recoveryScope = workspaceListRecoveryTarget
         let recoveryGeneration = UUID()
         workspaceListRecoveryGeneration = recoveryGeneration
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
