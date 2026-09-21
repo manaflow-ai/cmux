@@ -206,6 +206,16 @@ class ReuseProducts(TestProductHandoff):
             identity.identity_from_tree_lines(base, changed_recipe),
         )
 
+        changed_ghostty_selection = workflow.replace(
+            'echo "sha=$(git -C ghostty rev-parse HEAD)"',
+            'echo "sha=$(git rev-parse HEAD:ghostty)"',
+            1,
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_ghostty_selection),
+        )
+
         self.assertFalse(identity.reaches_product(".github/workflows/ci.yml"))
         self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
