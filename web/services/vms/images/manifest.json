@@ -11643,6 +11643,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11677,6 +11679,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11711,6 +11715,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11745,6 +11751,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11778,6 +11786,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11812,6 +11822,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11846,6 +11858,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11881,6 +11895,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11915,6 +11931,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11949,6 +11967,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -11982,6 +12002,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
@@ -12016,6 +12038,8 @@
       "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
+      "cmuxTuiCommit": "01dc721bcac54383e263877bd201973c11054d8d",
+      "cmuxTuiSha256": "7c3468cf53016dec8af94b620a4d4807a4d53ad003567cadc1def6f637dfb42a",
       "repoCommit": "e7b14069a301a68145374155b3996411d774ede0",
       "epoch": "2026-09-10-r2",
       "devboxSource": {
