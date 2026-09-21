@@ -448,11 +448,16 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.assertFalse(self.consumer.exists())
 
-    def test_unrelated_producer_tree_rejected_before_download(self):
-        self.api.trees["abc123"] = "different-tree"
+    def test_unrelated_producer_inputs_rejected_before_download(self):
+        original = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original,
+            "source": "e" * 64,
+        }
         with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
             self.assertFalse(self.restore_reuse())
             download.assert_not_called()
+        self.api.product_identities["abc123"] = original
 
     def test_completed_compile_can_be_used_while_other_tests_run(self):
         self.api.run['status'] = 'in_progress'
@@ -605,7 +610,7 @@ class ReuseProducts(TestProductHandoff):
             "event": "merge_group",
             "pull_requests": [],
         })
-        self.api.trees["fed789"] = "same-tree"
+        self.api.product_identities["fed789"] = self.contract["product_inputs"]
         second = self.consumer.parent / "second-consumer" / "derived"
         second_report = {}
         self.assertTrue(self.restore_reuse(
