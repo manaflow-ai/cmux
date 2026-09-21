@@ -54,17 +54,25 @@ on:
           - github
           - warp
           - r2
-
+  workflow_call:
+    inputs:
+      seed_only:
+        description: Warm the Debug and Release caches only. Never builds or publishes an app artifact.
+        required: false
+        default: false
+        type: boolean
+      cache_backend:
+        description: Cache store for this run. `default` follows the CI_CACHE_BACKEND repository variable.
+        required: false
+        default: default
+        type: string
 concurrency:
   # A six-hour cache warmup must not wait behind a publishing nightly build or
-  # hold one behind a saturated runner pool. Only that schedule gets a separate
-  # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
-  # publishing schedule, pushes, manual full runs, fast dogfood runs, and
-  # build-only measurements retain their existing serialization rules.
-  # Keep scheduled and manually requested cache seeds in different groups. A
-  # scheduled tick may replace an older scheduled tick, but must never cancel
-  # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # hold one behind a saturated runner pool. Scheduled, manual, and push seed
+  # producers have separate bounded lanes; the normal publication lane keeps
+  # its coalescing group without killing a producer before it starts. Each seed
+  # lane keeps one active producer and one newest pending producer.
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && (github.event_name == 'workflow_dispatch' && 'cache-seed-manual' || 'cache-seed-push') || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
 
 permissions:
@@ -107,11 +115,11 @@ jobs:
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
-          FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
-          BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
-          SEED_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_only && 'true' || 'false' }}
-          COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
+          FORCE_BUILD: ${{ inputs.force && 'true' || 'false' }}
+          FAST_BUILD: ${{ inputs.fast && 'true' || 'false' }}
+          BUILD_ONLY: ${{ inputs.build_only && 'true' || 'false' }}
+          SEED_ONLY: ${{ inputs.seed_only && 'true' || 'false' }}
+          COLD_CACHE: ${{ inputs.build_only && inputs.cold_cache && 'true' || 'false' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -241,7 +249,7 @@ jobs:
 
   refresh-compilation-cache:
     needs: decide
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
@@ -399,10 +407,10 @@ jobs:
   refresh-test-compilation-cache:
     needs: decide
     # The only writer of the Debug compilation cache that ci.yml
-    # `macos-compile-admission` restores. Scheduled, not per push: the seed
-    # mostly saves the package layer, which changes slowly, and a build per
-    # merge would take macOS slots from the pull request queue.
-    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
+    # `macos-compile-admission` restores. The scheduled lane remains the
+    # regular warmup; the reusable seed-only caller also runs this trusted
+    # producer after each main push without starting the publication jobs.
+    if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -1432,6 +1440,8 @@ jobs:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
+    outputs:
+      published: ${{ steps.publish-complete.outputs.published }}
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -1448,6 +1458,23 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
+
+      - name: Verify publication candidate is still current
+        id: freshness
+        if: needs.decide.outputs.should_publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha')"
+          if [ "$current_sha" = "$EXPECTED_SHA" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Publishing current $EXPECTED_SHA on $GITHUB_REF_NAME"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping stale nightly candidate $EXPECTED_SHA; $GITHUB_REF_NAME now points to $current_sha"
+          fi
 
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -1502,7 +1529,7 @@ jobs:
           if-no-files-found: error
 
       - name: Prune old nightly release assets
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.freshness.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1516,7 +1543,7 @@ jobs:
             --execute
 
       - name: Publish nightly release assets
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.freshness.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -1543,7 +1570,7 @@ jobs:
             --feed nightly-out/appcast.xml
 
       - name: Publish verified nightly release metadata
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.freshness.outputs.publish == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           tag_name: ${{ needs.decide.outputs.release_tag }}
@@ -1559,7 +1586,7 @@ jobs:
             - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
 
       - name: Upload nightly appcasts to R2
-        if: needs.decide.outputs.should_publish == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.freshness.outputs.publish == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1588,7 +1615,8 @@ jobs:
       # every publication step succeeds. A newer commit becomes the next run's
       # candidate.
       - name: Move channel release tag to built commit
-        if: needs.decide.outputs.should_publish == 'true'
+        id: publish-complete
+        if: needs.decide.outputs.should_publish == 'true' && steps.freshness.outputs.publish == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -1603,6 +1631,7 @@ jobs:
           # push with `remote: Duplicate header: "Authorization"`).
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             "refs/tags/${CHANNEL_RELEASE_TAG}" --force
+          echo "published=true" >> "$GITHUB_OUTPUT"
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
@@ -1648,7 +1677,7 @@ jobs:
 
   close-nightly-failure-issue:
     needs: [decide, publish-nightly]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success'
+    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.published == 'true'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

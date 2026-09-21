@@ -1,0 +1,23 @@
+name: Nightly cache seed
+
+# Keep cache production independent from the full nightly publication lane. A
+# push can therefore finish the trusted main/post-merge cache handoff even when
+# a newer push supersedes the mutable nightly publication.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  issues: write
+  attestations: write
+  id-token: write
+
+jobs:
+  seed:
+    uses: ./.github/workflows/nightly.yml
+    with:
+      seed_only: true
+      cache_backend: default
+    secrets: inherit

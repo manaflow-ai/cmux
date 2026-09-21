@@ -573,21 +573,65 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# Scheduled, manual, and push seed lanes are bounded independently. A running
+# producer finishes; only an unstarted pending seed may be replaced. Publication
+# remains serialized by the release job's own lock.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
 fi
-if ! grep -Fq "inputs.seed_only && 'cache-seed-manual'" "$WORKFLOW_FILE"; then
+if ! grep -Fq "github.event_name == 'workflow_dispatch' && 'cache-seed-manual'" "$WORKFLOW_FILE"; then
   echo "FAIL: manually dispatched cache seeds must have a separate concurrency group"
   exit 1
 fi
-if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
-  echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
+if ! grep -Fq "inputs.seed_only && (github.event_name == 'workflow_dispatch' && 'cache-seed-manual' || 'cache-seed-push')" "$WORKFLOW_FILE"; then
+  echo "FAIL: reusable push seeds must use the bounded push producer group"
   exit 1
 fi
+python3 - "$WORKFLOW_FILE" <<'PYTEST'
+import importlib.util
+import sys
+from pathlib import Path
+
+workflow = Path(sys.argv[1]).read_text()
+def block(text, heading, indent):
+    marker = " " * indent + heading + ":"
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line == marker:
+            body = [line]
+            for candidate in lines[index + 1:]:
+                if candidate and len(candidate) - len(candidate.lstrip()) <= indent:
+                    break
+                body.append(candidate)
+            return "\n".join(body)
+    raise AssertionError(f"missing {heading}")
+
+top = block(workflow, "concurrency", 0)
+assert "inputs.seed_only && (github.event_name == 'workflow_dispatch' && 'cache-seed-manual' || 'cache-seed-push')" in top
+assert "github.event_name == 'workflow_call'" not in top
+assert "cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" in top
+publish = block(workflow, "publish-nightly", 2)
+assert "published: ${{ steps.publish-complete.outputs.published }}" in publish
+assert "group: release-publish-${{ needs.decide.outputs.release_tag }}" in block(publish, "concurrency", 4)
+assert "cancel-in-progress: false" in block(publish, "concurrency", 4)
+freshness = publish.index("      - name: Verify publication candidate is still current")
+download = publish.index("      - name: Download nightly variant artifacts")
+assert freshness < download
+for name in ("Prune old nightly release assets", "Publish nightly release assets", "Publish verified nightly release metadata", "Upload nightly appcasts to R2", "Move channel release tag to built commit"):
+    start = publish.index(f"      - name: {name}")
+    following = publish.find("\n      - name:", start + 1)
+    step = publish[start:] if following < 0 else publish[start:following]
+    assert "steps.freshness.outputs.publish == 'true'" in step
+close = block(workflow, "close-nightly-failure-issue", 2)
+assert "needs.publish-nightly.outputs.published == 'true'" in close
+def freshness(expected, current):
+    return "true" if expected and current == expected else "false"
+assert freshness("abc", "abc") == "true"
+assert freshness("abc", "def") == "false"
+assert freshness("", "abc") == "false"
+print("PASS: nightly producer/publication scopes and freshness behavior")
+PYTEST
 if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
   echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
   exit 1
