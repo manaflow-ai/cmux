@@ -2449,7 +2449,7 @@ struct ContentView: View {
                         duplicateWhenFocused: true
                     )
                 } catch {
-                    NSSound.beep()
+                    FileExplorerRemotePreviewPresentation.present(error)
                 }
             }
             return

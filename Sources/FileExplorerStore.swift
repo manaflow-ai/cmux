@@ -897,7 +897,9 @@ final class FileExplorerStore: ObservableObject {
             displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
+        Self.pruneRemotePreviewCache(excluding: cacheURL)
         try await remoteProvider.downloadFile(path: path, to: cacheURL)
+        Self.pruneRemotePreviewCache(excluding: cacheURL)
         return cacheURL
     }
 
@@ -1156,6 +1158,40 @@ final class FileExplorerStore: ObservableObject {
         return cacheRoot
             .appendingPathComponent(target, isDirectory: true)
             .appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private static func pruneRemotePreviewCache(excluding protectedURL: URL) {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-file-previews", isDirectory: true)
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: cacheRoot,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+        let fileURLs = urls.flatMap { url -> [URL] in
+            guard let children = try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [] }
+            return children
+        }
+        let ordered = fileURLs.sorted {
+            let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhs < rhs
+        }
+        var totalBytes = fileURLs.reduce(into: 0) { total, url in
+            total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        }
+        var retainedCount = fileURLs.count
+        for url in ordered where retainedCount > 32 || totalBytes > 32 * 1_024 * 1_024 {
+            guard url != protectedURL else { continue }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            try? FileManager.default.removeItem(at: url)
+            totalBytes = max(0, totalBytes - size)
+            retainedCount = max(0, retainedCount - 1)
+        }
     }
 
     private static func sanitizedCacheComponent(_ value: String) -> String {
