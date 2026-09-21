@@ -81,6 +81,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
     public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.dismiss()
+        coordinator.isPresented = false
     }
 
     /// Bridges popover lifecycle between AppKit's `NSPopover` and the SwiftUI binding.
@@ -92,6 +93,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
+        private var closingPopovers: [ObjectIdentifier: NSPopover] = [:]
         private var pendingVisibleRootView: AnyView?
         private var presentationAnimation: CmuxPopoverPresentationAnimation
         private let group: CmuxPopoverGroup?
@@ -189,14 +191,19 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         func dismiss() {
             cancelDeferredRootViewUpdate()
             unregisterFromGroup()
-            if group != nil { popover?.animates = false }
-            popover?.performClose(nil)
+            guard let closing = popover else { return }
             popover = nil
+            closingPopovers[ObjectIdentifier(closing)] = closing
+            if group != nil { closing.animates = false }
+            closing.performClose(nil)
         }
 
         public func popoverWillClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
-            unregisterFromGroup()
+            guard let closing = notification.object as? NSPopover else { return }
+            guard closing === popover || closingPopovers[ObjectIdentifier(closing)] != nil else { return }
+            if closing === popover {
+                unregisterFromGroup()
+            }
         }
 
         private func unregisterFromGroup() {
@@ -206,7 +213,17 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverDidClose(_ notification: Notification) {
-            guard let closing = notification.object as? NSPopover, closing === popover else { return }
+            guard let closing = notification.object as? NSPopover else { return }
+            let closingID = ObjectIdentifier(closing)
+            let isCurrentPopover = closing === popover
+            guard isCurrentPopover || closingPopovers[closingID] != nil else { return }
+            closingPopovers[closingID] = nil
+            guard isCurrentPopover else {
+                if popover == nil, isPresented {
+                    isPresented = false
+                }
+                return
+            }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
