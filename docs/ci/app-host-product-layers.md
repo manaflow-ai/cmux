@@ -69,16 +69,25 @@ this inventory. Signature bytes are preserved; this check does not replace
 `codesign` verification or native execution. All symlink chains must remain within the product namespace; archive
 entries cannot appear beneath a symlink.
 
-The first consumer profile **requires all four layers**. Embedded test bundles
-can be sealed by the host app's CodeResources, so an app-only consumer cannot
-silently omit tests. Independent layers permit granular caching and accounting;
-splitting alone is not a claim of reduced transfer bytes. A future partial profile
-needs evidence from signatures, xctestruns and native loader dependencies.
+The canonical manifest always declares all four layers. Consumer authorization
+is separate and versioned in `scripts/ci/app-host-layer-consumers.json`; a
+consumer may materialize only a canonical-order subset from this full manifest.
+The assembler still validates the complete manifest's ownership graph, then
+requires, verifies and extracts exactly the selected archives. It compares the
+selected reconstruction against the same paths, modes, literal links, content
+digests and portable xattr policy before exclusive publication.
 
-The outer transport index pins this manifest's bytes and all provider artifact
-IDs/digests after upload. It must deliver exactly the four archives beside this
-manifest before invoking restore. Never reinterpret the legacy broker name
-allowlist or substitute layers from another producer attempt.
+Every current consumer requires `app-cli + runtime + tests`. Keeping `app-cli`
+and `tests` together preserves the host app and its sealed embedded XCTest
+products; keeping all of `runtime` preserves complete framework/module groups.
+Top-level diagnostics are the only currently unrequested owner. Unknown products
+remain in `app-cli`, so selective restore never guesses away a new product.
+
+The outer transport index pins this manifest's bytes and all four provider
+artifact IDs/digests after upload. A selective consumer downloads the index plus
+only its authorized layer archives. The index and manifest remain complete: a
+consumer cannot rewrite ownership or reinterpret the legacy broker name allowlist
+because another producer or layer happens to share a digest.
 
 Run the native archive regression suite on macOS:
 
