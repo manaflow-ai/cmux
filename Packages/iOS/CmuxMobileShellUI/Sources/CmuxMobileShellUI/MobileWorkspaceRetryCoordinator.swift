@@ -6,9 +6,10 @@ actor MobileWorkspaceRetryCoordinator {
     private var activeOperation: Task<Void, Never>?
     private var activeOperationID: UUID?
 
-    func run(_ operation: @escaping @Sendable () async -> Void) async {
+    @discardableResult
+    func run(_ operation: @escaping @Sendable () async -> Void) async -> Bool {
         guard activeOperation == nil else {
-            return
+            return false
         }
 
         let operationTask = Task {
@@ -22,16 +23,14 @@ actor MobileWorkspaceRetryCoordinator {
             activeOperationID = nil
             activeOperation = nil
         }
+        return true
     }
 
-    /// Cancels the active transport task. The task remains owned until it
-    /// finishes, while releasing the coordinator so the user can start a fresh
-    /// attempt. The production refresh observes task cancellation before it
-    /// commits a result, and stale completion state is ignored by the row.
+    /// Cancels the active transport task while retaining ownership until it
+    /// finishes. A second tap is rejected during that unwind, so refreshes can
+    /// never overlap even when cancellation takes time to propagate.
     func cancelActive() {
         activeOperation?.cancel()
-        activeOperationID = nil
-        activeOperation = nil
     }
 }
 #endif

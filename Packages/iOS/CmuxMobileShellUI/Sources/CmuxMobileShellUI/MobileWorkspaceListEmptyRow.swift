@@ -38,7 +38,13 @@ struct MobileWorkspaceListEmptyRow: View {
                             retryTask = nil
                             isRetrying = false
                         }
-                        await retryCoordinator.run(retry)
+                        let started = await retryCoordinator.run(retry)
+                        if !started {
+                            retryFailure = L10n.string(
+                                "mobile.workspaces.empty.retryInProgress",
+                                defaultValue: "A refresh is still finishing. Try again in a moment."
+                            )
+                        }
                     }
                     retryTask = task
                     retryDeadlineTask = Task { @MainActor in
