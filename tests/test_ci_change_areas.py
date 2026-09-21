@@ -35,6 +35,7 @@ GUARD_ROUTE_JOBS = {
 }
 WEB_JOBS = (
     "web-typecheck",
+    "web-production-build",
     "web-tests",
     "web-instant-navigation",
     "react-apps-check",
@@ -1730,12 +1731,14 @@ def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
 
 def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
     typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    production = workflow_job_block("web-production-build", WEB_WORKFLOW)
     tests = workflow_job_block("web-tests", WEB_WORKFLOW)
     instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
 
     assert "bun run typecheck" in typecheck
     assert "bun run test" not in typecheck
     assert "playwright" not in typecheck
+    assert "bun run vercel-build" in production
 
     assert 'shard: ["1/4", "2/4", "3/4", "4/4"]' in tests
     assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
