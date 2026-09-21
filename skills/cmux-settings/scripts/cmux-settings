@@ -225,35 +225,6 @@ def exchange_paths(left: Path, right: Path) -> None:
         raise OSError(code, os.strerror(code), str(right))
 
 
-def restore_recovered_entry_if_candidate_is_live(
-    path: Path,
-    staging: Path,
-    candidate: bytes,
-    recovered: tuple[bytes, int, int],
-) -> bool:
-    """Restore recovered bytes only if the atomic swap actually displaced our candidate."""
-    published_before = current_revision(path)
-    recovery_before = current_revision(staging)
-    if (
-        published_before is None
-        or published_before[0] != candidate
-        or recovery_before != recovered
-    ):
-        return False
-
-    exchange_paths(staging, path)
-    displaced = current_revision(staging)
-    if displaced == published_before:
-        return True
-
-    # A later non-participating editor replaced the candidate immediately before
-    # the recovery swap. The exchange captured that newer entry in staging.
-    # Put it back while the path still contains the recovery entry we just moved.
-    if current_revision(path) == recovery_before and current_revision(staging) == displaced:
-        exchange_paths(staging, path)
-    return False
-
-
 def atomic_write_text(
     path: Path,
     text: str,
@@ -292,6 +263,10 @@ def atomic_write_text(
             raise SystemExit(
                 "error: cmux config changed while preparing the edit; retry"
             )
+        if current_revision(path) != expected_revision:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
         os.chmod(tmp_path, current_mode)
 
         # Exchange publication and source capture in one filesystem operation.
@@ -301,18 +276,13 @@ def atomic_write_text(
         staging_contains_recovery = True
         recovered = current_revision(tmp_path)
         if recovered != expected_revision:
-            if (
-                recovered is not None
-                and restore_recovered_entry_if_candidate_is_live(
-                    path,
-                    tmp_path,
-                    candidate,
-                    recovered,
-                )
-            ):
-                staging_contains_recovery = False
+            # The exchange proved a non-participating writer raced the
+            # publication. A second exchange would introduce another TOCTOU
+            # window and could displace an even newer writer. Keep the exact
+            # displaced entry as recovery evidence instead.
             raise SystemExit(
-                "error: cmux config changed while preparing the edit; retry"
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
             )
 
         published = current_revision(path)
