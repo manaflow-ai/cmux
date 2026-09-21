@@ -2904,6 +2904,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let sessionId = "terminal-stack-reset-session"
         let transcriptURL = context.root.appendingPathComponent("codex-terminal-stack-reset.jsonl")
         try [
+            #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#,
             #"{"type":"turn_context","payload":{"turn_id":"parent-turn"}}"#,
             #"{"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"parent-turn"}}"#,
             #"{"type":"turn_context","payload":{"turn_id":"child-turn"}}"#,
@@ -7524,10 +7525,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
-            case "surface.send_text":
+            case "surface.respawn":
                 XCTAssertEqual(params["window_id"] as? String, windowId)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-                XCTAssertEqual(params["text"] as? String, "echo fresh\n")
+                XCTAssertEqual(params["tmux_start_command"] as? String, "echo fresh")
+                let command = params["command"] as? String ?? ""
+                XCTAssertTrue(command.contains("echo fresh"), command)
+                XCTAssertFalse(command.contains("--window"), command)
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceId])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
@@ -7551,7 +7555,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["window.list", "system.identify", "surface.send_text"]
+            ["window.list", "system.identify", "surface.respawn"]
         )
     }
 
