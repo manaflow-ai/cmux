@@ -392,4 +392,3 @@ enum CloudTreeBrowserDetail {
         return row.workspaceTitle
     }
 }
-
