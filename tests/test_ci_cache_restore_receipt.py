@@ -24,7 +24,7 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         events = workflow.get("on", workflow.get(True))
         inspected = {
             ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
-            ".github/workflows/ci.yml", ".github/workflows/nightly.yml",
+            ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
             ".github/workflows/ci-cache-receipts.yml", "scripts/check-test-determinism.py",
             "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
             "tests/test_ci_pull_request_caches_are_read_only.py",
@@ -37,7 +37,7 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = Path(temporary)
             for name in ("tests/test_ci_pull_request_caches_are_read_only.py",
-                         ".github/workflows/ci.yml", ".github/workflows/nightly.yml",
+                         ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
                          ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml"):
                 destination = fixture / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
