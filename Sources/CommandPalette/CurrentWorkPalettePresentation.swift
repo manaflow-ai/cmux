@@ -25,7 +25,9 @@ struct CurrentWorkPalettePresentation {
             parts.append(String(localized: "commandPalette.currentWork.attention", defaultValue: "Attention"))
         }
         let pullRequestFormat = String(localized: "cli.current.pullRequest", defaultValue: "PR: %@")
-        parts.append(contentsOf: item.pullRequests.map { String(format: pullRequestFormat, "#\($0.number)") })
+        parts.append(contentsOf: item.pullRequests.map {
+            String.localizedStringWithFormat(pullRequestFormat, "#\($0.number)")
+        })
         if item.freshness.state != "current" {
             parts.append(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date"))
         }
