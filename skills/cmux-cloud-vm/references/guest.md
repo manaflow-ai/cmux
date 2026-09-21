@@ -46,7 +46,6 @@ Every machine has its own `cmux` (a shim over its cmux-tui daemon). An agent run
 ```bash
 cmux self                               # who am I: name, id, status, team, owner, plan (reflection; no credential in the guest)
 cmux self peers                         # the owner's other machines and their routes; `cmux self integrations` = what I can use, with help commands
-cmux self peers                         # the owner's other machines and their reachable/linked state
 cmux tree --json                        # this machine's workspaces/terminals
 cmux new-workspace --name tests         # a workspace here
 cmux terminal send <term> 'bun test' --keys enter ; cmux terminal wait <term> --pattern 'pass|fail' ; cmux terminal read <term>
