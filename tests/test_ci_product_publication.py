@@ -35,7 +35,7 @@ def condition(expression, *, full_suite, publish="true"):
 class ProductPublicationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
     def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
