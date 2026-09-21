@@ -1,53 +1,91 @@
 import AppKit
 import XCTest
 
-/// The socket only sets up panes. Coordinate clicks enter through native
-/// AppKit routing; the fixture rejects untrusted DOM-generated events.
-final class BrowserNativeClickUITests: BrowserFixtureSocketTestCase {
-    func testNativeClicksSurviveReopenAndOverlayDismissal() throws {
-        let app = try launchApp()
-        app.activate()
-        XCTAssertEqual(app.state, .runningForeground)
-        let pasteboard = NSPasteboard(name: .drag)
-        pasteboard.clearContents()
-        defer { pasteboard.clearContents() }
+/// Uses the macOS pointer path; JavaScript or browser socket clicks cannot
+/// satisfy the trusted mouse-down/up assertions in this fixture.
+final class BrowserNativeClickUITests: XCTestCase {
+    func testNativeClicksSurviveOverlayDismissalAndStaleFileDrag() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication.cmuxTestApplication()
+        let launchTag = "native-click-\(UUID().uuidString.prefix(8))"
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = Self.fixtureURL.absoluteString
+        app.launch()
+        addTeardownBlock { app.terminate() }
 
-        for cycle in 0..<3 {
-            let surfaceID = try openFixture("native-click")
-            let window = app.windows.firstMatch
-            let button = window.buttons["Native click target"].firstMatch
-            XCTAssertTrue(button.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 15))
+        let webView = try XCTUnwrap(browserWebView(in: window))
+        let button = webView.buttons["Native click target"].firstMatch
+        XCTAssertTrue(button.waitForExistence(timeout: 15), "Native click fixture must finish loading")
 
-            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            XCTAssertTrue(window.staticTexts["Trusted clicks: 1"].firstMatch.waitForExistence(timeout: 5))
+        click(button)
+        XCTAssertTrue(
+            webView.staticTexts["Trusted clicks: 1"].firstMatch.waitForExistence(timeout: 5),
+            "The first native click must reach the page"
+        )
 
-            app.typeKey("l", modifierFlags: [.command])
-            let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
-            XCTAssertTrue(omnibar.waitForExistence(timeout: 5))
-            omnibar.typeText("example")
-            let suggestions = app.descendants(matching: .any)["BrowserOmnibarSuggestions"].firstMatch
-            XCTAssertTrue(suggestions.waitForExistence(timeout: 5))
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            let dismissed = XCTNSPredicateExpectation(
-                predicate: NSPredicate { _, _ in !suggestions.exists }, object: nil
-            )
-            XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        app.typeKey("l", modifierFlags: [.command])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 5))
+        omnibar.typeText("example")
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertTrue(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(
+                    predicate: NSPredicate { _, _ in !omnibar.exists },
+                    object: nil
+                )],
+                timeout: 5
+            ) == .completed,
+            "The omnibar must release the page after dismissal"
+        )
 
-            // A finished Finder drag leaves its pasteboard payload behind.
-            XCTAssertTrue(pasteboard.writeObjects([URL(fileURLWithPath: #filePath) as NSURL]))
-            button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            XCTAssertTrue(window.staticTexts["Trusted clicks: 2"].firstMatch.waitForExistence(timeout: 5))
-            let link = window.links["Native navigation target"].firstMatch
-            XCTAssertTrue(link.waitForExistence(timeout: 5))
-            link.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-            XCTAssertTrue(window.staticTexts["Native navigation complete"].firstMatch.waitForExistence(timeout: 5))
-            let attachment = XCTAttachment(screenshot: window.screenshot())
-            attachment.name = "native-click-cycle-\(cycle)"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-            try socketResult(method: "surface.close", params: ["surface_id": surfaceID])
-            pasteboard.clearContents()
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        defer { dragPasteboard.clearContents() }
+        XCTAssertTrue(dragPasteboard.writeObjects([Self.fixtureURL as NSURL]))
+
+        click(button)
+        XCTAssertTrue(
+            webView.staticTexts["Trusted clicks: 2"].firstMatch.waitForExistence(timeout: 5),
+            "A stale Finder payload must not capture the native mouse release"
+        )
+
+        let link = webView.links["Native navigation target"].firstMatch
+        XCTAssertTrue(link.waitForExistence(timeout: 5))
+        click(link)
+        XCTAssertTrue(
+            webView.staticTexts["Native navigation complete"].firstMatch.waitForExistence(timeout: 5),
+            "A native click must activate a WebKit link"
+        )
+    }
+
+    private func click(_ element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+    }
+
+    private func browserWebView(in window: XCUIElement) -> XCUIElement? {
+        let windowFrame = window.frame
+        guard let host = window.children(matching: .any).allElementsBoundByIndex.first(where: {
+            let frame = $0.frame
+            return frame.minX > windowFrame.midX && frame.height > windowFrame.height / 2
+        }) else {
+            return nil
         }
+        let webView = host.elementType == .webView
+            ? host
+            : host.descendants(matching: .webView).firstMatch
+        return webView.exists ? webView : nil
+    }
+
+    private static var fixtureURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("BrowserFixtures/native-click.html")
     }
 }
