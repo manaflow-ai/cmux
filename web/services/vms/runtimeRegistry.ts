@@ -182,10 +182,11 @@ function normalizedBindingText(value: string | null | undefined): string | null 
  * These are identity links only; Codex remains authoritative for transcripts
  * and resume references, while cmux owns the runtime journal and resources.
  */
-export function listHiveRuntimeAgentBindings(ownerTeamId: string, runtimeId: string) {
+export function listHiveRuntimeAgentBindings(ownerTeamId: string, runtimeId: string, limit = 100) {
   return Effect.tryPromise({
-    try: async (): Promise<readonly HiveRuntimeAgentBinding[]> =>
-      await cloudDb().select({ binding: cloudRuntimeAgentBindings })
+    try: async (): Promise<readonly HiveRuntimeAgentBinding[]> => {
+      const boundedLimit = Number.isSafeInteger(limit) ? Math.max(1, Math.min(limit, 100)) : 100;
+      return await cloudDb().select({ binding: cloudRuntimeAgentBindings })
         .from(cloudRuntimeAgentBindings)
         .innerJoin(cloudRuntimes, eq(cloudRuntimes.id, cloudRuntimeAgentBindings.runtimeId))
         .where(and(
@@ -193,7 +194,9 @@ export function listHiveRuntimeAgentBindings(ownerTeamId: string, runtimeId: str
           eq(cloudRuntimeAgentBindings.runtimeId, runtimeId),
         ))
         .orderBy(asc(cloudRuntimeAgentBindings.codexThreadId))
-        .then((rows) => rows.map(({ binding }) => binding)),
+        .limit(boundedLimit)
+        .then((rows) => rows.map(({ binding }) => binding));
+    },
     catch: (cause) => new VmDatabaseError({ operation: "listHiveRuntimeAgentBindings", cause }),
   });
 }

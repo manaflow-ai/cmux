@@ -135,25 +135,36 @@ dbTest("runtime placement resolver fences owner and generation without waking", 
 dbTest("runtime agent bindings preserve root and child identity under owner scope", async () => {
   const placement = await fixture();
   const root = `root-${randomUUID()}`;
+  const parent = `parent-${randomUUID()}`;
   const child = `thread-${randomUUID()}`;
   const childBinding = await Effect.runPromise(bindHiveRuntimeAgent({
     ownerTeamId: owner,
     runtimeId: placement.runtimeId,
     codexThreadId: child,
     rootChatId: root,
+    parentChatId: parent,
   }));
-  expect(childBinding).toMatchObject({ runtimeId: placement.runtimeId, codexThreadId: child, rootChatId: root, parentChatId: null });
+  expect(childBinding).toMatchObject({ runtimeId: placement.runtimeId, codexThreadId: child, rootChatId: root, parentChatId: parent });
   expect(await Effect.runPromise(bindHiveRuntimeAgent({
     ownerTeamId: owner,
     runtimeId: placement.runtimeId,
     codexThreadId: child,
     rootChatId: root,
+    parentChatId: parent,
   }))).toEqual(childBinding);
   expect(await Effect.runPromise(bindHiveRuntimeAgent({
     ownerTeamId: owner,
     runtimeId: placement.runtimeId,
     codexThreadId: child,
     rootChatId: `other-${randomUUID()}`,
+    parentChatId: parent,
+  }))).toBeNull();
+  expect(await Effect.runPromise(bindHiveRuntimeAgent({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    codexThreadId: child,
+    rootChatId: root,
+    parentChatId: `other-parent-${randomUUID()}`,
   }))).toBeNull();
   expect(await Effect.runPromise(bindHiveRuntimeAgent({
     ownerTeamId: "foreign",
@@ -161,7 +172,7 @@ dbTest("runtime agent bindings preserve root and child identity under owner scop
     codexThreadId: `foreign-${randomUUID()}`,
     rootChatId: root,
   }))).toBeNull();
-  expect(await Effect.runPromise(listHiveRuntimeAgentBindings(owner, placement.runtimeId))).toEqual([childBinding]);
+  expect(await Effect.runPromise(listHiveRuntimeAgentBindings(owner, placement.runtimeId, 1))).toEqual([childBinding]);
   expect(await Effect.runPromise(listHiveRuntimeAgentBindings("foreign", placement.runtimeId))).toEqual([]);
 });
 
