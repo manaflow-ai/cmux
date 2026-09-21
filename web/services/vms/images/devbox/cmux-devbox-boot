@@ -60,7 +60,18 @@
 # 30 s for the life of the supervisor so an idle machine never ages out of
 # the fabric's table. The command line is devboxNetworkAnnounceCommand() in
 # network.ts; vm-devbox-identity.test.ts pins the equality. The attach path
-# announces on its own (freestyleNetworkAnnouncement.ts).
+# announces on its own (freestyleNetworkAnnouncement.ts). The same function
+# sends one unsolicited IPv6 neighbor advertisement per global address,
+# through the attach path's own announcer (network.ts carries the script),
+# when python3 is present.
+#
+# The loop's tick adapts: one second in the steady state (a bound, running
+# daemon, or a container still waiting for a driver to install the binary),
+# a tenth of a second while the machine is parked for a snapshot or its
+# daemon is not yet running bound to this machine's instance id. A clone
+# resumes inside whatever sleep the parked source was in, so the parked tick
+# is what bounds the daemon's start after resume: at most 100 ms instead of
+# up to a full second (docs/cloud-startup-latency.md, 4.3).
 #
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
@@ -146,7 +157,39 @@ rekey_ssh_host() {
 }
 
 announce_network() {
-  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; true
+  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; command -v python3 >/dev/null 2>&1 && ip -o -6 addr show scope global 2>/dev/null | { list=""; while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; list="${list:+$list,}\"${cidr%/*}\""; done; [ -n "$list" ] && python3 -c 'import ipaddress,json,socket,struct,subprocess,sys
+expected = {ipaddress.ip_address(value) for value in json.loads(sys.argv[1])}
+links = json.loads(subprocess.check_output(['\''ip'\'', '\''-j'\'', '\''address'\'', '\''show'\''], timeout=3))
+announced = set()
+for link in links:
+    if link.get('\''link_type'\'') != '\''ether'\'' or '\''UP'\'' not in link.get('\''flags'\'', []):
+        continue
+    mac = bytes.fromhex(link['\''address'\''].replace('\'':'\'', '\'''\''))
+    for address in link.get('\''addr_info'\'', []):
+        ip = ipaddress.ip_address(address['\''local'\''])
+        if ip not in expected or ip in announced:
+            continue
+        try:
+            if ip.version == 4:
+                packet = b'\''\xff'\''*6 + mac + struct.pack('\''!HHHBBH'\'', 0x0806, 1, 0x0800, 6, 4, 1)
+                packet += mac + ip.packed + b'\''\x00'\''*6 + ip.packed
+                with socket.socket(socket.AF_PACKET, socket.SOCK_RAW) as stream:
+                    stream.bind((link['\''ifname'\''], 0))
+                    stream.send(packet)
+            else:
+                index = link['\''ifindex'\'']
+                packet = struct.pack('\''!BBHI'\'', 136, 0, 0, 0x20000000) + ip.packed + bytes([2, 1]) + mac
+                with socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6) as stream:
+                    stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_IF, index)
+                    stream.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_MULTICAST_HOPS, 255)
+                    stream.bind((str(ip), 0, 0, index))
+                    stream.sendto(packet, ('\''ff02::1'\'', 0, 0, index))
+        except OSError:
+            continue
+        announced.add(ip)
+if not announced:
+    raise SystemExit('\''Private network addresses are not ready on the guest'\'')
+' "[$list]" >/dev/null 2>&1; }; true
 }
 
 announce_loop() {
@@ -166,6 +209,7 @@ stop_daemon() {
 announce_loop &
 
 while true; do
+  tick=1
   start_desktop
   # A driver can install the binary after boot, and it installs into the home
   # this same selection names, so re-read the layout until one appears.
@@ -174,6 +218,7 @@ while true; do
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
       stop_daemon # the machine being snapshotted: parked until the snapshot is taken
+      tick=0.1
     else
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
         stop_daemon
@@ -190,7 +235,11 @@ while true; do
         (if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"; { mkdir -p /etc/cmux 2>/dev/null; printf '%s\n' "$CMUX_TUI_LAYOUT" > /etc/cmux/daemon-layout; } 2>/dev/null; cd "$CMUX_TUI_HOME" && if [ "$CMUX_TUI_USER" = root ]; then exec env HOME="$CMUX_TUI_HOME" TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; else exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; fi) &
         daemon_pid=$!
       fi
+      # Bound and running is the steady state; anything else (a start that
+      # did not take, an instance id the metadata service did not answer
+      # with yet) is retried on the fast tick.
+      if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null || [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then tick=0.1; fi
     fi
   fi
-  sleep 1
+  sleep "$tick"
 done

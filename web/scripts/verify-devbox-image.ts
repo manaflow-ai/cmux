@@ -23,6 +23,10 @@
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
 import { agentLaunchCheck } from "./devbox-agent-launch";
+import { guestBrowserReadyCommand } from "../services/vms/guestBrowser";
+import { GUEST_CMUX_SHIM_PATH, guestCliShimReadyCommand } from "../services/vms/guestCli";
+import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
+import { guestResourceReporterReadyCommand } from "../services/vms/guestResourceReporter";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
@@ -160,6 +164,23 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
   cmuxTuiWebsocketSmokeCommand(),
+];
+
+// The guest cmux tools the image bakes from epoch 2026-09-21-r1 (issue
+// #13070; build-devbox-freestyle.ts): the driver's own readiness gates for
+// the in-VM shim, the Cloud CLI distribution, the browser openers and the
+// resource reporter, exactly as ensureGuestCli / ensureResourceReporter run
+// them at create and attach, so a passing image needs no install exec from
+// the driver. Then the hand check from the startup-latency plan, verbatim
+// (its transcript reads like the check a person runs with `cmux vm exec`)
+// and asserted.
+const GUEST_TOOL_CHECKS: readonly string[] = [
+  `${guestCliShimReadyCommand()} && test -x ${GUEST_CMUX_SHIM_PATH} && echo guest-cli-shim-baked`,
+  `${guestCliDistributionCommand(true)} && test -x /usr/local/bin/cmux && test -x /usr/local/bin/coderouter && test -x /usr/local/bin/cr && echo guest-cli-distribution-baked`,
+  `${guestBrowserReadyCommand} && echo guest-browser-openers-baked`,
+  `${guestResourceReporterReadyCommand()} && echo guest-resource-reporter-baked`,
+  "sh -lc 'test -x /usr/local/bin/cmux && cmux --version; command -v coderouter cr; readlink -f /usr/local/bin/xdg-open; xdg-mime query default x-scheme-handler/https; systemctl is-active cmux-resource-stats; cat /etc/cmux/vm-name /etc/cmux/image-stamp'",
+  `cmux --version | grep -q . && [ "$(command -v coderouter)" = /usr/local/bin/coderouter ] && [ "$(command -v cr)" = /usr/local/bin/cr ] && [ "$(readlink -f /usr/local/bin/xdg-open)" = /usr/local/bin/xdg-open ] && [ "$(xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(runuser -u ${DEVBOX_WORK_USER} -- xdg-mime query default x-scheme-handler/https)" = cmux-browser.desktop ] && [ "$(systemctl is-active cmux-resource-stats)" = active ] && [ "$(cat /etc/cmux/vm-name)" = cmux ] && echo guest-tools-parity-ok`,
 ];
 
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
@@ -466,6 +487,7 @@ if (provider === "freestyle") {
     pass = await runChecks("freestyle", [
       ...CHECKS,
       ...DAEMON_CHECKS,
+      ...GUEST_TOOL_CHECKS,
       ...FREESTYLE_BASE_CHECKS,
       ...AGENT_LAUNCH_CHECKS,
       ...IDENTITY_CHECKS,
