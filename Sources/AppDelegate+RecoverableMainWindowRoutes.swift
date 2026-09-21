@@ -495,7 +495,7 @@ extension AppDelegate {
             }
             let restorableAgentIndex = resumeIndexes.restorableAgentIndex
             guard !Task.isCancelled else { return }
-            let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
+            let detectedSurfaceResumeBindingIndex = resumeIndexes.surfaceResumeBindingIndex
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
