@@ -195,6 +195,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverWillClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             unregisterFromGroup()
         }
 
@@ -205,6 +206,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         public func popoverDidClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover, closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
