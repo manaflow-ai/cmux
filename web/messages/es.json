@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Este tamaño de máquina no está disponible. Elige hasta {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go incluye dos VM guardadas, incluida la VM en ejecución.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Si encontramos una cuenta, revisa tu correo para conocer los siguientes pasos"
   },
@@ -387,14 +387,50 @@
       "revoked": "Revocado",
       "relaySettings": "Configuración de retransmisión",
       "relaySettingsDescription": "Elige los servidores de retransmisión que usa este equipo. Introduce una URL por línea.",
-      "saveRelaySettings": "Guardar configuración de retransmisión"
+      "saveRelaySettings": "Guardar configuración de retransmisión",
+      "eyebrow": "nube / dispositivos",
+      "scopeActive": "Mostrando este equipo",
+      "emptyTitle": "Aún no hay dispositivos conectados",
+      "emptyDescription": "Cuando un dispositivo cmux se vincule con este equipo, aparecerá aquí con su plataforma, versión y controles de acceso.",
+      "revoking": "Revocando…",
+      "registeredDevices": "Dispositivos registrados",
+      "activeDevices": "Dispositivos activos",
+      "directoryRevision": "Revisión del directorio",
+      "savingRelaySettings": "Guardando…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartir con el equipo",
       "makePrivate": "Hacer privado",
       "privateImportHint": "Las cuentas nuevas son privadas. Comparte una cuenta para que esté disponible en las VM Cloud de este equipo.",
       "description": "Las cuentas compartidas están disponibles para las VM Cloud de este equipo. Las cuentas privadas solo están disponibles para quien las añadió.",
-      "cancelAction": "Cancelar"
+      "cancelAction": "Cancelar",
+      "apiKeysTitle": "Claves API",
+      "apiKeysDescription": "Crea claves de larga duración para scripts y agentes. El secreto se muestra una vez.",
+      "apiKeysCount": "{count, plural, one {# clave} other {# claves}}",
+      "apiKeysLoading": "Cargando claves API…",
+      "apiKeysLoadError": "No se pudieron cargar las claves API. Inténtalo de nuevo pronto.",
+      "apiKeysRetry": "Reintentar",
+      "apiKeysEmptyBody": "Aún no hay claves API. Crea una para autenticar un cliente de CodeRouter.",
+      "apiKeyPrefixColumn": "Clave",
+      "apiKeyStatusColumn": "Estado",
+      "apiKeySecretTitle": "Copia esta clave ahora",
+      "apiKeySecretBody": "Este secreto no volverá a mostrarse.",
+      "apiKeyCopy": "Copiar clave API",
+      "apiKeyCopied": "Copiado",
+      "apiKeyCreatedAt": "creada {at}",
+      "apiKeyLastUsed": "último uso {at}",
+      "apiKeyRevoked": "Revocada",
+      "apiKeyLabelPlaceholder": "Por ejemplo, CI o producción",
+      "createApiKeyAction": "Crear clave API",
+      "creatingApiKeyAction": "Creando",
+      "apiKeyCreateError": "No se pudo crear la clave API.",
+      "revokeApiKeyAction": "Revocar",
+      "revokingApiKeyAction": "Revocando",
+      "apiKeyRevokeError": "No se pudo revocar la clave API.",
+      "revokeApiKeyConfirmTitle": "¿Revocar esta clave API?",
+      "apiKeyUsageDetail": "últimos 30 días: {completions} finalizaciones · {tokens} tokens ({input} entrada / {output} salida) · equivalente API de {value}",
+      "apiKeyUsageUnavailable": "Uso no disponible",
+      "revokeApiKeyConfirmBody": "Los clientes que usen esta clave dejarán de autenticarse inmediatamente."
     }
   },
   "community": {
@@ -1343,7 +1379,7 @@
       "plusButtonScreenshotAlt": "Menú de clic derecho del botón más de cmux con Worktree Agents, New Terminal y New Browser",
       "plusButtonScreenshotCaption": "El menú de clic derecho sigue el orden de ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Acciones personalizadas del botón de suma",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> para sobrescribir lo que hace el botón de suma. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o el alias <rightClick>rightClick</rightClick>) para definir el menú ordenado del clic derecho. Las entradas del menú pueden ser ID de acción, objetos de acción o <separator>{ \"type\": \"separator\" }</separator>. Si no se configura, el menú muestra cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), cada uno con su atajo actual. Las opciones de la nube solo aparecen si Cloud Machines está habilitado. New Cloud Workspace usa la máquina del último espacio de trabajo Cloud seleccionado y después la primera máquina de la barra lateral derecha; New Cloud Machine aprovisiona una máquina deliberadamente.",
       "newWorkspaceWorktreeNote": "Este ejemplo hace que el clic normal en el botón más ejecute la acción <action>worktree-agents</action>. El comando de espacio de trabajo de <commands>commands</commands> usa una terminal de preparación visible para crear primero el <worktree>worktree</worktree> de Git. Codex y Claude se inician al mismo tiempo, esperan el archivo de estado específico del espacio de trabajo y luego entran en el directorio creado antes de exec.",
       "simpleCommands": "Comandos simples",
       "simpleCommandsDesc": "Un comando simple ejecuta un comando de shell en el terminal actualmente enfocado:",

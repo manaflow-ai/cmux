@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Цей розмір машини недоступний. Виберіть до {max} ГіБ.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go включає дві збережені ВМ, зокрема запущену.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Якщо ми знайшли обліковий запис, перевірте електронну пошту, щоб дізнатися про наступні кроки"
   },
@@ -387,14 +387,50 @@
       "revoked": "Відкликано",
       "relaySettings": "Налаштування ретрансляції",
       "relaySettingsDescription": "Виберіть сервери ретрансляції для цієї команди. Вводьте по одному URL у рядку.",
-      "saveRelaySettings": "Зберегти налаштування ретрансляції"
+      "saveRelaySettings": "Зберегти налаштування ретрансляції",
+      "eyebrow": "хмара / пристрої",
+      "scopeActive": "Показано цю команду",
+      "emptyTitle": "Підключених пристроїв ще немає",
+      "emptyDescription": "Після сполучення пристрою cmux із цією командою тут з’являться його платформа, версія та налаштування доступу.",
+      "revoking": "Відкликання доступу…",
+      "registeredDevices": "Зареєстровані пристрої",
+      "activeDevices": "Активні пристрої",
+      "directoryRevision": "Ревізія каталогу",
+      "savingRelaySettings": "Збереження…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Поділитися з командою",
       "makePrivate": "Зробити приватним",
       "privateImportHint": "Нові облікові записи приватні. Поділіться записом, щоб він став доступним хмарним ВМ цієї команди.",
       "description": "Спільні облікові записи доступні хмарним ВМ цієї команди. Приватні облікові записи доступні лише тому, хто їх додав.",
-      "cancelAction": "Скасувати"
+      "cancelAction": "Скасувати",
+      "apiKeysTitle": "Ключі API",
+      "apiKeysDescription": "Створюйте довготривалі ключі для скриптів і агентів. Секрет показується один раз.",
+      "apiKeysCount": "{count, plural, one {# ключ} few {# ключі} many {# ключів} other {# ключа}}",
+      "apiKeysLoading": "Завантаження ключів API…",
+      "apiKeysLoadError": "Не вдалося завантажити ключі API. Спробуйте ще раз незабаром.",
+      "apiKeysRetry": "Повторити",
+      "apiKeysEmptyBody": "Ключів API ще немає. Створіть ключ для автентифікації клієнта CodeRouter.",
+      "apiKeyPrefixColumn": "Ключ",
+      "apiKeyStatusColumn": "Стан",
+      "apiKeySecretTitle": "Скопіюйте цей ключ зараз",
+      "apiKeySecretBody": "Цей секрет більше не буде показано.",
+      "apiKeyCopy": "Копіювати ключ API",
+      "apiKeyCopied": "Скопійовано",
+      "apiKeyCreatedAt": "створено {at}",
+      "apiKeyLastUsed": "останнє використання {at}",
+      "apiKeyRevoked": "Відкликано",
+      "apiKeyLabelPlaceholder": "Наприклад, CI або продакшен",
+      "createApiKeyAction": "Створити ключ API",
+      "creatingApiKeyAction": "Створення",
+      "apiKeyCreateError": "Не вдалося створити ключ API.",
+      "revokeApiKeyAction": "Відкликати",
+      "revokingApiKeyAction": "Відкликання",
+      "apiKeyRevokeError": "Не вдалося відкликати ключ API.",
+      "revokeApiKeyConfirmTitle": "Відкликати цей ключ API?",
+      "apiKeyUsageDetail": "останні 30 днів: {completions} завершень · {tokens} токенів ({input} вхід / {output} вихід) · API-еквівалент {value}",
+      "apiKeyUsageUnavailable": "Дані використання недоступні",
+      "revokeApiKeyConfirmBody": "Клієнти, які використовують цей ключ, одразу втратять автентифікацію."
     }
   },
   "community": {
@@ -1327,7 +1363,7 @@
       "plusButtonScreenshotAlt": "Меню правого кліку кнопки плюс у cmux показує Worktree Agents, New Terminal і New Browser",
       "plusButtonScreenshotCaption": "Меню правого кліку дотримується порядку з ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Користувацькі дії кнопки плюс",
-      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
+      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines. New Cloud Workspace використовує машину останнього вибраного робочого простору Cloud, а потім першу машину на правій бічній панелі; New Cloud Machine навмисно створює машину.",
       "newWorkspaceWorktreeNote": "У цьому прикладі звичайний клік по плюсу запускає дію <action>worktree-agents</action>. Команда робочого простору з <commands>commands</commands> використовує видимий термінал налаштування, щоб спочатку створити Git <worktree>worktree</worktree>. Codex і Claude запускаються одночасно, чекають файл стану для цього робочого простору, а потім переходять у створений каталог перед exec.",
       "simpleCommands": "Прості команди",
       "simpleCommandsDesc": "Проста команда виконує shell-команду в поточному активному терміналі:",

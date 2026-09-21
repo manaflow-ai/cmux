@@ -103,11 +103,16 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
+        } else if case .device(let row) = node.kind {
+            // Full status and counts: the row itself carries only a dim fact.
+            toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
         } else {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .device(let row) = node.kind {
+            setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
         } else if case .resource(_, let row) = node.kind {
             setAccessibilityLabel(row.accessibilityLabel)
         } else if case .terminal(let row) = node.kind {

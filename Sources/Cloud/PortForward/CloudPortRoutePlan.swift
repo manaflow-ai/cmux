@@ -19,7 +19,7 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         }
         let raw = resource.url ?? (desktop
             ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address)
-            : CmuxInternalHostnames.directPortURL(privateAddress: address, port: port))
+            : CmuxInternalHostnames().directPortURL(privateAddress: address, port: port))
         guard let url = privateURL(raw, address: address) else {
             return .unsupported(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
         }

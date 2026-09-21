@@ -148,6 +148,72 @@ struct SSHConnectionSharingOptionsTests {
         ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
     }
 
+    @Test("An explicit persistence flag does not import OpenSSH's disabled sharing defaults", arguments: [
+        ("ControlPersist=0", "yes"),
+        ("ControlPersist=10", "10"),
+    ])
+    func explicitPersistenceKeepsMissingSharingDefaults(option: String, resolvedValue: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster false
+            controlpath none
+            controlpersist \(resolvedValue)
+            """,
+            explicitOptions: [option]
+        )
+        let merged = options.mergingDefaults(into: [option], userConfiguredControlOptions: configured)
+
+        #expect(configured == nil)
+        #expect(merged == [option, "ControlMaster=auto", "ControlPath=/tmp/cmux-ssh-501-%C"])
+        #expect(options.cmuxOwnedControlPath(in: merged) == "/tmp/cmux-ssh-501-%C")
+    }
+
+    @Test("An explicit master flag does not import OpenSSH's absent control path")
+    func explicitMasterKeepsMissingSharingDefaults() {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster auto
+            controlpath none
+            controlpersist no
+            """,
+            explicitOptions: ["ControlMaster=auto"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlMaster=auto"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(configured == nil)
+        #expect(merged == [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ])
+    }
+
+    @Test("Explicit persistence preserves independently configured host control settings", arguments: ["auto", "false"])
+    func explicitPersistencePreservesCustomHostPath(controlMaster: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster \(controlMaster)
+            controlpath /Users/alice/.ssh/configured-%C
+            controlpersist yes
+            """,
+            explicitOptions: ["ControlPersist=0"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlPersist=0"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(merged == [
+            "ControlPersist=0",
+            "ControlMaster=\(controlMaster)",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+        ])
+        #expect(options.cmuxOwnedControlPath(in: merged) == nil)
+    }
+
     @Test("Explicit CLI control options win per key over resolved ssh_config settings")
     func explicitOptionsWinOverResolvedConfiguration() {
         let configured = [

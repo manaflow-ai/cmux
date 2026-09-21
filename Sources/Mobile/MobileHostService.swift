@@ -594,6 +594,8 @@ final class MobileHostService {
             return payload["surface_id"] as? String
         case MobileHostEventTopicPolicy.simulatorFrameTopic:
             return payload["panel_id"] as? String
+        case DeviceWorkspaceLayoutHost.eventTopic:
+            return payload["workspace_id"] as? String
         default:
             return nil
         }
@@ -690,15 +692,13 @@ final class MobileHostService {
         defaults: UserDefaults,
         buildFlavor: BuildFlavor
     ) -> Bool {
-        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
-            return override
-        }
-        // Preserve an existing user's explicit choice from before the settings
-        // catalog migration. A current explicit disable always wins above.
-        if let legacyOverride = defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool {
-            return legacyOverride
-        }
-        return false
+        guard !ManagedDevicePolicy(defaults: defaults).isIncomingDeviceAccessDisabled else { return false }
+        // The current iOS choice takes precedence over the historical key;
+        // incoming Mac access remains an independent opt-in.
+        let iOSPairingEnabled = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool
+            ?? defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool
+            ?? false
+        return iOSPairingEnabled || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -851,9 +851,11 @@ final class MobileHostService {
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         firstFrameTimeoutNanoseconds: UInt64? = nil,
         promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        irohAdmissionIsAuthorized: @escaping @Sendable () async -> Bool = { true },
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
         },
+        peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -913,7 +915,14 @@ final class MobileHostService {
                 )
                 return true
             },
+            isAuthorizationCurrent: {
+                if case .irohAdmission = authorization {
+                    return await irohAdmissionIsAuthorized()
+                }
+                return true
+            },
             handleRequest: { request in
+                if let result = await peerRequestHandler?(request) { return result }
                 if request.method == "mobile.host.status" {
                     return await Self.connectionStatusResult(
                         for: request,
@@ -1405,6 +1414,9 @@ actor MobileHostConnection {
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    /// Per-request authorization for transports whose admission lease can
+    /// expire while the connection remains open (Iroh).
+    private let isAuthorizationCurrent: @Sendable () async -> Bool
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
@@ -1449,6 +1461,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -1460,6 +1473,7 @@ actor MobileHostConnection {
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -1477,6 +1491,7 @@ actor MobileHostConnection {
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
@@ -1487,6 +1502,7 @@ actor MobileHostConnection {
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
+        self.isAuthorizationCurrent = isAuthorizationCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -1813,6 +1829,18 @@ actor MobileHostConnection {
     ) async -> PreparedResponse? {
         guard !isClosed, !Task.isCancelled else {
             return nil
+        }
+        guard await isAuthorizationCurrent() else {
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: .failure(MobileHostRPCError(
+                        code: "admission_expired",
+                        message: "The remote device authorization has expired. Reconnect to continue."
+                    ))
+                ),
+                readinessContribution: nil
+            )
         }
         let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
         if tracksInteractiveActivity {

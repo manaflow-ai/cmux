@@ -81,6 +81,12 @@ final class SidebarDividerTrackingView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
+        trackMouseDown(with: event, in: window)
+    }
+
+    /// Keeps a portal-owned drag on its original window during tracker reparenting.
+    func trackMouseDown(with event: NSEvent, in window: NSWindow) {
+        guard event.window === window else { return }
         onBegan?()
         let startX = event.locationInWindow.x
         var eventCount = 0

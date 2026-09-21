@@ -235,6 +235,8 @@ struct SidebarHiddenPresentationTests {
             defer: false
         )
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()
@@ -329,10 +331,19 @@ struct SidebarHiddenPresentationTests {
         )
 
         let contentView = try #require(window.contentView)
-        let sidebarFocusHost = try #require(descendants(of: SidebarPointerEventHostView.self, in: contentView).first)
+        let sidebarFocusHost = try #require(
+            descendants(of: SidebarPointerEventHostView.self, in: contentView)
+                .max { lhs, rhs in
+                    lhs.bounds.width * lhs.bounds.height < rhs.bounds.width * rhs.bounds.height
+                }
+        )
         let sidebarFrame = sidebarFocusHost.convert(sidebarFocusHost.bounds, to: contentView)
-        let sidebarField = NSTextField(frame: NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24))
-        contentView.addSubview(sidebarField)
+        let fieldFrameInHost = sidebarFocusHost.convert(
+            NSRect(x: sidebarFrame.midX - 60, y: sidebarFrame.midY - 12, width: 120, height: 24),
+            from: contentView
+        )
+        let sidebarField = NSTextField(frame: fieldFrameInHost)
+        sidebarFocusHost.addSubview(sidebarField)
         #expect(window.makeFirstResponder(sidebarField))
         let sidebarEditor = try #require(sidebarField.currentEditor())
         let sidebarBoundary = SidebarFocusBoundaryReference()

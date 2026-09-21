@@ -27,9 +27,11 @@ EXTRA_INPUTS = {
 GLOBAL_INPUTS = (
     ".github/workflows/ci.yml",
     "scripts/build-ghostty-cli-helper.sh",
+    "scripts/ci/release-build-archs.sh",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
     "scripts/install-zig-ci.sh",

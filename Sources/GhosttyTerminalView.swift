@@ -6327,9 +6327,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
-            // For performable bindings where the menu didn't handle the event,
-            // fall through to keyDown so Ghostty can perform the action directly
-            // (e.g. paste when no menu item exists).
+            // Claim only the actual paste binding, then use the native action's
+            // clipboard sequencing instead of replaying the key into Ghostty.
+            if isConsumed, !isAll, keySequence.isEmpty, keyTables.isEmpty,
+               flags == [.command] || flags == [.command, .shift],
+               event.charactersIgnoringModifiers?.lowercased() == "v",
+               ghosttyConsumeMenuAction("paste_from_clipboard", for: event, surface: surface) {
+                if flags.contains(.shift) {
+                    pasteAsPlainText(nil)
+                } else {
+                    paste(nil)
+                }
+                return true
+            }
+
+            // Other bindings remain on Ghostty's normal keyDown path.
             keyDown(with: event)
             return true
         }
@@ -9055,14 +9067,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.windowsThatReportedVisible.add(window)
         }
         terminalSurface?.setRendererWindowVisible(
-            TerminalRendererWindowVisibility.isVisible(
+            TerminalRendererWindowVisibility(
                 occlusionVisible: occlusionVisible,
                 windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
                 isWindowVisible: window.isVisible,
                 isMiniaturized: window.isMiniaturized,
                 isOnActiveSpace: window.isOnActiveSpace,
                 isKeyWindow: window.isKeyWindow
-            )
+            ).isVisible
         )
     }
 
@@ -13159,11 +13171,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        TerminalScrollBarPresencePolicy.isPresent(
+        TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
             hasScrollback: surfaceHasScrollback()
-        )
+        ).isPresent
     }
 
 }

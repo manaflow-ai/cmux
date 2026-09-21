@@ -1,0 +1,40 @@
+name: Agent PR review gate
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  agent-pr-review-complete:
+    name: agent-pr-review-complete
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      # pull_request_target loads this workflow from the default branch. The
+      # checker is read from the base branch, so PR authors cannot replace the
+      # code that runs with the token. No PR files are checked out or executed.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Bootstrap trusted checker
+        if: hashFiles('.github/scripts/agent-pr-review-gate.py') == ''
+        run: >-
+          echo 'agent-pr-review-complete: PASS (checker is introduced by this PR and will enforce from the next PR onward)'
+      - name: Evaluate current-head review obligations
+        if: hashFiles('.github/scripts/agent-pr-review-gate.py') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
+          AGENT_REVIEW_REPLY_ACTORS: ${{ vars.AGENT_REVIEW_REPLY_ACTORS || github.event.pull_request.user.login }}
+          REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '0' }}
+        run: python3 .github/scripts/agent-pr-review-gate.py

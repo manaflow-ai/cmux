@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },
@@ -387,14 +387,50 @@
       "revoked": "Revocato",
       "relaySettings": "Impostazioni relay",
       "relaySettingsDescription": "Scegli i server relay usati da questo team. Inserisci un URL per riga.",
-      "saveRelaySettings": "Salva impostazioni relay"
+      "saveRelaySettings": "Salva impostazioni relay",
+      "eyebrow": "cloud / dispositivi",
+      "scopeActive": "Visualizzazione di questo team",
+      "emptyTitle": "Nessun dispositivo connesso",
+      "emptyDescription": "Quando un dispositivo cmux viene associato a questo team, apparirà qui con piattaforma, versione e controlli di accesso.",
+      "revoking": "Revoca in corso…",
+      "registeredDevices": "Dispositivi registrati",
+      "activeDevices": "Dispositivi attivi",
+      "directoryRevision": "Revisione dell’elenco",
+      "savingRelaySettings": "Salvataggio…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Condividi con il team",
       "makePrivate": "Rendi privato",
       "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
       "description": "Gli account condivisi sono disponibili per le VM Cloud di questo team. Gli account privati restano accessibili solo alla persona che li ha aggiunti.",
-      "cancelAction": "Annulla"
+      "cancelAction": "Annulla",
+      "apiKeysTitle": "Chiavi API",
+      "apiKeysDescription": "Crea chiavi a lunga durata per script e agenti. Il segreto viene mostrato una sola volta.",
+      "apiKeysCount": "{count, plural, one {# chiave} other {# chiavi}}",
+      "apiKeysLoading": "Caricamento delle chiavi API…",
+      "apiKeysLoadError": "Impossibile caricare le chiavi API. Riprova tra poco.",
+      "apiKeysRetry": "Riprova",
+      "apiKeysEmptyBody": "Nessuna chiave API. Creane una per autenticare un client CodeRouter.",
+      "apiKeyPrefixColumn": "Chiave",
+      "apiKeyStatusColumn": "Stato",
+      "apiKeySecretTitle": "Copia subito questa chiave",
+      "apiKeySecretBody": "Questo segreto non verrà mostrato di nuovo.",
+      "apiKeyCopy": "Copia chiave API",
+      "apiKeyCopied": "Copiata",
+      "apiKeyCreatedAt": "creata {at}",
+      "apiKeyLastUsed": "ultimo uso {at}",
+      "apiKeyRevoked": "Revocata",
+      "apiKeyLabelPlaceholder": "Ad esempio, CI o produzione",
+      "createApiKeyAction": "Crea chiave API",
+      "creatingApiKeyAction": "Creazione",
+      "apiKeyCreateError": "Impossibile creare la chiave API.",
+      "revokeApiKeyAction": "Revoca",
+      "revokingApiKeyAction": "Revoca in corso",
+      "apiKeyRevokeError": "Impossibile revocare la chiave API.",
+      "revokeApiKeyConfirmTitle": "Revocare questa chiave API?",
+      "apiKeyUsageDetail": "ultimi 30 giorni: {completions} completamenti · {tokens} token ({input} input / {output} output) · equivalente API {value}",
+      "apiKeyUsageUnavailable": "Utilizzo non disponibile",
+      "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi."
     }
   },
   "community": {
@@ -1343,7 +1379,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato. New Cloud Workspace usa la macchina dell’ultimo spazio di lavoro Cloud selezionato, poi la prima macchina nella barra laterale destra; New Cloud Machine esegue intenzionalmente il provisioning di una macchina.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",
