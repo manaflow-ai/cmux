@@ -65,6 +65,8 @@ def forces_all_areas(path: str) -> bool:
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
+_CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guard"
+_CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
 
 
 def is_plainly_linux_runner(runs_on: str) -> bool:
@@ -133,7 +135,10 @@ def ci_workflow_change_is_linux_only(base: str, head: str) -> bool:
     )
 
 
-def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], frozenset[str]]]:
+def macos_job_test_references(
+    workflow: str,
+    indirect_guard_references: frozenset[str] = frozenset(),
+) -> Optional[tuple[frozenset[str], frozenset[str]]]:
     """Return the tests/ paths ci.yml names in non-Linux jobs and in all jobs.
 
     A macOS job that runs tests through a glob yields the glob's literal prefix.
@@ -151,6 +156,8 @@ def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], f
             continue
         jobs += 1
         references = set(_TEST_REFERENCE_RE.findall(block))
+        if _CI_GUARD_PROFILE_MARKER in block:
+            references |= set(indirect_guard_references)
         everywhere |= references
         if not is_plainly_linux_runner(runs_on.group(1)):
             macos |= references
@@ -163,8 +170,17 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
     macos: set[str] = set()
     everywhere: set[str] = set()
     try:
+        guard_entrypoint = Path(_CI_GUARD_ENTRYPOINT).read_text(encoding="utf-8")
+        indirect_guard_references = frozenset(
+            _TEST_REFERENCE_RE.findall(guard_entrypoint)
+        )
+        if not indirect_guard_references:
+            return None
         for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH):
-            references = macos_job_test_references(Path(workflow_path).read_text(encoding="utf-8"))
+            references = macos_job_test_references(
+                Path(workflow_path).read_text(encoding="utf-8"),
+                indirect_guard_references,
+            )
             if references is None:
                 return None
             workflow_macos, workflow_everywhere = references
