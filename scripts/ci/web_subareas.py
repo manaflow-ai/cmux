@@ -13,21 +13,24 @@ import sys
 @dataclass(frozen=True)
 class WebSubareas:
     db: bool
+    diff_sidecar: bool
     instant: bool
     react_apps: bool
 
     @classmethod
     def all(cls) -> "WebSubareas":
-        return cls(db=True, instant=True, react_apps=True)
+        return cls(db=True, diff_sidecar=True, instant=True, react_apps=True)
 
     def emit(self, output: Path) -> None:
         with output.open("a", encoding="utf-8") as handle:
             handle.write(f"db={str(self.db).lower()}\n")
+            handle.write(f"diff_sidecar={str(self.diff_sidecar).lower()}\n")
             handle.write(f"instant={str(self.instant).lower()}\n")
             handle.write(f"react_apps={str(self.react_apps).lower()}\n")
         print(
             "web subareas: "
             f"db={str(self.db).lower()} "
+            f"diff_sidecar={str(self.diff_sidecar).lower()} "
             f"instant={str(self.instant).lower()} "
             f"react_apps={str(self.react_apps).lower()}"
         )
@@ -73,6 +76,24 @@ INSTANT_PREFIXES = (
     "web/messages/",
 )
 
+DIFF_SIDECAR_EXACT = {
+    "scripts/benchmark-diff-viewer.sh",
+    "scripts/build-diff-sidecar.sh",
+    "scripts/generate-diff-sidecar-types.sh",
+    "scripts/install-rust-ci.sh",
+    "scripts/run-diff-sidecar-cargo.sh",
+    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
+    "Sources/Panels/DiffSidecarBridge.swift",
+    "webviews/bun.lock",
+    "webviews/package.json",
+}
+DIFF_SIDECAR_PREFIXES = (
+    "Native/DiffSidecar/",
+    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
+    "webviews/bench/",
+    "webviews/src/diff/",
+)
+
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-react-compiler.mjs",
@@ -85,16 +106,20 @@ REACT_PREFIXES = (
 
 def classify_paths(paths: list[str]) -> WebSubareas:
     db = False
+    diff_sidecar = False
     instant = False
     react_apps = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
-            db = instant = react_apps = True
+            db = diff_sidecar = instant = react_apps = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES):
             db = True
+
+        if path in DIFF_SIDECAR_EXACT or path.startswith(DIFF_SIDECAR_PREFIXES):
+            diff_sidecar = True
 
         if path in INSTANT_EXACT or path.startswith(INSTANT_PREFIXES):
             instant = True
@@ -102,7 +127,12 @@ def classify_paths(paths: list[str]) -> WebSubareas:
         if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
             react_apps = True
 
-    return WebSubareas(db=db, instant=instant, react_apps=react_apps)
+    return WebSubareas(
+        db=db,
+        diff_sidecar=diff_sidecar,
+        instant=instant,
+        react_apps=react_apps,
+    )
 
 
 def changed_paths(base: str, head: str) -> list[str] | None:
