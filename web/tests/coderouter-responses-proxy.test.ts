@@ -170,7 +170,6 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
-    expect(fetchCount).toBe(2);
   });
 
   test("fails over a usage_limit_exceeded response before exposing it", async () => {
@@ -191,6 +190,7 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
+    expect(fetchCount).toBe(2);
   });
 
   test("uses the provider reset instead of a generic minute for a 429 quota", async () => {
@@ -256,6 +256,7 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
+    expect(fetchCount).toBe(2);
   });
 
   test("does not fail over when output text contains a capacity marker", async () => {
