@@ -176,7 +176,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.stat") == .socketWorker(mainThreadCallable: false))
-        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }
