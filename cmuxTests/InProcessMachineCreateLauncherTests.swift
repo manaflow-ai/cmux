@@ -77,16 +77,17 @@ struct InProcessMachineCreateLauncherTests {
 
     @Test func decodesTheCreateResponseAddressAndAttachBlock() throws {
         let now = Date(timeIntervalSince1970: 1_787_400_000)
-        let object: [String: Any] = [
-            "id": "vm-fresh", "provider": "freestyle", "image": "md-1", "status": "running",
-            "createdAt": 1_787_399_000_000, "slug": "calm-petrel",
-            "address": ["ipv4": "10.16.0.7", "ipv6": "fd00:4::7"],
-            "attach": [
-                "transport": "cmux-remote", "route": Self.route, "session": "cloud", "trustedCarrier": true,
-                "daemonBuild": ["commit": "abc123", "remoteProtocol": NSNull(), "version": NSNull()],
-                "guestToolsBaked": false, "readiness": "dial"
-            ]
-        ]
+        // Parsed the way `createMachine` parses the HTTP body: the decoder reads the
+        // NSNumber that JSONSerialization produces, not a Swift integer literal.
+        let body = """
+        {"id": "vm-fresh", "provider": "freestyle", "image": "md-1", "status": "running",
+         "createdAt": 1787399000000, "slug": "calm-petrel",
+         "address": {"ipv4": "10.16.0.7", "ipv6": "fd00:4::7"},
+         "attach": {"transport": "cmux-remote", "route": "\(Self.route)", "session": "cloud", "trustedCarrier": true,
+                    "daemonBuild": {"commit": "abc123", "remoteProtocol": null, "version": null},
+                    "guestToolsBaked": false, "readiness": "dial"}}
+        """
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(body.utf8)) as? [String: Any])
         let result = try VMClient.decodeCreateResult(object, now: now)
         #expect(result.summary.id == "vm-fresh")
         #expect(result.summary.slug == "calm-petrel")
