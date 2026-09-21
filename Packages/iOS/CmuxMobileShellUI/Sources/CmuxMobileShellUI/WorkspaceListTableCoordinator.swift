@@ -1130,7 +1130,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     private func invalidateEmptyStateLayout(in tableView: UITableView?) {
         guard let tableView,
-              dataSource?.indexPath(for: .emptyWorkspaceList) != nil else { return }
+              dataSource?.indexPath(where: {
+                  if case .emptyWorkspaceList = $0 { return true }
+                  return false
+              }) != nil else { return }
         heightCache.removeAll(keepingCapacity: true)
         UIView.performWithoutAnimation {
             tableView.beginUpdates()
