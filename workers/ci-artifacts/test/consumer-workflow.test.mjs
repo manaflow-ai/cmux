@@ -84,6 +84,7 @@ else:
         const result = spawnSync("bash", ["-e", "-c", layered.run], { cwd: root, encoding: "utf8", env: {
           ...process.env, PATH: `${bin}:${process.env.PATH}`, DEVELOPER_DIR: "/fixture/Xcode",
           CMUX_DERIVED_DATA_PATH: path.join(temporary, "derived"),
+          CMUX_APP_HOST_CONSUMER: jobName === "app-host-unit-tests" ? "app-host-unit-tests/1" : "tests-build-and-lag",
           GITHUB_OUTPUT: output, GITHUB_ENV: path.join(temporary, "env"),
           GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1", GITHUB_REPOSITORY: "manaflow-ai/cmux",
           ...Object.fromEntries(Object.entries(layered.env).map(([key, value]) => [key, render(value, values)])),
@@ -113,11 +114,8 @@ else:
       assert.equal(inner.if, undefined);
       assert.equal(inner.run, "scripts/ci/restore-app-host-test-product.sh");
       assert.equal(render(inner.env.CMUX_LAYER_RESTORED, values), layerHit);
-      const wrapped = jobName === "app-host-unit-tests";
-      assert.equal(fallback.uses, wrapped
-        ? "./.github/actions/download-test-product"
-        : "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
-      assert.equal(render(fallback.with[wrapped ? "artifact-id" : "artifact-ids"], values), "123");
+      assert.equal(fallback.uses, "./.github/actions/download-test-product");
+      assert.equal(render(fallback.with["artifact-id"], values), "123");
       assert.equal(fs.existsSync(path.join(temporary, "metadata-called")), tryR2 && enabled);
       assert.equal(fs.existsSync(path.join(temporary, "app-host-products")), tryR2 && enabled);
       if (tryR2 && enabled) assert.equal(fs.readFileSync(path.join(temporary, "app-host-products/app-host-products.aar"), "utf8"), "opaque product and producer log");
