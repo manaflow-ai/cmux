@@ -589,8 +589,12 @@ if ! grep -Fq "inputs.seed_only && (github.event_name == 'workflow_dispatch' && 
   exit 1
 fi
 python3 - "$WORKFLOW_FILE" <<'PYTEST'
-import importlib.util
+import json
+import os
+import subprocess
 import sys
+import tempfile
+import textwrap
 from pathlib import Path
 
 workflow = Path(sys.argv[1]).read_text()
@@ -625,11 +629,69 @@ for name in ("Prune old nightly release assets", "Publish nightly release assets
     assert "steps.freshness.outputs.publish == 'true'" in step
 close = block(workflow, "close-nightly-failure-issue", 2)
 assert "needs.publish-nightly.outputs.published == 'true'" in close
-def freshness(expected, current):
-    return "true" if expected and current == expected else "false"
-assert freshness("abc", "abc") == "true"
-assert freshness("abc", "def") == "false"
-assert freshness("", "abc") == "false"
+# Exercise the actual expression, not a separately implemented expected_lane.
+# This policy uses only strings, booleans, comparisons, &&/||, parentheses and
+# format; JavaScript has the same semantics for these well-typed inputs.
+group = next(line.split("group: ", 1)[1] for line in top.splitlines() if line.startswith("  group:"))
+cancel = next(line.split("cancel-in-progress: ", 1)[1] for line in top.splitlines() if line.startswith("  cancel-in-progress:"))
+node_harness = r"""
+const {runInNewContext} = require('node:vm');
+const {group, cancel, cases} = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const results = cases.map(({event, seed, schedule, sha, buildOnly, fast}) => {
+  const context = {
+    github: {ref_name: 'main', event_name: event, sha, run_id: 17,
+      event: {schedule, inputs: {build_only: String(buildOnly), fast: String(fast)}}},
+    inputs: {seed_only: seed},
+    format: (template, value) => template.replace('{0}', String(value)),
+  };
+  const evaluate = text => text.replace(/\$\{\{([\s\S]*?)\}\}/g,
+    (_, expression) => String(runInNewContext(expression, context, {timeout: 1000})));
+  return [evaluate(group), evaluate(cancel)];
+});
+process.stdout.write(JSON.stringify(results));
+"""
+cases = []
+expected = []
+for event, seed, schedule, build_only, fast, lane, cancelling in (
+    ("push", True, "", False, False, "cache-seed-push", "false"),
+    ("workflow_dispatch", True, "", False, False, "cache-seed-manual", "false"),
+    ("schedule", False, "17 */6 * * *", False, False, "cache-seed-scheduled", "true"),
+    ("schedule", False, "47 8 * * *", False, False, "full", "false"),
+    ("push", False, "", False, False, "full", "false"),
+    ("workflow_dispatch", False, "", False, False, "full", "false"),
+    ("workflow_dispatch", False, "", True, False, "nightly-measure-17", "false"),
+    ("workflow_dispatch", False, "", False, True, "fast", "false"),
+):
+    # A/B/C have the same group: later pending work coalesces, active work is
+    # protected when cancel-in-progress is false. GitHub enforces the queue.
+    for sha in ("a" * 40, "b" * 40, "c" * 40):
+        cases.append(dict(event=event, seed=seed, schedule=schedule, sha=sha,
+                          buildOnly=build_only, fast=fast))
+        expected.append(["nightly-build-main-" + lane, cancelling])
+result = subprocess.run(["node", "-e", node_harness],
+                        input=json.dumps(dict(group=group, cancel=cancel, cases=cases)),
+                        capture_output=True, text=True, check=True)
+assert json.loads(result.stdout) == expected, result.stdout
+
+# Execute the workflow's real freshness shell with a stubbed GitHub API. This
+# exercises current/stale candidates and proves API failure cannot allow writes.
+freshness_step = publish[freshness:download]
+script = textwrap.dedent(freshness_step.split("        run: |\n", 1)[1])
+assert "${{" not in script, "supply expressions via env for shell testing"
+with tempfile.TemporaryDirectory() as directory:
+    output = Path(directory) / "output"
+    env = dict(os.environ, GITHUB_OUTPUT=str(output), GITHUB_REPOSITORY="owner/repo",
+               GITHUB_REF_NAME="main", EXPECTED_SHA="a" * 40)
+    stub = 'gh() { printf "%s\\n" "$STUB_SHA"; return "$STUB_STATUS"; }\n'
+    for current, status, wanted in (("a" * 40, 0, "publish=true"),
+                                    ("b" * 40, 0, "publish=false"),
+                                    ("", 1, "")):
+        output.write_text("")
+        result = subprocess.run(["bash", "-c", stub + script],
+                                env=dict(env, STUB_SHA=current, STUB_STATUS=str(status)),
+                                capture_output=True, text=True)
+        assert (result.returncode == 0) == (status == 0), result.stderr
+        assert output.read_text().strip() == wanted
 print("PASS: nightly producer/publication scopes and freshness behavior")
 PYTEST
 if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
