@@ -788,7 +788,7 @@ public final class ComputerUseRuntimeService {
         }
     }
 
-    private func serializeHelperLifecycle<Result: Sendable>(
+    func serializeHelperLifecycle<Result: Sendable>(
         cancelledResult: Result,
         _ operation: @escaping @MainActor @Sendable () async -> Result
     ) async -> Result {
@@ -939,7 +939,7 @@ public final class ComputerUseRuntimeService {
         }
     }
 
-    private func stopDaemon() async -> Bool {
+    func stopDaemon() async -> Bool {
         let helperURL = installedHelperURL ?? paths.installedHelperAppURL
         var processIdentifiers = Set(
             runningHelperApplications(at: helperURL).keys
@@ -1191,7 +1191,7 @@ public final class ComputerUseRuntimeService {
         Self.socketURL(for: profile, paths: paths)
     }
 
-    nonisolated private static func socketURL(
+    nonisolated static func socketURL(
         for profile: ComputerUseDaemonProfile,
         paths: ComputerUseRuntimePaths
     ) -> URL {
