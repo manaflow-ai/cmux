@@ -268,6 +268,8 @@ function CoderouterApiKeysSection({
     void fetchKeys(controller.signal)
       .then((nextKeys) => {
         if (generation !== requestGeneration.current) return;
+        setIssued(null);
+        setIssuedTeamId(teamId);
         setKeys(nextKeys);
         setKeysTeamId(teamId);
         setLoadError(false);
@@ -275,6 +277,10 @@ function CoderouterApiKeysSection({
       })
       .catch(() => {
         if (generation !== requestGeneration.current) return;
+        setIssued(null);
+        setIssuedTeamId(teamId);
+        setKeys(null);
+        setKeysTeamId(teamId);
         setLoadError(true);
         setLoading(false);
       })
@@ -287,9 +293,11 @@ function CoderouterApiKeysSection({
     };
   }, [fetchKeys, teamId]);
 
-  const visibleKeys = keysTeamId === teamId ? keys : null;
-  const visibleIssued = issuedTeamId === teamId ? issued : null;
   const teamSwitching = keysTeamId !== teamId;
+  const visibleKeys = keysTeamId === teamId ? keys : null;
+  const visibleIssued = !teamSwitching &&
+    issuedTeamId === teamId &&
+    issued;
 
   const create = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
