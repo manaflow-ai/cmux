@@ -13,6 +13,10 @@ permissions:
   issues: write
   pull-requests: read
 
+concurrency:
+  group: agent-pr-review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   agent-pr-review-complete:
     name: agent-pr-review-complete
