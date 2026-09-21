@@ -200,7 +200,12 @@ final class RemoteTmuxBrowserProxyRegistry {
                 continue
             }
 
-            let listener = RemoteTmuxBrowserProxyListener(localPort: listenerPort, dynamicForwardPort: forwardPort)
+            let credential = BrowserProxyCredential.random()
+            let listener = RemoteTmuxBrowserProxyListener(
+                localPort: listenerPort,
+                dynamicForwardPort: forwardPort,
+                credential: credential
+            )
             listener.onUnexpectedFailure = { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -254,7 +259,7 @@ final class RemoteTmuxBrowserProxyRegistry {
             entriesByConnectionHash[hash]?.listener = listener
             entriesByConnectionHash[hash]?.forwardPort = forwardPort
             // The listener's port, never the `-D` port — see `RemoteTmuxBrowserProxyListener`.
-            return BrowserProxyEndpoint(host: "127.0.0.1", port: listenerPort)
+            return BrowserProxyEndpoint(host: "127.0.0.1", port: listenerPort, credential: credential)
         }
         throw lastError
     }
