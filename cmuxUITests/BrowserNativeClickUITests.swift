@@ -19,16 +19,20 @@ final class BrowserNativeClickUITests: XCTestCase {
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 15))
         let hostReady = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in self.browserWebView(in: window) != nil },
+            predicate: NSPredicate { _, _ in self.browserHost(in: window) != nil },
             object: nil
         )
         let hostWaitResult = XCTWaiter.wait(for: [hostReady], timeout: 15)
         XCTAssertEqual(
             hostWaitResult,
             .completed,
-            "Timed out waiting for the browser WebView to mount in the native click fixture"
+            "Timed out waiting for the browser host to mount in the native click fixture"
         )
-        let webView = try XCTUnwrap(browserWebView(in: window))
+        let host = try XCTUnwrap(browserHost(in: window))
+        let webView = host.elementType == .webView
+            ? host
+            : host.descendants(matching: .webView).firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 15), "Browser WebView must mount in the native click fixture")
         let button = webView.buttons["Native click target"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Native click fixture must finish loading")
 
@@ -73,18 +77,12 @@ final class BrowserNativeClickUITests: XCTestCase {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
     }
 
-    private func browserWebView(in window: XCUIElement) -> XCUIElement? {
+    private func browserHost(in window: XCUIElement) -> XCUIElement? {
         let windowFrame = window.frame
-        guard let host = window.children(matching: .any).allElementsBoundByIndex.first(where: {
+        return window.children(matching: .any).allElementsBoundByIndex.first(where: {
             let frame = $0.frame
             return frame.minX > windowFrame.midX && frame.height > windowFrame.height / 2
-        }) else {
-            return nil
-        }
-        let webView = host.elementType == .webView
-            ? host
-            : host.descendants(matching: .webView).firstMatch
-        return webView.exists ? webView : nil
+        })
     }
 
     private static var fixtureURL: URL {
