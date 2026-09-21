@@ -132,6 +132,11 @@ def valid_budget(queue_seconds: int, execution_seconds: int) -> bool:
     )
 
 
+def valid_observe_budget(observe_seconds: int) -> bool:
+    """Bound how long a hosted admission runner may wait for persistent output."""
+    return 5 <= observe_seconds <= 60
+
+
 def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, str]:
     source_run = api.api(f"actions/runs/{args.run_id}")
     if not isinstance(source_run, dict):
@@ -309,6 +314,7 @@ def main() -> int:
     parser.add_argument("--run-attempt", required=True)
     parser.add_argument("--queue-seconds", type=int, default=90)
     parser.add_argument("--execution-seconds", type=int, default=480)
+    parser.add_argument("--observe-seconds", type=int, default=60)
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--observe-only", action="store_true")
     args = parser.parse_args()
@@ -318,6 +324,8 @@ def main() -> int:
         return fallback(args.github_output, reason)
     if not valid_budget(args.queue_seconds, args.execution_seconds):
         return fallback(args.github_output, "invalid_budget")
+    if args.observe_only and not valid_observe_budget(args.observe_seconds):
+        return fallback(args.github_output, "invalid_observe_budget")
 
     request_id = f"{args.run_id}-{args.run_attempt}"
     api = GitHub(args.repository)
@@ -328,8 +336,16 @@ def main() -> int:
             return fallback(args.github_output, live_reason)
 
         discovery_started = now()
+        observation_deadline = (
+            discovery_started + args.observe_seconds if args.observe_only else None
+        )
         if args.observe_only:
-            run = find_run(api, request_id, discovery_started + 90, cancel_event)
+            try:
+                run = find_run(api, request_id, observation_deadline, cancel_event)
+            except RuntimeError as error:
+                if "did not become observable" in str(error):
+                    return fallback(args.github_output, "observe_timeout")
+                raise
         else:
             api.dispatch(
                 {
@@ -344,6 +360,8 @@ def main() -> int:
             run = find_run(api, request_id, discovery_started + 30, cancel_event)
         run_id = int(run["id"])
         queue_deadline = now() + args.queue_seconds
+        if observation_deadline is not None:
+            queue_deadline = min(queue_deadline, observation_deadline)
 
         def observe_queue() -> dict[str, object] | None:
             selected = compile_job(api, run_id)
@@ -366,7 +384,11 @@ def main() -> int:
         if not isinstance(selected, dict) or not selected.get("started_at"):
             if not args.observe_only:
                 cancel(api, run_id)
-            return fallback(args.github_output, "queue_timeout", producer_run_id=run_id)
+            return fallback(
+                args.github_output,
+                "observe_timeout" if args.observe_only else "queue_timeout",
+                producer_run_id=run_id,
+            )
 
         created = parse_time(str(selected.get("created_at") or ""))
         started = parse_time(str(selected.get("started_at") or ""))
@@ -377,6 +399,8 @@ def main() -> int:
         queue_seconds = max(0.0, (started - created).total_seconds())
 
         execution_deadline = now() + args.execution_seconds
+        if observation_deadline is not None:
+            execution_deadline = min(execution_deadline, observation_deadline)
 
         def observe_completion() -> dict[str, object] | None:
             current = compile_job(api, run_id)
@@ -395,7 +419,7 @@ def main() -> int:
                 cancel(api, run_id)
             return fallback(
                 args.github_output,
-                "execution_budget_exceeded",
+                "observe_timeout" if args.observe_only else "execution_budget_exceeded",
                 producer_run_id=run_id,
                 queue_to_start_seconds=round(queue_seconds, 3),
             )
