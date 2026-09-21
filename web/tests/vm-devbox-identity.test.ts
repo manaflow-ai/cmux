@@ -156,11 +156,11 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     // Detached: a subshell backgrounds the job and exits, so the loop never
     // waits on it, the daemon starts in the same tick, and no zombie is left.
     expect(devboxBoot).toContain("( rekey_ssh_host & )");
-    const wipe = devboxBoot.indexOf('rm -rf "$REMOTE_STATE_DIR"');
+    const stateRefresh = devboxBoot.indexOf('find "$REMOTE_STATE_DIR/sessions"');
     const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
-    expect(wipe).toBeGreaterThan(-1);
-    expect(rekey).toBeGreaterThan(wipe);
+    expect(stateRefresh).toBeGreaterThan(-1);
+    expect(rekey).toBeGreaterThan(stateRefresh);
     expect(bound).toBeGreaterThan(rekey);
   });
 });
