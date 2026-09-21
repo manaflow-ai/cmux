@@ -69,13 +69,12 @@ struct RestoredProcessDetectedBindingTests {
         #expect(exited.panels.first?.terminal?.resumeBinding == nil)
     }
 
-    @Test func restoredBindingObservationDeadlineIsBoundedAndClearsOnEvidence() throws {
+    @Test func restoredBindingObservationStaysArmedUntilEvidence() throws {
         var pending = binding(kind: "tmux")
-        pending.armRestoredProcessDetectionObservation(nowUptime: 100)
-        #expect(pending.preservesRestoredProcessDetection(nowUptime: 123))
-        #expect(!pending.preservesRestoredProcessDetection(nowUptime: 124))
+        pending.armRestoredProcessDetectionObservation()
+        #expect(pending.preservesRestoredProcessDetection())
         pending.clearRestoredProcessDetectionObservation()
-        #expect(!pending.preservesRestoredProcessDetection(nowUptime: 100))
+        #expect(!pending.preservesRestoredProcessDetection())
     }
 
     @Test func aFinishedCommandReleasesTheWorkspaceRestoreIntent() throws {

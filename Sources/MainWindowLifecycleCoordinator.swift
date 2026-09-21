@@ -32,6 +32,8 @@ final class MainWindowLifecycleCoordinator {
         [SurfaceResumeBindingIndex.PanelKey: Int64]?
     @ObservationIgnored
     private var windowlessRecoveryResumeIndexesGeneration: UInt64 = 0
+    @ObservationIgnored
+    private var windowlessRecoveryRetryWindowIds: Set<UUID> = []
 
     deinit {
         windowlessRouteFreezeTasks.values.forEach { $0.task.cancel() }
@@ -157,6 +159,7 @@ final class MainWindowLifecycleCoordinator {
         windowlessRecoveryResumeIndexesWorkerTask?.task.cancel()
         windowlessRecoveryResumeIndexesBindings.removeAll(keepingCapacity: false)
         windowlessRecoveryTTYDeviceBindings = nil
+        windowlessRecoveryRetryWindowIds.removeAll(keepingCapacity: false)
     }
 
     /// Retains a timed-out process scan until its synchronous worker really exits.
@@ -164,19 +167,38 @@ final class MainWindowLifecycleCoordinator {
     /// Cancellation cannot interrupt a synchronous process/filesystem call. Keeping
     /// this handle prevents a later orphan from starting an overlapping scan.
     func retainWindowlessRecoveryResumeIndexesWorker(
-        _ task: Task<ProcessDetectedResumeIndexes, Never>
+        _ task: Task<ProcessDetectedResumeIndexes, Never>,
+        onCompleted: @escaping @MainActor @Sendable (ProcessDetectedResumeIndexes) -> Void = { _ in }
     ) {
         guard windowlessRecoveryResumeIndexesWorkerTask == nil else { return }
         let token = UUID()
         let completionTask = Task { @MainActor [weak self] in
-            _ = await task.value
+            let result = await task.value
             guard let self else { return }
             guard self.windowlessRecoveryResumeIndexesWorkerTask?.token == token else {
                 return
             }
             self.windowlessRecoveryResumeIndexesWorkerTask = nil
+            onCompleted(result)
         }
         windowlessRecoveryResumeIndexesWorkerTask = (token: token, task: completionTask)
+    }
+
+    /// Returns whether a synchronous recovery scan is still draining off-main.
+    func isWindowlessRecoveryResumeIndexesWorkerRunning() -> Bool {
+        windowlessRecoveryResumeIndexesWorkerTask != nil
+    }
+
+    /// Records that a route must be retried when a timed-out worker drains.
+    func markWindowlessRouteFreezeRetryNeeded(windowId: UUID) {
+        windowlessRecoveryRetryWindowIds.insert(windowId)
+    }
+
+    /// Consumes all retry requests after the shared worker has completed.
+    func consumeWindowlessRouteFreezeRetries() -> [UUID] {
+        let windowIds = Array(windowlessRecoveryRetryWindowIds)
+        windowlessRecoveryRetryWindowIds.removeAll(keepingCapacity: false)
+        return windowIds
     }
 
     /// Owns one deferred freeze task until it completes or its route leaves recovery.

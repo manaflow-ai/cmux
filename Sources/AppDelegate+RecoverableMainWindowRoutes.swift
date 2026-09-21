@@ -398,11 +398,25 @@ extension AppDelegate {
         let windowId = route.windowId
         let taskToken = UUID()
         let task = Task { @MainActor [weak self, weak route] in
+            var shouldRetryWhenWorkerCompletes = false
             defer {
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
                     token: taskToken
                 )
+                guard shouldRetryWhenWorkerCompletes,
+                      let self else { return }
+                if self.mainWindowLifecycleCoordinator
+                    .isWindowlessRecoveryResumeIndexesWorkerRunning() {
+                    self.mainWindowLifecycleCoordinator
+                        .markWindowlessRouteFreezeRetryNeeded(windowId: windowId)
+                } else {
+                    guard let route = self.mainWindowLifecycleCoordinator
+                        .orphanedRoute(windowId: windowId),
+                          route.window == nil,
+                          route.frozenWindowSnapshot == nil else { return }
+                    self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                }
             }
             guard !Task.isCancelled else { return }
             guard let route,
@@ -441,9 +455,26 @@ extension AppDelegate {
                 ) { bindings in
                     await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
                         ttyDeviceBindings: bindings,
-                        onWorkerCreated: { [weak lifecycleCoordinator] worker in
+                        onWorkerCreated: { [weak self, weak lifecycleCoordinator] worker in
                             lifecycleCoordinator?
-                                .retainWindowlessRecoveryResumeIndexesWorker(worker)
+                                .retainWindowlessRecoveryResumeIndexesWorker(
+                                    worker,
+                                    onCompleted: { [weak self, weak lifecycleCoordinator] _ in
+                                        guard let self,
+                                              let lifecycleCoordinator else { return }
+                                        for retryWindowId in lifecycleCoordinator
+                                            .consumeWindowlessRouteFreezeRetries() {
+                                            guard let route = lifecycleCoordinator.orphanedRoute(
+                                                windowId: retryWindowId
+                                            ),
+                                            route.window == nil,
+                                            route.frozenWindowSnapshot == nil else {
+                                                continue
+                                            }
+                                            self.scheduleWindowlessRecoverableMainWindowRouteFreeze(route)
+                                        }
+                                    }
+                                )
                         }
                     )
                 }
@@ -459,6 +490,7 @@ extension AppDelegate {
             // process scan leaves the live route intact for a later retry.
             guard let resumeIndexes,
                   resumeIndexes.restorableAgentIndex.isComplete else {
+                shouldRetryWhenWorkerCompletes = true
                 return
             }
             let restorableAgentIndex = resumeIndexes.restorableAgentIndex

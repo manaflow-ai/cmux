@@ -2,26 +2,20 @@ import CmuxWorkspaces
 import Foundation
 
 extension SurfaceResumeBindingSnapshot {
-    /// Arms the bounded in-memory observation window for a restored process binding.
-    mutating func armRestoredProcessDetectionObservation(
-        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) {
+    /// Arms explicit in-memory observation for a restored process binding.
+    mutating func armRestoredProcessDetectionObservation() {
         guard isProcessDetected else { return }
-        var observation = RestoredProcessDetectionObservation(
-            interval: SessionPersistencePolicy.autosaveInterval * 3
-        )
-        observation.arm(nowUptime: nowUptime)
+        var observation = RestoredProcessDetectionObservation()
+        observation.arm()
         restoredProcessDetectionObservation = observation
     }
 
     /// Returns whether this binding remains protected from an empty process scan.
-    func preservesRestoredProcessDetection(
-        nowUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
-    ) -> Bool {
-        isProcessDetected && restoredProcessDetectionObservation?.preserves(nowUptime: nowUptime) == true
+    func preservesRestoredProcessDetection() -> Bool {
+        isProcessDetected && restoredProcessDetectionObservation?.preserves() == true
     }
 
-    /// Ends the temporary restore observation window after authoritative evidence.
+    /// Ends restore observation after authoritative evidence.
     mutating func clearRestoredProcessDetectionObservation() {
         restoredProcessDetectionObservation = nil
     }

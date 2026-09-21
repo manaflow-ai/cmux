@@ -1,29 +1,24 @@
-/// Owns the bounded observation window for a process-backed restore binding.
+/// Owns the explicit lifecycle observation state for a process-backed restore binding.
 public struct RestoredProcessDetectionObservation: Equatable, Sendable {
-    private let interval: Double
-    private var deadlineUptime: Double?
+    private var isArmed: Bool
 
-    /// Creates an observation policy with a fixed, non-extending interval.
-    /// - Parameter interval: Maximum time to preserve a restored binding while detection is absent.
-    public init(interval: Double) {
-        self.interval = interval
-        deadlineUptime = nil
+    /// Creates a cleared observation policy.
+    public init() {
+        isArmed = false
     }
 
-    /// Starts the observation window at the supplied monotonic time.
-    /// - Parameter nowUptime: Monotonic clock value used as the window origin.
-    public mutating func arm(nowUptime: Double) {
-        deadlineUptime = nowUptime + interval
+    /// Arms observation until authoritative process or shell evidence arrives.
+    public mutating func arm() {
+        isArmed = true
     }
 
-    /// Returns whether the observation is still active at the supplied monotonic time.
-    /// - Parameter nowUptime: Monotonic clock value used for the check.
-    public func preserves(nowUptime: Double) -> Bool {
-        deadlineUptime.map { nowUptime < $0 } == true
+    /// Returns whether the restore binding remains protected from an empty scan.
+    public func preserves() -> Bool {
+        isArmed
     }
 
-    /// Ends the observation window after authoritative process or shell evidence.
+    /// Clears observation after authoritative process or shell evidence.
     public mutating func clear() {
-        deadlineUptime = nil
+        isArmed = false
     }
 }
