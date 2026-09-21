@@ -19,6 +19,8 @@ type ManifestTestEntry = {
   kind?: string;
   defaultForKind?: boolean;
   size?: { name: string };
+  epoch?: string;
+  cmuxTuiCommit?: string;
 };
 function manifestDefault(kind: "desktop" | "base"): ManifestTestEntry {
   return (manifestJson.images as ManifestTestEntry[]).find((entry) =>
@@ -471,7 +473,14 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-1",
       provider: "freestyle",
       image: "snapshot-test",
+      imageVersion: null,
+      status: "running",
       createdAt: 1_777_000_000_000,
+      displayName: null,
+      slug: null,
+      addressIpv4: null,
+      addressIpv6: null,
+      imageEpoch: null,
     });
 
     const response = await POST(
@@ -483,10 +492,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
+    // A machine without a private address (or outside the manifest) carries
+    // no attach block: the client falls back to GET /api/vm/[id] + attach-endpoint.
     expect(await response.json()).toEqual({
       id: "provider-vm-1",
       provider: "freestyle",
       image: "snapshot-test",
+      imageVersion: null,
       kind: "base",
       createdAt: 1_777_000_000_000,
       capabilities: {
@@ -501,7 +513,15 @@ describe("VM REST auth", () => {
         persistentHome: false,
         attachTransports: ["cmux-remote"],
       },
+      displayName: null,
+      slug: null,
+      status: "running",
+      address: { ipv4: null, ipv6: null },
     });
+    // Per-stage timings ride on the response so a client can see where a
+    // create spent its time without a tracing backend.
+    expect(response.headers.get("Server-Timing")).toMatch(/\bauth;dur=/);
+    expect(response.headers.get("Server-Timing")).toMatch(/\btotal;dur=/);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingCustomerType: "team",
@@ -513,9 +533,64 @@ describe("VM REST auth", () => {
       imageVersion: null,
       idempotencyKey: "idem-1",
       memoryMb: 8192,
+      // Telemetry writes run after the response has left.
+      defer: expect.any(Function),
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("create response carries the private address and the attach route for a manifest image", async () => {
+    // The app dials the daemon straight from this response (no status GET, no
+    // attach-endpoint on the happy path), so the block must be complete and
+    // derived from the row plus the manifest alone.
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-attach",
+      provider: "freestyle",
+      image: MANIFEST_DESKTOP_DEFAULT.imageId,
+      imageVersion: MANIFEST_DESKTOP_DEFAULT.version,
+      status: "running",
+      createdAt: 1_777_000_000_000,
+      displayName: null,
+      slug: "giddy-cherry-emu",
+      addressIpv4: "10.16.0.7",
+      addressIpv6: "fd00:4::7",
+      imageEpoch: null,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      id: "provider-vm-attach",
+      kind: "desktop",
+      status: "running",
+      slug: "giddy-cherry-emu",
+      address: { ipv4: "10.16.0.7", ipv6: "fd00:4::7" },
+      attach: {
+        transport: "cmux-remote",
+        route: "ws://10.16.0.7:1337/v1/link",
+        session: "cloud",
+        trustedCarrier: true,
+        daemonBuild: { commit: MANIFEST_DESKTOP_DEFAULT.cmuxTuiCommit, remoteProtocol: null, version: null },
+        guestToolsBaked: false,
+        readiness: "dial",
+      },
+    });
+    expect(payload).not.toHaveProperty("claimed");
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      image: MANIFEST_DESKTOP_DEFAULT.imageId,
+      imageEpoch: MANIFEST_DESKTOP_DEFAULT.epoch,
+      defer: expect.any(Function),
+    }));
   });
 
   test("rejects an unknown `kind` on create and base open before touching workflows", async () => {
@@ -1776,7 +1851,7 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    expect(openVmCmuxRemote).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -1785,8 +1860,15 @@ describe("VM REST auth", () => {
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
       maxActiveVms: 50,
-    });
+      // Stage timings reach the span and the response; the attach usage
+      // event and address backfill are written after the response has left.
+      timing: expect.objectContaining({ record: expect.any(Function) }),
+      defer: expect.any(Function),
+    }));
     expect(openAttachEndpoint).not.toHaveBeenCalled();
+    // The attach route reports its stages the same way the create route does.
+    expect(response.headers.get("Server-Timing")).toMatch(/\bauth;dur=/);
+    expect(response.headers.get("Server-Timing")).toMatch(/\btotal;dur=/);
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");
     expect(payload.trustedCarrier).toBe(true);

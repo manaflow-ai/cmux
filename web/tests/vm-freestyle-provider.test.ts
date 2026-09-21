@@ -493,6 +493,37 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(JSON.stringify(fake.writes)).not.toContain("crt_secret-token");
   });
 
+  test("uploads the guest adapter without a separate libexec mkdir exec", async () => {
+    // The bake creates /usr/local/libexec, so the create path pays one upload
+    // and one install exec, not a round trip to create a directory that exists.
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
+    expect(fake.writes).toHaveLength(1);
+    expect(fake.execs.filter((command) => /^\s*mkdir -p \/usr\/local\/libexec\s*$/.test(command))).toEqual([]);
+    expect(fake.deletes).toEqual([]);
+  });
+
+  test("creates the libexec directory once and retries the upload when it is missing", async () => {
+    // An image from before the directory was baked rejects the upload; the
+    // driver heals with one mkdir and one retry instead of failing the create.
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const vm = (fake.client.vms as unknown as { ref: () => { fs: { writeTextFile: (path: string, content: string) => Promise<void> } } }).ref();
+    let uploads = 0;
+    vm.fs.writeTextFile = async (path: string, content: string) => {
+      uploads += 1;
+      fake.writes.push({ path, content });
+      if (uploads === 1) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such file or directory: /usr/local/libexec" }, "/fs/write");
+    };
+    const handle = await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
+    expect(handle.providerVmId).toBe(VM_ID);
+    expect(uploads).toBe(2);
+    const mkdirAt = fake.execs.findIndex((command) => /^\s*mkdir -p \/usr\/local\/libexec\s*$/.test(command));
+    const installAt = fake.execs.findIndex((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"));
+    expect(fake.execs.filter((command) => /^\s*mkdir -p \/usr\/local\/libexec\s*$/.test(command))).toHaveLength(1);
+    expect(installAt).toBeGreaterThan(mkdirAt);
+    expect(fake.deletes).toEqual([]);
+  });
+
   test("omits the tls block and the probe when no rules are given", async () => {
     const fake = fakeFreestyle({ probeExit: 1 });
     await providerWith(fake).create({ image: "sh-devbox" });
