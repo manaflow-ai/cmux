@@ -124,6 +124,20 @@ struct ConversationSidebarProjection {
         return terms.allSatisfy { haystack.contains($0) }
     }
 
+    /// Extend a cached provider snapshot when pagination discovers sessions
+    /// outside the initial Vault preview. This runs when data arrives rather
+    /// than from SwiftUI's render path.
+    func mergingProviderAgents(
+        _ entries: [SessionEntry],
+        into existing: [String: SessionAgent]
+    ) -> [String: SessionAgent] {
+        var result = existing
+        for entry in entries {
+            result[entry.agent.rawValue] = entry.agent
+        }
+        return result
+    }
+
     /// Provider filtering is keyed by the stable agent id rather than the
     /// localized display name, so the selection remains valid when the
     /// app language or a registered agent's presentation changes.
