@@ -4,6 +4,36 @@ import Darwin
 public import Foundation
 public import Network
 
+/// The cross-module interface a caller needs to drive one accepted proxy
+/// connection — see ``RemoteDaemonProxySession``, the concrete
+/// (intentionally non-public) implementation. Kept narrow and behind a
+/// protocol + factory function, rather than making the concrete class
+/// `public`, so ssh-tmux's browser-proxy listener (in the app target, a
+/// different module) can construct and drive sessions without depending on
+/// — or being able to reach into — its internals.
+public protocol RemoteDaemonProxySessionHandling: AnyObject, Sendable {
+    var id: UUID { get }
+    func start()
+    func stop()
+}
+
+/// Constructs a session for one accepted local proxy connection and returns
+/// it as ``RemoteDaemonProxySessionHandling``. The SOCKS5/HTTP-CONNECT
+/// handshake parsing and loopback-alias rewriting behind this are
+/// backend-agnostic (driven only by ``RemoteProxyStreamOpening``), so
+/// ssh-tmux's local browser proxy reuses this verbatim against a
+/// non-daemon backend instead of re-implementing the handshake — this
+/// factory is the seam that lets it do so without the concrete
+/// implementation type crossing the module boundary.
+public func makeRemoteDaemonProxySession(
+    connection: NWConnection,
+    rpcClient: any RemoteProxyStreamOpening,
+    queue: DispatchQueue,
+    onClose: @escaping (UUID) -> Void
+) -> any RemoteDaemonProxySessionHandling {
+    RemoteDaemonProxySession(connection: connection, rpcClient: rpcClient, queue: queue, onClose: onClose)
+}
+
 /// One accepted local proxy connection inside ``RemoteDaemonProxyTunnel``:
 /// parses the SOCKS5 or HTTP CONNECT handshake, opens a matching daemon
 /// stream, then shuttles bytes both ways (rewriting loopback-alias HTTP
@@ -19,12 +49,10 @@ public import Network
 /// the `@Sendable` Network callbacks capture `self`; the queue confinement
 /// above is the safety argument.
 ///
-/// `public`: the SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias
-/// rewriting here are backend-agnostic (driven only by
-/// ``RemoteProxyStreamOpening``), so ssh-tmux's local browser proxy reuses
-/// this type verbatim against a non-daemon backend instead of re-implementing
-/// the handshake.
-public final class RemoteDaemonProxySession: @unchecked Sendable {
+/// Not `public`: cross-module callers reach this only through
+/// ``RemoteDaemonProxySessionHandling``/``makeRemoteDaemonProxySession(connection:rpcClient:queue:onClose:)``
+/// above, never the concrete type directly.
+final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @unchecked Sendable {
     private static let maxHandshakeBytes = 64 * 1024
     private static let remoteLoopbackProxyAliasHost = RemoteLoopbackProxyAlias.aliasHost
 
@@ -46,7 +74,7 @@ public final class RemoteDaemonProxySession: @unchecked Sendable {
         let consumedBytes: Int
     }
 
-    public let id = UUID()
+    let id = UUID()
 
     private let connection: NWConnection
     private let rpcClient: any RemoteProxyStreamOpening
@@ -64,7 +92,7 @@ public final class RemoteDaemonProxySession: @unchecked Sendable {
     private var pendingRemoteHTTPHeaderBytes = Data()
     private var hasForwardedRemoteHTTPHeaders = false
 
-    public init(
+    init(
         connection: NWConnection,
         rpcClient: any RemoteProxyStreamOpening,
         queue: DispatchQueue,
@@ -76,7 +104,7 @@ public final class RemoteDaemonProxySession: @unchecked Sendable {
         self.onClose = onClose
     }
 
-    public func start() {
+    func start() {
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -92,7 +120,7 @@ public final class RemoteDaemonProxySession: @unchecked Sendable {
         receiveNext()
     }
 
-    public func stop() {
+    func stop() {
         close(reason: nil)
     }
 

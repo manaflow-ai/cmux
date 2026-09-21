@@ -4,10 +4,12 @@ import Network
 
 /// The local, WKWebView-facing half of ssh-tmux's browser proxy: a loopback
 /// `NWListener` that feeds every accepted connection into a
-/// ``RemoteDaemonProxySession`` (the same SOCKS5/HTTP-CONNECT handshake
+/// ``RemoteDaemonProxySessionHandling`` (built via
+/// `makeRemoteDaemonProxySession`, the same SOCKS5/HTTP-CONNECT handshake
 /// parser and loopback-alias HTTP rewriter `cmux ssh`'s daemon-backed proxy
-/// uses), backed by a ``RemoteTmuxSocksProxyStreamClient`` that dials the
-/// second hop out through ssh-tmux's `-D` dynamic forward.
+/// uses — its concrete `RemoteDaemonProxySession` implementation is
+/// intentionally not public), backed by a ``RemoteTmuxSocksProxyStreamClient``
+/// that dials the second hop out through ssh-tmux's `-D` dynamic forward.
 ///
 /// Two distinct local ports are involved and must never be confused: this
 /// listener's port is the one published to `BrowserPanel` (it does the HTTP
@@ -46,7 +48,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
     /// queue it actually owns, matching `RemoteDaemonProxySession`'s
     /// contract that callers are already confined to its `queue` before
     /// touching it.
-    private var sessions: [UUID: (session: RemoteDaemonProxySession, queue: DispatchQueue)] = [:]
+    private var sessions: [UUID: (session: any RemoteDaemonProxySessionHandling, queue: DispatchQueue)] = [:]
     private var isStopped = false
 
     /// Fires at most once, on `queue`, if the listener fails or is cancelled
@@ -177,7 +179,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
         }
         let sessionQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-session.\(UUID().uuidString)", qos: .utility)
         let streamClient = RemoteTmuxSocksProxyStreamClient(localForwardPort: dynamicForwardPort)
-        let session = RemoteDaemonProxySession(
+        let session = makeRemoteDaemonProxySession(
             connection: connection,
             rpcClient: streamClient,
             queue: sessionQueue
