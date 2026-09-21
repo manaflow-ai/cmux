@@ -17,6 +17,7 @@ class WebSubareas:
     instant: bool
     production_build: bool
     react_apps: bool
+    unit_tests: bool
 
     @classmethod
     def all(cls) -> "WebSubareas":
@@ -26,6 +27,7 @@ class WebSubareas:
             instant=True,
             production_build=True,
             react_apps=True,
+            unit_tests=True,
         )
 
     def emit(self, output: Path) -> None:
@@ -35,13 +37,15 @@ class WebSubareas:
             handle.write(f"instant={str(self.instant).lower()}\n")
             handle.write(f"production_build={str(self.production_build).lower()}\n")
             handle.write(f"react_apps={str(self.react_apps).lower()}\n")
+            handle.write(f"unit_tests={str(self.unit_tests).lower()}\n")
         print(
             "web subareas: "
             f"db={str(self.db).lower()} "
             f"diff_sidecar={str(self.diff_sidecar).lower()} "
             f"instant={str(self.instant).lower()} "
             f"production_build={str(self.production_build).lower()} "
-            f"react_apps={str(self.react_apps).lower()}"
+            f"react_apps={str(self.react_apps).lower()} "
+            f"unit_tests={str(self.unit_tests).lower()}"
         )
 
 
@@ -124,6 +128,15 @@ PRODUCTION_BUILD_EXCLUDED_EXACT = {
     "web/scripts/run-tests.sh",
 }
 
+UNIT_TESTS_EXACT = {
+    "CHANGELOG.md",
+    "config/iroh/managed-relay-catalog.json",
+    "workers/presence/src/generated/managedRelayCatalog.ts",
+}
+UNIT_TESTS_EXCLUDED_PREFIXES = (
+    "web/e2e/",
+)
+
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-react-compiler.mjs",
@@ -140,10 +153,11 @@ def classify_paths(paths: list[str]) -> WebSubareas:
     instant = False
     production_build = False
     react_apps = False
+    unit_tests = False
 
     for path in paths:
         if path in ALL_SUBAREA_INPUTS:
-            db = diff_sidecar = instant = production_build = react_apps = True
+            db = diff_sidecar = instant = production_build = react_apps = unit_tests = True
             continue
 
         if path in DB_EXACT or path.startswith(DB_PREFIXES):
@@ -167,12 +181,18 @@ def classify_paths(paths: list[str]) -> WebSubareas:
         if path in REACT_EXACT or path.startswith(REACT_PREFIXES):
             react_apps = True
 
+        if path in UNIT_TESTS_EXACT or (
+            path.startswith("web/") and not path.startswith(UNIT_TESTS_EXCLUDED_PREFIXES)
+        ):
+            unit_tests = True
+
     return WebSubareas(
         db=db,
         diff_sidecar=diff_sidecar,
         instant=instant,
         production_build=production_build,
         react_apps=react_apps,
+        unit_tests=unit_tests,
     )
 
 
