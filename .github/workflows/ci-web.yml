@@ -17,6 +17,133 @@ permissions:
   contents: read
 
 jobs:
+  web-subarea-scope:
+    if: ${{ inputs.web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      db: ${{ steps.scope.outputs.db }}
+      instant: ${{ steps.scope.outputs.instant }}
+      react_apps: ${{ steps.scope.outputs.react_apps }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify web subareas
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          def emit(db: bool, instant: bool, react_apps: bool) -> None:
+              values = {
+                  "db": db,
+                  "instant": instant,
+                  "react_apps": react_apps,
+              }
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  for key, value in values.items():
+                      output.write(f"{key}={str(value).lower()}\n")
+              print("web subareas: " + " ".join(f"{key}={str(value).lower()}" for key, value in values.items()))
+
+          if os.environ.get("EVENT_NAME") == "workflow_dispatch":
+              emit(True, True, True)
+              raise SystemExit(0)
+
+          base = subprocess.run(
+              ["git", "rev-parse", "-q", "--verify", "HEAD^1"],
+              text=True,
+              capture_output=True,
+          )
+          if base.returncode != 0:
+              print("comparison parent unavailable; running every web subarea")
+              emit(True, True, True)
+              raise SystemExit(0)
+
+          diff = subprocess.run(
+              ["git", "diff", "--no-renames", "--name-only", "-z", base.stdout.strip(), "HEAD", "--"],
+              capture_output=True,
+          )
+          if diff.returncode != 0:
+              print("web subarea diff unavailable; running every web subarea")
+              emit(True, True, True)
+              raise SystemExit(0)
+
+          paths = [os.fsdecode(path) for path in diff.stdout.split(b"\0") if path]
+          if not paths:
+              print("empty web diff; running every web subarea")
+              emit(True, True, True)
+              raise SystemExit(0)
+
+          all_subareas = {".github/workflows/ci-web.yml"}
+          db_exact = {
+              "web/bun.lock",
+              "web/drizzle.config.ts",
+              "web/package.json",
+              "web/scripts/db-local.sh",
+              "web/scripts/run-db-behavior-tests.sh",
+          }
+          db_prefixes = (
+              "web/app/api/",
+              "web/app/v1/",
+              "web/db/",
+              "web/openapi/",
+              "web/orpc/",
+              "web/services/",
+              "web/tests/",
+              "web/types/",
+          )
+          instant_exact = {
+              "web/bun.lock",
+              "web/next.config.ts",
+              "web/package.json",
+              "web/playwright.instant.config.ts",
+              "web/proxy.ts",
+          }
+          instant_prefixes = (
+              "web/app/",
+              "web/data/",
+              "web/e2e/instant/",
+              "web/i18n/",
+              "web/messages/",
+          )
+          react_exact = {
+              "scripts/build-webviews-app.sh",
+              "scripts/check-webviews-react-compiler.mjs",
+          }
+          react_prefixes = (
+              "Resources/markdown-viewer/",
+              "webviews/",
+          )
+
+          db = False
+          instant = False
+          react_apps = False
+          for path in paths:
+              if path in all_subareas:
+                  db = instant = react_apps = True
+                  continue
+              if path in db_exact or path.startswith(db_prefixes):
+                  db = True
+              if (
+                  path in instant_exact
+                  or path.startswith(instant_prefixes)
+                  or path == "web/services/coderouter/vmGuestEnv.ts"
+              ):
+                  instant = True
+              if path in react_exact or path.startswith(react_prefixes):
+                  react_apps = True
+
+          emit(db, instant, react_apps)
+          PY
+
   web-typecheck:
     if: ${{ inputs.web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -122,7 +249,8 @@ jobs:
         run: ./scripts/run-tests.sh --shard "${{ matrix.shard }}"
 
   web-instant-navigation:
-    if: ${{ inputs.web == 'true' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
@@ -162,90 +290,37 @@ jobs:
   # surfaces will live alongside it).
 
   react-apps-check:
-    if: ${{ inputs.web == 'true' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # PR and merge-group checkouts are synthetic commits; one parent is
-          # enough to decide whether this PR touched the in-app webviews lane.
-          fetch-depth: 2
           persist-credentials: false
 
-      - name: Detect in-app webviews changes
-        id: scope
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Manual run: validating in-app webviews."
-            exit 0
-          fi
-
-          if ! base="$(git rev-parse -q --verify 'HEAD^1')"; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Could not resolve comparison parent; validating in-app webviews."
-            exit 0
-          fi
-
-          set +e
-          git diff --quiet --no-renames "$base" HEAD -- \
-            webviews \
-            Resources/markdown-viewer \
-            scripts/build-webviews-app.sh \
-            scripts/check-webviews-react-compiler.mjs \
-            .github/workflows/ci-web.yml
-          diff_status=$?
-          set -e
-
-          case "$diff_status" in
-            0)
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              echo "No in-app webviews inputs changed; skipping webviews build/test/lint."
-              ;;
-            1)
-              echo "run=true" >> "$GITHUB_OUTPUT"
-              echo "In-app webviews inputs changed; running webviews validation."
-              ;;
-            *)
-              echo "run=true" >> "$GITHUB_OUTPUT"
-              echo "::warning::Could not classify in-app webviews diff; validating conservatively."
-              ;;
-          esac
-
       - name: Setup Bun
-        if: steps.scope.outputs.run == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Verify generated webviews assets
-        if: steps.scope.outputs.run == 'true'
         run: ./scripts/build-webviews-app.sh --check
 
       - name: Verify React Compiler for webviews
-        if: steps.scope.outputs.run == 'true'
         run: ./scripts/check-webviews-react-compiler.mjs
 
       - name: Typecheck webviews
-        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run typecheck
 
       - name: Test webviews
-        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run test
 
       - name: Oxlint webviews
-        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run lint:ci
 
       - name: React Doctor
-        if: steps.scope.outputs.run == 'true'
         working-directory: webviews
         run: bun run react-doctor:ci
 
@@ -287,7 +362,8 @@ jobs:
         run: ./scripts/benchmark-diff-viewer.sh
 
   web-db-migrations:
-    if: ${{ inputs.web == 'true' }}
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     defaults:
       run:
@@ -357,6 +433,7 @@ jobs:
   web-status:
     name: Web status
     needs:
+      - web-subarea-scope
       - web-typecheck
       - web-production-build
       - web-tests
@@ -386,14 +463,28 @@ jobs:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
 
+          scope = needs["web-subarea-scope"]
+          if inputs["web"] == "true":
+              if scope["result"] != "success":
+                  print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
+                  sys.exit(1)
+              subareas = scope.get("outputs", {})
+              for name in ("db", "instant", "react_apps"):
+                  if subareas.get(name) not in {"true", "false"}:
+                      print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
+                      sys.exit(1)
+          else:
+              subareas = {"db": "false", "instant": "false", "react_apps": "false"}
+
           required = {
+              "web-subarea-scope": inputs["web"] == "true",
               "web-typecheck": inputs["web"] == "true",
               "web-production-build": inputs["web"] == "true",
               "web-tests": inputs["web"] == "true",
-              "web-instant-navigation": inputs["web"] == "true",
-              "react-apps-check": inputs["web"] == "true",
+              "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
+              "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
               "diff-sidecar-check": inputs["macos"] == "true" or inputs["web"] == "true",
-              "web-db-migrations": inputs["web"] == "true",
+              "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
               "agent-session-web-resources": inputs["agent_session_web"] == "true",
           }
           bad = {}
