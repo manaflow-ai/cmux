@@ -220,6 +220,7 @@ function CoderouterApiKeysSection({
   const [issuedTeamId, setIssuedTeamId] = useState(teamId);
   const requestGeneration = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
+  const currentTeamId = useRef(teamId);
 
   const fetchKeys = useCallback(async (signal?: AbortSignal): Promise<readonly CoderouterApiKeySummary[]> => {
     const requestSignal = signal
@@ -236,7 +237,8 @@ function CoderouterApiKeysSection({
     return body.keys;
   }, [teamId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (expectedTeamId = teamId) => {
+    if (expectedTeamId !== currentTeamId.current || expectedTeamId !== teamId) return;
     activeRequest.current?.abort();
     const controller = new AbortController();
     activeRequest.current = controller;
@@ -262,6 +264,7 @@ function CoderouterApiKeysSection({
     // The render guard below keeps old team data out of the UI while this
     // request is in flight. The old request is also aborted before starting it.
     activeRequest.current?.abort();
+    currentTeamId.current = teamId;
     const controller = new AbortController();
     activeRequest.current = controller;
     const generation = ++requestGeneration.current;
@@ -322,7 +325,7 @@ function CoderouterApiKeysSection({
       setIssued(created);
       setIssuedTeamId(teamId);
       setStatus(idleStatus);
-      await load();
+      await load(teamId);
     } catch {
       setStatus({ state: "error", message: t("apiKeyCreateError") });
     }
@@ -398,7 +401,7 @@ function CoderouterApiKeysSection({
                     <div className="mt-0.5 text-muted">{t("apiKeyCreatedAt", { at: format.dateTime(created, { dateStyle: "medium" }) })} · {statusDetail}</div>
                     <div className="mt-0.5 text-muted">{usageDetail}</div>
                   </div>
-                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void load()} /> : null}</div>
+                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void load(teamId)} /> : null}</div>
                 </li>
               );
             })}
