@@ -1,7 +1,7 @@
 import { Cache, Clock, Effect } from "effect";
 import type { Freestyle } from "freestyle";
 import { guestResourceSampleCommand } from "../guestResourceReporter";
-import { parseVmResourceUsage, VM_RESOURCE_USAGE_MIN_INTERVAL_MS } from "../resourceUsage";
+import { parseVmResourceUsage, VM_RESOURCE_USAGE_DIRECT_READ_INTERVAL_MS } from "../resourceUsage";
 import type { VMResourceStatsResult } from "./types";
 
 const PROBE_TIMEOUT_MS = 5_000;
@@ -25,7 +25,7 @@ export class FreestyleResourceStatsReader {
   ) {
     this.cache = Effect.runSync(Cache.make({
       capacity: 128,
-      timeToLive: VM_RESOURCE_USAGE_MIN_INTERVAL_MS,
+      timeToLive: VM_RESOURCE_USAGE_DIRECT_READ_INTERVAL_MS,
       lookup: (vmId: string) => this.sample(vmId),
     }).pipe(Effect.withClock(clock)));
   }

@@ -50,6 +50,7 @@ declare module "bun:test" {
     objectContaining: (value: unknown) => unknown;
     arrayContaining: (value: readonly unknown[]) => unknown;
     stringContaining: (value: string) => unknown;
+    any: (constructor: unknown) => unknown;
   };
   export const mock: Mock;
   export const setSystemTime: (time?: Date | number) => void;

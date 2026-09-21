@@ -36,9 +36,14 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
+  findVmImageManifestEntry,
   inferVmProviderForImage,
   resolveVmImage,
+  vmImageEntryEpoch,
+  type VmImageSelection,
 } from "../../../services/vms/images/resolver";
+import { createAttachBlock } from "../../../services/vms/attachContract";
+import { orderedDeferSink } from "../../../services/vms/defer";
 import {
   reportVmImageConfigError,
   isVmImageKind,
@@ -69,6 +74,7 @@ import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
+  type VmEntry,
 } from "../../../services/vms/workflows";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
@@ -292,27 +298,53 @@ export async function POST(request: Request): Promise<Response> {
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
         timing,
+        imageEpoch: vmImageEntryEpoch(imageSelection.manifestEntry),
+        // Usage-event rows are written after the response has left, in
+        // lifecycle order (requested before created).
+        defer: orderedDeferSink(runAfterResponse),
       }), {
         request,
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;
       const created = run.value;
-      setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-      return jsonResponse({
-        id: created.providerVmId,
-        provider: created.provider,
-        image: created.image,
-        imageVersion: created.imageVersion,
-        kind: vmImageKindFor(created.provider, created.image),
-        ...(imageSelection.size ? { size: imageSelection.size } : {}),
-        createdAt: created.createdAt,
-        capabilities: vmCapabilitiesFor(created.provider),
-        displayName: created.displayName,
-        slug: created.slug,
-      });
+      const payload = createResponseBody(created, imageSelection);
+      setSpanAttributes(span, { "cmux.vm.id": created.providerVmId, "cmux.vm.attach_block": "attach" in payload });
+      return jsonResponse(payload);
     },
   );
+}
+
+/**
+ * The create response: the machine shape `GET /api/vm` lists plus what a
+ * client needs to dial the daemon straight away. `address` is the same object
+ * the GET routes return; `attach` is the block a client dials from without a
+ * status GET or an attach-endpoint call, absent when the row holds no private
+ * address or the image is outside the manifest (clients feature-detect on it
+ * and fall back to attach-endpoint).
+ */
+function createResponseBody(created: VmEntry, imageSelection: VmImageSelection): Record<string, unknown> {
+  // An idempotent replay answers with the row's own image, which may not be
+  // the one this request resolved.
+  const manifestEntry = imageSelection.manifestEntry?.imageId === created.image
+    ? imageSelection.manifestEntry
+    : findVmImageManifestEntry(created.provider, created.image, imageSelection.kind);
+  const attach = createAttachBlock({ entry: created, manifestEntry });
+  return {
+    id: created.providerVmId,
+    provider: created.provider,
+    image: created.image,
+    imageVersion: created.imageVersion,
+    kind: vmImageKindFor(created.provider, created.image),
+    ...(imageSelection.size ? { size: imageSelection.size } : {}),
+    createdAt: created.createdAt,
+    capabilities: vmCapabilitiesFor(created.provider),
+    displayName: created.displayName,
+    slug: created.slug,
+    status: created.status,
+    address: { ipv4: created.addressIpv4 ?? null, ipv6: created.addressIpv6 ?? null },
+    ...(attach ? { attach } : {}),
+  };
 }
 
 /**

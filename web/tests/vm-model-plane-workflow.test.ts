@@ -77,11 +77,25 @@ function fakeRepo(input: {
   readonly destroyedIds?: string[];
   readonly markCreateRunning?: VmRepositoryShape["markCreateRunning"];
   readonly reconciliationCandidates?: CloudVmRow[];
+  /** The row ids the workflow asked beginCreate to insert (it mints them). */
+  readonly beganIds?: string[];
+  /** An idempotent replay: the key already has a running machine. */
+  readonly replay?: CloudVmRow;
+  readonly beginCreateFails?: boolean;
 }): VmRepositoryShape {
   const vm = input.vm ?? row();
   const now = new Date();
+  // The inserted row carries the id the workflow minted, as Postgres would.
+  let inserted: CloudVmRow = vm;
   const repo: Partial<VmRepositoryShape> = {
-    beginCreate: () => Effect.succeed({ inserted: true, vm }),
+    beginCreate: (begin) =>
+      Effect.suspend((): ReturnType<VmRepositoryShape["beginCreate"]> => {
+        input.beganIds?.push(begin.id ?? vm.id);
+        if (input.beginCreateFails) return Effect.fail(new VmDatabaseError({ operation: "beginCreate", cause: new Error("insert failed") }));
+        if (input.replay) return Effect.succeed({ inserted: false as const, vm: input.replay });
+        inserted = { ...vm, id: begin.id ?? vm.id };
+        return Effect.succeed({ inserted: true as const, vm: inserted });
+      }),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,
@@ -99,7 +113,7 @@ function fakeRepo(input: {
       }),
     markCreateRunning:
       input.markCreateRunning ??
-      ((update) => Effect.succeed({ ...vm, status: "running", providerVmId: update.providerVmId, imageId: update.image })),
+      ((update) => Effect.succeed({ ...inserted, status: "running", providerVmId: update.providerVmId, imageId: update.image })),
     findUserVm: ({ userId, providerVmId }) =>
       Effect.succeed(vm.userId === userId && vm.providerVmId === providerVmId ? vm : null),
     hasOwnedSnapshot: () => Effect.succeed(true),
@@ -221,12 +235,16 @@ const createInput = {
 };
 
 describe("createVm model plane", () => {
-  test("provisions with the row id after the row exists and hands env plus edge rules to the provider", async () => {
+  test("mints the token for the row id it inserts, concurrently with the insert, and hands the rules to the provider", async () => {
+    // The workflow mints the row id itself, so the network lookup, the row
+    // insert and the token mint run together; the provider create waits for
+    // all three.
     const usageEvents: UsageEvent[] = [];
     const creates: CreateOptions[] = [];
     const order: string[] = [];
     const provisioned: string[] = [];
     const revoked: string[] = [];
+    const beganIds: string[] = [];
     const modelPlane: VmModelPlaneProvisioner = {
       provision: async (cloudVmId) => {
         order.push("provision");
@@ -246,11 +264,13 @@ describe("createVm model plane", () => {
     };
     const created = await Effect.runPromise(
       createVm({ ...createInput, modelPlane }).pipe(
-        Effect.provide(layer(fakeRepo({ usageEvents, failed: [] }), providers)),
+        Effect.provide(layer(fakeRepo({ usageEvents, failed: [], beganIds }), providers)),
       ),
     );
     expect(created.providerVmId).toBe("provider-vm-mp");
-    expect(provisioned).toEqual([ROW_ID]);
+    expect(beganIds).toHaveLength(1);
+    expect(beganIds[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(provisioned).toEqual(beganIds);
     expect(order).toEqual(["provision", "provider_create"]);
     expect(creates).toHaveLength(1);
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
@@ -265,7 +285,7 @@ describe("createVm model plane", () => {
     expect(creates[0]?.edgeRules).toBeUndefined();
   });
 
-  test("an unavailable failure refunds, marks the row, records the event, and never calls the provider", async () => {
+  test("an unavailable failure marks the row, records the event, and never calls the provider", async () => {
     const kind = "unavailable" as const;
     const code = VM_MODEL_PLANE_FAILURE_CODES[kind];
     const usageEvents: UsageEvent[] = [];
@@ -278,17 +298,20 @@ describe("createVm model plane", () => {
       revoked,
       fail: new VmModelPlaneError({ kind, cause: new Error(`coderouter ${kind}`) }),
     });
+    const beganIds: string[] = [];
     const failure = await Effect.runPromise(
       createVm({ ...createInput, modelPlane }).pipe(
         Effect.flip,
-        Effect.provide(layer(fakeRepo({ usageEvents, failed }), fakeProviders({ creates }), billingWithRefunds(refunds))),
+        Effect.provide(layer(fakeRepo({ usageEvents, failed, beganIds }), fakeProviders({ creates }), billingWithRefunds(refunds))),
       ),
     );
     expect(isVmModelPlaneError(failure)).toBe(true);
     expect((failure as VmModelPlaneError).kind).toBe(kind);
     expect(creates).toEqual([]);
-    expect(refunds).toHaveLength(1);
-    expect(failed).toEqual([{ id: ROW_ID, code, message: `coderouter ${kind}` }]);
+    // The credit hold is taken after the token mint now, so a mint failure
+    // has nothing to refund.
+    expect(refunds).toHaveLength(0);
+    expect(failed).toEqual([{ id: beganIds[0], code, message: `coderouter ${kind}` }]);
     const failedEvent = usageEvents.find((event) => event.eventType === "vm.create.failed");
     expect(failedEvent?.metadata).toEqual({ operation: "model_plane_provision", kind, message: `coderouter ${kind}` });
     expect(revoked).toEqual([]);
@@ -310,25 +333,67 @@ describe("createVm model plane", () => {
   test("revokes the token when the provider create fails", async () => {
     const revoked: string[] = [];
     const refunds: unknown[] = [];
+    const beganIds: string[] = [];
     const modelPlane = fakeModelPlane({ provisioned: [], revoked });
     const failure = await Effect.runPromise(
       createVm({ ...createInput, modelPlane }).pipe(
         Effect.flip,
         Effect.provide(layer(
-          fakeRepo({ usageEvents: [], failed: [] }),
+          fakeRepo({ usageEvents: [], failed: [], beganIds }),
           fakeProviders({ creates: [], createFails: true }),
           billingWithRefunds(refunds),
         )),
       ),
     );
     expect(failure).toBeInstanceOf(VmProviderOperationError);
-    expect(revoked).toEqual([ROW_ID]);
+    expect(revoked).toEqual(beganIds);
     expect(refunds).toHaveLength(1);
+  });
+
+  test("an idempotent replay revokes the token minted for the row it did not insert", async () => {
+    // The mint runs concurrently with the insert, so a replay of an earlier
+    // create has minted a token for a row that never exists: revoke it, and
+    // answer with the existing machine without touching the provider.
+    const revoked: string[] = [];
+    const provisioned: string[] = [];
+    const beganIds: string[] = [];
+    const creates: CreateOptions[] = [];
+    const modelPlane = fakeModelPlane({ provisioned, revoked });
+    const existing = row({ id: "00000000-0000-4000-8000-00000000ee11", status: "running", providerVmId: "provider-vm-existing" });
+    const created = await Effect.runPromise(
+      createVm({ ...createInput, idempotencyKey: "replayed", modelPlane }).pipe(
+        Effect.provide(layer(fakeRepo({ usageEvents: [], failed: [], beganIds, replay: existing }), fakeProviders({ creates }))),
+      ),
+    );
+    expect(created.providerVmId).toBe("provider-vm-existing");
+    expect(creates).toEqual([]);
+    expect(beganIds).toHaveLength(1);
+    expect(provisioned).toEqual(beganIds);
+    expect(revoked).toEqual(beganIds);
+  });
+
+  test("a failed insert revokes the minted token and surfaces the database error", async () => {
+    const revoked: string[] = [];
+    const provisioned: string[] = [];
+    const beganIds: string[] = [];
+    const creates: CreateOptions[] = [];
+    const modelPlane = fakeModelPlane({ provisioned, revoked });
+    const failure = await Effect.runPromise(
+      createVm({ ...createInput, modelPlane }).pipe(
+        Effect.flip,
+        Effect.provide(layer(fakeRepo({ usageEvents: [], failed: [], beganIds, beginCreateFails: true }), fakeProviders({ creates }))),
+      ),
+    );
+    expect(failure).toBeInstanceOf(VmDatabaseError);
+    expect(creates).toEqual([]);
+    expect(provisioned).toEqual(beganIds);
+    expect(revoked).toEqual(beganIds);
   });
 
   test("revokes the token and destroys the machine when the running write fails", async () => {
     const revoked: string[] = [];
     const destroyed: string[] = [];
+    const beganIds: string[] = [];
     const modelPlane = fakeModelPlane({ provisioned: [], revoked });
     const failure = await Effect.runPromise(
       createVm({ ...createInput, modelPlane }).pipe(
@@ -337,6 +402,7 @@ describe("createVm model plane", () => {
           fakeRepo({
             usageEvents: [],
             failed: [],
+            beganIds,
             markCreateRunning: () => Effect.fail(new VmDatabaseError({ operation: "markCreateRunning", cause: new Error("db") })),
           }),
           fakeProviders({ creates: [], destroyed }),
@@ -345,7 +411,7 @@ describe("createVm model plane", () => {
     );
     expect(failure).toBeInstanceOf(VmDatabaseError);
     expect(destroyed).toEqual(["provider-vm-mp"]);
-    expect(revoked).toEqual([ROW_ID]);
+    expect(revoked).toEqual(beganIds);
   });
 
   test("a failing revoke never fails the rollback path", async () => {
@@ -369,13 +435,16 @@ describe("restoreVm model plane", () => {
   test("threads the provisioner through to the create", async () => {
     const creates: CreateOptions[] = [];
     const provisioned: string[] = [];
+    const beganIds: string[] = [];
     const modelPlane = fakeModelPlane({ provisioned, revoked: [] });
     await Effect.runPromise(
       restoreVm({ ...createInput, snapshotId: "snap-1", modelPlane }).pipe(
-        Effect.provide(layer(fakeRepo({ usageEvents: [], failed: [] }), fakeProviders({ creates }))),
+        Effect.provide(layer(fakeRepo({ usageEvents: [], failed: [], beganIds }), fakeProviders({ creates }))),
       ),
     );
-    expect(provisioned).toEqual([ROW_ID]);
+    // A restore is a create: the token is minted for the row id the workflow mints.
+    expect(beganIds).toHaveLength(1);
+    expect(provisioned).toEqual(beganIds);
     expect(creates[0]?.image).toBe("snap-1");
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
   });
@@ -469,10 +538,11 @@ describe("fork model plane", () => {
   test.each([false, true])("a fork gets its own inline rule even when a native fork is exposed: %s", async (native) => {
     const creates: CreateOptions[] = [];
     const provisioned: string[] = [];
+    const beganIds: string[] = [];
     const source = row({ id: "source-row", providerVmId: "source-vm", status: "running" });
     const input = { ...createInput, teamIds: ["team-mp"], providerVmId: "source-vm", modelPlane: fakeModelPlane({ provisioned, revoked: [] }) };
     const result = await Effect.runPromise(forkVm(input).pipe(Effect.provide(layer(
-      { ...fakeRepo({ usageEvents: [], failed: [] }), findUserVm: () => Effect.succeed(source) },
+      { ...fakeRepo({ usageEvents: [], failed: [], beganIds }), findUserVm: () => Effect.succeed(source) },
       {
         ...fakeProviders({ creates }),
         snapshot: () => Effect.succeed({ id: "source-copy", createdAt: 0 }),
@@ -480,7 +550,9 @@ describe("fork model plane", () => {
       },
     ))));
     expect(result.fork.providerVmId).toBe("provider-vm-mp");
-    expect(provisioned).toEqual([ROW_ID]);
+    // The fork's row id is minted by the create it delegates to.
+    expect(beganIds).toHaveLength(1);
+    expect(provisioned).toEqual(beganIds);
     expect(creates[0]?.image).toBe("source-copy");
     expect(creates[0]?.edgeRules).toEqual(MATERIALS.edgeRules);
   });

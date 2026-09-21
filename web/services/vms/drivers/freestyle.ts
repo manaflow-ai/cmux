@@ -8,13 +8,14 @@ import {
   type Vm,
   type VpcData,
   type SnapshotData,
+  type CreateVmOptions,
 } from "freestyle";
 
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
-import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { announceFreestyleNetwork, freestyleNetworkAnnouncementCommand } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
@@ -78,8 +79,10 @@ import {
   resolveCmuxTuiSource,
   shellQuote,
   waitForCmuxTuiReady,
+  type CmuxTuiAttachBundle,
   type CmuxTuiInvoke,
   type CmuxTuiSource,
+  CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS,
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
@@ -173,7 +176,9 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
-const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
+const ROUTE_TOKEN_TTL_SECONDS = CMUX_TUI_ROUTE_TOKEN_TTL_SECONDS;
+/** The create-time prompt install on a baked image: a few files under /etc/cmux, well under a second once booted. */
+const CREATE_PROMPT_EXEC_TIMEOUT_MS = 3_000;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 /**
@@ -564,26 +569,36 @@ const DAEMON_SETTLE_TIMEOUT_MS = 3_000;
  */
 export function freestyleDaemonSettledCommand(): string {
   const healthy = freestyleDaemonHealthyCommand();
+  // The instance id never changes during a settle, so it is read once before
+  // the loop (again only while a metadata hiccup left it empty) instead of
+  // twice per tick; every tick compares the daemon's bound id against it.
+  const bound = freestyleDaemonHealthyCommand({ instanceIdVar: "cmux_iid" });
   const ticks = Math.floor(DAEMON_SETTLE_TIMEOUT_MS / 100);
   return (
     "if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon >/dev/null 2>&1; then " +
-    `for i in $(seq 1 ${ticks}); do { ${healthy}; } && exit 0; sleep 0.1; done; exit 1; ` +
+    `cmux_iid="$(${freestyleInstanceIdCommand()})"; ` +
+    `for i in $(seq 1 ${ticks}); do { [ -n "$cmux_iid" ] || cmux_iid="$(${freestyleInstanceIdCommand()})"; ${bound}; } && exit 0; sleep 0.1; done; exit 1; ` +
     `else ${healthy}; fi`
   );
 }
 
-export function freestyleDaemonHealthyCommand(): string {
+/** The guest's own instance id from the metadata service (token, then id). */
+function freestyleInstanceIdCommand(): string {
+  return "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+}
+
+export function freestyleDaemonHealthyCommand(options: { readonly instanceIdVar?: string } = {}): string {
   // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
   // On an image whose supervisor binds the daemon identity to the instance id
   // (it ships /etc/cmux/bake-instance-id), the daemon is healthy only when the
   // bound id is this machine's: a clone of a live machine briefly runs the
   // source machine's daemon until the supervisor re-keys it, and an
   // invitation minted from that daemon would name the wrong fingerprint.
+  // `instanceIdVar` names a shell variable that already holds the id.
+  const instanceId = options.instanceIdVar ? `"$${options.instanceIdVar}"` : `"$(${freestyleInstanceIdCommand()})"`;
   return (
     "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6" +
-    " && { [ ! -f /etc/cmux/bake-instance-id ] || [ \"$(cat /etc/cmux/daemon-instance-id 2>/dev/null)\" = \"$(" +
-    "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id" +
-    ")\" ]; }"
+    ` && { [ ! -f /etc/cmux/bake-instance-id ] || [ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = ${instanceId} ]; }`
   );
 }
 
@@ -963,23 +978,12 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const networkId = options.network?.id;
-          const { vm, vmId, data } = await fs.vms.create({
-            snapshotId: image,
-            displayName: "cmux Cloud VM",
-            // Do not let an account/provider idle default turn a persistent
-            // machine into a one-shot box. Explicit pause/stop still works.
-            idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            ...(options.runtimeBudgetSeconds !== undefined ? {
-              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
-            } : {}),
-            metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
-            ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
-            ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
-          });
+          const created = await fs.vms.create(freestyleCreateRequest(options, image, networkId, tlsRules));
+          const { vm, vmId, data } = created;
           setSpanAttributes(span, {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
+            "cmux.vm.guest_tools_baked": options.guestToolsBaked === true,
           });
           try {
             // Validate the provider-assigned VPC address without issuing the
@@ -1005,10 +1009,15 @@ export class FreestyleProvider implements VMProvider {
             }
             // The baked supervisor is already bringing the daemon up; the only
             // per-machine input it needs is the model-plane env file.
-
-            // The in-VM shim is a separate convenience layer over the baked
-            // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm, vmId, options.promptIdentity);
+            if (options.guestToolsBaked) {
+              // The image carries the guest tools; the prompt identity ran as
+              // the platform's create-time command (freestyleCreateRequest).
+              assertCreateExecSucceeded(vmId, created.exec);
+            } else {
+              // The in-VM shim is a separate convenience layer over the baked
+              // daemon and is installed idempotently for agents and peer links.
+              await this.installGuestCli(vm, vmId, options.promptIdentity);
+            }
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1422,6 +1431,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
+    if (options?.guestToolsBaked) return this.openCmuxRemoteBaked(vmId, options);
     return withVmSpan(
       "cmux.vm.provider.open_cmux_remote",
       "tunnel",
@@ -1440,11 +1450,6 @@ export class FreestyleProvider implements VMProvider {
 
           span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
           span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
-          // Direct-IPv6 carries no URL token; this one exists only for the
-          // lease ledger. The daemon's Noise enrollment is the session gate —
-          // the same trust model as E2B's public proxy route.
-          const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
-          const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           // One guest exec: readiness gate, daemon build, enrolled devices, and
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
@@ -1480,26 +1485,7 @@ export class FreestyleProvider implements VMProvider {
           }
           let bundle = parseCmuxTuiAttachBundle(bundleResult.stdout, "freestyle", vmId, fingerprint);
           if (!bundle.trustedCarrier) {
-            // A healthy daemon from an older image can still lack the trusted
-            // listener. Install/restart the pinned daemon before retrying.
-            const source = await this.deps.resolveDaemonSource("freestyle");
-            const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
-            if (pinned?.exitCode !== 0) {
-              await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
-            }
-            await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand({ replaceExisting: true }), 60_000);
-            await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
-            bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
-            if (!bundleResult || bundleResult.exitCode !== 0) {
-              throw new ProviderError("freestyle", `cmux-tui attach bundle retry in ${vmId} failed`);
-            }
-            bundle = parseCmuxTuiAttachBundle(bundleResult.stdout, "freestyle", vmId, fingerprint);
-            if (!bundle.trustedCarrier) {
-              throw new ProviderError(
-                "freestyle",
-                `cmux-tui daemon in ${vmId} still refuses the trusted listener after the pinned build was installed and restarted`,
-              );
-            }
+            bundle = await this.healTrustedListener(vm, vmId, fingerprint);
             healed = true;
           }
           span.setAttribute("cmux.vm.cmux_remote.healed", healed);
@@ -1513,22 +1499,7 @@ export class FreestyleProvider implements VMProvider {
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
           const daemonBuild = bundle.daemonBuild ?? await cmuxTuiDaemonBuild(invoke);
-          const addresses = freestyleNetworkAddressMetadata(data);
-          const networkAddresses = {
-            ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
-            ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
-          };
-          return {
-            transport: "cmux-remote" as const,
-            route,
-            token,
-            expiresAtUnix,
-            session: CMUX_TUI_SESSION,
-            trustedCarrier: bundle.trustedCarrier,
-            ...(daemonBuild ? { daemonBuild } : {}),
-            ...(invitation ? { invitation } : {}),
-            ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
-          };
+          return freestyleCmuxRemoteEndpoint(route, data, bundle.trustedCarrier, daemonBuild, invitation);
         } catch (err) {
           throw err instanceof ProviderError
             ? err
@@ -1538,16 +1509,108 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  /**
+   * Attach on an image that bakes the guest tools (CmuxRemoteAttachOptions.
+   * guestToolsBaked): nothing to install or check, so a healthy attach is one
+   * guest exec — the private-address announcement as best effort, the prompt
+   * identity, the settle gate, the daemon probe and the trusted-listener
+   * probe, without the device list a trusted listener does not need. A daemon
+   * that is not up inside the settle budget, or not trusted, is still healed
+   * the way the general path heals it, minus the guest-tool installs.
+   */
+  private async openCmuxRemoteBaked(vmId: string, options: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
+    return withVmSpan(
+      "cmux.vm.provider.open_cmux_remote",
+      "tunnel",
+      spanAttributes(vmId, "open_cmux_remote"),
+      async (span) => {
+        try {
+          const fs = this.deps.client(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
+          const vm = fs.vms.ref(vmId);
+          const persisted = freestyleRouteAddressesFromMetadata(options.providerMetadata);
+          const data = persisted ?? await vm.data();
+          const route = freestyleCmuxRemoteRoute(data, vmId);
+          setSpanAttributes(span, {
+            "cmux.vm.network.private": (data.vpcs ?? data.networks ?? []).length > 0,
+            "cmux.vm.route.source": persisted ? "row" : "provider",
+            "cmux.vm.guest_tools_baked": true,
+          });
+          const fingerprint = options.deviceFingerprint;
+          const command = (readyGate?: string) => freestyleBakedAttachCommand({
+            announceAddresses: freestylePrivateAddresses(data),
+            promptIdentity: options.promptIdentity,
+            readyGate,
+            deviceFingerprint: fingerprint,
+          });
+          let bundleResult = await this.execResult(
+            vm,
+            command(freestyleDaemonSettledCommand()),
+            DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
+          );
+          let healed = false;
+          if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
+            // Not up inside the settle budget: repair the daemon (no guest
+            // tools to install on this image), then probe again.
+            healed = true;
+            await this.ensureCmuxTuiRunning(vm, vmId, false);
+            bundleResult = await this.execResult(vm, command());
+          }
+          if (!bundleResult || bundleResult.exitCode !== 0) {
+            throw new ProviderError(
+              "freestyle",
+              `cmux-tui attach bundle in ${vmId} failed (exit ${bundleResult?.exitCode ?? "n/a"}): ${(bundleResult?.stderr || bundleResult?.stdout || "").slice(0, 500)}`,
+            );
+          }
+          let bundle = parseCmuxTuiAttachBundle(bundleResult.stdout, "freestyle", vmId, fingerprint);
+          if (!bundle.trustedCarrier) {
+            bundle = await this.healTrustedListener(vm, vmId, fingerprint);
+            healed = true;
+          }
+          span.setAttribute("cmux.vm.cmux_remote.healed", healed);
+          const daemonBuild = bundle.daemonBuild ?? await cmuxTuiDaemonBuild(this.cmuxTuiInvoke(vm));
+          return freestyleCmuxRemoteEndpoint(route, data, bundle.trustedCarrier, daemonBuild, undefined);
+        } catch (err) {
+          throw err instanceof ProviderError
+            ? err
+            : new ProviderError("freestyle", `openCmuxRemote(${vmId}) failed`, err);
+        }
+      },
+    );
+  }
+
+  /**
+   * A healthy daemon from an older image can still lack the trusted listener:
+   * install the pinned build if the pin moved, restart the daemon, and prove
+   * trusted mode with a second bundle. Fails closed when it still refuses.
+   */
+  private async healTrustedListener(vm: Vm, vmId: string, fingerprint: string | undefined): Promise<CmuxTuiAttachBundle> {
+    const source = await this.deps.resolveDaemonSource("freestyle");
+    const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
+    if (pinned?.exitCode !== 0) {
+      await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    }
+    await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand({ replaceExisting: true }), 60_000);
+    await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+    const retried = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+    if (!retried || retried.exitCode !== 0) {
+      throw new ProviderError("freestyle", `cmux-tui attach bundle retry in ${vmId} failed`);
+    }
+    const bundle = parseCmuxTuiAttachBundle(retried.stdout, "freestyle", vmId, fingerprint);
+    if (!bundle.trustedCarrier) {
+      throw new ProviderError(
+        "freestyle",
+        `cmux-tui daemon in ${vmId} still refuses the trusted listener after the pinned build was installed and restarted`,
+      );
+    }
+    return bundle;
+  }
+
   private async announcePrivateAddresses(
     vm: Vm,
     data: FreestyleRouteAddresses,
     options: { readonly validateOnly?: boolean } = {},
   ): Promise<void> {
-    const addresses = (data.vpcs ?? data.networks ?? [])
-      .flatMap((network) => [network.ipv4, network.ipv6])
-      .filter((address): address is string => typeof address === "string" && address.trim() !== "")
-      .map((address) => address.trim());
-    await Effect.runPromise(announceFreestyleNetwork(vm, addresses, options));
+    await Effect.runPromise(announceFreestyleNetwork(vm, freestylePrivateAddresses(data), options));
   }
 
 
@@ -1750,8 +1813,7 @@ export class FreestyleProvider implements VMProvider {
   private async installGuestCliFiles(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
-      await this.execOrThrow(vm, vmId, "mkdir -p /usr/local/libexec", 5_000);
-      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
+      await this.uploadGuestShim(vm, vmId, temporaryPath);
       const result = await vm.exec({
         command: `${guestBrowserInstallCommand()} && chmod 0755 '${temporaryPath}' && mv -f '${temporaryPath}' '${GUEST_CMUX_SHIM_PATH}' && ${guestCliDistributionCommand()}`
           + (promptIdentity ? ` && ${guestPromptInstallCommand(promptIdentity)}` : ""),
@@ -1765,6 +1827,22 @@ export class FreestyleProvider implements VMProvider {
     } catch (error) {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
+    }
+  }
+
+  /**
+   * The bake creates the shim's directory (`/usr/local/libexec`, the
+   * opencode launcher step), so the upload goes straight in; an image from
+   * before that step rejects it once, and the directory is created and the
+   * upload retried instead of paying a mkdir round trip on every create.
+   */
+  private async uploadGuestShim(vm: Vm, vmId: string, temporaryPath: string): Promise<void> {
+    try {
+      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
+    } catch (error) {
+      if (!isMissingGuestDirectoryError(error)) throw error;
+      await this.execOrThrow(vm, vmId, "mkdir -p /usr/local/libexec", 5_000);
+      await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
     }
   }
 
@@ -1792,6 +1870,125 @@ export class FreestyleProvider implements VMProvider {
       return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
     };
   }
+}
+
+/** The addresses a machine holds on its owner's private network, as the provider reported them. */
+function freestylePrivateAddresses(data: FreestyleRouteAddresses): string[] {
+  return (data.vpcs ?? data.networks ?? [])
+    .flatMap((network) => [network.ipv4, network.ipv6])
+    .filter((address): address is string => typeof address === "string" && address.trim() !== "")
+    .map((address) => address.trim());
+}
+
+/**
+ * The single exec of a baked attach (FreestyleProvider.openCmuxRemoteBaked).
+ * The announcement is best effort here: the baked supervisor announces on
+ * boot and every 30 s, and a transient failure must not cost the attach.
+ * The prompt identity and the bundle keep the general path's `&&` chain.
+ */
+export function freestyleBakedAttachCommand(input: {
+  readonly announceAddresses: readonly string[];
+  readonly promptIdentity?: GuestPromptIdentity;
+  readonly readyGate?: string;
+  readonly deviceFingerprint?: string;
+}): string {
+  const valid = [...new Set(input.announceAddresses.filter((address) => isIP(address) !== 0))];
+  const announce = valid.length > 0 ? `( ${freestyleNetworkAnnouncementCommand(valid)} ) >/dev/null 2>&1 || true; ` : "";
+  const prompt = input.promptIdentity ? `${guestPromptInstallCommand(input.promptIdentity)} && ` : "";
+  return announce + prompt + cmuxTuiAttachBundleCommand({
+    readyGate: input.readyGate,
+    deviceFingerprint: input.deviceFingerprint,
+    includeDevices: false,
+  });
+}
+
+/**
+ * The endpoint an attach hands out. Direct-IPv6 carries no URL token; the
+ * one minted here exists only for the lease ledger. The daemon's Noise
+ * session is the gate, the same trust model as a public proxy route.
+ */
+function freestyleCmuxRemoteEndpoint(
+  route: string,
+  data: FreestyleRouteAddresses,
+  trustedCarrier: boolean,
+  daemonBuild: CmuxRemoteEndpoint["daemonBuild"] | null | undefined,
+  invitation: CmuxRemoteEndpoint["invitation"],
+): CmuxRemoteEndpoint {
+  const addresses = freestyleNetworkAddressMetadata(data);
+  const networkAddresses = {
+    ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
+    ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
+  };
+  return {
+    transport: "cmux-remote" as const,
+    route,
+    token: `cmux-freestyle-route-${randomBytes(32).toString("hex")}`,
+    expiresAtUnix: Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS,
+    session: CMUX_TUI_SESSION,
+    trustedCarrier,
+    ...(daemonBuild ? { daemonBuild } : {}),
+    ...(invitation ? { invitation } : {}),
+    ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
+  };
+}
+
+/**
+ * The platform create request. On an image that bakes the guest tools the
+ * prompt identity (the only per-machine bytes) runs as the platform's
+ * create-time command, after the boot and inside the same call: no separate
+ * exec round trip, and the call returns a few hundred milliseconds later.
+ */
+function freestyleCreateRequest(
+  options: CreateOptions,
+  image: string,
+  networkId: string | undefined,
+  tlsRules: ReturnType<typeof freestyleEdgeRules>,
+): CreateVmOptions {
+  return {
+    snapshotId: image,
+    displayName: "cmux Cloud VM",
+    // Do not let an account/provider idle default turn a persistent
+    // machine into a one-shot box. Explicit pause/stop still works.
+    idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+    ...(options.runtimeBudgetSeconds !== undefined ? {
+      maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
+    } : {}),
+    metadata: { cmux: "cloud" },
+    firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+    ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
+    ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
+    ...(options.guestToolsBaked && options.promptIdentity ? {
+      exec: {
+        command: guestPromptInstallCommand(options.promptIdentity),
+        onExit: "continue" as const,
+        timeoutMs: CREATE_PROMPT_EXEC_TIMEOUT_MS,
+        linuxUser: GUEST_LINUX_USER,
+      },
+    } : {}),
+  };
+}
+
+/** A create-time command that failed (or was killed at its timeout) fails the create like a failed install exec would. */
+function assertCreateExecSucceeded(
+  vmId: string,
+  exec: { readonly statusCode?: number | null; readonly stdout?: string | null; readonly stderr?: string | null } | undefined,
+): void {
+  if (!exec) return;
+  const exitCode = exec.statusCode ?? 124;
+  if (exitCode !== 0) {
+    throw new ProviderError(
+      "freestyle",
+      `create-time prompt install in ${vmId} exited ${exitCode}: ${(exec.stderr ?? exec.stdout ?? "").trim().slice(0, 500)}`,
+    );
+  }
+}
+
+/** A filesystem write refused because the target directory does not exist in the guest. */
+function isMissingGuestDirectoryError(error: unknown): boolean {
+  if (error instanceof FreestyleApiError) {
+    return error.status === 404 || /no such file|not found|enoent/i.test(error.message);
+  }
+  return error instanceof Error && /no such file|enoent/i.test(error.message);
 }
 
 /** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */

@@ -118,6 +118,15 @@ export type CreateOptions = {
    * Providers without `privateNetworking` ignore it.
    */
   network?: ProviderNetworkRef;
+  /**
+   * The image already carries the guest tools the driver used to install by
+   * exec on every create (the guest `cmux` shim, the CLI distribution, the
+   * browser openers, the resource reporter): install nothing, and run the
+   * prompt identity as the platform's create-time command instead of a
+   * separate exec round trip. False for every image below
+   * GUEST_TOOLS_BAKED_EPOCH (services/vms/images/resolver.ts).
+   */
+  guestToolsBaked?: boolean;
 };
 
 /** Enough of a provider network to attach a machine or a tunnel to it. */
@@ -269,6 +278,11 @@ export type CmuxRemoteAttachOptions = {
    */
   clientCapabilities?: readonly string[];
   providerMetadata?: Record<string, unknown>;
+  /**
+   * The image bakes the guest tools (see CreateOptions.guestToolsBaked): a
+   * healthy attach checks nothing and heals only the daemon.
+   */
+  guestToolsBaked?: boolean;
 };
 
 export type CmuxRemoteApprovalResult = {

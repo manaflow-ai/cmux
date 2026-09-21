@@ -86,3 +86,17 @@ test("create failure settles independent setup before destroying the VM", async 
   expect(await result).toBeInstanceOf(Error);
   expect(f.deleted).toEqual(["vm-fixture"]);
 });
+
+test("a baked create runs no guest setup and a baked healthy attach is one exec", async () => {
+  // Once the image carries the guest tools there is nothing to overlap: the
+  // create issues no exec and no upload, and the attach's single exec is the
+  // readiness gate plus the daemon probe.
+  const f = fixture();
+  await f.provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" }, guestToolsBaked: true });
+  expect(f.commands).toEqual([]);
+  const endpoint = await f.provider.openCmuxRemote("vm-fixture", { guestToolsBaked: true });
+  expect(f.commands).toHaveLength(1);
+  expect(f.commands[0]).toContain("__CMUX_PROBE__");
+  expect(endpoint.trustedCarrier).toBe(true);
+  expect(f.deleted).toEqual([]);
+});

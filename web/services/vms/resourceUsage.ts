@@ -4,6 +4,12 @@ import type { VMStats } from "./drivers/types";
 export const VM_RESOURCE_USAGE_KEY = "cmuxResourceUsage";
 export const VM_RESOURCE_USAGE_MAX_AGE_MS = 90_000;
 export const VM_RESOURCE_USAGE_MIN_INTERVAL_MS = 15_000;
+/**
+ * How long a direct (control-plane-initiated) sample is reused: twice the
+ * reporter's interval, so the dev backend's stats poll cannot pile execs onto
+ * a machine that is still creating or attaching.
+ */
+export const VM_RESOURCE_USAGE_DIRECT_READ_INTERVAL_MS = 30_000;
 
 export type VmResourceUsage = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb">;
 

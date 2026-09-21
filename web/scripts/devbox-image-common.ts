@@ -23,6 +23,7 @@ import { CMUX_TUI_SESSION, cmuxTuiAsDaemonUser, cmuxTuiLayoutSelector, cmuxTuiRu
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../services/vms/images/workUser";
 import { VM_IMAGE_SIZES, VM_IMAGE_SIZE_NAMES, vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 import { DEVBOX_HOSTNAME, DEVBOX_HOSTNAME_LOOPBACK, DEVBOX_PROVIDER_HOSTNAME } from "../services/vms/images/identity";
+import { vmImageEntryEpoch } from "../services/vms/images/resolver";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -1347,10 +1348,12 @@ export function upgradeDevboxSourceRecords(
   return { manifest: { schemaVersion: manifest.schemaVersion, images }, upgraded, skipped };
 }
 
-/** The epoch an entry was baked at: the field, or the `cmux devbox epoch <x>` prefix every bake writes into `notes`. */
-export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "notes">): string | undefined {
-  return entry.epoch ?? /cmux devbox epoch (\S+)/.exec(entry.notes ?? "")?.[1];
-}
+/**
+ * The epoch an entry was baked at. One implementation: the runtime resolver
+ * owns it (the create response's attach block gates on the same reading), the
+ * bake and promotion scripts use it through this name.
+ */
+export const manifestEntryEpoch: (entry: Pick<DevboxManifestEntry, "epoch" | "notes">) => string | undefined = vmImageEntryEpoch;
 
 /**
  * The invariant that makes the checked-in manifest describe the machine
