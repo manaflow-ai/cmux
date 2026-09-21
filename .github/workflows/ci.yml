@@ -57,6 +57,7 @@ jobs:
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
+      source_identity_valid: ${{ steps.source-identity.outputs.valid }}
     permissions:
       actions: read
       contents: read
@@ -70,14 +71,25 @@ jobs:
       - name: Record GitHub-selected source identity
         id: source-identity
         run: |
-          set -euo pipefail
+          set -u
+          valid=false
+          tree=""
+          parent1=""
           read -r commit parent1 parent2 extra <<EOF
           $(git rev-list --parents -n1 HEAD)
           EOF
-          [ "$commit" = "$GITHUB_SHA" ]
-          [ -z "${extra:-}" ]
-          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-          echo "parent1=${parent1:-}" >> "$GITHUB_OUTPUT"
+          if [ "$commit" = "$GITHUB_SHA" ] && [ -n "${parent1:-}" ] && [ -z "${extra:-}" ]; then
+            if tree="$(git rev-parse 'HEAD^{tree}')"; then
+              valid=true
+            fi
+          else
+            echo "Persistent routing source identity is unavailable; hosted admission remains authoritative." >&2
+          fi
+          {
+            echo "valid=$valid"
+            echo "tree=$tree"
+            echo "parent1=${parent1:-}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Detect CI change areas
         id: detect
@@ -292,7 +304,7 @@ jobs:
       # cancellation authority live in persistent-macos-router.yml on main.
       - name: Publish persistent Mac route request
         id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
@@ -2508,96 +2520,11 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
-  persistent-mac-compile-route:
-    name: Persistent Mac compile route
-    needs:
-      - changes
-      - linux-preflight
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.compile_admitted != 'true' && github.event_name == 'pull_request' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 12
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: read
-    outputs:
-      use_persistent: ${{ steps.route.outputs.use_persistent }}
-      fallback_reason: ${{ steps.route.outputs.fallback_reason }}
-      producer_run_id: ${{ steps.route.outputs.producer_run_id }}
-      artifact_id: ${{ steps.route.outputs.artifact_id }}
-      queue_to_start_seconds: ${{ steps.route.outputs.queue_to_start_seconds }}
-      producer_allocated_seconds: ${{ steps.route.outputs.producer_allocated_seconds }}
-      route_wall_seconds: ${{ steps.route.outputs.route_wall_seconds }}
-      source_tree: ${{ steps.source.outputs.tree }}
-    steps:
-      - name: Checkout route observer
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Bind the GitHub-selected source
-        id: source
-        env:
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_TREE: ${{ needs.changes.outputs.source_tree }}
-          SOURCE_PARENT1: ${{ needs.changes.outputs.source_parent1 }}
-        run: |
-          set -euo pipefail
-          [ -n "$SOURCE_SHA" ] && [ -n "$SOURCE_TREE" ] && [ -n "$SOURCE_PARENT1" ]
-          {
-            echo "tree=$SOURCE_TREE"
-            echo "parent1=$SOURCE_PARENT1"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Observe persistent compile or use hosted fallback
-        id: route
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
-          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
-          CI_PERSISTENT_MAC_QUEUE_SECONDS: ${{ vars.CI_PERSISTENT_MAC_QUEUE_SECONDS }}
-          CI_PERSISTENT_MAC_EXECUTION_SECONDS: ${{ vars.CI_PERSISTENT_MAC_EXECUTION_SECONDS }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SOURCE_TREE: ${{ steps.source.outputs.tree }}
-          SOURCE_PARENT1: ${{ steps.source.outputs.parent1 }}
-        run: |
-          set -euo pipefail
-          route_started="$(python3 -c 'import time; print(time.monotonic())')"
-          queue_seconds="${CI_PERSISTENT_MAC_QUEUE_SECONDS:-90}"
-          execution_seconds="${CI_PERSISTENT_MAC_EXECUTION_SECONDS:-480}"
-          python3 scripts/ci/persistent_mac_route.py \
-            --observe-only \
-            --event-name "$GITHUB_EVENT_NAME" \
-            --selector "$CI_PERSISTENT_MAC_COMPILE" \
-            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
-            --repository "$GITHUB_REPOSITORY" \
-            --pr-number "$PR_NUMBER" \
-            --head-repository "$HEAD_REPOSITORY" \
-            --head-ref "$HEAD_REF" \
-            --author-association "$AUTHOR_ASSOCIATION" \
-            --head-sha "$HEAD_SHA" \
-            --source-sha "$GITHUB_SHA" \
-            --source-tree "$SOURCE_TREE" \
-            --source-parent1 "$SOURCE_PARENT1" \
-            --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --queue-seconds "$queue_seconds" \
-            --execution-seconds "$execution_seconds" \
-            --github-output "$GITHUB_OUTPUT"
-          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
-          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
-          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
-
   macos-compile-admission:
     name: macOS compile admission
     needs:
       - changes
       - linux-preflight
-      - persistent-mac-compile-route
     # Spend one macOS slot proving that the app-host test product compiles
     # before starting the six test shards. The shards download this run's
     # build products and run test-without-building, so a compiler failure
@@ -2609,6 +2536,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
@@ -2780,17 +2708,56 @@ jobs:
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Observe persistent Mac compile candidate
+        id: persistent-route
+        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && needs.changes.outputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
+          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_TREE: ${{ needs.changes.outputs.source_tree }}
+          SOURCE_PARENT1: ${{ needs.changes.outputs.source_parent1 }}
+        run: |
+          set -euo pipefail
+          route_started="$(python3 -c 'import time; print(time.monotonic())')"
+          python3 scripts/ci/persistent_mac_route.py \
+            --observe-only \
+            --ready-only \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --selector "$CI_PERSISTENT_MAC_COMPILE" \
+            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --head-repository "$HEAD_REPOSITORY" \
+            --head-ref "$HEAD_REF" \
+            --author-association "$AUTHOR_ASSOCIATION" \
+            --head-sha "$HEAD_SHA" \
+            --source-sha "$GITHUB_SHA" \
+            --source-tree "$SOURCE_TREE" \
+            --source-parent1 "$SOURCE_PARENT1" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-output "$GITHUB_OUTPUT"
+          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
+          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
+          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
+
       - name: Download persistent Mac compile product
         id: persistent-download
-        if: steps.reuse-products.outputs.hit != 'true' && needs.persistent-mac-compile-route.outputs.use_persistent == 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-route.outputs.use_persistent == 'true'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          artifact-ids: ${{ needs.persistent-mac-compile-route.outputs.artifact_id }}
+          artifact-ids: ${{ steps.persistent-route.outputs.artifact_id }}
           path: ${{ runner.temp }}/persistent-mac-compile
           github-token: ${{ github.token }}
           repository: ${{ github.repository }}
-          run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}
+          run-id: ${{ steps.persistent-route.outputs.producer_run_id }}
 
       - name: Revalidate persistent Mac compile product
         id: persistent-restore
@@ -2798,7 +2765,7 @@ jobs:
         continue-on-error: true
         env:
           EXPECTED_SOURCE_SHA: ${{ github.sha }}
-          EXPECTED_SOURCE_TREE: ${{ needs.persistent-mac-compile-route.outputs.source_tree }}
+          EXPECTED_SOURCE_TREE: ${{ needs.changes.outputs.source_tree }}
         run: |
           set -euo pipefail
           [ -z "$(git status --porcelain --untracked-files=all)" ] || {
@@ -3063,11 +3030,11 @@ jobs:
         id: admission-metrics
         if: always() && !cancelled()
         env:
-          ROUTE_USE_PERSISTENT: ${{ needs.persistent-mac-compile-route.outputs.use_persistent }}
-          ROUTE_REASON: ${{ needs.persistent-mac-compile-route.outputs.fallback_reason }}
-          QUEUE_TO_START_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.queue_to_start_seconds }}
-          PRODUCER_ALLOCATED_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.producer_allocated_seconds }}
-          ROUTE_WALL_SECONDS: ${{ needs.persistent-mac-compile-route.outputs.route_wall_seconds }}
+          ROUTE_USE_PERSISTENT: ${{ steps.persistent-route.outputs.use_persistent }}
+          ROUTE_REASON: ${{ steps.persistent-route.outputs.fallback_reason }}
+          QUEUE_TO_START_SECONDS: ${{ steps.persistent-route.outputs.queue_to_start_seconds }}
+          PRODUCER_ALLOCATED_SECONDS: ${{ steps.persistent-route.outputs.producer_allocated_seconds }}
+          ROUTE_WALL_SECONDS: ${{ steps.persistent-route.outputs.route_wall_seconds }}
           PERSISTENT_HIT: ${{ steps.persistent-restore.outputs.hit }}
           PERSISTENT_CLASS: ${{ steps.persistent-restore.outputs.classification }}
           PERSISTENT_METRICS: ${{ steps.persistent-restore.outputs.metrics }}
@@ -3137,9 +3104,9 @@ jobs:
               "artifact_publication_seconds": number("PUBLICATION_SECONDS"),
               "route_wall_seconds": number("ROUTE_WALL_SECONDS"),
               "required_admission_runner_seconds": number("ADMISSION_SECONDS"),
-              "total_macos_compile_admission_seconds": (
-                  (number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)
-              ),
+              # Route observation runs inside the already-allocated hosted
+              # admission job, so ADMISSION_SECONDS already contains it.
+              "total_macos_compile_admission_seconds": number("ADMISSION_SECONDS"),
               "persistent_runner_allocated_seconds": number("PRODUCER_ALLOCATED_SECONDS"),
               "hosted_admission_runner_allocated_seconds": number("ADMISSION_SECONDS"),
               "product_published": os.environ.get("PRODUCT_PUBLISHED") == "true",
