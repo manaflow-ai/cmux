@@ -86,9 +86,7 @@ runs:
             receipt.add_transfer(
                 "github-aggregate", provider_bytes or 0,
                 provider_bytes if complete and provider_bytes is not None else 0, elapsed)
-            if complete:
-                receipt.aggregate_hit("github-aggregate")
-            else:
+            if not complete:
                 receipt.append_fallback(f"github-aggregate:{os.environ['TRANSFER_OUTCOME']}")
         except (ImportError, OSError, ValueError, TypeError, json.JSONDecodeError) as error:
             print(f"::warning::unable to update app-host consumer receipt: {type(error).__name__}: {error}")
