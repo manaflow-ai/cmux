@@ -68,6 +68,7 @@ struct MobileWorkspaceListEmptyRow: View {
                                 isRetrying = false
                             }
                         }
+                        guard !Task.isCancelled else { return }
                         await retry()
                     }
                     retryTimeoutTask = Task { @MainActor in

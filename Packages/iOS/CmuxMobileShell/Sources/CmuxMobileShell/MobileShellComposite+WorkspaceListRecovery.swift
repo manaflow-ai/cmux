@@ -177,6 +177,7 @@ extension MobileShellComposite {
     /// Runs the prepared Retry operation, or creates a normal recovery token
     /// when the caller is pull-to-refresh or another non-row entry point.
     public func runPreparedWorkspaceListRecovery() async {
+        guard !Task.isCancelled else { return }
         let recoveryGeneration = workspaceListRecoveryPreparedGeneration
         workspaceListRecoveryPreparedGeneration = nil
         await reconnectOrRefresh(recoveryGeneration: recoveryGeneration)
@@ -185,6 +186,7 @@ extension MobileShellComposite {
     /// Performs the workspace-list recovery for the supplied prepared token,
     /// or starts a fresh token for pull-to-refresh and other callers.
     public func reconnectOrRefresh(recoveryGeneration requestedGeneration: UUID? = nil) async {
+        guard !Task.isCancelled else { return }
         let recoveryGeneration = requestedGeneration ?? UUID()
         if let requestedGeneration,
            workspaceListRecoveryActive,
