@@ -259,6 +259,10 @@ export function useSession(): SessionState {
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
   const [handoffPending, setHandoffPending] = useState(false);
+  // Reserve the tab during the click's user-activation window. The provider
+  // fork itself is asynchronous, so opening it when the response arrives can
+  // be rejected as a popup by the browser.
+  const handoffWindowRef = useRef<Window | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
@@ -423,7 +427,19 @@ export function useSession(): SessionState {
             break;
           case "session-handoff":
             setHandoffPending(false);
-            window.open(appPath("/s/" + msg.session.id), "_blank");
+            {
+              const target = appPath("/s/" + msg.session.id);
+              const popup = handoffWindowRef.current;
+              handoffWindowRef.current = null;
+              if (popup && !popup.closed) {
+                popup.location.href = target;
+                popup.focus();
+              } else {
+                // A popup blocker (or a non-browser host) still leaves the
+                // user with a deterministic way to reach the child session.
+                window.location.assign(target);
+              }
+            }
             break;
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
@@ -562,7 +578,13 @@ export function useSession(): SessionState {
   }, [sendRaw]);
   const handoff = useCallback(() => {
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "handoff", sessionId: sessionIdRef.current })) setHandoffPending(true);
+      const popup = window.open("about:blank", "_blank");
+      if (sendRaw({ op: "handoff", sessionId: sessionIdRef.current })) {
+        handoffWindowRef.current = popup;
+        setHandoffPending(true);
+      } else {
+        popup?.close();
+      }
     }
   }, [sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {

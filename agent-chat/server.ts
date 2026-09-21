@@ -579,6 +579,9 @@ function refreshSession(sess: Session) {
 }
 
 async function forkSession(source: Session, reason = "fork"): Promise<Session> {
+  if (source.status === "running") {
+    throw new Error("cannot continue elsewhere while a turn is running");
+  }
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
   await assertCwd(source.cwd);
   const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions }, {
