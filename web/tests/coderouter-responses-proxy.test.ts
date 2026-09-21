@@ -238,7 +238,7 @@ describe("codex responses proxy session routing", () => {
     const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode(record.slice(0, -4)));
-        controller.enqueue(encoder.encode(record.slice(-4) + "\n"));
+        controller.enqueue(encoder.encode(`${record.slice(-4)}\n`));
         controller.close();
       },
     }), { status: 200, headers: { "content-type": "application/x-ndjson" } })) as typeof fetch)(responsesRequest());
@@ -330,6 +330,27 @@ describe("codex responses proxy session routing", () => {
     }), { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch)(responsesRequest());
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(body.join(""));
+  });
+
+  test("aborts an idle pre-output probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    const abortingProxy = capacityProxy((async () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch);
+    const controller = new AbortController();
+    const request = new Request(responsesRequest(), { signal: controller.signal });
+    const pending = abortingProxy(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
   });
 
   test("passes the session_id header to account selection", async () => {

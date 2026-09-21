@@ -541,6 +541,45 @@ describe("claude proxy failover across accounts", () => {
     secret: { kind: "anthropic_api_key", apiKey: "sk-ant-api03-second-key-value-5678" },
   };
 
+  test("keeps probing through metadata before an overloaded SSE event", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response([
+        sseStream([{ type: "message_start", data: { message: { id: "msg-metadata" } } }]),
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+      ].join(""), { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => Response.json({ id: "msg-after-metadata", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-after-metadata");
+  });
+
+  test("aborts an idle Claude probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    upstreamResponse = () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+    const controller = new AbortController();
+    const request = new Request(messagesRequest(), { signal: controller.signal });
+    const pending = messages(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+  });
+
   test("fails over an overloaded error embedded in a 200 SSE stream", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
