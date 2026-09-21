@@ -441930,6 +441930,256 @@
         }
       }
     },
+    "socket.remoteRelay.authenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت مصادقة طلب الترحيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autentifikacija zahtjeva releja nije uspjela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Godkendelse af relay-anmodningen mislykkedes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Authentifizierung der Relay-Anfrage ist fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay request authentication failed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación de la solicitud del relay falló"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification de la requête du relais a échoué"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autenticazione della richiesta relay non riuscita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー要求の認証に失敗しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្ទៀងផ្ទាត់សំណើ relay បានបរាជ័យ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 요청 인증에 실패했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autentisering av relay-forespørselen mislyktes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uwierzytelnianie żądania przekaźnika nie powiodło się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falha na autenticação da solicitação do relay"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ошибка аутентификации запроса ретрансляции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การยืนยันตัวตนของคำขอรีเลย์ล้มเหลว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçiş isteğinin kimlik doğrulaması başarısız oldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Помилка автентифікації запиту ретрансляції"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继请求身份验证失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送要求驗證失敗"
+          }
+        }
+      }
+    },
+    "socket.remoteRelay.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محدد الترحيل غير صالح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selektor releja nije važeći"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-vælgeren er ugyldig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Relay-Selektor ist ungültig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay selector is invalid"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El selector del relay no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur du relais est invalide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il selettore del relay non è valido"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーのセレクターが無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍ជ្រើសរើស relay មិនត្រឹមត្រូវទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 선택자가 유효하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-velgeren er ugyldig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selektor przekaźnika jest nieprawidłowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O seletor do relay é inválido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимый селектор ретрансляции"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเลือกรีเลย์ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçiş seçicisi geçersiz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний селектор ретрансляції"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继选择器无效"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送選取器無效"
+          }
+        }
+      }
+    },
     "socket.workspace.list.tabManagerUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -441941,14 +442191,14 @@
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "TabManager nije dostupan"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "TabManager er ikke tilgængelig"
           }
         },
         "de": {
@@ -441989,8 +442239,8 @@
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "មិនអាចប្រើ TabManager បានទេ"
           }
         },
         "ko": {
@@ -442007,8 +442257,8 @@
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "TabManager jest niedostępny"
           }
         },
         "pt-BR": {
@@ -442025,14 +442275,14 @@
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "TabManager ไม่พร้อมใช้งาน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "TabManager not available"
+            "state": "translated",
+            "value": "TabManager kullanılamıyor"
           }
         },
         "uk": {
@@ -442061,25 +442311,25 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحة عمل الترحيل غير نشطة"
+            "value": "مساحة العمل المالكة للترحيل غير نشطة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Radni prostor releja nije aktivan"
+            "value": "Radni prostor vlasnika releja nije aktivan"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Relay-arbejdsområdet er ikke aktivt"
+            "value": "Relay-ejerens arbejdsområde er ikke aktivt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Relay-Arbeitsbereich ist nicht aktiv"
+            "value": "Der Arbeitsbereich des Relay-Eigentümers ist nicht aktiv"
           }
         },
         "en": {

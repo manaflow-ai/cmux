@@ -3,6 +3,17 @@ import CmuxRemoteWorkspace
 import Foundation
 
 extension TerminalController {
+    /// Resolve product text in the app while keeping the package policy pure.
+    private nonisolated func remoteRelayAuthorizationPolicy() -> RemoteRelayAuthorizationPolicy {
+        RemoteRelayAuthorizationPolicy(invalidSelectorMessage: String(
+            localized: "socket.remoteRelay.invalidSelector", defaultValue: "Relay selector is invalid"
+        ))
+    }
+
+    private nonisolated var remoteRelayAuthenticationFailedMessage: String {
+        String(localized: "socket.remoteRelay.authenticationFailed", defaultValue: "Relay request authentication failed")
+    }
+
     private struct RemoteRelayAuthorizationSnapshot: Sendable {
         let ownerWorkspaceID: UUID
         let relayTokenHex: String
@@ -99,15 +110,15 @@ extension TerminalController {
             return deniedRemoteRelayRequest(
                 request,
                 code: "remote_relay_authentication_failed",
-                message: "Relay request authentication failed"
+                message: remoteRelayAuthenticationFailedMessage
             )
         }
         guard foundationParams[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] as? String
                 == snapshot.connectionID.uuidString else {
             return deniedRemoteRelayRequest(request, code: "remote_relay_authentication_failed",
-                message: "Relay request authentication failed")
+                message: remoteRelayAuthenticationFailedMessage)
         }
-        switch RemoteRelayAuthorizationPolicy().validate(
+        switch remoteRelayAuthorizationPolicy().validate(
             method: request.method,
             parameters: foundationParams,
             ownerWorkspaceID: snapshot.ownerWorkspaceID,
@@ -237,7 +248,7 @@ extension TerminalController {
         guard params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil else { return nil }
         guard case .string(let ownerRaw)? = params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey],
               let owner = UUID(uuidString: ownerRaw) else {
-            return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+            return .err(code: "remote_relay_authentication_failed", message: remoteRelayAuthenticationFailedMessage, data: nil)
         }
         guard let snapshot = remoteRelayAuthorizationSnapshot(ownerWorkspaceID: owner),
               params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] == .string(snapshot.connectionID.uuidString) else {
@@ -246,7 +257,7 @@ extension TerminalController {
             // owner from local socket authentication without exposing local
             // TabManager details. Every other method remains fail-closed here.
             if method == "workspace.list" {
-                switch RemoteRelayAuthorizationPolicy().validate(
+                switch remoteRelayAuthorizationPolicy().validate(
                     method: method,
                     parameters: params.mapValues(\.foundationObject),
                     ownerWorkspaceID: owner,
@@ -258,9 +269,9 @@ extension TerminalController {
                     return .err(code: code, message: message, data: nil)
                 }
             }
-            return .err(code: "remote_relay_authentication_failed", message: "Relay request authentication failed", data: nil)
+            return .err(code: "remote_relay_authentication_failed", message: remoteRelayAuthenticationFailedMessage, data: nil)
         }
-        switch RemoteRelayAuthorizationPolicy().validate(method: method,
+        switch remoteRelayAuthorizationPolicy().validate(method: method,
             parameters: params.mapValues(\.foundationObject), ownerWorkspaceID: owner, surfaceIDs: snapshot.surfaceIDs) {
         case .allowed: return nil
         case .denied(let code, let message): return .err(code: code, message: message, data: nil)

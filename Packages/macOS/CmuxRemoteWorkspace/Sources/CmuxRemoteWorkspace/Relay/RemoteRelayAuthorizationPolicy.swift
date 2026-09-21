@@ -113,8 +113,14 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "cwd", "environment",
     ]
 
-    /// Creates the default relay authorization policy.
-    public init() {}
+    private let invalidSelectorMessage: String
+
+    /// Creates the relay authorization policy with app-resolved error text.
+    /// - Parameter invalidSelectorMessage: Localized malformed-selector message;
+    ///   standalone callers default to the existing English protocol response.
+    public init(invalidSelectorMessage: String = "Relay selector is invalid") {
+        self.invalidSelectorMessage = invalidSelectorMessage
+    }
 
     /// Validates a decoded relay request against one owner's live snapshot.
     ///
@@ -281,7 +287,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         SelectorFailure(
             code: Self.workspaceSelectorKeys.contains(key)
                 ? "remote_relay_workspace_denied" : "remote_relay_surface_denied",
-            message: "Relay selector is invalid"
+            message: invalidSelectorMessage
         )
     }
 

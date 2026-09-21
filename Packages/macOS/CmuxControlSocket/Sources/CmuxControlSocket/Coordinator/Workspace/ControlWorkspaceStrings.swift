@@ -38,6 +38,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ///   - reorderManyWorkspaceNotFound: The workspace-not-found message.
     ///   - reorderManyInvalidWorkspace: The invalid-workspace message.
     ///   - reorderManyTabManagerUnavailable: The TabManager-unavailable message.
+    ///   - tabManagerUnavailable: The localized workspace-list unavailable message.
     ///   - relayOwnerUnavailable: The stale relay-owner message.
     public init(
         closeProtected: String,

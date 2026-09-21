@@ -76,14 +76,16 @@ extension ControlCommandCoordinator {
             return true
         }()
         guard let context else {
+            // No app context exists; explicitly select the host bundle for
+            // this fallback instead of looking for a package-owned catalog.
             if relayOwnerMarkerPresent {
                 return .err(
                     code: "remote_relay_workspace_denied",
-                    message: "Relay owner workspace is not active",
+                    message: String(localized: "socket.workspace.list.relayOwnerUnavailable", defaultValue: "Relay owner workspace is not active", bundle: .main),
                     data: nil
                 )
             }
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: String(localized: "socket.workspace.list.tabManagerUnavailable", defaultValue: "TabManager not available", bundle: .main), data: nil)
         }
         let outcome: WorkspaceListHopOutcome = context.controlResolveOnMain { seam in
             let routing = self.routingSelectors(params)

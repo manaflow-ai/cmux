@@ -98,7 +98,7 @@ extension ControlCommandCoordinator {
         }()
         guard let context else {
             return relayOwnerMarkerPresent
-                ? .err(code: "remote_relay_workspace_denied", message: "Relay owner workspace is not active", data: nil)
+                ? .err(code: "remote_relay_workspace_denied", message: String(localized: "socket.workspace.list.relayOwnerUnavailable", defaultValue: "Relay owner workspace is not active", bundle: .main), data: nil)
                 : .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let outcome: WorkspaceCurrentHopOutcome = context.controlResolveOnMain { seam in
