@@ -61,6 +61,7 @@ else:
 """)
             runner.chmod(0o755)
             shutil.copy2(ROOT / "scripts/ci/require_selected_test_execution.sh", helpers)
+            shutil.copy2(ROOT / "scripts/ci/run-and-capture.sh", helpers)
             bindir = root / "bin"
             bindir.mkdir()
             for command in ("node", "bun"):

@@ -114,6 +114,15 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(waits, [0.25])
         cancel.assert_called_once_with(api, 77)
 
+    def test_ready_only_contract_is_explicit(self):
+        source = ROUTE.read_text()
+        self.assertIn('"--ready-only"', source)
+        self.assertIn("args.ready_only and not args.observe_only", source)
+        self.assertIn('if args.ready_only:', source)
+        self.assertIn('"producer_not_ready"', source)
+        self.assertIn("selected = compile_job(api, run_id)", source)
+        self.assertIn('selected.get("status") != "completed"', source)
+
     def test_only_trusted_same_repository_members_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
         self.assertEqual(
@@ -241,28 +250,45 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
         self.assertNotIn("actions: write", self.ci)
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("      actions: read", route_block)
-        self.assertIn("--observe-only", route_block)
-
-    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", route_block)
-        self.assertIn("persistent-mac-route-request-", self.ci)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'OWNER'", route_block)
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
-        self.assertNotIn("needs.persistent-mac-compile-route.result == 'success'", admission)
+        self.assertNotIn("  persistent-mac-compile-route:", self.ci)
+        self.assertIn("      actions: read", admission)
+        self.assertIn("      pull-requests: read", admission)
+        self.assertIn("--observe-only", admission)
+        self.assertIn("--ready-only", admission)
+        self.assertNotIn("--queue-seconds \"$queue_seconds\"", admission.split("Observe persistent Mac compile candidate", 1)[1].split("Download persistent Mac compile product", 1)[0])
+
+    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
+        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", admission)
+        self.assertIn("persistent-mac-route-request-", self.ci)
+        self.assertIn("source_identity_valid: ${{ steps.source-identity.outputs.valid }}", self.ci)
+        self.assertIn("steps.source-identity.outputs.valid == 'true'", self.ci)
+        self.assertIn("needs.changes.outputs.source_identity_valid == 'true'", admission)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
+        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
+        self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
+        self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
-        self.assertIn("run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}", admission)
+        self.assertIn("run-id: ${{ steps.persistent-route.outputs.producer_run_id }}", admission)
+
+    def test_admission_total_does_not_double_count_route_observation(self):
+        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        self.assertIn(
+            '"total_macos_compile_admission_seconds": number("ADMISSION_SECONDS")',
+            admission,
+        )
+        self.assertNotIn(
+            '(number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)',
+            admission,
+        )
 
     def test_persistent_product_revalidation_retains_admission_checks(self):
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
