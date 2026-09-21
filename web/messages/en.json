@@ -323,7 +323,7 @@
       "vaultSessions": "sessions",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "overview",
-      "iosGroup": "iOS",
+      "remoteControlGroup": "Remote control",
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
