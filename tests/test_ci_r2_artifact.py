@@ -93,7 +93,7 @@ class TransportTests(unittest.TestCase):
 
         environment = {
             "ACTIONS_ID_TOKEN_REQUEST_URL":
-                "https://token.actions.githubusercontent.com/oidc?api-version=2.0&audience=old",
+                "https://pipelines.actions.githubusercontent.com/oidc?api-version=2.0&audience=old",
             "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-request-token",
         }
         with patch.dict(os.environ, environment, clear=False), \
@@ -105,14 +105,25 @@ class TransportTests(unittest.TestCase):
         self.assertIn("audience=cmux-ci-artifacts", seen["url"])
         self.assertNotIn("audience=old", seen["url"])
 
+        for host in [
+            "pipelines.actions.githubusercontent.com",
+            "pipelinesghubeus6.actions.githubusercontent.com",
+        ]:
+            with self.subTest(host=host), patch.dict(os.environ, {
+                "ACTIONS_ID_TOKEN_REQUEST_URL": f"https://{host}/oidc?api-version=2.0",
+                "ACTIONS_ID_TOKEN_REQUEST_TOKEN": "oidc-request-token",
+            }, clear=False), patch.object(transport.subprocess, "check_output", fake_check_output):
+                self.assertEqual(transport.actions_identity(work), "header.payload.signature")
+
     def test_actions_oidc_identity_rejects_foreign_or_nonstandard_issuer(self):
         work = Path(self.temp.name) / "oidc-invalid"
         work.mkdir()
         for url in [
-            "http://token.actions.githubusercontent.com/oidc",
-            "https://token.actions.githubusercontent.com:8443/oidc",
+            "http://pipelines.actions.githubusercontent.com/oidc",
+            "https://pipelines.actions.githubusercontent.com:8443/oidc",
             "https://attacker.example/oidc",
-            "https://secret@token.actions.githubusercontent.com/oidc",
+            "https://pipelines.actions.githubusercontent.com.attacker.example/oidc",
+            "https://secret@pipelines.actions.githubusercontent.com/oidc",
         ]:
             with self.subTest(url=url), patch.dict(os.environ, {
                 "ACTIONS_ID_TOKEN_REQUEST_URL": url,
