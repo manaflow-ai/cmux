@@ -145,6 +145,60 @@ class PreflightTests(unittest.TestCase):
         self.assertIn('sleep "$((attempt * 5))"', delete_step)
         self.assertIn('exit 1', delete_step)
 
+        # Execute the workflow's shell block against a fake Wrangler so this
+        # contract covers the retry count, backoff, key, and terminal status.
+        script = delete_step.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines() if line.startswith('          '))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrangler = root / 'node_modules/.bin/wrangler'
+            wrangler.parent.mkdir(parents=True)
+            wrangler.write_text(
+                '#!/bin/sh\n'
+                'count_file="$FAKE_WRANGLER_COUNT"\n'
+                'count=$(cat "$count_file" 2>/dev/null || echo 0)\n'
+                'count=$((count + 1))\n'
+                'echo "$count" > "$count_file"\n'
+                'printf "%s\\n" "$*" >> "$FAKE_WRANGLER_ARGS"\n'
+                '[ "$count" -gt "$FAKE_WRANGLER_FAILURES" ]\n')
+            wrangler.chmod(0o755)
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            sleep = fake_bin / 'sleep'
+            sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$FAKE_SLEEP_ARGS"\n')
+            sleep.chmod(0o755)
+
+            def execute(failures):
+                count = root / 'count'
+                args = root / 'wrangler-args'
+                sleeps = root / 'sleep-args'
+                for path in (count, args, sleeps):
+                    path.unlink(missing_ok=True)
+                env = os.environ | {
+                    'CANARY_RESOURCE': 'cmux-ci-artifacts-canary-123-1',
+                    'FAKE_WRANGLER_COUNT': str(count),
+                    'FAKE_WRANGLER_ARGS': str(args),
+                    'FAKE_SLEEP_ARGS': str(sleeps),
+                    'FAKE_WRANGLER_FAILURES': str(failures),
+                    'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+                }
+                result = subprocess.run(['bash', '-c', f'set -euo pipefail\n{script}'],
+                                        cwd=root, env=env, capture_output=True, text=True)
+                return result, int(count.read_text()), args.read_text().splitlines(), \
+                    sleeps.read_text().splitlines() if sleeps.exists() else []
+
+            result, count, args, sleeps = execute(2)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(count, 3)
+            self.assertEqual(sleeps, ['5', '10'])
+            self.assertIn('cmux-ci-artifacts-canary-123-1/github/manaflow-ai/cmux/10610975375/', args[0])
+
+            result, count, _, sleeps = execute(4)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(count, 4)
+            self.assertEqual(sleeps, ['5', '10', '15'])
+            self.assertIn('failed to remove the canary artifact after 4 attempts', result.stderr)
+
 
 class MeasurementTests(unittest.TestCase):
     def test_hashes_real_bytes_and_distinguishes_fill_from_hit(self):
