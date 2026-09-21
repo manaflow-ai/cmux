@@ -1246,8 +1246,8 @@
       "exampleConfig": "Primjer konfiguracije",
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
-        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
-        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
+        "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {
