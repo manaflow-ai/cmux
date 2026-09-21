@@ -2004,7 +2004,7 @@ struct ComputerUseUXTests {
             response: #"{"ok":true,"result":{"capturable":true}}"#
         )
 
-        let ready = await ComputerUseRuntimeService.verifyDirectScreenCapture(
+        let result = await ComputerUseRuntimeService.verifyDirectScreenCaptureOutcome(
             paths: paths,
             expectedPeerIdentity: currentIdentity
         )
@@ -2014,7 +2014,7 @@ struct ComputerUseUXTests {
         )
         let request = try #require(envelope["request"] as? [String: Any])
 
-        #expect(ready)
+        #expect(result == .ready)
         #expect(envelope["auth_token"] as? String == "agent-capability")
         #expect(envelope["host_auth_token"] as? String == "host-capability")
         #expect(request["method"] as? String == "verify_screen_capture")

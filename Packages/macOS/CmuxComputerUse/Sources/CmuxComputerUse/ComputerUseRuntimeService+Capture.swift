@@ -110,25 +110,6 @@ extension ComputerUseRuntimeService {
         return .ready
     }
 
-    /// Socket-level host request kept internal for peer/capability regression
-    /// coverage. A normal bearer token cannot invoke this daemon method.
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
-    nonisolated static func verifyDirectScreenCapture(
-        paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
-        expectedPeerIdentity: AgentPIDProcessIdentity
-    ) async -> Bool {
-        await verifyDirectScreenCaptureOutcome(
-            paths: paths,
-            transport: transport,
-            expectedPeerIdentity: expectedPeerIdentity
-        ) == .ready
-    }
-
     #if compiler(>=6.2)
     @concurrent
     #else
