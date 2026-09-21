@@ -54,10 +54,12 @@ cannot distinguish a lost request from a request that the provider already
 accepted. Forking copies event history but does not yet establish durable
 parent/child lineage.
 
-cmux already has the right identity direction: one authoritative session per
-stable surface, versioned snapshots, push as a hint, pull as authoritative,
-and process-exit/transcript backstops. This RFC extends that model across
-sidecar restarts and runtime moves.
+The session-tracking proposal binds one authoritative session to each stable
+surface, with versioned snapshots, push as a hint, pull as authoritative, and
+process-exit/transcript backstops. This RFC retains those reconciliation rules
+but proposes a separate logical identity and an explicit attachment transaction
+for cross-surface moves. That identity change is not implemented by the cited
+session-tracking contract.
 
 Routing has a related boundary. CodeRouter and Subrouter can select among
 accounts, but provider capacity is not always an HTTP error. A provider may
@@ -124,16 +126,30 @@ event is an explicit reason to evict the temporary binding.
 
 ## Durable session model
 
-The authoritative record is one `AgentSession` per stable cmux surface. The
-logical session ID remains stable across a sidecar restart or runtime handoff.
-`surfaceID` is the cmux binding key; `workspaceID` is an attribute and may
-change during restore or reattachment.
+The authoritative record is keyed by a cmux-generated `sessionID`, independent
+of both surface and provider identity. A session has at most one writable
+surface attachment, and a surface has at most one attached session. Additional
+history viewers are read-only and do not claim an attachment. A detached
+session remains in the durable catalog.
+
+This intentionally revises the **Authority** and **Persistence across app
+relaunch** sections of the [session-tracking proposal](../agent-session-tracking-spec.md):
+its per-surface record becomes an attachment index, and its hook-supplied
+`sessionID` becomes `providerSessionID`. Migration allocates a logical UUID for
+each existing surface record once and persists the mapping; it must not
+recompute logical identity from the surface or provider ID on restore. An
+implementation must update that contract and its readers together before
+exposing cross-surface moves. The surface UUID itself stays invariant for the
+terminal's lifetime; a move changes the binding, never either surface UUID.
 
 ```text
 AgentSession {
   sessionID              // cmux logical session identity
-  surfaceID              // stable cmux-owned binding key
-  workspaceID            // current presentation attachment
+  attachment? {          // absent while detached
+    surfaceID            // immutable identity of the currently attached terminal
+    workspaceID          // presentation attribute, may change during restore
+  }
+  attachmentEpoch        // monotonic, retained across detach/attach
   agentKind              // claude | codex | acp | pi | ...
   provider               // provider family used by the adapter
   providerSessionID      // native resume/thread ID, if available
@@ -161,6 +177,37 @@ events after its last `seq`. A version gap causes a snapshot pull before any
 local event is applied. Retained `ended` state remains visible so a completed
 session is not mistaken for a missing one.
 
+### Atomic surface attachment
+
+All entrypoints use one `moveAttachment` operation containing `operationID`,
+`sessionID`, expected source surface (or detached), expected attachment epoch,
+and destination surface/workspace. A durable transaction must:
+
+1. Check the current runtime lease, source binding and attachment epoch, and
+   that the destination exists and is unbound. An occupied destination returns
+   `surface_in_use`, including when its attached session is `ended`; it never
+   overwrites that session. Repeating a committed operation returns its result.
+2. Remove the old surface-index entry, set the new session attachment, insert
+   the destination-index entry, increment the attachment epoch and session
+   version, and append `attachment_moved` in the same commit. Enforce uniqueness
+   in both directions. A detach follows the same path with no destination.
+3. Publish only the committed snapshot. A crash leaves the old or new complete
+   binding; recovery never constructs an intermediate state from UI caches.
+
+The source surface becomes unbound; it does not retain a second authoritative
+session record. History remains under `sessionID`. No move copies pending
+prompts into a destination session. An occupied target must be explicitly
+vacated first, or a new surface created.
+
+Hook and mutation authorization must include logical session ID, surface ID,
+attachment epoch and runtime lease epoch, checked against current authority.
+Surface-only legacy hooks cannot support cross-surface moves: the source
+producer must be quiesced, and a destination adapter restarted or issued a new
+scoped binding token before it can write. Late source hooks and stale pending
+input are rejected, never redirected to whatever session now occupies that
+surface. Same-surface runtime handoffs preserve the attachment but still fence
+writes with the new lease epoch.
+
 ### Operation identity
 
 Every mutating client action has an `operationID` generated before transport:
@@ -172,12 +219,48 @@ kind       = prompt | interrupt | set_option | fork | handoff | resume
 clientSeq  = client-local monotonic number
 ```
 
-The runtime records `accepted`, `started`, `output_started`, `completed`,
-`cancelled`, or `failed` for that operation. Repeating an `operationID` returns
-the recorded result or current state; it never submits a second provider turn.
-An operation can be retried with a new ID only after the old operation is
-known to have reached a safe terminal boundary or the user explicitly chooses
-to retry.
+The journal and snapshots persist the following record, not just the latest
+route attempt:
+
+```text
+OperationRecord {
+  operationID
+  state                   // accepted | started | output_started | recoverable |
+                          // completed | cancelled | failed
+  outputStarted           // monotonic; true before any output is exposed
+  lastDurableEventSeq
+  providerTurnID?
+  recovery? {             // required for recoverable
+    reason                // capacity | disconnect | handoff | unknown_outcome
+    mode                  // native_resume | explicit_new_turn
+    checkpointRef         // retained partial transcript/event checkpoint
+    providerCursorRef?    // required for native_resume; protected local reference
+  }
+}
+```
+
+Persist output and its boundary before releasing it to a client. On a
+post-output interruption, persist `recoverable` and its recovery fields before
+advertising recovery or acknowledging a handoff packet. `recoverable` is a
+nonterminal state that prevents automatic fresh submission; it is distinct
+from a terminal `failed` result. `RouteAttempt.phase` is diagnostic and cannot
+override this operation record.
+
+Repeating an `operationID` returns the recorded result or current state; it
+never submits a second provider turn. A resume action has its own deduplicated
+operation ID and targets the original recoverable operation. It may transition
+that operation back to `output_started` only through a provider-native,
+non-duplicating continuation at the persisted cursor. Without that guarantee,
+keep `explicit_new_turn` and require a user decision; preserve the partial
+turn and link any new turn to it. Close the old operation as `cancelled`
+before accepting that new turn, retaining its output and recovery metadata.
+
+After a crash, reconstruct the operation from the snapshot and journal before
+accepting input. An unfinished `started` or `output_started` record whose
+provider outcome cannot be confirmed becomes `recoverable` with
+`unknown_outcome`; lack of a completion event is not permission to replay.
+A verified pre-output rejection may still use the bounded routing retry under
+the original operation ID. An unconfirmed submission may not.
 
 ## Handoff packet
 
@@ -203,8 +286,10 @@ HandoffPacket {
     transcriptDigest?
     lastConfirmedTurnID?
     outputBoundary         // no_output | output_started | completed
+    activeOperationID?     // joins the persisted OperationRecord
   }
-  attachment {
+  expectedSourceAttachment // surfaceID or detached, plus attachmentEpoch
+  attachment {             // requested destination, not yet authoritative
     cwd
     worktree?
     workspaceID?
@@ -217,7 +302,7 @@ HandoffPacket {
     routePlane             // coderouter | subrouter | direct
     bindingHint?
   }
-  pendingOperations[]      // IDs and states, never raw credentials
+  pendingOperations[]      // complete nonterminal OperationRecords, including recovery
   reason                   // user_move | restart | capacity | machine_loss | operator
   createdAt
   expiresAt
@@ -236,24 +321,34 @@ and lease epoch. A packet is accepted only once for its `handoffID`.
    journal checkpoint.
 2. **Quiesce.** The harness asks the provider to finish or cancel at a safe
    boundary. If output has not started, the provider request may be retried on
-   another route. If output has started, the source records that fact and does
-   not replay the turn.
+   another route only after a confirmed pre-output rejection or safe cancellation.
+   An interrupted partial or unconfirmed turn is persisted as `recoverable`
+   with its checkpoint and continuation mode; it is never replayed as fresh input.
 3. **Persist.** The source writes the packet, transcript reference, and pending
    operation states, then acknowledges that the packet is durable.
 4. **Claim.** The destination atomically claims a lease with a higher fencing
-   epoch. It restores the provider session using the native session ID when
-   available, or starts a new provider session with an explicit continuation
-   boundary.
-5. **Commit.** The destination appends `handoff_committed`, publishes a new
-   versioned snapshot, and attaches the requested surface/workspace. The source
+   epoch. It restores the provider session and persisted operation records
+   without submitting pending prompts. A new provider session may receive the
+   completed checkpoint, but any recoverable partial turn still requires the
+   continuation rules above. Claiming a lease alone does not move a surface
+   binding or enable input.
+5. **Commit.** In one durable transaction, the destination checks its lease and
+   the expected source attachment, applies `moveAttachment` (or verifies the
+   unchanged binding for a same-surface handoff), and appends
+   `handoff_committed`. An occupied destination aborts that transaction without
+   changing either binding. It then publishes the committed versioned snapshot
+   and enables input only as allowed by the restored operation state. The source
    may release resources only after observing the committed epoch.
 6. **Recover.** If the destination fails before commit, the source may resume
    only while its lease epoch is still current. If the lease was superseded,
    the source must stop and let the new owner recover from the journal.
 
 Fencing prevents two sidecars from accepting prompts for one session. A stale
-   source can still serve read-only history, but cannot append provider turns or
-   commit a conflicting handoff.
+source can still serve read-only history, but cannot append provider turns or
+commit a conflicting handoff. A destination that has claimed the lease but
+cannot attach keeps the session in `recovering`; only that lease owner can
+retry attachment or explicitly transfer the lease back. The source binding
+remains visible but cannot authorize stale runtime writes.
 
 ### Fork semantics
 
@@ -421,15 +516,23 @@ demonstrated in runtime tests or production-safe canaries:
    and does not reach the user as “selected model is at capacity” when a safe
    route exists.
 6. An injected capacity response after output has started is never replayed;
-   the partial turn is retained and the UI presents a recoverable state.
+   the partial turn and recovery mode survive a sidecar crash and handoff.
+   Native resume uses the saved cursor without duplication; providers without
+   that guarantee require an explicit new turn. A crash with an unknown
+   provider outcome cannot cause automatic replay.
 7. Same-model, same-family, and no-fallback policies produce the documented
    routing behavior, including an explicit user-visible reason when no safe
    candidate exists.
-8. A reconnect, missed push, or version gap converges to the authoritative
+8. A cross-surface move atomically removes the source binding and installs the
+   destination binding without changing the logical session or surface UUIDs.
+   An occupied destination, competing move, crash during commit, or delayed
+   source hook cannot overwrite or cross-attach sessions. Repeating the move
+   returns its original result.
+9. A reconnect, missed push, or version gap converges to the authoritative
    snapshot and event sequence without showing a different conversation.
-9. Session, operation, handoff, route, request, and trace IDs join in telemetry
+10. Session, operation, handoff, route, request, and trace IDs join in telemetry
    while prompts, output, credentials, and account identities remain absent.
-10. The measured rate of user-visible transient capacity errors decreases in a
+11. The measured rate of user-visible transient capacity errors decreases in a
     canary, with no increase in duplicate output, cross-session attachment, or
     stale-lease incidents.
 
