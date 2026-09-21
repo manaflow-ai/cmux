@@ -13,6 +13,7 @@ type SelectInput = {
 let selectInputs: SelectInput[] = [];
 let accountsToServe: { id: string; sticky: boolean }[] = [];
 let cooldowns: string[] = [];
+let capacityCooldowns: { accountId: string; durationMs: number; failureCode?: string }[] = [];
 let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
@@ -88,6 +89,7 @@ beforeEach(() => {
   selectInputs = [];
   accountsToServe = [];
   cooldowns = [];
+  capacityCooldowns = [];
   upstreamStatuses = [];
   credentialBusyBudgets = new Map();
   credentialCalls = [];
@@ -130,7 +132,10 @@ describe("codex responses proxy session routing", () => {
         return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
       },
       credential: async ({ accountId }) => testCredential(accountId),
-      cooldown: async (accountId) => { cooldowns.push(accountId); },
+      cooldown: async (accountId, durationMs, _signal, failureCode) => {
+        cooldowns.push(accountId);
+        capacityCooldowns.push({ accountId, durationMs, failureCode });
+      },
     }, { fetch: fetchImpl });
   }
 
@@ -185,6 +190,29 @@ describe("codex responses proxy session routing", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toContain('"delta":"ok"');
     expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("uses the provider reset instead of a generic minute for a 429 quota", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          type: "usage_limit_reached",
+          resets_in_seconds: 7_200,
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [429, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(capacityCooldowns).toEqual([{
+      accountId: "acct-capacity",
+      durationMs: 7_200_000,
+      failureCode: "usage_limit_exceeded",
+    }]);
   });
 
   test("fails over a capacity response returned as a non-2xx JSON body", async () => {

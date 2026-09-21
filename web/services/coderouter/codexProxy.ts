@@ -103,6 +103,7 @@ const STICKY_REFRESH_RETRY_DELAY_MS = 500;
  */
 const MAX_PREOUTPUT_PROBE_BYTES = 64 * 1024;
 const CAPACITY_COOLDOWN_MS = 60_000;
+const WORKSPACE_QUOTA_COOLDOWN_MS = 60 * 60_000;
 const PREOUTPUT_PROBE_IDLE_MS = 500;
 
 /**
@@ -445,6 +446,33 @@ async function proxyCodexRequestWith(
       }
     }
     if (upstream.status === 429) {
+      // A Codex usage-limit response commonly uses 429 too. Inspect it before
+      // applying the generic rate-limit path so a workspace quota gets the
+      // provider reset/holdout policy instead of a one-minute retry loop.
+      const probed = await probeCodexCapacity(upstream, request.signal);
+      if (probed.kind === "capacity") {
+        reportCoderouterFailure(
+          probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit",
+          new Error(`provider ${probed.failureCode}`),
+          { provider: "codex", capacity: true, capacity_reason: probed.failureCode, status: 429 },
+        );
+        const cooldownResult = await coolDownCapacityAccount(
+          dependencies,
+          account.id,
+          probed,
+          request,
+          upstreamHeaderDeadlineAt,
+          runtime,
+        );
+        if (cooldownResult === "deadline") {
+          failureStage = "upstream_transport";
+          upstream = null;
+          break;
+        }
+        upstream = null;
+        continue;
+      }
+      upstream = probed.kind === "response" ? probed.response : upstream;
       const cooldownMs = rateLimitDelay(upstream.headers);
       reportCoderouterFailure(
         "provider_rate_limit",
@@ -479,26 +507,18 @@ async function proxyCodexRequestWith(
     if (upstream.status < 200 || upstream.status >= 300) {
       const probed = await probeCodexCapacity(upstream, request.signal);
       if (probed.kind === "capacity") {
-        try {
-          await withCoderouterOperationDeadline(
-            request.signal,
-            upstreamHeaderDeadlineAt,
-            runtime.now,
-            (signal) => dependencies.cooldown(
-              account.id,
-              probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
-              signal,
-              "capacity",
-            ),
-          );
-        } catch (error) {
-          if (request.signal.aborted) throw error;
-          if (error instanceof CoderouterOperationDeadlineError) {
-            failureStage = "upstream_transport";
-            upstream = null;
-            break;
-          }
-          throw error;
+        const cooldownResult = await coolDownCapacityAccount(
+          dependencies,
+          account.id,
+          probed,
+          request,
+          upstreamHeaderDeadlineAt,
+          runtime,
+        );
+        if (cooldownResult === "deadline") {
+          failureStage = "upstream_transport";
+          upstream = null;
+          break;
         }
         upstream = null;
         continue;
@@ -515,39 +535,33 @@ async function proxyCodexRequestWith(
           attributes: {
             provider: "codex",
             attempt: attempt + 1,
-            retry_after_ms: probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
+            retry_after_ms: capacityCooldownMs(probed),
+            capacity_reason: probed.failureCode,
           },
         });
         addCoderouterBreadcrumb("routing", "Provider capacity; moving to another account", {
           provider: "codex",
           attempt: attempt + 1,
         }, "warning");
-        reportCoderouterFailure("provider_rate_limit", new Error("provider capacity"), {
+        reportCoderouterFailure(probed.failureCode === "usage_limit_exceeded" ? "provider_usage" : "provider_rate_limit", new Error("provider capacity"), {
           provider: "codex",
           capacity: true,
+          capacity_reason: probed.failureCode,
           attempt: attempt + 1,
           request_id: requestId,
         });
-        try {
-          await withCoderouterOperationDeadline(
-            request.signal,
-            upstreamHeaderDeadlineAt,
-            runtime.now,
-            (signal) => dependencies.cooldown(
-              account.id,
-              probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
-              signal,
-              "capacity",
-            ),
-          );
-        } catch (error) {
-          if (request.signal.aborted) throw error;
-          if (error instanceof CoderouterOperationDeadlineError) {
-            failureStage = "upstream_transport";
-            upstream = null;
-            break;
-          }
-          throw error;
+        const cooldownResult = await coolDownCapacityAccount(
+          dependencies,
+          account.id,
+          probed,
+          request,
+          upstreamHeaderDeadlineAt,
+          runtime,
+        );
+        if (cooldownResult === "deadline") {
+          failureStage = "upstream_transport";
+          upstream = null;
+          break;
         }
         upstream = null;
         continue;
@@ -625,7 +639,55 @@ async function proxyCodexRequestWith(
 
 type CodexCapacityProbe =
   | { readonly kind: "response"; readonly response: Response }
-  | { readonly kind: "capacity"; readonly retryAfterMs?: number };
+  | {
+    readonly kind: "capacity";
+    readonly failureCode: CodexCapacityFailureCode;
+    readonly retryAfterMs?: number;
+  };
+
+type CodexCapacityFailureCode =
+  | "usage_limit_exceeded"
+  | "server_overloaded"
+  | "rate_limit_exceeded"
+  | "model_capacity";
+
+function capacityCooldownMs(probe: Extract<CodexCapacityProbe, { kind: "capacity" }>): number {
+  if (probe.retryAfterMs !== undefined) return probe.retryAfterMs;
+  return probe.failureCode === "usage_limit_exceeded"
+    ? WORKSPACE_QUOTA_COOLDOWN_MS
+    : CAPACITY_COOLDOWN_MS;
+}
+
+async function coolDownCapacityAccount(
+  dependencies: CodexResponsesDependencies,
+  accountId: string,
+  probe: Extract<CodexCapacityProbe, { kind: "capacity" }>,
+  request: Request,
+  deadlineAt: number,
+  runtime: CodexResponsesRuntime,
+): Promise<"cooled" | "deadline"> {
+  const failureCode = probe.failureCode;
+  try {
+    await withCoderouterOperationDeadline(
+      request.signal,
+      deadlineAt,
+      runtime.now,
+      (signal) => dependencies.cooldown(
+        accountId,
+        capacityCooldownMs(probe),
+        signal,
+        failureCode,
+      ),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    if (error instanceof CoderouterOperationDeadlineError) {
+      return "deadline";
+    }
+    throw error;
+  }
+  return "cooled";
+}
 
 /**
  * Inspects only the beginning of an SSE/NDJSON response. A capacity event is
@@ -661,7 +723,13 @@ async function probeCodexCapacity(
       const verdict = classifyCodexCapacityPrefix(text);
       if (verdict.kind === "capacity" || isCodexCapacityText(text)) {
         await reader.cancel();
-        return verdict.kind === "capacity" ? verdict : { kind: "capacity" };
+        return verdict.kind === "capacity"
+          ? verdict
+          : {
+            kind: "capacity",
+            failureCode: codexCapacityFailureCode(text) ?? "model_capacity",
+            retryAfterMs: retryAfterFromCodexText(text),
+          };
       }
       if (verdict.kind === "output" || total >= MAX_PREOUTPUT_PROBE_BYTES) break;
     }
@@ -669,7 +737,13 @@ async function probeCodexCapacity(
     const finalVerdict = classifyCodexCapacityPrefix(`${text}\n\n`);
     if (finalVerdict.kind === "capacity" || isCodexCapacityText(text)) {
       await reader.cancel();
-      return finalVerdict.kind === "capacity" ? finalVerdict : { kind: "capacity" };
+      return finalVerdict.kind === "capacity"
+        ? finalVerdict
+        : {
+          kind: "capacity",
+          failureCode: codexCapacityFailureCode(text) ?? "model_capacity",
+          retryAfterMs: retryAfterFromCodexText(text),
+        };
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
@@ -742,7 +816,7 @@ function throwIfAbortedSignal(signal: AbortSignal): void {
 function classifyCodexCapacityPrefix(text: string):
   | { readonly kind: "waiting" }
   | { readonly kind: "output" }
-  | { readonly kind: "capacity"; readonly retryAfterMs?: number } {
+  | { readonly kind: "capacity"; readonly failureCode: CodexCapacityFailureCode; readonly retryAfterMs?: number } {
   const events = text.split(/\r?\n\r?\n/);
   for (const event of events.slice(0, -1)) {
     const data = event.match(/^data:\s*(.*)$/m)?.[1]?.trim();
@@ -753,8 +827,9 @@ function classifyCodexCapacityPrefix(text: string):
     } catch {
       continue;
     }
-    if (isCodexCapacityPayload(parsed)) {
-      return { kind: "capacity", retryAfterMs: retryAfterFromCodexPayload(parsed) };
+    const failureCode = codexCapacityFailureCode(JSON.stringify(parsed));
+    if (failureCode) {
+      return { kind: "capacity", failureCode, retryAfterMs: retryAfterFromCodexPayload(parsed) };
     }
     if (isCodexOutputPayload(parsed)) return { kind: "output" };
   }
@@ -767,18 +842,29 @@ function isCodexCapacityPayload(value: unknown): boolean {
 }
 
 function isCodexCapacityText(value: string): boolean {
+  return codexCapacityFailureCode(value) !== undefined;
+}
+
+function retryAfterFromCodexText(value: string): number | undefined {
+  try {
+    return retryAfterFromCodexPayload(JSON.parse(value));
+  } catch {
+    return undefined;
+  }
+}
+
+function codexCapacityFailureCode(value: string): CodexCapacityFailureCode | undefined {
   const text = value.toLowerCase();
-  return text.includes("usage_limit_reached") ||
-    text.includes("usage_limit_exceeded") ||
-    text.includes("rate_limit_exceeded") ||
+  if (text.includes("usage_limit_reached") || text.includes("usage_limit_exceeded")) return "usage_limit_exceeded";
+  if (text.includes("rate_limit_exceeded")) return "rate_limit_exceeded";
+  if (
     text.includes("server_overloaded") ||
     text.includes("server_is_overloaded") ||
     text.includes("overloaded_error") ||
-    text.includes("selected model is at capacity") ||
-    text.includes("model is at capacity") ||
-    text.includes("model_capacity") ||
-    text.includes("model capacity") ||
-    text.includes("temporarily overloaded");
+    text.includes("temporarily overloaded")
+  ) return "server_overloaded";
+  if (text.includes("selected model is at capacity") || text.includes("model is at capacity") || text.includes("model_capacity") || text.includes("model capacity")) return "model_capacity";
+  return undefined;
 }
 
 function isCodexOutputPayload(value: unknown): boolean {
@@ -791,14 +877,40 @@ function isCodexOutputPayload(value: unknown): boolean {
 
 function retryAfterFromCodexPayload(value: unknown): number | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const raw = (value as { retry_after?: unknown; retry_after_ms?: unknown }).retry_after_ms ??
-    (value as { retry_after?: unknown }).retry_after;
+  const object = value as Record<string, unknown>;
+  const raw = object.retry_after_ms ?? object.retry_after;
   if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(1_000, raw < 100 ? raw * 1_000 : raw);
   if (typeof raw === "string" && /^\d+(?:\.\d+)?s?$/.test(raw)) {
     const seconds = Number.parseFloat(raw);
     return Math.max(1_000, raw.endsWith("s") || seconds < 100 ? seconds * 1_000 : seconds);
   }
+  const resetSeconds = object.resets_in_seconds;
+  if (typeof resetSeconds === "number" && Number.isFinite(resetSeconds) && resetSeconds > 0) {
+    return boundedCapacityDelay(resetSeconds * 1_000);
+  }
+  if (typeof resetSeconds === "string" && /^\d+(?:\.\d+)?$/.test(resetSeconds)) {
+    return boundedCapacityDelay(Number.parseFloat(resetSeconds) * 1_000);
+  }
+  const resetAt = object.resets_at;
+  const resetTime = typeof resetAt === "number"
+    ? resetAt * 1_000
+    : typeof resetAt === "string" && /^\d+$/.test(resetAt)
+    ? Number.parseInt(resetAt, 10) * 1_000
+    : typeof resetAt === "string" ? Date.parse(resetAt) : NaN;
+  if (Number.isFinite(resetTime)) return boundedCapacityDelay(resetTime - Date.now());
+  const reachedType = object.rate_limit_reached_type;
+  if (typeof reachedType === "string" && reachedType.toLowerCase().startsWith("workspace_")) {
+    return WORKSPACE_QUOTA_COOLDOWN_MS;
+  }
+  for (const nested of [object.error, object.response]) {
+    const nestedRetry = retryAfterFromCodexPayload(nested);
+    if (nestedRetry !== undefined) return nestedRetry;
+  }
   return undefined;
+}
+
+function boundedCapacityDelay(delayMs: number): number {
+  return Math.min(Math.max(Math.round(delayMs), 60_000), 8 * 24 * 60 * 60_000);
 }
 
 type CodexModelsDependencies = {
