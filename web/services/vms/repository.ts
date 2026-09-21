@@ -598,7 +598,8 @@ async function allocateSlugInTx(tx: CloudDbTransaction, billingTeamId: string): 
 async function insertRuntimeForVm(tx: CloudDbTransaction, vm: CloudVmRow): Promise<void> {
   const ownerTeamId = vm.ownerTeamId.trim() || vm.billingTeamId?.trim() || vm.userId.trim();
   if (!ownerTeamId) throw new Error(`VM ${vm.id} has no durable owner team`);
-  await tx.insert(cloudRuntimes).values({ ownerTeamId, machineId: vm.id });
+  await tx.insert(cloudRuntimes).values({ ownerTeamId, machineId: vm.id })
+    .onConflictDoNothing({ target: cloudRuntimes.machineId });
 }
 
 async function assertAccountVmCreateAllowed(

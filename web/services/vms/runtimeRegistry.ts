@@ -19,6 +19,13 @@ export type HiveRuntimeRecord = {
   readonly machine: typeof cloudVms.$inferSelect | null;
 };
 
+function postgresErrorCode(cause: unknown): string | null {
+  if (!cause || typeof cause !== "object") return null;
+  const code = (cause as { code?: unknown }).code;
+  if (typeof code === "string") return code;
+  return postgresErrorCode((cause as { cause?: unknown }).cause);
+}
+
 /** Compares the complete placement, so another runtime's generation 1 is stale too. */
 export function isCurrentHiveRuntimePlacement(
   runtime: CloudRuntimeRow,
@@ -78,6 +85,8 @@ export function bindHiveRuntimeJournal(input: {
         )).returning({ id: cloudRuntimes.id });
       return rows.length === 1;
     },
-    catch: (cause) => new VmDatabaseError({ operation: "bindHiveRuntimeJournal", cause }),
+    catch: (cause) => postgresErrorCode(cause) === "23505"
+      ? false
+      : new VmDatabaseError({ operation: "bindHiveRuntimeJournal", cause }),
   });
 }

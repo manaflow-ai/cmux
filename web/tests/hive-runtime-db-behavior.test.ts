@@ -23,8 +23,8 @@ afterAll(async () => {
 async function fixture() {
   const [vm] = await db`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status)
     values (${owner}, ${owner}, 'freestyle', 'hive-test', 'running') returning id`;
-  const [runtime] = await db`insert into cloud_runtimes (owner_team_id, machine_id)
-    values (${owner}, ${vm.id}) returning id`;
+  const [runtime] = await db`select id from cloud_runtimes where machine_id = ${vm.id}`;
+  if (!runtime) throw new Error("VM insert did not create a durable runtime");
   return { runtimeId: runtime.id as string, machineId: vm.id as string, generation: 1 };
 }
 
@@ -58,6 +58,8 @@ dbTest("journal binding rejects stale generation, machine, account and lineage b
   expect((await Effect.runPromise(readHiveRuntime(owner, placement.runtimeId)))?.runtime.journalSessionId).toBeNull();
   expect(await bind(input)).toBe(true);
   expect(await bind(input)).toBe(true);
+  const other = await fixture();
+  expect(await bind({ ...input, placement: other })).toBe(false);
   expect(await bind({ ...input, journalSessionId: `session_${randomUUID().replaceAll('-', '')}` })).toBe(false);
   await db`update cloud_runtimes set placement_generation = 2 where id = ${placement.runtimeId}`;
   expect(await bind(input)).toBe(false);

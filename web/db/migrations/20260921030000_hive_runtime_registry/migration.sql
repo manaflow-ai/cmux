@@ -21,6 +21,29 @@ CREATE TABLE "cloud_runtime_agent_bindings" (
   CONSTRAINT "cloud_runtime_agent_bindings_thread_nonempty" CHECK (length(trim("codex_thread_id")) > 0),
   CONSTRAINT "cloud_runtime_agent_bindings_root_nonempty" CHECK (length(trim("root_chat_id")) > 0)
 );--> statement-breakpoint
+CREATE OR REPLACE FUNCTION "cloud_runtime_from_vm_insert"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  runtime_owner text;
+BEGIN
+  runtime_owner := coalesce(
+    nullif(trim(NEW."owner_team_id"), ''),
+    nullif(trim(NEW."billing_team_id"), ''),
+    trim(NEW."user_id")
+  );
+  IF NEW."status" <> 'destroyed'
+     AND (NEW."status" <> 'failed' OR NEW."provider_vm_id" IS NOT NULL)
+     AND runtime_owner <> '' THEN
+    INSERT INTO "cloud_runtimes" ("owner_team_id", "machine_id", "created_at")
+    VALUES (runtime_owner, NEW."id", NEW."created_at")
+    ON CONFLICT ("machine_id") DO NOTHING;
+  END IF;
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "cloud_vms_runtime_after_insert"
+AFTER INSERT ON "cloud_vms"
+FOR EACH ROW EXECUTE FUNCTION "cloud_runtime_from_vm_insert"();--> statement-breakpoint
 -- Every live VM gets a fresh runtime identity. Base reset/recovery does not
 -- restore a journal, so its VM is an ordinary M0 placement. Do not reuse Base
 -- IDs or Base generations (failure recovery can roll that generation backward).
@@ -28,4 +51,5 @@ CREATE TABLE "cloud_runtime_agent_bindings" (
 INSERT INTO "cloud_runtimes" ("owner_team_id", "machine_id", "created_at")
 SELECT coalesce(nullif(trim("owner_team_id"), ''), nullif(trim("billing_team_id"), ''), "user_id"),
   "id", "created_at" FROM "cloud_vms"
-WHERE "status" NOT IN ('failed', 'destroyed');
+WHERE "status" <> 'destroyed'
+  AND ("status" <> 'failed' OR "provider_vm_id" IS NOT NULL);
