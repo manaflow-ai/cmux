@@ -121,7 +121,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "fork-number": environment["GH_FORK"] = "1"
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
-        case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        case "worktree", "missing-directory", "nested-repository", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.hexWindowId.lowercased()]
         case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.focusedWorkspaceId]
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
