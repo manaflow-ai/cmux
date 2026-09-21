@@ -399,8 +399,7 @@ extension TerminalController {
                   let target = appDelegate.liveRelayAgentDeliveryTarget(
                       authenticatedWorkspaceID: remoteWorkspaceId,
                       ttyName: ttyName
-                  ),
-                  authenticatedWorkspace.isRemoteTerminalContext(target.surfaceId) else {
+                  ) else {
                 return .err(
                     code: "not_found",
                     message: String(
