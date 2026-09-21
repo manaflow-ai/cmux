@@ -206,9 +206,6 @@ final class MobileIrohReleaseGateRunner {
         self.soakRunner = soakRunner
         self.dependencies = Dependencies(
             readinessUpdates: nil,
-            settleReadiness: {
-                try await ContinuousClock().sleep(for: .milliseconds(500))
-            },
             runProbe: { store, marker in
                 if let soakRunner {
                     guard let identity = store.irohSoakUIIdentity() else {
@@ -221,7 +218,7 @@ final class MobileIrohReleaseGateRunner {
                     // prove teardown. Restore the exact measured target before
                     // transport work, rather than relying on a stale selection
                     // or a compact-navigation side effect.
-                    store.selectedWorkspaceID = MobileWorkspacePreview.ID(rawValue: identity.workspace)
+                    store.selectedWorkspaceID = store.workspaces.first { $0.id.rawValue == identity.workspace }?.id
                     store.selectedTerminalID = identity.surface
                     await Task.yield()
                     let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
