@@ -1246,6 +1246,10 @@
       "exampleConfig": "Exemplo de configuração",
       "metaTitle": "Configuração",
       "schemaDescriptions": {
+        "packs": {
+          "description": "Arquivos ou diretórios de pacotes cmux locais carregados antes desta configuração. Diretórios são resolvidos como cmux.pack.json. Use uma string de caminho ou um objeto com um campo path.",
+          "path": "Caminho de arquivo ou diretório local, relativo a este arquivo de configuração, a menos que seja absoluto."
+        },
         "paneBorderColor": "Substitui a cor do divisor de painéis do cmux em workspaces divididos. Isso afeta as bordas dos painéis do cmux, não as divisões internas do Ghostty.",
         "activePaneBorderColor": "Cor de borda opcional desenhada ao redor do painel cmux em foco em workspaces divididos.",
         "automation": {

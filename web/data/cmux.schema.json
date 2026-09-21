@@ -32,7 +32,8 @@
     },
     "packs": {
       "title": "packs",
-      "description": "Local cmux pack files or directories to load before this config. Directory entries resolve to cmux.pack.json. Entries may be strings or objects with a path field.",
+      "descriptionKey": "schemaDescriptions.packs.description",
+      "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
       "type": "array",
       "items": {
         "oneOf": [
@@ -50,7 +51,8 @@
                 "type": "string",
                 "minLength": 1,
                 "pattern": "^(?!https?://).+",
-                "description": "Local file or directory path, relative to this config file unless absolute."
+                "descriptionKey": "schemaDescriptions.packs.path",
+                "description": "Local file or directory path, relative to this configuration file unless absolute."
               }
             }
           }

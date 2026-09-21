@@ -2439,6 +2439,10 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "packs": {
+          "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+          "path": "Local file or directory path, relative to this configuration file unless absolute."
+        },
         "computerUse": {
           "description": "Local computer-use tools and menu-bar visibility.",
           "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
