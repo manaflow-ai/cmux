@@ -416,7 +416,7 @@ def check_truthful_broad_suites_leave_focused_gates() -> int:
 
     discovered = {
         selector.identifier.split("/", 2)[1]
-        for selector in helper.discover_selectors(ROOT / "cmuxTests")
+        for selector in helper.discover_selectors(ROOT)
         if selector.identifier.startswith("cmuxTests/")
     }
     missing = sorted(folded - discovered)
