@@ -1354,7 +1354,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Void, Never>?
+    // Internal so the workspace-list recovery owner can cancel the same
+    // coalesced task that backs pull-to-refresh and the empty-state Retry.
+    var pullToRefreshTask: Task<Void, Never>?
     /// Foreground post-mutation list refreshes, coalesced separately from
     /// pull-to-refresh so batched row actions do not fan out legacy list RPCs.
     private var foregroundWorkspaceMutationRefreshTask: Task<Void, Never>?
