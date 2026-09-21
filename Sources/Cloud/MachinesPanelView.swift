@@ -601,6 +601,7 @@ struct MachinesPanelView: View {
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in

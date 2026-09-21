@@ -272,6 +272,7 @@ struct CloudWorkspaceCreationSidebarTests {
             fixture.provider.usesReceipt = true
             let completed = CloudLinkFirstValue<Bool>()
             let actions = CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { fixture.catalog }, selectedWorkspaceID: { fixture.manager.selectedTabId },
                 selectLocalWorkspace: { fixture.manager.selectedTabId = $0 },
                 onWillMutate: { _ in }, onDidMutate: { completed.resolve(true) },
