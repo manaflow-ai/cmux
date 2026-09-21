@@ -18,6 +18,16 @@ export { ArtifactImport };
 export default { fetch: artifactHandler };
 `;
 
+const boundWrapper = `
+import { artifactHandler, ArtifactImport } from "./index.js";
+export { ArtifactImport };
+export default {
+  fetch(request, env) {
+    return artifactHandler(request, env, "999", "1");
+  },
+};
+`;
+
 const faultWrapper = `
 import { artifactHandler, ArtifactImport as ProductionImport } from "./index.js";
 export class ArtifactImport extends ProductionImport {
@@ -68,7 +78,11 @@ async function fixture(t, options = {}) {
   const bundled = new URL("../.test-dist/index.js", import.meta.url);
   const mf = new Miniflare(convertV4MiniflareOptions({
     modules: [
-      { type: "ESModule", path: new URL(options.r2Gate ? "../.test-dist/fault-wrapper.js" : "../.test-dist/core-wrapper.js", import.meta.url).pathname, contents: options.r2Gate ? faultWrapper : coreWrapper },
+      {
+        type: "ESModule",
+        path: new URL(options.r2Gate ? "../.test-dist/fault-wrapper.js" : options.boundRun ? "../.test-dist/bound-wrapper.js" : "../.test-dist/core-wrapper.js", import.meta.url).pathname,
+        contents: options.r2Gate ? faultWrapper : options.boundRun ? boundWrapper : coreWrapper,
+      },
       { type: "ESModule", path: bundled.pathname, contents: readFileSync(bundled, "utf8") },
     ],
     ...(options.r2Gate ? { serviceBindings: { R2_FAULT: options.r2Gate.fetch } } : {}),
@@ -158,6 +172,14 @@ test("R2 write failure returns a miss and leaves no cached object", async (t) =>
   const response = await mf.dispatchFetch(`https://broker.example${path}`);
   assert.equal(response.status, 502);
   assert.equal(state.downloads, 1);
+  assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
+});
+
+test("production caller run identity must match the artifact producer", async (t) => {
+  const { mf, state } = await fixture(t, { boundRun: true });
+  const response = await mf.dispatchFetch(`https://broker.example${path}`);
+  assert.equal(response.status, 502);
+  assert.equal(state.downloads, 0);
   assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
 });
 
