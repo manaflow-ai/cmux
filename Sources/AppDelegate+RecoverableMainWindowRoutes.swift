@@ -499,7 +499,7 @@ extension AppDelegate {
             self?.freezeWindowlessRecoverableMainWindowRoute(
                 route,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
+                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex.isEmpty == false
                     ? detectedSurfaceResumeBindingIndex
                     : nil
             )
