@@ -22,7 +22,12 @@ final class BrowserNativeClickUITests: XCTestCase {
             predicate: NSPredicate { _, _ in self.browserWebView(in: window) != nil },
             object: nil
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [hostReady], timeout: 15), .completed)
+        let hostWaitResult = XCTWaiter.wait(for: [hostReady], timeout: 15)
+        XCTAssertEqual(
+            hostWaitResult,
+            .completed,
+            "Timed out waiting for the browser WebView to mount in the native click fixture"
+        )
         let webView = try XCTUnwrap(browserWebView(in: window))
         let button = webView.buttons["Native click target"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Native click fixture must finish loading")
