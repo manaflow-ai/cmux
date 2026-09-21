@@ -44,3 +44,11 @@ rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
+if [ "${CMUX_LAYER_RESTORED:-}" != "true" ]; then
+  if [ "${CMUX_R2_RESTORED:-}" = "true" ]; then
+    python3 scripts/ci/app_host_consumer_receipt.py aggregate-hit --route r2-aggregate
+  else
+    python3 scripts/ci/app_host_consumer_receipt.py aggregate-hit --route github-aggregate
+  fi
+fi
+
