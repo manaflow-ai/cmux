@@ -758,8 +758,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         printf "lease@vm-ssh.freestyle.sh's password: " >&2
         IFS= read -r _cmux_password
         [ "$_cmux_password" = "lease-token" ] || exit 64
+        exec 3<> "$CMUX_FAKE_SSH_RELEASE"
         : > "$CMUX_FAKE_SSH_READY"
-        IFS= read -r _cmux_release < "$CMUX_FAKE_SSH_RELEASE"
+        IFS= read -r _cmux_release <&3
+        exec 3>&-
         printf 'CMUX_DELAYED_RELAY_OK\\n'
         exit 0
         """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
@@ -831,10 +833,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             processFinished.fulfill()
         }
 
-        XCTAssertTrue(waitForSocketFile(at: readyPath, timeout: 5), "fake SSH never reached credential checkpoint")
-        let release = try XCTUnwrap(FileHandle(forWritingAtPath: releasePath))
-        release.write(Data("\n".utf8))
-        try release.close()
+        guard waitForSocketFile(at: readyPath, timeout: 5) else {
+            XCTFail("fake SSH never reached credential checkpoint")
+            // runProcess has its own bounded timeout. Join it before leaving
+            // the test so no background XCTest work survives this failure.
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        let releaseFD = Darwin.open(releasePath, O_WRONLY | O_NONBLOCK)
+        guard releaseFD >= 0 else {
+            XCTFail("fake SSH release FIFO has no reader (errno=\(errno))")
+            wait(for: [processFinished], timeout: 25)
+            return
+        }
+        defer { Darwin.close(releaseFD) }
+        var releaseByte: UInt8 = 0x0A
+        XCTAssertEqual(Darwin.write(releaseFD, &releaseByte, 1), 1)
 
         wait(for: [processFinished, serverHandled], timeout: 15)
         let result = try XCTUnwrap(resultBox.load())
