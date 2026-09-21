@@ -65,7 +65,10 @@ extension CLICallerWorkspaceDefaultTests {
             switch object["method"] as? String {
             case "system.identify":
                 return Self.v2Response(id: id, ok: true, result: [
-                    "caller": ["workspace_id": Self.otherWorkspaceId],
+                    "caller": [
+                        "workspace_id": Self.otherWorkspaceId,
+                        "window_id": scenario == "window" ? Self.focusedWorkspaceId : Self.otherWorkspaceId
+                    ],
                     "focused": ["workspace_id": Self.focusedWorkspaceId]
                 ])
             case "window.list":
