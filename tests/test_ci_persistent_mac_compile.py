@@ -183,6 +183,12 @@ class RoutingTests(unittest.TestCase):
         self.assertFalse(route.valid_budget(120, 481))
         self.assertFalse(route.valid_budget(120, 500))
 
+    def test_observe_only_budget_is_short_and_bounded(self):
+        self.assertTrue(route.valid_observe_budget(5))
+        self.assertTrue(route.valid_observe_budget(60))
+        self.assertFalse(route.valid_observe_budget(4))
+        self.assertFalse(route.valid_observe_budget(61))
+
     def test_output_helpers_record_hosted_fallback_and_persistent_success(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
@@ -289,6 +295,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("      actions: read", admission)
         self.assertIn("      pull-requests: read", admission)
         self.assertIn("--observe-only", admission)
+        self.assertIn("--observe-seconds 60", admission)
 
     def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
         admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
