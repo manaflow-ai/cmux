@@ -130,6 +130,10 @@ class ProductPublicationTests(unittest.TestCase):
         self.assertNotIn("CmuxTerminalCore-Package", app_text)
         self.assertNotIn("GhosttyKit.xcframework", app_text)
         self.assertNotIn("Install Rust", app_names)
+        app_run = "\n".join(step.get("run", "") for step in app_job["steps"])
+        self.assertNotIn("scripts/install-rust-ci.sh", app_run)
+        self.assertIsNone(re.search(r"(?m)^\s*(?:sudo\s+)?rustup(?:\s|$)", app_run))
+        self.assertIsNone(re.search(r"(?m)^\s*(?:sudo\s+)?cargo(?:\s|$)", app_run))
         self.assertNotIn("test_bundled_ghostty_theme_picker_helper.sh", app_text)
 
         package_job = self.workflow["jobs"]["swift-package-tests"]
@@ -138,11 +142,41 @@ class ProductPublicationTests(unittest.TestCase):
             if step["name"] == "Run Swift package unit tests"
         )
         package_run = package_step["run"]
-        self.assertIn("CmuxTerminalCore", package_run)
-        self.assertIn(
-            'grep -qxF CmuxTerminalCore "$selected" || echo CmuxTerminalCore >> "$selected"',
-            package_run,
-        )
+        append_command = 'grep -qxF CmuxTerminalCore "$selected" || echo CmuxTerminalCore >> "$selected"'
+        active_lines = {
+            line.strip()
+            for line in package_run.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+        self.assertIn(append_command, active_lines)
+
+        with tempfile.TemporaryDirectory() as directory:
+            changed = Path(directory) / "changed.txt"
+            selected = Path(directory) / "selected.txt"
+            changed.write_text("docs/ci.md\n", encoding="utf-8")
+            with selected.open("w", encoding="utf-8") as output:
+                subprocess.run(
+                    [
+                        "python3",
+                        "scripts/ci/select_package_tests.py",
+                        "--changed-files",
+                        str(changed),
+                        "CmuxTerminalCore",
+                        "CmuxSettings",
+                    ],
+                    cwd=ROOT,
+                    stdout=output,
+                    check=True,
+                    text=True,
+                )
+            self.assertNotIn("CmuxTerminalCore", selected.read_text(encoding="utf-8").splitlines())
+            subprocess.run(
+                ["bash", "-euc", 'selected="$1"; ' + append_command, "_", str(selected)],
+                cwd=ROOT,
+                check=True,
+                text=True,
+            )
+            self.assertIn("CmuxTerminalCore", selected.read_text(encoding="utf-8").splitlines())
 
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
