@@ -1,0 +1,60 @@
+name: RemoteConnectionsTests
+options:
+  projectFormat: xcode16_0
+  minimumXcodeGenVersion: 2.45.3
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CmuxRemoteConnections:
+    path: ../../Packages/Shared/CmuxRemoteConnections
+  CmuxSSHNative:
+    path: ../../Packages/Shared/CmuxSSHNative
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENTITLEMENTS_ALLOWED: YES
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  RemoteConnectionsTestHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "-"
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.testhost
+        CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
+        INFOPLIST_FILE: Host/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+  RemoteConnectionsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ../../Packages/Shared/CmuxRemoteConnections/Tests/CmuxRemoteConnectionsTests
+        type: syncedFolder
+    dependencies:
+      - target: RemoteConnectionsTestHost
+      - package: CmuxRemoteConnections
+      - package: CmuxSSHNative
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "-"
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.tests
+        CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
+        INFOPLIST_FILE: Tests/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+schemes:
+  RemoteConnectionsTests:
+    build:
+      targets:
+        RemoteConnectionsTestHost: all
+        RemoteConnectionsTests: [test]
+    test:
+      targets:
+        - name: RemoteConnectionsTests
+      parallelizable: false
+      gatherCoverageData: false

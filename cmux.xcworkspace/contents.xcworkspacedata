@@ -35,10 +35,16 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxRemoteConnections">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
          location = "group:CmuxSimulatorStreamKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSSHNative">
       </FileRef>
       <FileRef
          location = "group:CmuxSyncStore">

@@ -1,0 +1,132 @@
+{
+  "macosx": {
+    "sdk": "macosx",
+    "arch": "arm64",
+    "deploymentTarget": "14.0",
+    "libsshVersion": "0.12.2",
+    "libsshSourceSHA256": "49560f677d96e3706a904ac2de1116e25f3680937d51e5c92198fcba4a1c1e9f",
+    "mbedtlsVersion": "3.6.7",
+    "mbedtlsSourceSHA256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+    "staticArchives": {
+      "libeverest.a": {
+        "bytes": 1360,
+        "sha256": "dc71465d81d46d2801af5c17c9caa274737eba2a0853018b0bbf4702e6cd8adf"
+      },
+      "libmbedcrypto.a": {
+        "bytes": 806856,
+        "sha256": "605318dd7590c30cd98bd9f30b98244170c8423560100d2784707c7454197b5a"
+      },
+      "libmbedtls.a": {
+        "bytes": 445952,
+        "sha256": "f38ec415f4712cc3221ce8ad143085230dda29d2f904d20ce5ff3a85592c98b6"
+      },
+      "libmbedx509.a": {
+        "bytes": 89640,
+        "sha256": "7f0160f5eab1b1ab5d1b3ff5834a0070602d2094f5edb4817f1e2cc8e4e465d7"
+      },
+      "libp256m.a": {
+        "bytes": 944,
+        "sha256": "681a2d0f67cf833276dfa3f858b89c67059f581f8dad39cffc1a9368ae1a1e27"
+      },
+      "libssh.a": {
+        "bytes": 973528,
+        "sha256": "2e554b0fab8abc6bc8c7786e634b40cbd6931315352d1ba5288c8239429e070d"
+      }
+    },
+    "serverSupport": false,
+    "gssapiSupport": false,
+    "fido2Support": false,
+    "pkcs11Support": false,
+    "sftpSupport": true,
+    "sanitizers": "",
+    "fullArchiveLinkVerified": true,
+    "protocolRuntimeVerified": false,
+    "localCommandExecution": false
+  },
+  "iphonesimulator": {
+    "sdk": "iphonesimulator",
+    "arch": "arm64",
+    "deploymentTarget": "17.0",
+    "libsshVersion": "0.12.2",
+    "libsshSourceSHA256": "49560f677d96e3706a904ac2de1116e25f3680937d51e5c92198fcba4a1c1e9f",
+    "mbedtlsVersion": "3.6.7",
+    "mbedtlsSourceSHA256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+    "staticArchives": {
+      "libeverest.a": {
+        "bytes": 1360,
+        "sha256": "c91610e7736caab1988dc856a066a7d29d886b1e7befc2919ed9dcd0322e72bf"
+      },
+      "libmbedcrypto.a": {
+        "bytes": 806856,
+        "sha256": "975b301f99440f2a0a2cfb0e0dbc5990c5210cc3d2b3bf6d0de548004c649986"
+      },
+      "libmbedtls.a": {
+        "bytes": 445952,
+        "sha256": "7a7dbb1d2d70dc2f7eaa5eaeb0aa79d86bfa27d5a644ba49c0c76234cfd2e60d"
+      },
+      "libmbedx509.a": {
+        "bytes": 89640,
+        "sha256": "63dd02576521ea3c607190bc246cfd0b833c62386eb40a84be65512a7c6adceb"
+      },
+      "libp256m.a": {
+        "bytes": 944,
+        "sha256": "62fe869df182aaead9373a489b29366fb4c16368cd9d55e0403ad77942315177"
+      },
+      "libssh.a": {
+        "bytes": 972552,
+        "sha256": "91219bb34a059acce821a231d9cc1df9cd312496ecda20fb08fc62db6efa625b"
+      }
+    },
+    "serverSupport": false,
+    "gssapiSupport": false,
+    "fido2Support": false,
+    "pkcs11Support": false,
+    "sftpSupport": true,
+    "fullArchiveLinkVerified": true,
+    "protocolRuntimeVerified": false,
+    "localCommandExecution": false
+  },
+  "iphoneos": {
+    "sdk": "iphoneos",
+    "arch": "arm64",
+    "deploymentTarget": "17.0",
+    "libsshVersion": "0.12.2",
+    "libsshSourceSHA256": "49560f677d96e3706a904ac2de1116e25f3680937d51e5c92198fcba4a1c1e9f",
+    "mbedtlsVersion": "3.6.7",
+    "mbedtlsSourceSHA256": "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6",
+    "staticArchives": {
+      "libeverest.a": {
+        "bytes": 1360,
+        "sha256": "9cb0f29d75b7895049919b7b1491c21652586870c9e8a2aac09539c6820b2eae"
+      },
+      "libmbedcrypto.a": {
+        "bytes": 806376,
+        "sha256": "bc16bb3d4d62bf432801f1afb0d996dbccc25fde43eba45028d5aa6848500f49"
+      },
+      "libmbedtls.a": {
+        "bytes": 445952,
+        "sha256": "4e0cd285cf9cdb3b7c85bd8d4e3d745e4bf7f08dd295cac99c0c253830de81a2"
+      },
+      "libmbedx509.a": {
+        "bytes": 89640,
+        "sha256": "f98c1e2a57db804ee0a8436479fa9e3fdb8744bd4173d99ba034a955a08ac79b"
+      },
+      "libp256m.a": {
+        "bytes": 944,
+        "sha256": "6f25b70f99f51c084ca6e95d5858224bdd414f4c1ea7813af222d6b3d9e79b6d"
+      },
+      "libssh.a": {
+        "bytes": 973680,
+        "sha256": "1fa9fcd39ecbc2dd263bd9225e86e3a2cace2dc4912047be3712bab7a00fca67"
+      }
+    },
+    "serverSupport": false,
+    "gssapiSupport": false,
+    "fido2Support": false,
+    "pkcs11Support": false,
+    "sftpSupport": true,
+    "fullArchiveLinkVerified": true,
+    "protocolRuntimeVerified": false,
+    "localCommandExecution": false
+  }
+}

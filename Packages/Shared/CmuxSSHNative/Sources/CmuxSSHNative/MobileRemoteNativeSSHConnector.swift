@@ -1,0 +1,329 @@
+import CmuxRemoteConnections
+import CSSHNative
+import Foundation
+
+/// Native libssh connector that opens credential-free SSH handshakes.
+public actor MobileRemoteNativeSSHConnector: MobileRemoteSSHConnecting {
+    private let configuration: MobileRemoteNativeSSHConfiguration
+    public init(configuration: MobileRemoteNativeSSHConfiguration = .defaultConfiguration) { self.configuration = configuration }
+    public func handshake(_ request: MobileRemoteSSHConnectionRequest) async throws -> any MobileRemoteSSHHandshake {
+        let host = try NativeCString(request.profile.host)
+        let user = try NativeCString(request.profile.username)
+        let raw = host.withPointer { hostPointer in
+            user.withPointer { userPointer in
+                cmux_ssh_create(hostPointer, Int32(request.profile.port), userPointer)
+            }
+        }
+        guard let raw else { throw MobileRemoteNativeSSHError.creationFailed }
+        let handle = MobileRemoteNativeSSHHandle(raw: raw, cmuxRemoteCommand: configuration.cmuxRemoteCommand)
+        do {
+            try await handle.connect(timeout: configuration.connectTimeout)
+            return MobileRemoteNativeSSHHandshake(handle: handle, profile: request.profile)
+        } catch { await handle.close(); throw error }
+    }
+}
+
+/// Native connector timing limits.
+public struct MobileRemoteNativeSSHConfiguration: Sendable {
+    public let connectTimeout: Duration
+    /// Remote executable used for cmux protocol sessions.
+    public let cmuxRemoteCommand: String
+
+    /// Creates native SSH engine limits and the cmux remote entrypoint.
+    /// - Parameters:
+    ///   - connectTimeout: Maximum time spent completing the SSH transport.
+    ///   - cmuxRemoteCommand: Fixed remote command selected by the app. The
+    ///     default is the compatibility JSON-lines relay; a future native
+    ///     Noise command can be injected without changing the SSH boundary.
+    public init(
+        connectTimeout: Duration,
+        cmuxRemoteCommand: String = "cmux-tui relay"
+    ) {
+        self.connectTimeout = connectTimeout
+        self.cmuxRemoteCommand = cmuxRemoteCommand
+    }
+
+    /// Conservative production defaults for direct SSH and cmux sessions.
+    public static let defaultConfiguration = Self(connectTimeout: .seconds(30))
+}
+
+private struct NativeCString: Sendable {
+    let storage: [UInt8]
+    init(_ value: String) throws { guard !value.contains("\0") else { throw MobileRemoteNativeSSHError.invalidCString }; storage = Array(value.utf8)+[0] }
+    func withPointer<T>(_ body: (UnsafePointer<CChar>) -> T) -> T {
+        storage.withUnsafeBufferPointer { buffer in
+            body(UnsafeRawPointer(buffer.baseAddress!).assumingMemoryBound(to: CChar.self))
+        }
+    }
+}
+
+fileprivate actor MobileRemoteNativeSSHHandle {
+    // libssh handles are accessed only through this actor; deinit is the final
+    // native teardown path after all actor-isolated operations complete.
+    private nonisolated(unsafe) var raw: OpaquePointer?
+    private let cmuxRemoteCommand: String
+    private var closed = false
+    init(raw: OpaquePointer, cmuxRemoteCommand: String) {
+        self.raw = raw
+        self.cmuxRemoteCommand = cmuxRemoteCommand
+    }
+    deinit { if let raw { cmux_ssh_destroy(raw) } }
+    func connect(timeout: Duration) async throws {
+        let start = ContinuousClock.now
+        while !closed {
+            guard let raw else { throw MobileRemoteNativeSSHError.closed }
+            switch cmux_ssh_connect(raw) {
+            case Int32(CMUX_SSH_OK): return
+            case Int32(CMUX_SSH_AGAIN):
+                if ContinuousClock.now - start >= timeout { throw MobileRemoteNativeSSHError.timeout }
+                _ = cmux_ssh_wait(raw, 250)
+            default: throw MobileRemoteNativeSSHError.nativeFailure
+            }
+        }
+        throw MobileRemoteNativeSSHError.closed
+    }
+    func close() { guard !closed else { return }; closed = true; if let raw { cmux_ssh_destroy(raw); self.raw = nil } }
+    func hostKey(profileID: UUID) throws -> MobileRemoteSSHHostKeyChallenge {
+        guard let raw else { throw MobileRemoteNativeSSHError.closed }
+        var algorithm = [CChar](repeating: 0, count: 128), fingerprint = [CChar](repeating: 0, count: 256)
+        guard cmux_ssh_host_key(raw, &algorithm, algorithm.count, &fingerprint, fingerprint.count) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+        return try MobileRemoteSSHHostKeyChallenge(profileID: profileID, algorithm: String(decoding: algorithm.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self), fingerprint: String(decoding: fingerprint.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
+    }
+    func authenticate(
+        _ credential: MobileRemoteCredentialMaterial?,
+        profile: MobileRemoteProfile,
+        respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]
+    ) async throws -> any MobileRemoteSSHSession {
+        guard let raw else { throw MobileRemoteNativeSSHError.closed }
+        let result: Int32
+        switch credential {
+        case let .password(value): result = try await repeatAuthentication { value.withCString { cmux_ssh_auth_password(raw, $0) } }
+        case .none:
+            result = profile.authentication == .keyboardInteractive
+                ? Int32(CMUX_SSH_OK)
+                : try await repeatAuthentication { cmux_ssh_auth_none(raw) }
+        case let .privateKey(bytes, passphrase):
+            guard let keyText = String(data: bytes, encoding: .utf8) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+            result = keyText.withCString { key in passphrase?.withCString { cmux_ssh_load_private_key(raw, key, $0) } ?? cmux_ssh_load_private_key(raw, key, nil) }
+            let authenticated = try await repeatAuthentication({ cmux_ssh_auth_key(raw) })
+            guard result == Int32(CMUX_SSH_OK), authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+        }
+        if profile.authentication == .keyboardInteractive {
+            let authenticated = try await authenticateKeyboardInteractively(respondTo: respondToKeyboardChallenge)
+            guard authenticated == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+        }
+        guard result == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.authenticationFailed }
+        guard try await repeatAuthentication({ cmux_ssh_open_channel(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+        for (name, value) in profile.environment {
+            guard try await repeatAuthentication({ cmux_ssh_environment(raw, name, value) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+        }
+        let ptyEnabled: Bool
+        switch profile.sessionBackend {
+        case .shell:
+            guard try await repeatAuthentication({ cmux_ssh_request_pty(raw, 80, 24) }) == Int32(CMUX_SSH_OK),
+                  try await repeatAuthentication({ cmux_ssh_request_shell(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
+            ptyEnabled = true
+        case .cmuxTUI:
+            let command = try NativeCString(Self.cmuxCommand(base: cmuxRemoteCommand, session: profile.sessionName))
+            guard try await repeatAuthentication({
+                command.withPointer { cmux_ssh_request_exec(raw, $0) }
+            }) == Int32(CMUX_SSH_OK) else {
+                throw MobileRemoteNativeSSHError.nativeFailure
+            }
+            ptyEnabled = false
+        case .tmux, .zellij, .herdr:
+            throw MobileRemoteNativeSSHError.unsupportedSessionBackend(profile.sessionBackend)
+        }
+        return MobileRemoteNativeSSHSession(handle: self, ptyEnabled: ptyEnabled)
+    }
+
+    private func authenticateKeyboardInteractively(
+        respondTo: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]
+    ) async throws -> Int32 {
+        var state = try await repeatAuthentication { cmux_ssh_auth_keyboard(raw) }
+        while state == Int32(CMUX_SSH_CHALLENGE) {
+            let count = cmux_ssh_prompt_count(raw)
+            guard (0...32).contains(count) else { throw MobileRemoteSSHKeyboardError.invalidChallenge }
+            var prompts: [MobileRemoteSSHKeyboardPrompt] = []
+            for index in 0..<count {
+                var echo: Int32 = 0
+                guard let pointer = cmux_ssh_prompt(raw, UInt32(index), &echo) else {
+                    throw MobileRemoteSSHKeyboardError.invalidPrompt
+                }
+                prompts.append(try MobileRemoteSSHKeyboardPrompt(
+                    text: String(cString: pointer), echo: echo != 0
+                ))
+            }
+            let challenge = try MobileRemoteSSHKeyboardChallenge(
+                name: cmux_ssh_prompt_name(raw).map(String.init(cString:)) ?? "",
+                instruction: cmux_ssh_prompt_instruction(raw).map(String.init(cString:)) ?? "",
+                prompts: prompts
+            )
+            let answers = try await respondTo(challenge)
+            guard answers.count == count else { throw MobileRemoteSSHKeyboardError.answerCountMismatch }
+            for (index, answer) in answers.enumerated() {
+                guard cmux_ssh_prompt_answer(raw, UInt32(index), answer) == Int32(CMUX_SSH_OK) else {
+                    throw MobileRemoteNativeSSHError.authenticationFailed
+                }
+            }
+            state = try await repeatAuthentication { cmux_ssh_auth_keyboard(raw) }
+        }
+        return state
+    }
+
+    private static func cmuxCommand(base: String, session: String?) -> String {
+        guard let session else { return base }
+        let escaped = session.replacingOccurrences(of: "'", with: "'\\''")
+        return "\(base) --session '\(escaped)'"
+    }
+
+    private func repeatAuthentication(_ operation: () -> Int32) async throws -> Int32 {
+        while !closed {
+            let result = operation()
+            if result != Int32(CMUX_SSH_AGAIN) { return result }
+            guard let raw else { throw MobileRemoteNativeSSHError.closed }
+            try Task.checkCancellation()
+            if cmux_ssh_wait(raw, 250) == Int32(CMUX_SSH_ERROR) {
+                throw MobileRemoteNativeSSHError.nativeFailure
+            }
+        }
+        throw MobileRemoteNativeSSHError.closed
+    }
+
+    func read(_ bytes: inout [UInt8], timeoutMilliseconds: Int32) throws -> Int {
+        try bytes.withUnsafeMutableBytes { buffer in
+            guard let raw else { throw MobileRemoteNativeSSHError.closed }
+            let result = cmux_ssh_read_timeout(raw, buffer.baseAddress, UInt32(buffer.count), 0, timeoutMilliseconds)
+            if result < 0 { throw MobileRemoteNativeSSHError.nativeFailure }
+            return Int(result)
+        }
+    }
+
+    func write(_ data: Data) throws {
+        var offset = 0
+        while offset < data.count {
+            guard let raw else { throw MobileRemoteNativeSSHError.closed }
+            let result = data.dropFirst(offset).withUnsafeBytes { buffer -> Int32 in
+                cmux_ssh_write(raw, buffer.baseAddress, UInt32(buffer.count))
+            }
+            if result == 0 { _ = cmux_ssh_wait(raw, 250); continue }
+            guard result > 0 else { throw MobileRemoteNativeSSHError.nativeFailure }
+            offset += Int(result)
+        }
+    }
+
+    func resize(columns: Int, rows: Int) throws {
+        guard (1...1000).contains(columns), (1...1000).contains(rows),
+              cmux_ssh_resize(raw, Int32(columns), Int32(rows)) == Int32(CMUX_SSH_OK) else {
+            throw MobileRemoteNativeSSHError.nativeFailure
+        }
+    }
+
+    func isEOF() -> Bool { guard let raw else { return true }; return cmux_ssh_eof(raw) != 0 }
+    func isClosed() -> Bool { guard let raw else { return true }; return closed || cmux_ssh_closed(raw) != 0 }
+
+    func sftpReadFile(path: String, maxBytes: Int) async throws -> Data {
+        guard let raw, maxBytes > 0, maxBytes <= 64 * 1024 * 1024,
+              !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
+        var buffer = [UInt8](repeating: 0, count: maxBytes)
+        var written: UInt32 = 0
+        let result = try await repeatAuthentication({
+            path.withCString { cmux_ssh_sftp_read_file(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        })
+        guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
+        return Data(buffer.prefix(Int(written)))
+    }
+
+    func sftpList(path: String, maxEntries: Int, maxBytes: Int) async throws -> [String] {
+        guard let raw, (1...10_000).contains(maxEntries), (1...4 * 1024 * 1024).contains(maxBytes),
+              !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
+        var buffer = [CChar](repeating: 0, count: maxBytes)
+        var written: UInt32 = 0
+        let result = try await repeatAuthentication({
+            path.withCString { cmux_ssh_sftp_list(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        })
+        guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
+        let names = String(decoding: buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard names.count <= maxEntries else { throw MobileRemoteNativeSSHError.sftpFailure }
+        return names
+    }
+}
+
+private struct MobileRemoteNativeSSHHandshake: MobileRemoteSSHHandshake {
+    let handle: MobileRemoteNativeSSHHandle; let profile: MobileRemoteProfile
+    func hostKey() async throws -> MobileRemoteSSHHostKeyChallenge { try await handle.hostKey(profileID: profile.id) }
+    func authenticate(credential: MobileRemoteCredentialMaterial?, respondToKeyboardChallenge: @escaping @Sendable (MobileRemoteSSHKeyboardChallenge) async throws -> [String]) async throws -> any MobileRemoteSSHSession {
+        try await handle.authenticate(credential, profile: profile, respondToKeyboardChallenge: respondToKeyboardChallenge)
+    }
+    func close() async { await handle.close() }
+}
+/// SFTP operations exposed by an authenticated native SSH session.
+public protocol MobileRemoteSFTPProviding: Sendable {
+    /// Reads a bounded remote file.
+    func readFile(path: String, maxBytes: Int) async throws -> Data
+    /// Lists bounded remote directory names.
+    func listDirectory(path: String, maxEntries: Int, maxBytes: Int) async throws -> [String]
+}
+
+/// Authenticated shell session backed by libssh.
+public struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession, MobileRemoteSFTPProviding {
+    fileprivate let handle: MobileRemoteNativeSSHHandle
+    private let ptyEnabled: Bool
+    fileprivate init(handle: MobileRemoteNativeSSHHandle, ptyEnabled: Bool) {
+        self.handle = handle
+        self.ptyEnabled = ptyEnabled
+    }
+    public func output() -> AsyncThrowingStream<Data, any Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    while !(await handle.isClosed()) {
+                        var bytes = [UInt8](repeating: 0, count: 16 * 1024)
+                        let count = try await handle.read(&bytes, timeoutMilliseconds: 250)
+                        if count > 0 { continuation.yield(Data(bytes.prefix(count))) }
+                        if count == 0 {
+                            let eof = await handle.isEOF()
+                            if eof { break }
+                        }
+                    }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+        }
+    }
+    public func sendInput(_ data: Data) async throws { try await handle.write(data) }
+    public func resize(columns: Int, rows: Int) async throws {
+        guard ptyEnabled else { throw MobileRemoteNativeSSHError.execSessionDoesNotSupportResize }
+        try await handle.resize(columns: columns, rows: rows)
+    }
+    public func readFile(path: String, maxBytes: Int = 64 * 1024 * 1024) async throws -> Data {
+        try await handle.sftpReadFile(path: path, maxBytes: maxBytes)
+    }
+    public func listDirectory(path: String, maxEntries: Int = 10_000, maxBytes: Int = 4 * 1024 * 1024) async throws -> [String] {
+        try await handle.sftpList(path: path, maxEntries: maxEntries, maxBytes: maxBytes)
+    }
+    /// Creates the cmux protocol client for this non-PTY exec session.
+    /// - Throws: When this is an ordinary shell PTY session.
+    public func cmuxProtocolClient() throws -> MobileRemoteCmuxProtocolClient {
+        guard !ptyEnabled else { throw MobileRemoteNativeSSHError.cmuxProtocolRequiresExecSession }
+        return MobileRemoteCmuxProtocolClient(session: self)
+    }
+    public func close() async { await handle.close() }
+}
+/// Native adapter errors without secret material.
+public enum MobileRemoteNativeSSHError: Error, Equatable, Sendable {
+    case creationFailed
+    case invalidCString
+    case timeout
+    case nativeFailure
+    case authenticationFailed
+    case closed
+    case unsupportedSessionBackend(MobileRemoteSessionBackend)
+    case invalidSFTPRequest
+    case sftpFailure
+    /// The authenticated channel is a cmux protocol exec stream, not a PTY.
+    case execSessionDoesNotSupportResize
+    /// A cmux protocol client requires the profile's non-PTY exec backend.
+    case cmuxProtocolRequiresExecSession
+}

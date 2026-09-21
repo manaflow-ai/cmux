@@ -1,0 +1,54 @@
+#!/bin/bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+mkdir -p "$runner_temp"
+export RUNNER_TEMP="$runner_temp"
+info="$RUNNER_TEMP/cmux-native-ssh-fixture.json"
+python3 - "$info" <<'PY'
+from pathlib import Path
+import sys
+Path(sys.argv[1]).unlink(missing_ok=True)
+PY
+fixture_pid=""
+cleanup() { [[ -z "$fixture_pid" ]] || kill "$fixture_pid" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+if command -v uv >/dev/null 2>&1; then
+  fixture_command=(uv run --script "$root/tests/ssh_native/fixture.py")
+else
+  fixture_venv="$RUNNER_TEMP/cmux-native-ssh-venv"
+  python3 -m venv "$fixture_venv"
+  "$fixture_venv/bin/python" -m pip install --disable-pip-version-check --quiet asyncssh==2.24.0
+  fixture_command=("$fixture_venv/bin/python" "$root/tests/ssh_native/fixture.py")
+fi
+"${fixture_command[@]}" --server-only --server-info "$info" > "$RUNNER_TEMP/cmux-native-ssh-fixture.log" 2>&1 &
+fixture_pid=$!
+for _ in $(seq 1 100); do
+  python3 - "$info" <<'PY' >/dev/null 2>&1 && break
+import json,sys
+with open(sys.argv[1]) as file: json.load(file)
+PY
+  sleep 0.1
+done
+if ! python3 - "$info" <<'PY' >/dev/null
+import json,sys
+with open(sys.argv[1]) as file: json.load(file)
+PY
+then
+  cat "$RUNNER_TEMP/cmux-native-ssh-fixture.log" >&2 || true
+  exit 1
+fi
+IFS=$'\t' read -r port password fingerprint ed25519_key < <(python3 - "$info" <<'PY'
+import json,sys
+d=json.load(open(sys.argv[1]))
+print("\t".join(str(d[key]) for key in ("port","password","hostFingerprint","ed25519PrivateKey")))
+PY
+)
+export CMUX_NATIVE_SSH_PORT="$port"
+export CMUX_NATIVE_SSH_PASSWORD="$password"
+export CMUX_NATIVE_SSH_FINGERPRINT="$fingerprint"
+export CMUX_NATIVE_SSH_ED25519_KEY="$ed25519_key"
+swift test --package-path "$root/Packages/Shared/CmuxSSHNative" \
+  --scratch-path "$RUNNER_TEMP/cmux-native-ssh-swift" \
+  --filter LiveNativeSSHTests \
+  --jobs 4

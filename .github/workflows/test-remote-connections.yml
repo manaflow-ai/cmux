@@ -1,0 +1,54 @@
+name: Remote connection package tests
+
+on:
+  pull_request:
+    paths:
+      - "Packages/Shared/CmuxRemoteConnections/**"
+      - "Packages/Shared/CmuxSSHNative/**"
+      - "ios/RemoteConnectionsTests/**"
+      - "scripts/test-remote-connections-ios.sh"
+      - "scripts/verify-remote-native-tests.py"
+      - "tests/test_remote_native_results.py"
+      - "tests/ssh_native/**"
+      - "scripts/test-libssh-swift-host.sh"
+      - ".github/workflows/test-remote-connections.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-connections-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    # Provider-scheduled isolated Mac; no retired maclease allocation.
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test macOS package behavior
+        run: swift test --package-path Packages/Shared/CmuxRemoteConnections
+      - name: Test native SSH package behavior
+        run: swift test --package-path Packages/Shared/CmuxSSHNative
+      - name: Test native Swift SSH fixture
+        run: /bin/bash scripts/test-libssh-swift-host.sh
+      - name: Test native result verification
+        run: python3 -m unittest discover -s tests -p test_remote_native_results.py
+      - name: Test iOS package and native Keychain
+        run: /bin/bash scripts/test-remote-connections-ios.sh
+      - name: Upload exact-source test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: remote-connections-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-remote-connections-evidence/
+          if-no-files-found: error
+          retention-days: 14

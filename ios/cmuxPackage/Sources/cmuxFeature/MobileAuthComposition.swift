@@ -4,6 +4,9 @@ import CmuxAuthRuntime
 import CmuxPhonePush
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxRemoteConnections
+import CmuxSSHNative
+import CryptoKit
 import Foundation
 import StackAuth
 
@@ -38,6 +41,14 @@ public struct MobileAuthComposition {
     public let appNamespace: MobileIOSAppNamespace?
     /// Exact Keychain group claimed by this signed bundle.
     public let keychainAccessGroup: String?
+    /// Account gate required by every remote carrier before credential access.
+    public let remoteAccountGate: MobileRemoteAccountGate
+    /// Native SSH connector shared by SSH, Mosh, and ET bootstrap owners.
+    public let remoteSSHConnector: MobileRemoteNativeSSHConnector
+    /// Account-gated remote session service used by the remote connection UI.
+    public let remoteConnectionController: MobileRemoteConnectionController
+    /// Lazy encrypted saved-profile vault, unavailable without an exact Keychain group.
+    public let remoteSavedProfileController: MobileRemoteSavedProfileController?
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -50,6 +61,7 @@ public struct MobileAuthComposition {
 
     /// Owns bootstrap and protected-data revalidation tasks for this graph.
     private let taskOwner: MobileAuthTaskOwner
+    private let remoteAccountObserver: MobileRemoteAccountGateObserver
 
     /// Build the auth graph.
     ///
@@ -77,6 +89,9 @@ public struct MobileAuthComposition {
         let keychainAccessGroup = Self.keychainAccessGroup(in: bundle)
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
+        self.remoteAccountObserver = MobileRemoteAccountGateObserver()
+        let remoteSSHConnector = MobileRemoteNativeSSHConnector()
+        self.remoteSSHConnector = remoteSSHConnector
 
         let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
@@ -207,6 +222,47 @@ public struct MobileAuthComposition {
             await push.syncTokenIfPossible()
         }
         self.coordinator = coordinator
+        let remoteAccountGate = MobileRemoteAccountGate { account in
+            let identity = AuthenticatedSessionIdentity(
+                generation: account.sessionGeneration, accountID: account.accountID
+            )
+            guard await coordinator.isAuthenticatedSessionIdentityCurrent(identity) else {
+                throw MobileRemoteAccountGateError.authenticationRequired
+            }
+        }
+        let remoteHostKeyRoot = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        )[0].appendingPathComponent("cmux/remote-host-keys", isDirectory: true)
+        self.remoteAccountGate = remoteAccountGate
+        self.remoteConnectionController = MobileRemoteConnectionController(
+            accountGate: remoteAccountGate,
+            connector: remoteSSHConnector,
+            hostKeyStoreProvider: { accountID in
+                try FileManager.default.createDirectory(
+                    at: remoteHostKeyRoot, withIntermediateDirectories: true
+                )
+                let digest = SHA256.hash(data: Data(accountID.utf8))
+                    .map { String(format: "%02x", $0) }.joined()
+                return try MobileRemoteHostKeyStore(
+                    databaseURL: remoteHostKeyRoot.appendingPathComponent("\(digest).json"),
+                    accountID: accountID
+                )
+            }
+        )
+        if let keychainAccessGroup,
+           let namespace = try? MobileRemoteKeychainNamespace(accessGroup: keychainAccessGroup) {
+            let remoteProfileDirectory = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            )[0].appendingPathComponent("cmux/remote-profiles", isDirectory: true)
+            self.remoteSavedProfileController = MobileRemoteSavedProfileController(
+                accountGate: remoteAccountGate,
+                namespace: namespace,
+                storageDirectory: remoteProfileDirectory,
+                vaultID: Self.remoteVaultID(defaults: defaults)
+            )
+        } else {
+            self.remoteSavedProfileController = nil
+        }
         self.pushRegistration = push
         self.protectedDataAvailability = availability
         self.taskOwner = MobileAuthTaskOwner(
@@ -221,6 +277,7 @@ public struct MobileAuthComposition {
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
         taskOwner.recordRestoreStarted()
+        remoteAccountObserver.start(auth: coordinator, gate: remoteAccountGate)
         let pushRegistration = self.pushRegistration
         protectedDataAvailability.startObserving { [coordinator, taskOwner, pushRegistration] in
             taskOwner.revalidateSession(using: coordinator) {
@@ -441,6 +498,17 @@ public struct MobileAuthComposition {
         String.cmuxKeychainAccessGroup(from:
             bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         )
+    }
+
+    /// Returns the stable per-install remote vault identity used for profile keys.
+    private static func remoteVaultID(defaults: UserDefaults) -> UUID {
+        let key = "cmux.remote.profile.vault-id.v1"
+        if let value = defaults.string(forKey: key), let id = UUID(uuidString: value) {
+            return id
+        }
+        let id = UUID()
+        defaults.set(id.uuidString, forKey: key)
+        return id
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

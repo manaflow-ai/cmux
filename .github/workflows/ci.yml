@@ -2272,6 +2272,8 @@ jobs:
             CmuxCloudMachines
             CmuxComputerUse
             CmuxCore
+            CmuxRemoteConnections
+            CmuxSSHNative
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession

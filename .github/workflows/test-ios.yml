@@ -228,6 +228,9 @@ jobs:
           swift test "${args[@]}" 2>&1 | tee "$log_path"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
+      - name: Run CmuxRemoteConnections package tests
+        run: swift test --package-path Packages/Shared/CmuxRemoteConnections
+
       - name: Run CmuxMobilePairedMac package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
