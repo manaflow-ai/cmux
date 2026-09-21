@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Reuse compiled products, never test outcomes, across trusted CI runs.
 
-A conservative first version: the entire git tree and build environment must
-match. Missing provenance, old artifacts, API errors and corrupt downloads are
-cache misses. The original CMUXCommit embedded in the app is retained.
+Product compatibility is independent of CI orchestration identity. GitHub's
+immutable commit/tree data is re-fingerprinted against the current product-input
+contract before an artifact is trusted; exact producer/consumer revisions stay
+in provenance. Missing provenance, old artifacts, API errors and corrupt
+downloads are cache misses.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import gzip
 import json
@@ -25,9 +28,10 @@ from datetime import datetime
 from pathlib import Path
 
 import app_host_test_products as products
+import product_input_identity as product_inputs
 
 RECEIPT = "cmux-product-reuse.json"
-PREFIX = "app-host-products-v1-"
+PREFIX = "app-host-products-v2-"
 # Current product archives are ~0.8 GiB compressed. Bound every expansion layer
 # independently, including hardlink copies, with room for the UI product set.
 MAX_ARCHIVE_BYTES = 2 * 1024**3
@@ -55,7 +59,7 @@ def contract():
         executable = shutil.which(command)
         versions[command] = read(executable, "version" if command in {"go", "zig"} else "--version") if executable else "absent"
     return {
-        "tree": read("git", "rev-parse", "HEAD^{tree}"),
+        "product_inputs": product_inputs.local_identity(),
         "xcode": read("xcodebuild", "-version"),
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
         "os": read("sw_vers", "-buildVersion"),
@@ -73,6 +77,48 @@ def contract():
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def github_product_identity(api, revision):
+    """Recompute one revision's product identity from GitHub-owned Git objects."""
+    cache = getattr(api, "_product_identity_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(api, "_product_identity_cache", cache)
+    if revision in cache:
+        return cache[revision]
+
+    commit = api.get(f"git/commits/{revision}")
+    tree_sha = commit["tree"]["sha"]
+    tree_payload = api.get(f"git/trees/{tree_sha}?recursive=1")
+    if tree_payload.get("truncated"):
+        raise ValueError("GitHub tree is truncated")
+    entries = tree_payload.get("tree")
+    if not isinstance(entries, list):
+        raise ValueError("GitHub tree is unavailable")
+
+    workflow_entry = next(
+        (
+            entry for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("path") == product_inputs.CI_WORKFLOW
+            and entry.get("type") == "blob"
+        ),
+        None,
+    )
+    if workflow_entry is None or not isinstance(workflow_entry.get("sha"), str):
+        raise ValueError("CI workflow blob is unavailable")
+    blob = api.get(f"git/blobs/{workflow_entry['sha']}")
+    if blob.get("encoding") != "base64" or not isinstance(blob.get("content"), str):
+        raise ValueError("CI workflow blob encoding is invalid")
+    workflow = base64.b64decode(blob["content"]).decode("utf-8")
+
+    value = product_inputs.identity_from_tree_lines(
+        product_inputs.github_tree_lines(entries),
+        workflow,
+    )
+    cache[revision] = value
+    return value
 
 
 class GitHub:
@@ -154,8 +200,8 @@ def compile_step_seconds(job):
     return None
 
 
-def load_consumer(api, value, current_run, current_attempt, reasons):
-    """Verify the running consumer and its checkout tree against GitHub."""
+def load_consumer(api, value, current_run, current_attempt, current_revision, reasons):
+    """Verify the running consumer and product inputs against GitHub."""
     try:
         run = api.get(f"actions/runs/{current_run}")
         if str(run.get("run_attempt")) != str(current_attempt):
@@ -168,12 +214,15 @@ def load_consumer(api, value, current_run, current_attempt, reasons):
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
-        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-            record_reason(reasons, "consumer_tree_mismatch")
+        if head != current_revision:
+            record_reason(reasons, "consumer_revision_mismatch")
+            return None
+        if github_product_identity(api, head) != value["product_inputs"]:
+            record_reason(reasons, "consumer_product_inputs_mismatch")
             return None
         return run
     except (TypeError, AttributeError, ValueError, KeyError, OSError,
-            subprocess.SubprocessError):
+            UnicodeError, subprocess.SubprocessError):
         record_reason(reasons, "consumer_provenance_unavailable")
         return None
 
@@ -231,16 +280,15 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             if not permitted_pair(run, consumer, api.repository):
                 record_reason(reasons, "producer_consumer_pair_disallowed")
                 continue
-            # GitHub's run head, not a candidate-authored receipt, establishes the
-            # source identity before downloading. The whole tree includes the CI
-            # workflow and every build/packaging script; different producer code
-            # cannot vouch for this checkout.
+            # GitHub's immutable Git objects, not a candidate-authored receipt,
+            # establish product compatibility before download. Admission-only
+            # source changes may differ while compiled-product inputs stay exact.
             head = run.get("head_sha")
             if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
                 record_reason(reasons, "producer_revision_invalid")
                 continue
-            if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-                record_reason(reasons, "producer_tree_mismatch")
+            if github_product_identity(api, head) != value["product_inputs"]:
+                record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
             for page in range(1, 4):
@@ -524,7 +572,14 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
     """Restore in staging; a miss never leaves partial products in DerivedData."""
     reuse_started = time.monotonic()
     reasons = []
-    consumer = load_consumer(api, value, current_run, current_attempt, reasons)
+    consumer = load_consumer(
+        api,
+        value,
+        current_run,
+        current_attempt,
+        current_identity["revision"],
+        reasons,
+    )
     if consumer is None:
         if report is not None:
             report.update(reason="miss", miss_reasons=",".join(reasons))
@@ -556,14 +611,13 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                         or receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
                     raise ValueError("artifact producer contract mismatch")
-                # Verify the actual checkout commit against GitHub, independent of
-                # the artifact name and the earlier pre-download selection check.
-                for revision in (receipt["revision"], run["head_sha"]):
-                    if (not isinstance(revision, str)
-                            or not re.fullmatch(r"[0-9a-f]{6,40}", revision)):
-                        raise ValueError("invalid producer revision")
-                    if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
-                        raise ValueError("producer source tree mismatch")
+                # Bind the candidate-authored receipt back to the exact GitHub
+                # producer revision already product-fingerprinted above.
+                revision = receipt["revision"]
+                if (not isinstance(revision, str)
+                        or not re.fullmatch(r"[0-9a-f]{6,40}", revision)
+                        or revision != run["head_sha"]):
+                    raise ValueError("producer revision mismatch")
                 original = json.loads((root / products.RECEIPT).read_text())
                 if original["revision"] != receipt["revision"]:
                     raise ValueError("producer revision mismatch")
