@@ -192,6 +192,23 @@ jobs:
       - name: Validate app-host failure census
         run: python3 tests/test_ci_app_host_failure_census.py
 
+      - name: Validate app-host built inventory and failure ratchet
+        run: |
+          python3 tests/test_ci_app_host_test_inventory.py
+          python3 tests/test_ci_app_host_failure_ratchet.py
+          python3 tests/test_ci_app_host_xcresult_capture.py
+
+      - name: Enforce shrinking app-host known-failure catalog
+        run: |
+          set -euo pipefail
+          base_branch="${GITHUB_BASE_REF:-main}"
+          git fetch --no-tags origin "$base_branch" main
+          python3 scripts/ci/app_host_failure_ratchet.py \
+            --catalog scripts/ci/app-host-known-failures.json \
+            --check-shrink-only \
+            --base-ref "origin/$base_branch" \
+            --baseline-ref origin/main
+
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
 
