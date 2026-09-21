@@ -83,7 +83,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
-        private var closingPopover: NSPopover?
+        private var closingPopovers: [ObjectIdentifier: NSPopover] = [:]
         private var pendingVisibleRootView: AnyView?
         private let group: CmuxPopoverGroup?
         private var groupMemberID: UUID?
@@ -178,7 +178,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 if resetPresentation { isPresented = false }
                 return
             }
-            closingPopover = popover
+            closingPopovers[ObjectIdentifier(popover)] = popover
             if group != nil { popover.animates = false }
             popover.performClose(nil)
             self.popover = nil
@@ -187,7 +187,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
         public func popoverWillClose(_ notification: Notification) {
             guard let closing = notification.object as? NSPopover,
-                  closing === popover || closing === closingPopover else { return }
+                  closing === popover || closingPopovers[ObjectIdentifier(closing)] != nil else { return }
             if closing === popover {
                 unregisterFromGroup()
             }
@@ -201,8 +201,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
         public func popoverDidClose(_ notification: Notification) {
             guard let closing = notification.object as? NSPopover else { return }
-            if closing === closingPopover {
-                closingPopover = nil
+            if closingPopovers.removeValue(forKey: ObjectIdentifier(closing)) != nil {
                 return
             }
             guard closing === popover else { return }
