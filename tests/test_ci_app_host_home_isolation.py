@@ -13,9 +13,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ROOT / ".github/workflows/ci-guards.yml"
+MACOS_WORKFLOW_PATH = ROOT / ".github/workflows/ci-macos.yml"
 WORKFLOWS = [
     yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")),
     yaml.safe_load(GUARD_WORKFLOW_PATH.read_text(encoding="utf-8")),
+    yaml.safe_load(MACOS_WORKFLOW_PATH.read_text(encoding="utf-8")),
 ]
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
