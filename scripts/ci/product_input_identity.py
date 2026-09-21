@@ -25,11 +25,28 @@ PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
-BUILD_ENV_KEYS = (
+REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
     "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR",
     "CMUX_SKIP_ZIG_BUILD",
-)
+})
+
+NON_PRODUCT_JOB_ENV_KEYS = frozenset({
+    "CMUX_NODE_PRODUCT_CACHE_ROOT",
+    "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES",
+    "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS",
+    "CMUX_PRODUCT_RUNNER",
+})
+
+IGNORED_JOB_LEVEL_KEYS = frozenset({
+    "name",
+    "needs",
+    "if",
+    "runs-on",
+    "timeout-minutes",
+    "permissions",
+    "outputs",
+})
 
 # Product recipe projection is fail-closed: every named admission step is part
 # of product identity unless it is explicitly classified as orchestration-only.
@@ -184,14 +201,84 @@ def _step_blocks(job: str) -> list[tuple[str, str]]:
     return blocks
 
 
+def _job_level_blocks(job: str) -> list[tuple[str, str]]:
+    """Split exact four-space job keys without interpreting YAML expressions."""
+    lines = job.splitlines()
+    starts: list[tuple[int, str]] = []
+    for index, line in enumerate(lines[1:], start=1):
+        if not line.startswith("    ") or line.startswith("      "):
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^    ([A-Za-z0-9_-]+):(?:\s.*)?$", line)
+        if match is None:
+            raise ValueError("macOS admission workflow has an unreadable job-level key")
+        starts.append((index, match.group(1)))
+    if not starts:
+        raise ValueError("macOS admission workflow has no job-level controls")
+
+    blocks: list[tuple[str, str]] = []
+    names: set[str] = set()
+    for position, (index, name) in enumerate(starts):
+        if name in names:
+            raise ValueError(f"macOS admission job-level key is not unique: {name!r}")
+        names.add(name)
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        blocks.append((name, "\n".join(lines[index:end]) + "\n"))
+    return blocks
+
+
+def _product_job_environment(block: str) -> dict[str, str]:
+    """Keep every job env value unless it is explicitly orchestration-only."""
+    lines = block.splitlines()
+    if not lines or lines[0].strip() != "env:":
+        raise ValueError("macOS admission env block is unreadable")
+
+    values: dict[str, str] = {}
+    seen: set[str] = set()
+    for line in lines[1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^      ([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$", line)
+        if match is None:
+            raise ValueError("macOS admission env contains an unsupported value shape")
+        name, value = match.groups()
+        if name in seen:
+            raise ValueError(f"macOS admission env key is not unique: {name!r}")
+        seen.add(name)
+        if name not in NON_PRODUCT_JOB_ENV_KEYS:
+            values[name] = value
+
+    missing = REQUIRED_PRODUCT_JOB_ENV_KEYS - seen
+    if missing:
+        raise ValueError(
+            "macOS admission is missing required product env keys: "
+            + ", ".join(sorted(missing))
+        )
+    return values
+
+
 def recipe_projection(workflow: str) -> dict[str, object]:
     job = _job_block(workflow, MACOS_ADMISSION_JOB)
-    environment: dict[str, str] = {}
-    for key in BUILD_ENV_KEYS:
-        match = re.search(rf"(?m)^      {re.escape(key)}:\s*(.+?)\s*$", job)
-        if match is None:
-            raise ValueError(f"build environment key {key!r} not found")
-        environment[key] = match.group(1)
+    controls: dict[str, object] = {}
+    seen_job_keys: set[str] = set()
+    for name, block in _job_level_blocks(job):
+        seen_job_keys.add(name)
+        if name in IGNORED_JOB_LEVEL_KEYS:
+            continue
+        if name == "env":
+            controls["env"] = _product_job_environment(block)
+            continue
+        if name == "defaults":
+            controls["defaults"] = block
+            continue
+        if name == "steps":
+            continue
+        raise ValueError(f"unclassified macOS admission job-level key: {name!r}")
+
+    if "env" not in controls or "steps" not in seen_job_keys:
+        raise ValueError("macOS admission job is missing product controls")
+
     steps = {
         name: block
         for name, block in _step_blocks(job)
@@ -199,7 +286,7 @@ def recipe_projection(workflow: str) -> dict[str, object]:
     }
     if not steps:
         raise ValueError("macOS admission product recipe is empty")
-    return {"environment": environment, "steps": steps}
+    return {"job_controls": controls, "steps": steps}
 
 
 def recipe_fingerprint(workflow: str) -> str:
