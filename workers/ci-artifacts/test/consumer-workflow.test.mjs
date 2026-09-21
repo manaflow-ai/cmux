@@ -50,10 +50,16 @@ else:
       for (const command of ["gh", "curl"]) fs.writeFileSync(path.join(bin, command), stub, { mode: 0o755 });
       const job = workflow.jobs[jobName];
       const local = job.steps.find((step) => step.id === "node-products");
+      const peer = job.steps.find((step) => step.id === "peer-products");
       const restore = job.steps.find((step) => step.id === "r2-products");
       const fallback = job.steps.find((step) => step.name === "Download compiled app-host test product");
       assert.equal(local.run, 'python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"');
-      assert.equal(evaluate(restore.if, { steps: { "node-products": { outputs: { hit: "false" } } } }), "true");
+      assert.equal(peer.run, "python3 scripts/ci/peer_artifact_source.py fetch");
+      assert.equal(evaluate(peer.if, { steps: { "node-products": { outputs: { hit: "false" } } } }), "true");
+      assert.equal(evaluate(restore.if, { steps: {
+        "node-products": { outputs: { hit: "false" } },
+        "peer-products": { outputs: { hit: "false" } },
+      } }), "true");
       const values = {
         github: { token: "read-only-job-token" },
         vars: { CI_ARTIFACT_R2_URL: enabled ? "https://broker.example" : "" },
@@ -71,6 +77,7 @@ else:
       const hit = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))).hit;
       const download = evaluate(fallback.if, { steps: {
         "node-products": { outputs: { hit: "false" } },
+        "peer-products": { outputs: { hit: "false" } },
         "r2-products": { outputs: { hit } },
       } }) === "true";
       assert.equal(download, !enabled);
