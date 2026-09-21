@@ -41,7 +41,7 @@ DEFAULT_RESTORE_LEASE_SECONDS = 2 * 60 * 60
 MAX_RECEIPT_BYTES = 1024 * 1024
 MAX_TAR_MEMBERS = 250_000
 _HEX64 = re.compile(r"[a-f0-9]{64}")
-_REVISION = re.compile(r"[a-f0-9]{6,64}")
+_REVISION = re.compile(r"(?:[a-f0-9]{40}|[a-f0-9]{64})")
 
 
 def _digest(value: str) -> str:
@@ -66,6 +66,16 @@ class Identity:
     product_contract: str
     source_revision: str
     producer_run_id: int
+    producer_run_attempt: int
+    artifact_schema: str
+    source_identity: str
+    build_identity: str
+    platform_class: str
+    architecture: str
+    sdk_generation: str
+    toolchain_generation: str
+    build_configuration: str
+    product_schema: str
     schema_generation: int = SCHEMA_GENERATION
     format_generation: str = FORMAT_GENERATION
     provider: str = PROVIDER
@@ -74,14 +84,28 @@ class Identity:
         return {
             "schema_generation": self.schema_generation,
             "format_generation": self.format_generation,
-            "provider": self.provider,
-            "repository": self.repository,
-            "artifact_id": self.artifact_id,
-            "provider_digest": self.provider_digest,
-            "archive_digest": self.archive_digest,
+            "artifact_schema": self.artifact_schema,
+            "source_identity": self.source_identity,
+            "build_identity": self.build_identity,
             "product_contract": self.product_contract,
-            "source_revision": self.source_revision,
-            "producer_run_id": self.producer_run_id,
+            "archive_digest": self.archive_digest,
+            "producer": {
+                "provider": self.provider,
+                "repository": self.repository,
+                "artifact_id": self.artifact_id,
+                "provider_digest": self.provider_digest,
+                "producer_run_id": self.producer_run_id,
+                "producer_run_attempt": self.producer_run_attempt,
+                "source_revision": self.source_revision,
+            },
+            "compatibility": {
+                "platform_class": self.platform_class,
+                "architecture": self.architecture,
+                "sdk_generation": self.sdk_generation,
+                "toolchain_generation": self.toolchain_generation,
+                "build_configuration": self.build_configuration,
+                "product_schema": self.product_schema,
+            },
         }
 
     def key(self) -> str:
@@ -97,6 +121,12 @@ class Identity:
         revision = env.get("CMUX_PRODUCT_SOURCE_REVISION", "").lower()
         if not _REVISION.fullmatch(revision):
             raise ValueError("invalid source revision")
+        platform_class = env.get("CMUX_PRODUCT_PLATFORM_CLASS", "")
+        if platform_class not in {"macos", "linux", "platform-independent"}:
+            raise ValueError("invalid platform class")
+        architecture = env.get("CMUX_PRODUCT_ARCHITECTURE", "")
+        if architecture not in {"arm64", "x86_64", "universal", "platform-independent"}:
+            raise ValueError("invalid architecture")
         return cls(
             repository=repository,
             artifact_id=_positive_int(env.get("ARTIFACT_ID", ""), "artifact id"),
@@ -107,8 +137,19 @@ class Identity:
             producer_run_id=_positive_int(
                 env.get("CMUX_PRODUCT_PRODUCER_RUN_ID", ""), "producer run id"
             ),
+            producer_run_attempt=_positive_int(
+                env.get("CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT", ""), "producer run attempt"
+            ),
+            artifact_schema=_digest(env.get("CMUX_PRODUCT_ARTIFACT_SCHEMA", "")),
+            source_identity=_digest(env.get("CMUX_PRODUCT_SOURCE_IDENTITY", "")),
+            build_identity=_digest(env.get("CMUX_PRODUCT_BUILD_IDENTITY", "")),
+            platform_class=platform_class,
+            architecture=architecture,
+            sdk_generation=_digest(env.get("CMUX_PRODUCT_SDK_GENERATION", "")),
+            toolchain_generation=_digest(env.get("CMUX_PRODUCT_TOOLCHAIN_GENERATION", "")),
+            build_configuration=_digest(env.get("CMUX_PRODUCT_BUILD_CONFIGURATION", "")),
+            product_schema=_digest(env.get("CMUX_PRODUCT_SCHEMA", "")),
         )
-
 
 def _canonical_contract_key(contract: dict) -> str:
     return hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).hexdigest()
