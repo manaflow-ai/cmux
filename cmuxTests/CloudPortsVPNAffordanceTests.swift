@@ -31,14 +31,43 @@ struct CloudPortsVPNAffordanceTests {
         #expect(CloudTreeRowHeight(style: .defaultStyle).height(of: node, in: NSOutlineView()) >= CloudTreeStyle.defaultStyle.rowHeight)
     }
 
-    @Test("Ports headers contain no setup or help buttons", arguments: [140.0, 260.0])
-    func portsHeaderHasNoSetup(width: Double) {
+    @Test("Ports help stays beside its label and opens setup without starting discovery", arguments: [140.0, 260.0])
+    func portsHeaderHasPersistentHelp(width: Double) throws {
         let node = CloudTreeNode(id: "ports", kind: .portsGroup(machine: .cloud("test")))
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: width, height: 24))
-        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
+        let window = NSWindow(contentRect: cell.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = cell
+        defer { window.contentView = nil }
+        var actions: [CloudPortsStatusAction] = []
+        cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions()) { action, machine in
+            #expect(machine == .cloud("test"))
+            actions.append(action)
+        }
         cell.layoutSubtreeIfNeeded()
-        #expect(cell.toolTip == nil)
-        #expect(descendants(of: cell).allSatisfy { !($0 is NSButton) })
+        let button = try #require(descendants(of: cell).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "CloudPortsVPNHelpButton" })
+        let frame = button.convert(button.bounds, to: cell)
+        #expect(!button.isHidden && !button.isBordered)
+        #expect(frame.minX < width * 0.6 && frame.maxX <= width)
+        #expect(frame.width >= 24 && frame.height >= 24)
+        #expect(button.acceptsFirstResponder)
+        #expect(button.accessibilityLabel()?.isEmpty == false)
+        #expect(button.toolTip?.contains("VPN") == true)
+        let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: cell.superview)
+        #expect(cell.hitTest(point) === button)
+        button.performClick(nil)
+        #expect(actions == [.setupVPN])
+        cell.configure(node: CloudTreeNode(id: "browsers", kind: .browsersGroup(machine: .cloud("test"))),
+            machineActions: machineActions(), nodeActions: nodeActions())
+        #expect(button.isHidden, "Reusing a Ports cell cannot leak VPN controls into another section")
+    }
+
+    @Test("Unrequested discovery offers refresh independently of VPN setup")
+    func discoveryDoesNotBecomeVPNSetup() {
+        let status = CloudPortsStatusPresentation(state: .notRequested)
+        #expect(status.action == .refresh)
+        #expect(status.message == String(localized: "cloudTree.ports.notRequested",
+            defaultValue: "Expand Ports or refresh to check this machine’s listening services."))
     }
 
     @Test("Status actions hit-test in AppKit coordinates and fit narrow rows", arguments: [140.0, 260.0])
