@@ -23,13 +23,20 @@ extension Workspace {
     /// dragged terminal that now sits in the new pane. Programmatic splits call
     /// again after imposing their initial divider position; the projection
     /// re-derives from the frame the terminal had before the transaction.
+    ///
+    /// The projection is keyed by the split node it was derived from. The
+    /// anchors take geometry back when they re-layout or bind; a split that
+    /// leaves the model before that (closed again before SwiftUI rendered it)
+    /// releases its projection through
+    /// ``releaseProvisionalSplitPaneGeometryForRemovedSplits()``.
     func applyProvisionalSplitPaneGeometry(originalPane: PaneID, newPane: PaneID) {
         guard isPortalRenderingEnabled, layoutMode != .canvas,
               let split = splitNodeJoiningPaneIds(
                 originalPane.id.uuidString,
                 newPane.id.uuidString,
                 in: bonsplitController.treeSnapshot()
-              ) else { return }
+              ),
+              let transactionID = UUID(uuidString: split.id) else { return }
         let originalTabs = bonsplitController.tabs(inPane: originalPane)
         let newTabs = bonsplitController.tabs(inPane: newPane)
         let originalTerminals = presentedTerminalHostedViews(forTabs: originalTabs)
@@ -64,10 +71,14 @@ extension Workspace {
         ) else { return }
 
         for hostedView in originalTerminals {
-            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(projection.sourceContentFrame, for: hostedView)
+            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
+                projection.sourceContentFrame, for: hostedView, transactionID: transactionID
+            )
         }
         for hostedView in newTerminals {
-            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(projection.newPaneContentFrame, for: hostedView)
+            TerminalWindowPortalRegistry.applyProvisionalPaneFrame(
+                projection.newPaneContentFrame, for: hostedView, transactionID: transactionID
+            )
         }
 #if DEBUG
         cmuxDebugLog(
@@ -80,6 +91,28 @@ extension Workspace {
             "sourceViews=\(originalTerminals.count) newViews=\(newTerminals.count)"
         )
 #endif
+    }
+
+    /// Hands geometry back to the anchors of projections whose split no
+    /// longer exists in the model: a split closed again before SwiftUI
+    /// rendered it, or a layout replaced wholesale. Runs from bonsplit's
+    /// structural delegate events, which follow the tree mutation.
+    func releaseProvisionalSplitPaneGeometryForRemovedSplits() {
+        let liveSplitIDs = Self.splitNodeIDs(in: bonsplitController.treeSnapshot())
+        TerminalWindowPortalRegistry.releaseProvisionalPaneGeometry(inWorkspace: id) { transactionID in
+            !liveSplitIDs.contains(transactionID)
+        }
+    }
+
+    private static func splitNodeIDs(in node: ExternalTreeNode) -> Set<UUID> {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            var ids = splitNodeIDs(in: split.first).union(splitNodeIDs(in: split.second))
+            if let id = UUID(uuidString: split.id) { ids.insert(id) }
+            return ids
+        }
     }
 
     private func presentedTerminalHostedViews(forTabs tabs: [Bonsplit.Tab]) -> [GhosttySurfaceScrollView] {

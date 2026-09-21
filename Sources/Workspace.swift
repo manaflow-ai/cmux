@@ -14208,6 +14208,7 @@ extension Workspace: BonsplitDelegate {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        releaseProvisionalSplitPaneGeometryForRemovedSplits()
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
@@ -14707,6 +14708,7 @@ extension Workspace: BonsplitDelegate {
             self.tmuxLayoutSnapshot = snapshot
             _ = self.surfaceList.registerGeometryChange()
             let topologyChanged = self.surfaceList.lastGeometryChangeChangedMembership
+            if topologyChanged { self.releaseProvisionalSplitPaneGeometryForRemovedSplits() }
             NotificationCenter.default.post(
                 name: .workspacePaneGeometryDidChange,
                 object: self,

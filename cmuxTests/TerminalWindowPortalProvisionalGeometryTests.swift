@@ -11,6 +11,7 @@ import Testing
 
 /// Provisional pane geometry: a model-projected frame the portal applies ahead
 /// of a SwiftUI re-host and releases the moment an anchor re-asserts geometry
+/// or the model transaction it came from ends
 /// (https://github.com/manaflow-ai/cmux/issues/13387).
 @MainActor
 @Suite(.serialized)
@@ -21,7 +22,7 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         fixture.bind()
         let projected = Self.topHalf(of: Self.frameInWindow(fixture.anchor))
 
-        #expect(fixture.portal.applyProvisionalPaneFrame(projected, forHostedId: fixture.hostedID))
+        #expect(fixture.portal.applyProvisionalPaneFrame(projected, forHostedId: fixture.hostedID, transactionID: UUID()))
         #expect(Self.approximatelyEqual(Self.frameInWindow(fixture.hosted), projected))
         #expect(fixture.hosted.bounds.size == fixture.hosted.frame.size)
 
@@ -41,12 +42,15 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         defer { fixture.close() }
         fixture.bind()
         let anchorFrame = Self.frameInWindow(fixture.anchor)
-        #expect(fixture.portal.applyProvisionalPaneFrame(Self.topHalf(of: anchorFrame), forHostedId: fixture.hostedID))
+        let transaction = UUID()
+        #expect(fixture.portal.applyProvisionalPaneFrame(
+            Self.topHalf(of: anchorFrame), forHostedId: fixture.hostedID, transactionID: transaction
+        ))
         let base = try #require(fixture.portal.provisionalBaseFrameInWindow(forHostedId: fixture.hostedID))
         #expect(Self.approximatelyEqual(base, anchorFrame))
 
         let narrower = NSRect(x: anchorFrame.minX, y: anchorFrame.minY, width: anchorFrame.width / 3, height: anchorFrame.height)
-        #expect(fixture.portal.applyProvisionalPaneFrame(narrower, forHostedId: fixture.hostedID))
+        #expect(fixture.portal.applyProvisionalPaneFrame(narrower, forHostedId: fixture.hostedID, transactionID: transaction))
         let baseAfterSecondProjection = try #require(fixture.portal.provisionalBaseFrameInWindow(forHostedId: fixture.hostedID))
         #expect(Self.approximatelyEqual(baseAfterSecondProjection, anchorFrame))
         #expect(Self.approximatelyEqual(Self.frameInWindow(fixture.hosted), narrower))
@@ -57,7 +61,7 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         defer { fixture.close() }
         fixture.bind()
         #expect(fixture.portal.applyProvisionalPaneFrame(
-            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID
+            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID, transactionID: UUID()
         ))
 
         fixture.anchor.setFrameSize(NSSize(width: 400, height: 200))
@@ -72,7 +76,7 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         defer { fixture.close() }
         fixture.bind()
         #expect(fixture.portal.applyProvisionalPaneFrame(
-            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID
+            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID, transactionID: UUID()
         ))
 
         let replacement = NSView(frame: NSRect(x: 30, y: 12, width: 300, height: 150))
@@ -84,26 +88,26 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         #expect(fixture.portal.provisionalPaneGeometry(forHostedId: fixture.hostedID) == nil)
     }
 
-    @Test func representableUpdateReleasesOnlyProjectionsItPostdates() throws {
+    @Test func endingTheTransactionHandsGeometryBackToTheLiveAnchor() throws {
         let fixture = TerminalPortalGeometryFixture()
         defer { fixture.close() }
         fixture.bind()
         let anchorFrame = Self.frameInWindow(fixture.anchor)
         let projected = Self.topHalf(of: anchorFrame)
-        #expect(fixture.portal.applyProvisionalPaneFrame(projected, forHostedId: fixture.hostedID))
-        let epoch = try #require(fixture.portal.provisionalPaneGeometry(forHostedId: fixture.hostedID)).epoch
+        let transaction = UUID()
+        #expect(fixture.portal.applyProvisionalPaneFrame(projected, forHostedId: fixture.hostedID, transactionID: transaction))
+        let workspaceID = fixture.surface.tabId
 
-        // An update staged before the projection must leave it in place.
-        fixture.portal.releaseProvisionalPaneGeometry(
-            forHostedId: fixture.hostedID, boundTo: fixture.anchor, observedEpoch: epoch - 1
-        )
+        // Another workspace's transactions, and other transactions of this
+        // workspace, leave the projection in place.
+        fixture.portal.releaseProvisionalPaneGeometry(inWorkspace: UUID()) { _ in true }
+        #expect(Self.approximatelyEqual(Self.frameInWindow(fixture.hosted), projected))
+        fixture.portal.releaseProvisionalPaneGeometry(inWorkspace: workspaceID) { $0 != transaction }
         #expect(Self.approximatelyEqual(Self.frameInWindow(fixture.hosted), projected))
         #expect(fixture.portal.provisionalPaneGeometry(forHostedId: fixture.hostedID) != nil)
 
-        // One that observed SwiftUI keep the anchor in place hands geometry back.
-        fixture.portal.releaseProvisionalPaneGeometry(
-            forHostedId: fixture.hostedID, boundTo: fixture.anchor, observedEpoch: epoch
-        )
+        // The transaction ending hands geometry back to the anchor at once.
+        fixture.portal.releaseProvisionalPaneGeometry(inWorkspace: workspaceID) { $0 == transaction }
         #expect(Self.approximatelyEqual(Self.frameInWindow(fixture.hosted), anchorFrame))
         #expect(fixture.portal.provisionalPaneGeometry(forHostedId: fixture.hostedID) == nil)
     }
@@ -113,7 +117,7 @@ struct TerminalWindowPortalProvisionalGeometryTests {
         defer { fixture.close() }
         fixture.bind(visible: false)
         #expect(!fixture.portal.applyProvisionalPaneFrame(
-            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID
+            Self.topHalf(of: Self.frameInWindow(fixture.anchor)), forHostedId: fixture.hostedID, transactionID: UUID()
         ))
         #expect(fixture.portal.provisionalPaneGeometry(forHostedId: fixture.hostedID) == nil)
     }

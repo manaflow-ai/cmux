@@ -13,10 +13,11 @@ extension WindowTerminalPortal {
     /// (https://github.com/manaflow-ai/cmux/issues/13387).
     ///
     /// The projection holds only while the anchor still reports the frame it
-    /// had when the projection was applied. An anchor that moves, a new anchor
-    /// binding, or a representable update observed after the projection that
-    /// leaves the anchor in place all hand geometry authority back to the
-    /// anchor, so a projection can never outlive the transaction it belongs to.
+    /// had when the projection was applied. An anchor that moves or a new
+    /// anchor binding hands geometry authority back to the anchor. The model
+    /// owner releases a projection whose transaction no longer exists (a split
+    /// closed again before SwiftUI rendered it), so a projection can never
+    /// outlive the model state it was derived from.
     struct ProvisionalPaneGeometry: Equatable {
         /// The frame the hosted view had before the first projection of the
         /// current transaction; later projections re-derive from it.
@@ -25,9 +26,9 @@ extension WindowTerminalPortal {
         /// The anchor's effective window frame when the projection was
         /// applied, or nil when the anchor had already left the window.
         let anchorFrameInWindow: NSRect?
-        /// Ordering token against representable updates (see
-        /// `TerminalWindowPortalRegistry.provisionalGeometryEpoch`).
-        let epoch: UInt64
+        /// The model transaction the projection belongs to: the bonsplit split
+        /// node it was derived from.
+        let transactionID: UUID
     }
 
     /// Writes `frameInWindow` to a presented hosted view now and records it
@@ -35,7 +36,11 @@ extension WindowTerminalPortal {
     ///
     /// - Returns: Whether the entry accepted the projection.
     @discardableResult
-    func applyProvisionalPaneFrame(_ frameInWindow: NSRect, forHostedId hostedId: ObjectIdentifier) -> Bool {
+    func applyProvisionalPaneFrame(
+        _ frameInWindow: NSRect,
+        forHostedId hostedId: ObjectIdentifier,
+        transactionID: UUID
+    ) -> Bool {
         guard var entry = entriesByHostedId[hostedId],
               let hostedView = entry.hostedView,
               isPresented(hostedView, hostedId: hostedId) else { return false }
@@ -52,19 +57,18 @@ extension WindowTerminalPortal {
         let anchorFrameInWindow = entry.anchorView.flatMap { anchor -> NSRect? in
             anchor.window === window ? effectiveAnchorFrameInWindow(for: anchor) : nil
         }
-        TerminalWindowPortalRegistry.provisionalGeometryEpoch &+= 1
         entry.provisionalGeometry = ProvisionalPaneGeometry(
             baseFrameInHost: entry.provisionalGeometry?.baseFrameInHost ?? hostedView.frame,
             frameInHost: frameInHost,
             anchorFrameInWindow: anchorFrameInWindow,
-            epoch: TerminalWindowPortalRegistry.provisionalGeometryEpoch
+            transactionID: transactionID
         )
         entriesByHostedId[hostedId] = entry
 #if DEBUG
         cmuxDebugLog(
             "portal.provisional.apply hosted=\(portalDebugToken(hostedView)) " +
             "anchor=\(portalDebugToken(entry.anchorView)) old=\(portalDebugFrame(hostedView.frame)) " +
-            "frame=\(portalDebugFrame(frameInHost)) " +
+            "frame=\(portalDebugFrame(frameInHost)) transaction=\(transactionID.uuidString.prefix(5)) " +
             "anchorFrame=\(anchorFrameInWindow.map(portalDebugFrame) ?? "nil")"
         )
 #endif
@@ -143,26 +147,26 @@ extension WindowTerminalPortal {
         )
     }
 
-    /// Hands authority back to a live anchor that a representable update
-    /// observed after the projection left in place.
-    func releaseProvisionalPaneGeometry(
-        forHostedId hostedId: ObjectIdentifier,
-        boundTo anchorView: NSView,
-        observedEpoch: UInt64
-    ) {
-        guard let entry = entriesByHostedId[hostedId],
-              let provisional = entry.provisionalGeometry,
-              observedEpoch >= provisional.epoch,
-              entry.anchorView === anchorView,
-              anchorView.window === window else { return }
-        entriesByHostedId[hostedId]?.provisionalGeometry = nil
+    /// Releases the projections of `workspaceID` whose transaction
+    /// `isReleased` reports as gone and hands geometry back to their live
+    /// anchors now. Entries whose anchor has already left the window simply
+    /// drop the projection; their next bind seeds from the new anchor.
+    func releaseProvisionalPaneGeometry(inWorkspace workspaceID: UUID, where isReleased: (UUID) -> Bool) {
+        for (hostedId, entry) in entriesByHostedId {
+            guard entry.workspaceID == workspaceID,
+                  let provisional = entry.provisionalGeometry,
+                  isReleased(provisional.transactionID) else { continue }
+            entriesByHostedId[hostedId]?.provisionalGeometry = nil
 #if DEBUG
-        cmuxDebugLog(
-            "portal.provisional.release hosted=\(portalDebugToken(entry.hostedView)) reason=anchorSettled " +
-            "epoch=\(provisional.epoch) observed=\(observedEpoch)"
-        )
+            cmuxDebugLog(
+                "portal.provisional.release hosted=\(portalDebugToken(entry.hostedView)) reason=transactionEnded " +
+                "transaction=\(provisional.transactionID.uuidString.prefix(5))"
+            )
 #endif
-        synchronizeHostedViewForAnchor(anchorView, syncLayout: false)
+            if let anchor = entry.anchorView, anchor.window === window {
+                synchronizeHostedViewForAnchor(anchor, syncLayout: false)
+            }
+        }
     }
 
     private static func isFiniteRect(_ rect: NSRect) -> Bool {
@@ -171,12 +175,6 @@ extension WindowTerminalPortal {
 }
 
 extension TerminalWindowPortalRegistry {
-    /// Monotonic token bumped on every projection. A representable update
-    /// staged with an older token predates the projection and must not
-    /// release it; one staged with a newer token observed SwiftUI's reaction
-    /// to the mutation and may.
-    static var provisionalGeometryEpoch: UInt64 = 0
-
     private struct HostedPortal {
         let portal: WindowTerminalPortal
         let hostedId: ObjectIdentifier
@@ -190,9 +188,17 @@ extension TerminalWindowPortalRegistry {
     }
 
     @discardableResult
-    static func applyProvisionalPaneFrame(_ frameInWindow: NSRect, for hostedView: GhosttySurfaceScrollView) -> Bool {
+    static func applyProvisionalPaneFrame(
+        _ frameInWindow: NSRect,
+        for hostedView: GhosttySurfaceScrollView,
+        transactionID: UUID
+    ) -> Bool {
         guard let hosted = hostedPortal(for: hostedView) else { return false }
-        return hosted.portal.applyProvisionalPaneFrame(frameInWindow, forHostedId: hosted.hostedId)
+        return hosted.portal.applyProvisionalPaneFrame(
+            frameInWindow,
+            forHostedId: hosted.hostedId,
+            transactionID: transactionID
+        )
     }
 
     static func provisionalPaneGeometry(
@@ -207,16 +213,11 @@ extension TerminalWindowPortalRegistry {
         return hosted.portal.provisionalBaseFrameInWindow(forHostedId: hosted.hostedId)
     }
 
-    static func releaseProvisionalPaneGeometry(
-        for hostedView: GhosttySurfaceScrollView,
-        boundTo anchorView: NSView,
-        observedEpoch: UInt64
-    ) {
-        guard let hosted = hostedPortal(for: hostedView) else { return }
-        hosted.portal.releaseProvisionalPaneGeometry(
-            forHostedId: hosted.hostedId,
-            boundTo: anchorView,
-            observedEpoch: observedEpoch
-        )
+    /// Releases, in every window, the projections of `workspaceID` whose
+    /// transaction `isReleased` reports as gone.
+    static func releaseProvisionalPaneGeometry(inWorkspace workspaceID: UUID, where isReleased: (UUID) -> Bool) {
+        for portal in portalsByWindowId.values {
+            portal.releaseProvisionalPaneGeometry(inWorkspace: workspaceID, where: isReleased)
+        }
     }
 }

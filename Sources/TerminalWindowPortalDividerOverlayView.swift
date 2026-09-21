@@ -13,6 +13,8 @@ final class SplitDividerOverlayView: NSView {
         let isVertical: Bool
     }
 
+    deinit {}
+
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { false }
 

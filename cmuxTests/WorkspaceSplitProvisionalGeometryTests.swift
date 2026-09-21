@@ -59,6 +59,27 @@ struct WorkspaceSplitProvisionalGeometryTests {
         }
     }
 
+    /// A split that leaves the model again before SwiftUI rendered it must not
+    /// leave the source terminal at its projected half frame: the anchor, which
+    /// never moved, is the truth again as soon as the split is gone.
+    @Test func closingTheSplitBeforeItRendersHandsGeometryBackToTheAnchor() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let before = fixture.sourceFrameInWindow()
+
+        let outcome = fixture.workspace.newTerminalSplitOutcome(
+            from: fixture.sourcePanelId, orientation: .vertical, insertFirst: false, focus: false
+        )
+        let newPanel = try #require(outcome.panel)
+        #expect(fixture.sourceFrameInWindow().height < before.height * 0.6)
+
+        #expect(fixture.workspace.closePanel(newPanel.id, force: true))
+
+        let after = fixture.sourceFrameInWindow()
+        #expect(abs(after.minY - before.minY) < 0.5 && abs(after.height - before.height) < 0.5, "\(after) vs \(before)")
+        #expect(TerminalWindowPortalRegistry.provisionalPaneGeometry(for: fixture.hosted) == nil)
+    }
+
     /// Hosts one workspace terminal through the real window portal, the way
     /// the app does once SwiftUI has bound its anchor.
     @MainActor

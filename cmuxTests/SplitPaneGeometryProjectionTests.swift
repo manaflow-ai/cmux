@@ -9,8 +9,9 @@ import Testing
 #endif
 
 /// Pure projection of bonsplit's post-split pane frames from the pre-split
-/// content frame (https://github.com/manaflow-ai/cmux/issues/13387).
-@MainActor
+/// content frame (https://github.com/manaflow-ai/cmux/issues/13387). The
+/// suite is deliberately not main-actor bound: the projection is a value
+/// computation with no actor isolation.
 struct SplitPaneGeometryProjectionTests {
     private typealias Projection = SplitPaneGeometryProjection
 
