@@ -52,14 +52,16 @@ struct CloudSidebarAttentionLayoutTests {
         Attachment.record(try #require(read.representation(using: .png, properties: [:])), named: name + "-read.png")
         Attachment.record(try #require(unread.representation(using: .png, properties: [:])), named: name + "-unread.png")
         #endif
-        try expectSeparateIndicator(read: read, unread: unread, width: width)
+        try expectSeparateIndicator(read: read, unread: unread, in: cell)
         cell.prepareForReuse()
         let cleared = try render(cell, node: readNode, fixture: fixture)
         #expect(cleared.tiffRepresentation == read.tiffRepresentation,
                 "A reused cell must remove the dot without shifting the pin, icon or title")
     }
 
-    private func expectSeparateIndicator(read: NSBitmapImageRep, unread: NSBitmapImageRep, width: Double) throws {
+    private func expectSeparateIndicator(
+        read: NSBitmapImageRep, unread: NSBitmapImageRep, in cell: CloudTreeCellView
+    ) throws {
         #expect(read.pixelsWide == unread.pixelsWide)
         #expect(read.pixelsHigh == unread.pixelsHigh)
         var changed = CGRect.null
@@ -73,13 +75,18 @@ struct CloudSidebarAttentionLayoutTests {
             }
         }
         try #require(!changed.isNull, "The unread indicator must actually render")
-        let scale = Double(unread.pixelsWide) / width
-        #expect(changed.minX / scale >= width - CloudTreeStyle.compact.rowGrid.trailingPadding,
+        let scale = CGFloat(unread.pixelsWide) / cell.bounds.width
+        // The native cell also owns hover buttons. The display host stops
+        // before those controls, so measure its actual edge inside the cell.
+        let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
+        let content = cell.convert(host.bounds, from: host)
+        #expect(changed.minX / scale >= content.maxX - CloudTreeStyle.compact.rowGrid.trailingPadding,
                 "Only the existing trailing padding may change; icons, pins and titles must stay put")
-        #expect(changed.maxX < Double(unread.pixelsWide), "The dot must not clip at the sidebar edge")
-        #expect(abs(changed.midY - Double(unread.pixelsHigh) / 2) <= scale,
+        #expect(changed.maxX < CGFloat(unread.pixelsWide), "The dot must not clip at the sidebar edge")
+        #expect(abs(changed.midY - CGFloat(unread.pixelsHigh) / 2) <= scale,
                 "Center the notification on the row, not on the icon's upper corner")
-        #expect((5...7).contains(changed.width / scale) && (5...7).contains(changed.height / scale),
+        #expect(changed.width / scale >= 5 && changed.width / scale <= 7
+                && changed.height / scale >= 5 && changed.height / scale <= 7,
                 "The complete six-point indicator remains visible at every supported font scale")
         var overlappingInk = 0
         for y in max(0, Int(changed.minY) - 1)..<min(read.pixelsHigh, Int(changed.maxY) + 1) {
@@ -99,6 +106,7 @@ struct CloudSidebarAttentionLayoutTests {
         fixture.coordinator.apply(style: .compact)
         fixture.coordinator.apply(nodes: fixture.nodes())
         let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
         let rows = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).filter {
             $0.structureTag == "workspace" || $0.structureTag == "terminal"
         }
@@ -106,15 +114,19 @@ struct CloudSidebarAttentionLayoutTests {
             if pinned {
                 for node in rows { #expect(fixture.coordinator.organize(.pin, nodeID: node.id)) }
             }
-            let indexes = rows.map { outline.row(forItem: $0) }
+            let indexes = try rows.map { node -> Int in
+                let row = outline.row(forItem: node)
+                try #require(row >= 0)
+                return row
+            }
             let disclosure = indexes.map { outline.frameOfOutlineCell(atRow: $0) }
             let read = try indexes.map { try captureRow($0, in: outline) }
             fixture.coordinator.apply(nodes: fixture.nodes(unread: ["term_ws_1", "term_ws_2"]))
             try fixture.attachScreenshot(named: "outline-unread-\(Int(width))-pinned-\(pinned)")
             for (index, row) in indexes.enumerated() {
                 let unread = try captureRow(row, in: outline)
-                try expectSeparateIndicator(read: read[index], unread: unread,
-                                            width: outline.frameOfCell(atColumn: 0, row: row).width)
+                let cell = try #require(outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? CloudTreeCellView)
+                try expectSeparateIndicator(read: read[index], unread: unread, in: cell)
                 #expect(outline.frameOfOutlineCell(atRow: row) == disclosure[index])
             }
             fixture.coordinator.apply(nodes: fixture.nodes())
@@ -128,6 +140,7 @@ struct CloudSidebarAttentionLayoutTests {
 
     private func captureRow(_ row: Int, in outline: CloudTreeNSOutlineView) throws -> NSBitmapImageRep {
         let cell = try #require(outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(true)
         cell.layoutSubtreeIfNeeded()
         let bitmap = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
         cell.cacheDisplay(in: cell.bounds, to: bitmap)
