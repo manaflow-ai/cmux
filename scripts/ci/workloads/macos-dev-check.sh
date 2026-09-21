@@ -3,9 +3,11 @@ set -euo pipefail
 
 root="$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)"
 state="${CMUX_WORKLOAD_STATE_ROOT:?CMUX_WORKLOAD_STATE_ROOT is required}"
+attempt_id="${CMUX_WORKLOAD_ATTEMPT_ID:?CMUX_WORKLOAD_ATTEMPT_ID is required}"
 derived="$state/derived-data"
 source_packages="$state/source-packages"
 xcode_env="$state/xcode.env"
+tag="profile-$attempt_id"
 
 stage() {
   python3 "$root/scripts/ci/cmux_workload_profile.py" stage "$1" "$2"
@@ -29,19 +31,21 @@ done < "$xcode_env"
 stage end setup
 
 stage start compile
-xcodebuild \
-  -project cmux.xcodeproj \
-  -scheme cmux \
-  -configuration Debug \
-  -destination "platform=macOS" \
-  -derivedDataPath "$derived" \
-  -clonedSourcePackagesDirPath "$source_packages" \
-  CODE_SIGNING_ALLOWED=NO \
-  CMUX_SKIP_ZIG_BUILD=1 \
-  clean build
+CMUX_DEV_BACKEND_MODE=local \
+CMUX_DEV_CLOUD_ENABLED=0 \
+CMUX_LOCAL_CACHE_PREFLIGHT=0 \
+CMUX_GHOSTTYKIT_PREPROVISIONED=1 \
+CMUX_SOURCE_PACKAGES_DIR="$source_packages" \
+CMUX_RELOAD_NO_GLOBAL_CLI_LINKS=1 \
+  ./scripts/reload.sh \
+    --tag "$tag" \
+    --derived-data "$derived" \
+    --no-global-cli-links
 stage end compile
 
 stage start validation
-app="$derived/Build/Products/Debug/cmux DEV.app"
+app="$derived/Build/Products/Debug/cmux DEV $tag.app"
 test -x "$app/Contents/MacOS/cmux DEV"
+bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+test "$bundle_id" = "com.cmuxterm.app.debug.$tag"
 stage end validation
