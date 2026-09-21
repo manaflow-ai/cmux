@@ -1412,7 +1412,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
-        guard previewMode == .text, let textView else { return false }
+        guard cloudPreviewLease == nil, previewMode == .text, let textView else { return false }
         let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
         guard !text.isEmpty else { return false }
         textView.window?.makeFirstResponder(textView)
