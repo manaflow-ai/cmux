@@ -142,6 +142,10 @@ extension MobileShellComposite {
     /// UI-facing recover action for the workspace list when it is showing an
     /// offline/disconnected state. Pull-to-refresh and the offline status row's
     /// Reconnect button both call this.
+    /// The exact Mac pairing that a workspace-list recovery action will use.
+    /// The target prefers a visible unavailable workspace, then a uniquely
+    /// connected workspace Mac, followed by the connected and foreground Mac
+    /// identities. Empty targets mean no reconnectable pairing is available.
     public var workspaceListRecoveryTarget: (macDeviceID: String, instanceTag: String?)? {
         workspaceListReconnectTarget()
             ?? workspaceListConnectedRefreshTarget()

@@ -101,11 +101,15 @@ extension WorkspaceListView {
                     && store.workspaces.isEmpty
             }
         }
-        let cancelRefreshForEmptyState: (() -> Void)? = cancelRefresh ?? store.map { store in
+        let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
             {
-                store.cancelWorkspaceListRecovery()
+                store.cancelWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag,
+                    ownerScoped: true
+                )
             }
-        }
+        } ?? cancelRefresh
         let cancelRefreshOnDisappearForEmptyState: (() -> Void)? = store.map { store in
             {
                 store.cancelWorkspaceListRecovery(
