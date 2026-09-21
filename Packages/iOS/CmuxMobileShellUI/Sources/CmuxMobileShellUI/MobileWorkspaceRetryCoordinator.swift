@@ -5,15 +5,11 @@
 actor MobileWorkspaceRetryCoordinator {
     private var activeOperation: Task<Void, Never>?
     private var activeOperationID: UUID?
-    private var cancellationGeneration = 0
 
     func run(_ operation: @escaping @Sendable () async -> Void) async {
-        let generation = cancellationGeneration
-        if let activeOperation {
-            await activeOperation.value
-            guard generation == cancellationGeneration else { return }
+        guard activeOperation == nil else {
+            return
         }
-        guard !Task.isCancelled, generation == cancellationGeneration else { return }
 
         let operationTask = Task {
             await operation()
@@ -29,12 +25,13 @@ actor MobileWorkspaceRetryCoordinator {
     }
 
     /// Cancels the active transport task. The task remains owned until it
-    /// finishes, so a later retry waits for it instead of overlapping state
-    /// mutations. Waiters that were already queued are invalidated by the
-    /// generation change.
+    /// finishes, while releasing the coordinator so the user can start a fresh
+    /// attempt. The production refresh observes task cancellation before it
+    /// commits a result, and stale completion state is ignored by the row.
     func cancelActive() {
-        cancellationGeneration += 1
         activeOperation?.cancel()
+        activeOperationID = nil
+        activeOperation = nil
     }
 }
 #endif
