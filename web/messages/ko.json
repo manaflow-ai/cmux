@@ -1246,6 +1246,8 @@
       "exampleConfig": "예시 설정",
       "metaTitle": "설정",
       "schemaDescriptions": {
+        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
         "paneBorderColor": "분할된 작업 공간에서 cmux 창 구분선 색상을 재정의합니다. Ghostty 내부 분할이 아니라 cmux 창 경계에 적용됩니다.",
         "activePaneBorderColor": "분할된 작업 공간에서 포커스된 cmux 창 주위에 그릴 선택적 테두리 색상입니다.",
         "automation": {

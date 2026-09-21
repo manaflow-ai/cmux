@@ -1246,6 +1246,8 @@
       "exampleConfig": "ឧទាហរណ៍កំណត់រចនាសម្ព័ន្ធ",
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
+        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
         "paneBorderColor": "ប្ដូរពណ៌ខ្សែបំបែក pane របស់ cmux នៅក្នុង workspace ដែលបានបំបែក។ វាប៉ះពាល់ដល់ព្រំដែន pane របស់ cmux មិនមែនការបំបែកខាងក្នុងរបស់ Ghostty ទេ។",
         "activePaneBorderColor": "ពណ៌ស៊ុមជាជម្រើស ដែលគូរជុំវិញ pane របស់ cmux ដែលកំពុងផ្តោត នៅក្នុង workspace ដែលបានបំបែក។",
         "automation": {

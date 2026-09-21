@@ -169,6 +169,22 @@ struct CmuxConfigSemanticValidatorTests {
         #expect(contains(current, path: "$.notifications.soundOverrides.codex.futureEvent", message: "unknown"))
     }
 
+    @Test("shortcut binding ids are validated even with value schemas")
+    func shortcutBindingIdsAreValidated() {
+        let validator = CmuxConfigSemanticValidator(scope: .global)
+        let result = validator.validateObject(
+            ["newWindwo": "cmd-n"],
+            schema: [
+                "type": "object",
+                "propertyNames": ["enum": ["newWindow"]],
+                "additionalProperties": ["type": "string"],
+            ],
+            path: "$.shortcuts.bindings",
+            tolerateUnknownProperties: false
+        )
+        #expect(contains(result, path: "$.shortcuts.bindings.newWindwo", message: "must be one of"))
+    }
+
     @Test("open dictionary constraints apply to all keys in current and future schemas", arguments: [false, true])
     func openDictionaryConstraints(tolerateUnknown: Bool) {
         let validator = CmuxConfigSemanticValidator(scope: .global)

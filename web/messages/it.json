@@ -1246,6 +1246,8 @@
       "exampleConfig": "Esempio di configurazione",
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
+        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
         "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
         "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "automation": {
