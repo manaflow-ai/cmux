@@ -91,8 +91,11 @@ export const guestBrowserReadyCommand = [
   ...GUEST_BROWSER_FILES.map(({ path, content }) =>
     `test "$(sha256sum '${path}' 2>/dev/null | cut -d ' ' -f 1)" = '${createHash("sha256").update(content).digest("hex")}'`),
   `test -x ${GUEST_BROWSER_OPENER_PATH}`,
-  `grep -Fqx '${browserShellSource}' /etc/bash.bashrc`,
-  `grep -Fqx '${browserShellSource}' /etc/zsh/zshenv`,
+  // The installer appends its line only to the rc files that exist (a devbox
+  // has no zsh), so an absent file is nothing to do and a present one must
+  // carry the line; otherwise the gate can never hold and every attach and
+  // exec re-installs.
+  ...["/etc/bash.bashrc", "/etc/zsh/zshenv"].map((rc) => `{ [ ! -f ${rc} ] || grep -Fqx '${browserShellSource}' ${rc}; }`),
 ].join(" && ");
 
 /** Reconciles MIME associations without rewriting the rest of the guest integration. */
