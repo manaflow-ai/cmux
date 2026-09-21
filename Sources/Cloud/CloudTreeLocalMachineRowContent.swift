@@ -13,23 +13,24 @@ struct CloudTreeLocalMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: style.iconGap) {
+                HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
+                        .frame(width: scaled(max(style.iconSlot, style.iconSize)))
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(row.name)
         case .twoLine:
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
-                    .frame(height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+                    .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
@@ -43,10 +44,10 @@ struct CloudTreeLocalMachineRowContent: View {
                         .truncationMode(.tail)
                         .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .padding(.trailing, style.rowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(row.name)
         }

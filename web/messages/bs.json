@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Ova veličina mašine nije dostupna. Odaberite do {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go uključuje dvije sačuvane VM, uključujući pokrenutu VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
   },
@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
       "team": "tim",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobilni uređaji"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,23 +369,34 @@
         "loading": "Učitavanje…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+    "mobileDevices": {
+      "title": "Mobilni uređaji",
+      "description": "Upravljajte pristupom povezanim računarima, telefonima i tabletima.",
+      "team": "Tim",
+      "teamSwitchError": "Tim nije moguće promijeniti. Pokušajte ponovo.",
+      "loading": "Učitavanje uređaja…",
+      "empty": "Nema registrovanih uređaja za ovaj tim.",
+      "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",
+      "retry": "Pokušaj ponovo",
+      "mutationError": "Promjena uređaja nije završena.",
+      "revoke": "Opozovi pristup",
+      "deviceId": "Uređaj",
+      "revision": "Revizija",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktivan",
+      "revoked": "Opozvan",
+      "relaySettings": "Postavke releja",
+      "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
+      "saveRelaySettings": "Sačuvaj postavke releja",
+      "eyebrow": "oblak / uređaji",
+      "scopeActive": "Prikazan je ovaj tim",
+      "emptyTitle": "Još nema povezanih uređaja",
+      "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
+      "revoking": "Opozivanje pristupa…",
+      "registeredDevices": "Registrirani uređaji",
+      "activeDevices": "Aktivni uređaji",
+      "directoryRevision": "Revizija direktorija",
+      "savingRelaySettings": "Spremanje…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Podijeli s timom",
@@ -1341,7 +1352,7 @@
       "plusButtonScreenshotAlt": "Meni plus dugmeta na desni klik prikazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Meni desnog klika prati redoslijed iz ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Prilagođene akcije plus dugmeta",
-      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen.",
+      "newWorkspaceButtonDesc": "Koristi <action>ui.newWorkspace.action</action> da zamijeniš ono što plus dugme radi. Koristi <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ili alias <rightClick>rightClick</rightClick>) da definiraš uređeni meni desnog klika. Stavke menija mogu biti ID-jevi akcija, objekti akcija ili <separator>{ \"type\": \"separator\" }</separator>. Kada nije postavljeno, meni prikazuje cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), sa trenutnim prečicama. Stavke oblaka prikazuju se samo kada je Cloud Machines uključen. New Cloud Workspace koristi mašinu posljednjeg odabranog Cloud workspacea, zatim prvu mašinu na desnoj bočnoj traci; New Cloud Machine namjerno kreira mašinu.",
       "newWorkspaceWorktreeNote": "Ovaj primjer čini da običan klik na plus pokrene akciju <action>worktree-agents</action>. Komanda radnog prostora iz <commands>commands</commands> koristi vidljiv terminal za pripremu da prvo napravi Git <worktree>worktree</worktree>. Codex i Claude se pokreću istovremeno, čekaju datoteku stanja specifičnu za radni prostor, zatim prelaze u kreirani direktorij prije exec.",
       "simpleCommands": "Jednostavne komande",
       "simpleCommandsDesc": "Jednostavna komanda pokreće shell komandu u trenutno fokusiranom terminalu:",

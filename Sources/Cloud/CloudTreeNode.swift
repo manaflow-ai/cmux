@@ -784,7 +784,7 @@ enum CloudTreeNodeBuilder {
         // Cloud machines only: the local Mac has no private-network address to
         // begin with, so it never reaches here with one.
         guard machine.isLocal == false else { return nil }
-        return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
+        return CmuxInternalHostnames().directPortURL(privateAddress: address, port: port)
     }
     private static func cloudChildren(
         machine: SurfaceMachineID,
@@ -805,6 +805,19 @@ enum CloudTreeNodeBuilder {
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed, opensMachine: true))
             case .connecting:
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
+                // A create receipt is already a stable workspace identity even
+                // while the machine link is connecting. Keep that one pending
+                // row visible so the Cloud tree and local navigator converge at
+                // the same admission boundary.
+                if snapshot.pendingWorkspaceCreations?[machine]?.isEmpty == false {
+                    children.append(workspacesGroupNode(
+                        machine: machine,
+                        info: info,
+                        resources: resources,
+                        snapshot: snapshot,
+                        projectionIndex: projectionIndex
+                    ))
+                }
             case .error:
                 children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
             case .unavailable:
@@ -901,12 +914,14 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
-            rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
+            let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
+            if member.resource.kind == .browser { rows.browsers.append(placement) }
+            else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
@@ -924,7 +939,7 @@ enum CloudTreeNodeBuilder {
             let openInLocal = projectionIndex.localWorkspaceShowing(
                 remoteWorkspaceID: workspace.id,
                 placements: realPlacements
-            )
+            ) ?? snapshot.pendingWorkspaceCreations?[machine]?[workspace.id]
             let layout = layoutRows(
                 placements: terminalPlacements + browserPlacements + displayPlacements,
                 workspace: workspace,

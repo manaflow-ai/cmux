@@ -159,6 +159,37 @@ def movement_shortcut_actions() -> set[str]:
     )
 
 
+def resize_shortcut_actions() -> set[str]:
+    routing_body = source_between(
+        RESIZE_SOURCE.read_text(encoding="utf-8"),
+        "func performResizePaneShortcut(",
+        "let manager = activeTabManagerForCommands(",
+        RESIZE_SOURCE.name,
+    )
+    # The shared resize path passes a typed local mapping to the gate. Count
+    # only that binding's cases, with its gate after the mapping and before
+    # the main-workspace fallback.
+    binding = re.search(
+        r"\blet\s+([A-Za-z][A-Za-z0-9_]*)\s*:\s*"
+        r"KeyboardShortcutSettings\.Action\s*=\s*\{\s*switch\s+direction\s*\{"
+        r"\s*((?:case\s+\.[A-Za-z][A-Za-z0-9_]*\s*:\s*"
+        r"\.[A-Za-z][A-Za-z0-9_]*\s*)+)\}\s*\}\(\)",
+        routing_body,
+    )
+    if binding is None:
+        return set()
+    variable, cases = binding.groups()
+    gate_bodies = balanced_call_bodies(
+        routing_body[binding.end():], "focusedDockStoreForShortcut"
+    )
+    if not any(
+        re.search(r"\baction\s*:\s*" + re.escape(variable) + r"\s*(?:,|$)", body)
+        for body in gate_bodies
+    ):
+        return set()
+    return set(re.findall(r":\s*\.([A-Za-z][A-Za-z0-9_]*)", cases))
+
+
 def explicitly_gated_actions() -> set[str]:
     actions: set[str] = set()
     has_movement_gate = False
@@ -179,25 +210,7 @@ def explicitly_gated_actions() -> set[str]:
                     has_movement_gate = True
     if has_movement_gate:
         actions.update(movement_shortcut_actions())
-    # Pane resizing passes a direction-derived local action through the gate.
-    # Keep checking the gate and its mapping, rather than exempting the actions.
-    resize_body = source_between(
-        RESIZE_SOURCE.read_text(encoding="utf-8"),
-        "func performResizePaneShortcut(",
-        "func handlePaneSizingShortcut(",
-        RESIZE_SOURCE.name,
-    )
-    if any(
-        re.search(r"\baction\s*:\s*action\b", body)
-        for body in balanced_call_bodies(resize_body, "focusedDockStoreForShortcut")
-    ):
-        mapping = source_between(
-            resize_body,
-            "let action: KeyboardShortcutSettings.Action = {",
-            "}()",
-            RESIZE_SOURCE.name,
-        )
-        actions.update(re.findall(r"case\s+\.\w+\s*:\s*\.(\w+)", mapping))
+    actions.update(resize_shortcut_actions())
     return actions
 
 

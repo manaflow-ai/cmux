@@ -16,32 +16,32 @@ struct CloudTreePendingMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: style.iconGap) {
+                HStack(alignment: .center, spacing: scaled(style.iconGap)) {
                     leadingGlyph
-                        .frame(width: scaled(style.iconSlot), alignment: .center)
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+                        .frame(width: scaled(max(style.iconSlot, style.iconSize)), alignment: .center)
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                         name
                         status
                     }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 leadingGlyph
-                    .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+                    .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight), alignment: .center)
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     name
                         .frame(height: scaled(style.machineNameLineHeight))
                     status
                         .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .padding(.trailing, style.rowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         }

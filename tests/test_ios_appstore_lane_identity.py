@@ -48,18 +48,15 @@ ASC_APP_ID = "6783338052"
 ASC_VERSION_ID = "version-1.0.0"
 ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
+# The extension profile fixture expires on 2099-01-01; validate it against a
+# fixed instant so the test never reads the real clock.
+PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
 APPSTORE_MARKETING_VERSION = _read_xcconfig_setting(
     ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_APPSTORE_MARKETING_VERSION"
 )
 BETA_MARKETING_VERSION = _read_xcconfig_setting(
     ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_BETA_MARKETING_VERSION"
 )
-# The extension profile fixture expires on 2099-01-01; validate it against a
-# fixed instant so the test never reads the real clock.
-PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
-# The extension profile fixture expires on 2099-01-01; validate it against a
-# fixed instant so the test never reads the real clock.
-PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
 PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXAuthEnvironment": "production",
     "CMUXApiBaseURL": "https://cmux.com",
@@ -384,6 +381,9 @@ if "archive" in args:
     # Release.xcconfig derives PRODUCT_BUNDLE_IDENTIFIER from the app-target
     # variable. The lane must override the app target without renaming the
     # notification extension (#12935).
+    # ios/Config/Release.xcconfig derives the app target's
+    # PRODUCT_BUNDLE_IDENTIFIER from CMUX_APP_BUNDLE_IDENTIFIER; retain the
+    # legacy setting as a fixture fallback for older lane invocations.
     bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
@@ -574,7 +574,10 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
     # Manual App Store export maps the notification extension to its own
     # profile; the lane refuses to export without this name.
+    # A manual App Store export maps the notification extension to its own
+    # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")

@@ -78,6 +78,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// Legacy gallery geometry flag; machine headers no longer render stats inline.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
+    var rowGrid = CloudTreeRowGrid()
 
     var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }

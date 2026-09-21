@@ -309,8 +309,6 @@ struct RightSidebarToolPanelView: View {
             if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
                 MachinesPanelView(
                     chromeBackgroundColor: resolvedChromeBackgroundColor,
-                    defaultMachineStore: AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore
-                        ?? DefaultCloudMachineStore(defaults: .standard),
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     tabManager: tabManager
                 )

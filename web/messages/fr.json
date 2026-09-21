@@ -40,8 +40,7 @@
     "memoryUnavailable": {
       "message": "Cette taille de machine n’est pas disponible. Choisissez jusqu’à {max} Gio.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go comprend deux VM enregistrées, y compris la VM en cours.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -51,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Si nous avons trouvé un compte, consultez votre e-mail pour connaître la suite"
   },
@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "aperçu",
       "team": "équipe",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Appareils mobiles"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,23 +369,34 @@
         "loading": "Chargement…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Appareils mobiles",
+      "description": "Gérez l’accès à vos ordinateurs, téléphones et tablettes connectés.",
+      "team": "Équipe",
+      "teamSwitchError": "Impossible de changer d’équipe. Réessayez.",
+      "loading": "Chargement des appareils…",
+      "empty": "Aucun appareil n’est enregistré pour cette équipe.",
+      "unavailable": "Impossible de charger vos appareils. Actualisez la page et réessayez.",
+      "retry": "Réessayer",
+      "mutationError": "La modification de l’appareil n’a pas pu être effectuée.",
+      "revoke": "Révoquer l’accès",
+      "deviceId": "Appareil",
+      "revision": "Révision",
+      "status": "État",
+      "active": "Actif",
+      "revoked": "Révoqué",
+      "relaySettings": "Paramètres du relais",
+      "relaySettingsDescription": "Choisissez les serveurs relais utilisés par cette équipe. Saisissez une URL par ligne.",
+      "saveRelaySettings": "Enregistrer les paramètres du relais",
+      "eyebrow": "cloud / appareils",
+      "scopeActive": "Affichage de cette équipe",
+      "emptyTitle": "Aucun appareil connecté pour le moment",
+      "emptyDescription": "Lorsqu’un appareil cmux est associé à cette équipe, il apparaît ici avec sa plateforme, sa version et ses contrôles d’accès.",
+      "revoking": "Révocation…",
+      "registeredDevices": "Appareils enregistrés",
+      "activeDevices": "Appareils actifs",
+      "directoryRevision": "Révision du répertoire",
+      "savingRelaySettings": "Enregistrement…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Partager avec l’équipe",
@@ -1342,7 +1353,7 @@
       "plusButtonScreenshotAlt": "Menu clic droit du bouton plus de cmux affichant Worktree Agents, New Terminal et New Browser",
       "plusButtonScreenshotCaption": "Le menu clic droit suit l’ordre défini par ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Actions personnalisées du bouton plus",
-      "newWorkspaceButtonDesc": "Utilise <action>ui.newWorkspace.action</action> pour remplacer ce que fait le bouton plus. Utilise <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou l’alias <rightClick>rightClick</rightClick>) pour définir le menu contextuel ordonné. Les entrées de menu peuvent être des ID d’action, des objets d’action ou <separator>{ \"type\": \"separator\" }</separator>. Sans configuration, le menu affiche cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), chacun avec son raccourci actuel. Les entrées cloud apparaissent uniquement lorsque Cloud Machines est activé.",
+      "newWorkspaceButtonDesc": "Utilise <action>ui.newWorkspace.action</action> pour remplacer ce que fait le bouton plus. Utilise <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (ou l’alias <rightClick>rightClick</rightClick>) pour définir le menu contextuel ordonné. Les entrées de menu peuvent être des ID d’action, des objets d’action ou <separator>{ \"type\": \"separator\" }</separator>. Sans configuration, le menu affiche cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), chacun avec son raccourci actuel. Les entrées cloud apparaissent uniquement lorsque Cloud Machines est activé. New Cloud Workspace utilise la machine du dernier espace de travail Cloud sélectionné, puis la première machine de la barre latérale droite ; New Cloud Machine provisionne volontairement une machine.",
       "newWorkspaceWorktreeNote": "Cet exemple fait exécuter l’action <action>worktree-agents</action> par le clic normal sur le bouton plus. La commande d’espace de travail de <commands>commands</commands> utilise un terminal de préparation visible pour créer d’abord le <worktree>worktree</worktree> Git. Codex et Claude démarrent en même temps, attendent le fichier d’état propre à l’espace de travail, puis se placent dans le dossier créé avant exec.",
       "simpleCommands": "Commandes simples",
       "simpleCommandsDesc": "Une commande simple exécute une commande shell dans le terminal actuellement focalisé :",

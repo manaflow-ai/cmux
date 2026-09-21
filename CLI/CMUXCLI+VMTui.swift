@@ -319,7 +319,7 @@ extension CMUXCLI {
         if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
             infoParams["client_capabilities"] = capabilities
         }
-        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 30)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
@@ -397,13 +397,14 @@ extension CMUXCLI {
         } ?? false
         let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
-            // The app pre-created this workspace with a loading pane; the link takes
-            // that pane's place (no new workspace, no title change).
+            // Plain attachment retains the loading pane until the remote terminal
+            // exists. Only the full TUI replaces it with a local client process.
             let ready: [String: Any]
             do {
                 ready = try client.sendV2(
                     method: "workspace.cloud_vm_terminal_ready",
-                    params: ["workspace_id": target, "initial_command": initialCommand, "focus": paneFocus]
+                    params: ["workspace_id": target, "initial_command": initialCommand,
+                             "defer_terminal": !options.fullClient, "focus": paneFocus]
                 )
             } catch let error as CLIError where error.message.contains("loading surface not found") {
                 // An ordinary workspace (`--workspace workspace:3` from a person or an agent),

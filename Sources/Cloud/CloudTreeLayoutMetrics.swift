@@ -7,8 +7,7 @@ import CoreGraphics
 /// how much width is available without coupling a row to a particular sidebar
 /// size.
 struct CloudTreeLayoutMetrics: Equatable, Sendable {
-    /// The horizontal inset used by the former Cloud setup entry and by row
-    /// accessories at the trailing edge.
+    /// The horizontal inset reserved for row accessories at the trailing edge.
     let referenceInset: CGFloat
 
     /// Creates Cloud tree geometry for the given content inset.
