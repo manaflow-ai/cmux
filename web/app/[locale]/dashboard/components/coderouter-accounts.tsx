@@ -3,7 +3,7 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Tabs } from "@base-ui-components/react/tabs";
 import { useFormatter, useNow, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "../../../../i18n/navigation";
 import { Modal } from "../../components/modal";
 import { CopyButton } from "../vault/copy-button";
@@ -215,11 +215,14 @@ function CoderouterApiKeysSection({
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<FormStatus>(idleStatus);
   const [issued, setIssued] = useState<IssuedCoderouterApiKey | null>(null);
+  const requestGeneration = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
 
-  const fetchKeys = useCallback(async (): Promise<readonly CoderouterApiKeySummary[]> => {
+  const fetchKeys = useCallback(async (signal?: AbortSignal): Promise<readonly CoderouterApiKeySummary[]> => {
     const response = await fetch("/api/coderouter/api-keys", {
       headers: { "x-cmux-team-id": teamId },
       cache: "no-store",
+      signal,
     });
     if (!response.ok) throw new Error("api key list failed");
     const body = await response.json() as { keys?: CoderouterApiKeySummary[] };
@@ -228,35 +231,49 @@ function CoderouterApiKeysSection({
   }, [teamId]);
 
   const load = useCallback(async () => {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const generation = ++requestGeneration.current;
     setLoading(true);
     setLoadError(false);
     try {
-      setKeys(await fetchKeys());
+      const nextKeys = await fetchKeys(controller.signal);
+      if (generation !== requestGeneration.current) return;
+      setKeys(nextKeys);
     } catch {
+      if (generation !== requestGeneration.current) return;
       setLoadError(true);
     } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
+      if (generation !== requestGeneration.current) return;
       setLoading(false);
     }
   }, [fetchKeys]);
 
   useEffect(() => {
-    let active = true;
-    void fetchKeys()
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const generation = ++requestGeneration.current;
+    void fetchKeys(controller.signal)
       .then((nextKeys) => {
-        if (active) {
-          setKeys(nextKeys);
-          setLoadError(false);
-          setLoading(false);
-        }
+        if (generation !== requestGeneration.current) return;
+        setKeys(nextKeys);
+        setLoadError(false);
+        setLoading(false);
       })
       .catch(() => {
-        if (active) {
-          setLoadError(true);
-          setLoading(false);
-        }
+        if (generation !== requestGeneration.current) return;
+        setLoadError(true);
+        setLoading(false);
+      })
+      .finally(() => {
+        if (activeRequest.current === controller) activeRequest.current = null;
       });
     return () => {
-      active = false;
+      controller.abort();
+      requestGeneration.current += 1;
     };
   }, [fetchKeys]);
 
