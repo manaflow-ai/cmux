@@ -48,12 +48,12 @@ to perform an external effect.
 
 Add a pure TypeScript module under `agent-chat/mail/` with:
 
-1. A message envelope containing immutable `messageId`, `threadId`, sender,
+1. A message envelope containing immutable `id` (the message ID), `threadId`, sender,
    recipients, body, timestamps, optional parent message, and optional context
    references.
 2. Per-recipient delivery records with explicit states:
    `queued`, `delivered`, `acknowledged`, `failed`, and `dead-lettered`.
-3. An idempotent append operation keyed by `messageId` and a deterministic
+3. An idempotent append operation keyed by `id` and a deterministic
    reply operation that preserves `threadId` and sets the parent message ID.
 4. A small in-memory broker for focused tests and future persistence adapters.
 5. An on-disk JSONL or SQLite persistence adapter in a follow-up slice. The
