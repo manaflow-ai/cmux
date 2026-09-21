@@ -62,7 +62,7 @@ def validate_metadata_routing(document: dict) -> None:
 EXPECTED_CHECKS = [
     {
         "name": "Check pull-request or merge-group source with trusted policy",
-        "if": "github.event_name != 'push'",
+        "if": "github.event_name != 'push' && steps.scope.outputs.run == 'true'",
         "working-directory": "trusted/web",
         "run": (
             "set -euo pipefail\n"
@@ -98,7 +98,8 @@ def main() -> int:
     if job.get("continue-on-error"):
         print("FAIL: the complexity job must not continue on error")
         return 1
-    checks = [step for step in job["steps"] if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
+    steps = job["steps"]
+    checks = [step for step in steps if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
     if checks != EXPECTED_CHECKS:
         print(
             "FAIL: the complexity check steps changed. They must run from trusted/web, start Bun with "
@@ -106,7 +107,40 @@ def main() -> int:
             "Update EXPECTED_CHECKS in the same reviewed change."
         )
         return 1
-    print("PASS: trusted web complexity runs from the trusted checkout with an empty Bun config")
+
+    names = [step.get("name") for step in steps]
+    scope_index = names.index("Select complexity work before installing Bun")
+    setup_index = names.index("Setup Bun")
+    if scope_index >= setup_index:
+        print("FAIL: PR complexity scope must be decided before Bun setup")
+        return 1
+
+    expensive = {
+        "Setup Bun",
+        "Install trusted web tooling",
+        "Create empty trusted Bun config",
+    }
+    expected_if = "github.event_name == 'push' || steps.scope.outputs.run == 'true'"
+    for step in steps:
+        if step.get("name") in expensive and step.get("if") != expected_if:
+            print(f"FAIL: {step['name']} must be skipped for complexity-irrelevant PRs")
+            return 1
+
+    scope = steps[scope_index]
+    scope_run = str(scope.get("run", ""))
+    for required in (
+        'git", "-C", root, "diff", "--no-renames", "--name-only", "-z"',
+        'b".github/workflows/web-complexity-trusted.yml"',
+        'b"web/scripts/check-complexity.mjs"',
+        'b"web/oxlint-complexity-baseline.txt"',
+        'b"tests/"',
+        'b"scripts/"',
+    ):
+        if required not in scope_run:
+            print(f"FAIL: trusted complexity scope is missing {required}")
+            return 1
+
+    print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
 
 
