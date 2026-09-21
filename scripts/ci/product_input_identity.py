@@ -157,7 +157,10 @@ def _job_block(workflow: str, job_name: str) -> str:
 
 
 def _step_blocks(job: str) -> list[tuple[str, str]]:
-    lines = job.splitlines()
+    _, found, steps_body = job.partition("\n    steps:\n")
+    if not found:
+        raise ValueError("macOS admission workflow has no steps section")
+    lines = steps_body.splitlines()
     starts = [
         index
         for index, line in enumerate(lines)
