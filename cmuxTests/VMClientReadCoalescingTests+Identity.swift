@@ -95,7 +95,6 @@ extension VMClientReadCoalescingTests {
     func explicitTeamUsageAllowsCrossTeamQuery() async throws {
         let fixture = try await CloudRefreshFixture.make(authClient: CloudReadIdentityAuthClient())
         defer { fixture.session.invalidateAndCancel() }
-        try await fixture.auth.selectTeam(id: "selected")
         await CloudRefreshURLProtocol.reset()
         let usage = MachineUsageClient(session: fixture.session, auth: fixture.auth, readRequests: fixture.readRequests)
 
