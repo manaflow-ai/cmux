@@ -20,6 +20,7 @@ struct ConversationSidebarView: View {
     @State private var searchErrors: [String] = []
     @State private var isSearchInFlight = false
     @State private var expandedHistory: [SessionEntry] = []
+    @State private var paginatedProviderAgentsByID: [String: SessionAgent] = [:]
     @State private var historyErrors: [String] = []
     @State private var isLoadingMoreHistory = false
     @State private var canLoadMoreHistory = true
@@ -439,6 +440,7 @@ struct ConversationSidebarView: View {
         let providerOptions = projection.providerFilterOptions(
             agents: (live + fallbackOpen).map(\.agent)
                 + cachedHistoryAgents
+                + Array(paginatedProviderAgentsByID.values)
                 + store.agentOrder,
             preferredOrder: store.agentOrder,
             selectedProviderID: selectedProviderID
@@ -508,6 +510,10 @@ struct ConversationSidebarView: View {
         guard !Task.isCancelled else { return }
 
         historyErrors = outcome.errors
+        paginatedProviderAgentsByID = projection.mergingProviderAgents(
+            outcome.entries,
+            into: paginatedProviderAgentsByID
+        )
         let previousIDs = Set(previousEntries.map(\.id))
         let mergedHistory = projection.recentHistory(
             initial: expandedHistory.isEmpty ? store.entries : expandedHistory,
