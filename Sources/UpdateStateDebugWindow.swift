@@ -86,7 +86,7 @@ private struct UpdateStateDebugView: View {
     @State private var errorScenario: DebugUpdateErrorScenario = .genericInstallFailure
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-    @State private var attemptTask: Task<Void, Never>?
+    @State private var attemptScheduler = MainActorDeferredActionScheduler()
 
     private var isMinimalMode: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
@@ -183,13 +183,12 @@ private struct UpdateStateDebugView: View {
         }
         .frame(minWidth: 400, minHeight: 500)
         .onDisappear {
-            attemptTask?.cancel()
-            attemptTask = nil
+            attemptScheduler.cancel()
         }
     }
 
     private func applySelectedState() {
-        attemptTask?.cancel()
+        attemptScheduler.cancel()
         model.debugOverrideText = nil
         switch selectedState {
         case .idle:
@@ -226,20 +225,17 @@ private struct UpdateStateDebugView: View {
     }
 
     private func runAttemptUpdateSequence() {
-        attemptTask?.cancel()
+        attemptScheduler.cancel()
         model.debugOverrideText = nil
         model.clearDetectedUpdate()
         model.setOverrideState(.checking(.init(cancel: {})))
-        attemptTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
+        attemptScheduler.schedule(after: .milliseconds(450)) { @MainActor in
             model.setOverrideState(.notFound(.init(acknowledgement: {})))
         }
     }
 
     private func resetAutomaticState() {
-        attemptTask?.cancel()
-        attemptTask = nil
+        attemptScheduler.cancel()
         model.debugOverrideText = nil
         model.clearDetectedUpdate()
         model.setOverrideState(nil)
