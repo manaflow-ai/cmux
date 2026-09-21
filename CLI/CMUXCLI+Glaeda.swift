@@ -9,7 +9,7 @@ extension CMUXCLI {
             defaultValue: """
             Usage: cmux glaeda <request|observe> [options]
 
-            Exchange one semantic execution request with Glaeda.
+            Exchange one semantic execution request with the execution service.
 
             Subcommands:
               request
@@ -20,15 +20,15 @@ extension CMUXCLI {
                 --tree <40-hex>            Exact Git tree
                 [--reuse <prefer_valid_reuse|no_preference>]
 
-                Emits canonical Glaeda execution-request JSON to stdout.
+                Emits canonical execution-request JSON to stdout.
                 CMUX workspace, machine, shell command, and environment stay outside this request.
 
               observe
                 --request <path>           Exact request document previously emitted
-                --receipt <path|->         Bounded Glaeda receipt, or - for stdin
+                --receipt <path|->         Bounded execution receipt, or - for stdin
 
                 Validates request/result correlation and emits a bounded CMUX observation.
-                Terminal states require a Glaeda workload-receipt digest.
+                Terminal states require a workload-receipt digest.
 
             Examples:
               cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \
@@ -62,7 +62,7 @@ extension CMUXCLI {
                     throw CLIError(
                         message: localization.string(
                             "glaeda.cli.error.helpArguments",
-                            defaultValue: "cmux glaeda help accepts no additional arguments."
+                            defaultValue: "This help command accepts no additional arguments."
                         )
                     )
                 }
@@ -71,7 +71,7 @@ extension CMUXCLI {
                 throw CLIError(
                     message: localization.format(
                         "glaeda.cli.error.unknownSubcommand",
-                        defaultValue: "Unknown Glaeda subcommand: %@",
+                        defaultValue: "Unknown execution subcommand: %@",
                         subcommand
                     ) + "\n\n" + Self.glaedaUsage
                 )
@@ -87,7 +87,6 @@ extension CMUXCLI {
     ) throws -> CmuxGlaedaExecutionRequest {
         let options = try glaedaParseOptions(
             arguments,
-            command: "glaeda request",
             allowed: [
                 "--request-ref",
                 "--work-ref",
@@ -134,7 +133,6 @@ extension CMUXCLI {
     ) throws -> CmuxGlaedaExecutionObservation {
         let options = try glaedaParseOptions(
             arguments,
-            command: "glaeda observe",
             allowed: ["--request", "--receipt"],
             localization: localization
         )
@@ -164,7 +162,6 @@ extension CMUXCLI {
 
     private func glaedaParseOptions(
         _ arguments: [String],
-        command: String,
         allowed: Set<String>,
         localization: CmuxGlaedaExecutionLocalization
     ) throws -> [String: String] {
@@ -176,8 +173,7 @@ extension CMUXCLI {
                 throw CLIError(
                     message: localization.format(
                         "glaeda.cli.error.unknownOption",
-                        defaultValue: "%@ has an unknown option: %@",
-                        command,
+                        defaultValue: "Unknown option: %@",
                         option
                     )
                 )
@@ -236,7 +232,7 @@ extension CMUXCLI {
                 throw CLIError(
                     message: localization.string(
                         "glaeda.cli.error.documentTooLarge",
-                        defaultValue: "The Glaeda input document exceeds the size limit."
+                        defaultValue: "The input document exceeds the size limit."
                     )
                 )
             }
@@ -250,7 +246,7 @@ extension CMUXCLI {
             throw CLIError(
                 message: localization.string(
                     "glaeda.cli.error.documentUnavailable",
-                    defaultValue: "The Glaeda input document is unavailable."
+                    defaultValue: "The input document is unavailable."
                 )
             )
         }
@@ -262,7 +258,7 @@ extension CMUXCLI {
             throw CLIError(
                 message: localization.string(
                     "glaeda.cli.error.regularFileRequired",
-                    defaultValue: "The Glaeda input document must be a regular file."
+                    defaultValue: "The input document must be a regular file."
                 )
             )
         }
@@ -288,7 +284,7 @@ extension CMUXCLI {
             throw CLIError(
                 message: localization.string(
                     "glaeda.cli.error.documentUnavailable",
-                    defaultValue: "The Glaeda input document is unavailable."
+                    defaultValue: "The input document is unavailable."
                 )
             )
         }
@@ -297,7 +293,7 @@ extension CMUXCLI {
             throw CLIError(
                 message: localization.string(
                     "glaeda.cli.error.documentTooLarge",
-                    defaultValue: "The Glaeda input document exceeds the size limit."
+                    defaultValue: "The input document exceeds the size limit."
                 )
             )
         }
