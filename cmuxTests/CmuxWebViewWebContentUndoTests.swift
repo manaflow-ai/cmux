@@ -209,6 +209,7 @@ final class CmuxWebViewWebContentUndoTests {
     @MainActor
     func agentSessionWebContentUndoManagerIsScopedPerWebView() throws {
         _ = NSApplication.shared
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
@@ -221,9 +222,17 @@ final class CmuxWebViewWebContentUndoTests {
             frame: NSRect(x: 0, y: 0, width: 640, height: 420),
             configuration: WKWebViewConfiguration()
         )
+        // Model the page declining Cmd-Z, as the browser undo tests do.
+        // A fresh WKWebView otherwise accepts the event for asynchronous web
+        // content dispatch, so a synchronous local-undo assertion is invalid.
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, _ in
+            currentWebView === agentWebView ? false : nil
+        }
         window.contentView = agentWebView
         window.makeKeyAndOrderFront(nil)
+        try #require(window.makeFirstResponder(agentWebView))
         defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
             agentWebView.removeFromSuperview()
             window.orderOut(nil)
             window.close()

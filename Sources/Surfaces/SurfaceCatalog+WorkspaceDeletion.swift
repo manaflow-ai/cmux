@@ -17,6 +17,7 @@ extension SurfaceCatalog {
         guard let token = ledger.begin(machine: machine, workspaceID: workspaceID, previous: authoritativeSnapshot) else {
             return Task { throw CancellationError() }
         }
+        cloudWorkspaceCreationCoordinator.cancel(machine: machine, workspaceID: workspaceID)
         let projectionToken = cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         notifyChange()
         let task = Task { @MainActor in

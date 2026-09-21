@@ -13,9 +13,14 @@ import UIKit
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
 struct GhosttySurfaceRepresentable: UIViewRepresentable {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     let workspaceID: String
     let surfaceID: String
     let store: CMUXMobileShellStore
+    /// Immutable counts supplied by the owning workspace, without a store scan.
+    let terminalWorkPopulation: TerminalWorkContext
     let fontSize: Float32
     let terminalPresentationIsActive: Bool
     /// Whether the mounted surface should grab the keyboard when it attaches to
@@ -55,25 +60,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            store: store,
-            terminalPresentationIsActive: terminalPresentationIsActive,
-            artifactFilesEnabled: artifactFilesEnabled,
-            terminalFolderTapEnabled: terminalFolderTapEnabled,
-            terminalFilesChipEnabled: terminalFilesChipEnabled,
-            showMissingFiles: showMissingFiles,
-            sessionArtifactCountEnabled: sessionArtifactCountEnabled,
-            visibleArtifactCount: visibleArtifactCount,
-            onArtifactFilesRequested: onArtifactFilesRequested,
-            onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
-            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
-        )
-    }
-
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
         do {
@@ -109,6 +95,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
         view.diagnosticLog = store.diagnosticLog
+        view.terminalWorkPopulation = terminalWorkPopulation
         // Stamp the shell-level id so id-scoped registry lookups (the
         // "View as Text" capture) resolve this exact terminal.
         view.hostSurfaceID = surfaceID
@@ -147,6 +134,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
+        surfaceView.terminalWorkPopulation = terminalWorkPopulation
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
@@ -196,9 +184,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
+        #if DEBUG
+        coordinator.releaseGateUIProbe?.terminalDidUnmount(surfaceID: coordinator.surfaceID)
+        #endif
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+        #if DEBUG
+        var releaseGateUIProbe: MobileReleaseGateUIProbe?
+        var releaseGateSawNonblankFrame = false
+        #endif
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -401,6 +396,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
+            #if DEBUG
+            releaseGateSawNonblankFrame = false
+            #endif
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
             outputConsumerRestartTask?.cancel()
@@ -630,6 +628,26 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
+                            if let probe = self.releaseGateUIProbe {
+                                let containsText: Bool
+                                if self.releaseGateSawNonblankFrame {
+                                    containsText = true
+                                } else {
+                                    // Full and delta frames can both carry the
+                                    // first prompt. Inspect only the visible
+                                    // viewport-sized prefix, never scrollback.
+                                    containsText = frame.rowSpans.prefix(64).contains { span in
+                                        span.text.prefix(256).contains { !$0.isWhitespace }
+                                    }
+                                    if containsText {
+                                        self.releaseGateSawNonblankFrame = true
+                                    }
+                                }
+                                probe.recordTerminalFrame(
+                                surfaceID: surfaceID,
+                                containsText: containsText
+                                )
+                            }
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
@@ -1038,6 +1056,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             activeViewportPolicy = .natural
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
+                #if DEBUG
+                releaseGateUIProbe?.terminalDidUnmount(surfaceID: surfaceID)
+                #endif
             }
         }
 

@@ -21,8 +21,6 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
-    /// Persist the machine used by Cmd+Y.
-    var setDefault: @MainActor (String) -> Void = { _ in }
     /// Persists a pin and returns the authoritative fleet order/render state.
     /// Nil means the action was not accepted (for example, after sign-out).
     var setPinned: @MainActor (String, Bool) -> [MachineSnapshot]? = { _, _ in nil }

@@ -6,10 +6,12 @@
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
 # darwin slices are downloaded, sha256-verified against the manifest, and lipo'd into
-# one universal binary. Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
+# one universal binary by default. --arch selects one slice for a native dev build.
+# Downloads are cached per commit under CMUX_TUI_CLIENT_CACHE.
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
 #     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
 # Every remote install authenticates the downloaded manifest before any value in it is
@@ -23,7 +25,9 @@
 # binary is not downloaded and is not subject to it.
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
-# a prebuilt universal binary to install instead of downloading (offline/dev builds).
+# a prebuilt binary to install instead of downloading (offline/dev builds).
+# --arch selects downloaded slices only; the local override is copied unchanged
+# and still checked with remote-probe and any required capabilities.
 set -euo pipefail
 
 usage() { sed -n '2,22p' "$0"; }
@@ -32,6 +36,7 @@ APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
 CACHE_DIR="${CMUX_TUI_CLIENT_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-client}"
 EXPECTED_COMMIT=""
+ARCH="universal"
 ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
 ALLOW_UNATTESTED=0
 REQUIRED_CAPABILITIES=()
@@ -39,6 +44,7 @@ while (( $# )); do
   case "$1" in
     --manifest-url) shift; MANIFEST_URL="${1:?--manifest-url needs a value}" ;;
     --cache-dir) shift; CACHE_DIR="${1:?--cache-dir needs a value}" ;;
+    --arch) shift; ARCH="${1:?--arch needs a value}" ;;
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
     --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
     --allow-unattested) ALLOW_UNATTESTED=1 ;;
@@ -49,6 +55,23 @@ while (( $# )); do
   esac
   shift
 done
+# uname reports the process architecture under Rosetta. Prefer the Apple
+# Silicon hardware capability, matching build-ghostty-cli-helper.sh.
+if [[ "$ARCH" == native ]]; then
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    aarch64) ARCH=arm64 ;;
+    x86_64)
+      if [[ "$(sysctl -in hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then
+        ARCH=arm64
+      fi
+      ;;
+  esac
+fi
+case "$ARCH" in
+  arm64|x86_64|universal) ;;
+  *) echo "error: unsupported cmux-tui architecture '$ARCH' (expected native, arm64, x86_64, or universal)" >&2; exit 64 ;;
+esac
 [[ -n "$APP_PATH" && -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at '${APP_PATH:-<missing>}'" >&2; exit 1; }
 [[ "$ATTEST_SIGNER_WORKFLOW" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$ ]] || {
   echo "error: --attest-signer-workflow must look like owner/repo/.github/workflows/name.yml: $ATTEST_SIGNER_WORKFLOW" >&2
@@ -149,17 +172,30 @@ fetch_slice() { # <artifact-name> -> path
   printf '%s' "$out"
 }
 
-ARM="$(fetch_slice cmux-tui-aarch64-apple-darwin)"
-X64="$(fetch_slice cmux-tui-x86_64-apple-darwin)"
-UNIVERSAL="$BUILD_DIR/cmux-tui-universal"
-if [[ ! -f "$UNIVERSAL" ]]; then
-  lipo -create "$ARM" "$X64" -output "$UNIVERSAL.tmp"
-  mv -f "$UNIVERSAL.tmp" "$UNIVERSAL"
-fi
-install -m 755 "$UNIVERSAL" "$DEST"
+case "$ARCH" in
+  arm64)
+    CLIENT="$(fetch_slice cmux-tui-aarch64-apple-darwin)"
+    VERIFY_ARCHS=(arm64)
+    ;;
+  x86_64)
+    CLIENT="$(fetch_slice cmux-tui-x86_64-apple-darwin)"
+    VERIFY_ARCHS=(x86_64)
+    ;;
+  universal)
+    ARM="$(fetch_slice cmux-tui-aarch64-apple-darwin)"
+    X64="$(fetch_slice cmux-tui-x86_64-apple-darwin)"
+    CLIENT="$BUILD_DIR/cmux-tui-universal"
+    if [[ ! -f "$CLIENT" ]]; then
+      lipo -create "$ARM" "$X64" -output "$CLIENT.tmp"
+      mv -f "$CLIENT.tmp" "$CLIENT"
+    fi
+    VERIFY_ARCHS=(arm64 x86_64)
+    ;;
+esac
+install -m 755 "$CLIENT" "$DEST"
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".
-for arch in arm64 x86_64; do lipo "$DEST" -verify_arch "$arch"; done
+for arch in "${VERIFY_ARCHS[@]}"; do lipo "$DEST" -verify_arch "$arch"; done
 verify_probe
-echo "Installed universal cmux-tui client (commit ${COMMIT:0:10}) at $DEST"
+echo "Installed $ARCH cmux-tui client (commit ${COMMIT:0:10}) at $DEST"

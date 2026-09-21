@@ -9,7 +9,7 @@ inputs:
     description: Key to save under.
     required: true
   backend:
-    description: "`warp` writes the runner provider store on Warp runners. Anything else writes the GitHub store."
+    description: "`warp` writes the runner provider store on Warp runners, `r2` writes the R2 bucket. Anything else writes the GitHub store."
     required: false
     default: ""
 
@@ -17,7 +17,7 @@ runs:
   using: composite
   steps:
     - name: Save to the GitHub store
-      if: ${{ !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
+      if: ${{ inputs.backend != 'r2' && !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
       uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ${{ inputs.path }}
@@ -28,3 +28,12 @@ runs:
       with:
         path: ${{ inputs.path }}
         key: ${{ inputs.key }}
+    # The calling step supplies the bucket credentials through its env.
+    - name: Save to the R2 store
+      if: ${{ inputs.backend == 'r2' }}
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+        CACHE_KEY: ${{ inputs.key }}
+      run: |
+        "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" save "$CACHE_PATH" "$CACHE_KEY"

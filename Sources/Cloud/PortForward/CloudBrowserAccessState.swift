@@ -25,6 +25,15 @@ final class CloudBrowserAccessState {
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
 
+    /// A Cloud document can commit before its render-blocking resources arrive.
+    /// Use the pane's backing color through that initial load for every origin;
+    /// after load WebKit resumes its ordinary document background semantics.
+    var isPreparingDocument: Bool { model != nil && !loaded && failureMessage == nil }
+
+    var isDesktop: Bool {
+        model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
+    }
+
     var failureMessage: String? {
         if let error = desktopFailure ?? error ?? unavailable { return error }
         if case .failed(let message)? = model?.phase { return message }
@@ -40,8 +49,7 @@ final class CloudBrowserAccessState {
     /// noVNC's document may finish loading before its RFB/WebSocket fails.
     /// Only the current, committed Cloud Desktop document may report its state.
     func desktopConnectionDidChange(url: URL, isConnected: Bool) {
-        guard model?.target.port == CmuxTuiSnapshotParser.desktopPort,
-              remoteURL?.path == "/vnc.html", hasCommittedNavigation,
+        guard isDesktop, hasCommittedNavigation,
               let navigationURL, url == navigationURL else { return }
         if isConnected {
             desktopFailure = nil
@@ -61,6 +69,14 @@ final class CloudBrowserAccessState {
         parts.port = remoteURL.port
         parts.scheme = remoteURL.scheme
         return parts.url ?? remoteURL
+    }
+
+    /// A bootstrap document belongs to WebKit, not to the user's navigation.
+    /// Keep the requested Cloud origin until a real service document commits.
+    func displayURL(_ observedURL: URL?) -> URL? {
+        guard let remoteURL, !hasCommittedNavigation,
+              observedURL == nil || observedURL?.scheme == "about" else { return nil }
+        return remoteURL
     }
 
     func configure(model: CloudPortAccessModel, url: URL) {

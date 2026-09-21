@@ -31,6 +31,13 @@ if install_client --require-capability wireguard-hub --require-capability missin
 fi
 grep -q 'required cmux-tui capability is missing: missing' "$TEST_DIR/missing.log"
 echo "PASS: client installation with zero, one, and multiple required capabilities"
+# Architecture selection applies only to downloads: the explicit local fixture
+# remains authoritative and is still capability-probed, even though it is a script.
+for arch in arm64 x86_64 universal; do
+  install_client --arch "$arch" --require-capability wireguard-hub
+  cmp "$CLIENT" "$APP/Contents/Resources/bin/cmux-tui"
+done
+echo "PASS: local override stays unchanged for each architecture selection"
 
 # --- Manifest attestation gate ------------------------------------------------
 # The download path is exercised against fake curl/gh/lipo tools on PATH: curl
@@ -40,6 +47,7 @@ echo "PASS: client installation with zero, one, and multiple required capabiliti
 FAKEBIN="$TEST_DIR/bin"
 SERVE="$TEST_DIR/serve"
 EVENTS="$TEST_DIR/events.log"
+export EVENTS
 mkdir -p "$FAKEBIN" "$SERVE"
 COMMIT="$(printf 'a%.0s' $(seq 1 40))"
 SIGNER="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
@@ -77,6 +85,8 @@ exit "\${FAKE_GH_EXIT:-0}"
 SH
 cat > "$FAKEBIN/lipo" <<'SH'
 #!/bin/bash
+printf 'lipo %s\n' "$*" >> "$EVENTS"
+[ "${FAKE_LIPO_EXIT:-0}" = 0 ] || exit "$FAKE_LIPO_EXIT"
 if [ "$1" = -create ]; then
   out=""; first="$2"
   while [ $# -gt 0 ]; do [ "$1" = -output ] && out="$2"; shift; done
@@ -152,3 +162,114 @@ if grep -q '^gh ' "$EVENTS"; then
   exit 1
 fi
 echo "PASS: --allow-unattested is the only unverified remote install path"
+
+# Architecture selection is opt-in: the existing default still fetches and
+# verifies both slices, while a native install never requests the other slice.
+install_remote "$TEST_DIR/Universal.app" > "$TEST_DIR/universal.log" 2>&1
+grep -q 'curl .*cmux-tui-aarch64-apple-darwin$' "$EVENTS"
+grep -q 'curl .*cmux-tui-x86_64-apple-darwin$' "$EVENTS"
+grep -q '^lipo -create ' "$EVENTS"
+grep -q '^lipo .* -verify_arch arm64$' "$EVENTS"
+grep -q '^lipo .* -verify_arch x86_64$' "$EVENTS"
+echo "PASS: remote default remains universal"
+install_remote "$TEST_DIR/ExplicitUniversal.app" --arch universal > "$TEST_DIR/explicit-universal.log" 2>&1
+grep -q 'curl .*cmux-tui-aarch64-apple-darwin$' "$EVENTS"
+grep -q 'curl .*cmux-tui-x86_64-apple-darwin$' "$EVENTS"
+grep -q '^lipo -create ' "$EVENTS"
+echo "PASS: explicit universal mode fetches both slices"
+
+
+# Make slices distinct so copying the wrong slice cannot pass the comparison.
+printf '\n# Intel fixture\n' >> "$SERVE/cmux-tui-x86_64-apple-darwin"
+X64_SHA="$(slice_sha "$SERVE/cmux-tui-x86_64-apple-darwin")"
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA"}}
+JSON
+for arch in arm64 x86_64; do
+  if [[ "$arch" == arm64 ]]; then slice=aarch64; other=x86_64; else slice=x86_64; other=aarch64; fi
+  native_app="$TEST_DIR/Native-$arch.app"
+  install_remote "$native_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/native-$arch.log" 2>&1
+  cmp "$SERVE/cmux-tui-$slice-apple-darwin" "$native_app/Contents/Resources/bin/cmux-tui"
+  grep -q "^gh attestation verify .* --source-digest $COMMIT\$" "$EVENTS"
+  grep -q "curl .*cmux-tui-$slice-apple-darwin\$" "$EVENTS"
+  [[ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" == "gh attestation verify" ]]
+  [[ "$(sed -n '3p' "$EVENTS")" == "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-$slice-apple-darwin" ]]
+
+  if grep -q "curl .*cmux-tui-$other-apple-darwin\$" "$EVENTS"; then
+    echo "FAIL: $arch fetched the unrequested slice" >&2; exit 1
+  fi
+  if grep -q '^lipo -create ' "$EVENTS"; then
+    echo "FAIL: $arch unnecessarily created a universal binary" >&2; exit 1
+  fi
+  grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
+  echo "PASS: $arch installs only its attested, verified slice"
+
+  if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
+    echo "FAIL: native install skipped manifest attestation" >&2; exit 1
+  fi
+  if grep -q 'curl .*apple-darwin$' "$EVENTS"; then
+    echo "FAIL: native install fetched a slice before attestation passed" >&2; exit 1
+  fi
+  if FAKE_LIPO_EXIT=1 install_remote "$TEST_DIR/WrongArch-$arch.app" --arch "$arch" > "$TEST_DIR/wrong-arch.log" 2>&1; then
+    echo "FAIL: native install ignored architecture verification failure" >&2; exit 1
+  fi
+  if install_remote "$TEST_DIR/MissingCapability-$arch.app" --arch "$arch" --require-capability missing > "$TEST_DIR/native-capability.log" 2>&1; then
+    echo "FAIL: native install skipped capability verification" >&2; exit 1
+  fi
+  grep -q 'required cmux-tui capability is missing: missing' "$TEST_DIR/native-capability.log"
+  # The selected slice must match the authenticated manifest even in native mode.
+  cp "$SERVE/cmux-tui-$slice-apple-darwin" "$TEST_DIR/original-slice"
+  printf '\n# corrupt bytes\n' >> "$SERVE/cmux-tui-$slice-apple-darwin"
+  if install_remote "$TEST_DIR/BadDigest-$arch.app" --arch "$arch" > "$TEST_DIR/bad-digest.log" 2>&1; then
+    echo "FAIL: native install ignored the selected slice digest" >&2; exit 1
+  fi
+  grep -q "sha256 mismatch for cmux-tui-$slice-apple-darwin" "$TEST_DIR/bad-digest.log"
+  [[ ! -e "$TEST_DIR/BadDigest-$arch.app/Contents/Resources/bin/cmux-tui" ]]
+  mv "$TEST_DIR/original-slice" "$SERVE/cmux-tui-$slice-apple-darwin"
+  echo "PASS: $arch keeps attestation, architecture, capability and digest checks"
+done
+if install_remote "$TEST_DIR/UnknownArch.app" --arch sparc > "$TEST_DIR/unknown-arch.log" 2>&1; then
+  echo "FAIL: accepted unsupported architecture" >&2; exit 1
+fi
+grep -q 'unsupported cmux-tui architecture' "$TEST_DIR/unknown-arch.log"
+[[ ! -s "$EVENTS" ]]
+echo "PASS: unsupported architecture fails before network access"
+
+# Native means the hardware architecture, including an Intel process translated
+# by Rosetta on Apple Silicon. Exercise through the actual installer entry point.
+cat > "$FAKEBIN/uname" <<'SH'
+#!/bin/bash
+[[ "$1" == -m ]] || exit 64
+printf '%s\n' "${FAKE_HOST_ARCH:-arm64}"
+SH
+cat > "$FAKEBIN/sysctl" <<'SH'
+#!/bin/bash
+[[ "$*" == '-in hw.optional.arm64' ]] || exit 64
+[[ "${FAKE_SYSCTL_EXIT:-0}" == 0 ]] || exit "$FAKE_SYSCTL_EXIT"
+printf '%s\n' "${FAKE_ARM_CAPABLE:-0}"
+SH
+chmod +x "$FAKEBIN/uname" "$FAKEBIN/sysctl"
+for scenario in apple-silicon intel rosetta sysctl-unavailable aarch64; do
+  host=arm64; capable=1; sysctl_exit=0; wanted=aarch64; rejected=x86_64
+  case "$scenario" in
+    intel) host=x86_64; capable=0; wanted=x86_64; rejected=aarch64 ;;
+    rosetta) host=x86_64 ;;
+    sysctl-unavailable) host=x86_64; capable=0; sysctl_exit=1; wanted=x86_64; rejected=aarch64 ;;
+    aarch64) host=aarch64 ;;
+  esac
+  FAKE_HOST_ARCH="$host" FAKE_ARM_CAPABLE="$capable" FAKE_SYSCTL_EXIT="$sysctl_exit" \
+    install_remote "$TEST_DIR/NativeHost-$scenario.app" --arch native \
+    --require-capability wireguard-hub > "$TEST_DIR/native-host-$scenario.log" 2>&1
+  cmp "$SERVE/cmux-tui-$wanted-apple-darwin" "$TEST_DIR/NativeHost-$scenario.app/Contents/Resources/bin/cmux-tui"
+  grep -q "curl .*cmux-tui-$wanted-apple-darwin\$" "$EVENTS"
+  if grep -q "curl .*cmux-tui-$rejected-apple-darwin\$" "$EVENTS"; then
+    echo "FAIL: native $scenario selected the wrong client slice" >&2; exit 1
+  fi
+  echo "PASS: native $scenario selects $wanted"
+done
+if FAKE_HOST_ARCH=unsupported install_remote "$TEST_DIR/UnknownNative.app" --arch native > "$TEST_DIR/unknown-native.log" 2>&1; then
+  echo "FAIL: accepted an unsupported native host architecture" >&2; exit 1
+fi
+[[ ! -s "$EVENTS" ]]
+echo "PASS: unsupported native host fails before network access"

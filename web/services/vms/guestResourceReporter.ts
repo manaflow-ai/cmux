@@ -96,5 +96,7 @@ if ! cmp -s "$cmux_stats_tmp/script" /usr/local/lib/cmux/resource-stats.py || ! 
     systemctl daemon-reload
     systemctl restart cmux-resource-stats.service
 fi
-systemctl enable --now cmux-resource-stats.service >/dev/null 2>&1`;
+if ! systemctl is-enabled --quiet cmux-resource-stats.service || ! systemctl is-active --quiet cmux-resource-stats.service; then
+    systemctl enable --now cmux-resource-stats.service >/dev/null 2>&1
+fi`;
 }

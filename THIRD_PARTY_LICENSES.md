@@ -261,24 +261,6 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) 2014, John MacFarlane; cmark-gfm portions Copyright (c) 2017, GitHub, Inc.
 - **Source:** https://github.com/swiftlang/swift-cmark
 
-### XcodeProj
-
-- **License:** MIT License
-- **Copyright:** Copyright (c) from 2018 Pedro Piñera Buendía and contributors
-- **Source:** https://github.com/tuist/XcodeProj
-
-### AEXML
-
-- **License:** MIT License
-- **Copyright:** Copyright (c) 2014-2024 Marko Tadić
-- **Source:** https://github.com/tadija/AEXML
-
-### PathKit
-
-- **License:** BSD 2-Clause License
-- **Copyright:** Copyright (c) 2014, Kyle Fuller
-- **Source:** https://github.com/manaflow-ai/PathKit/tree/1.0.2
-
 ### iroh-ffi
 
 - **License:** MIT License or Apache License 2.0 (dual-licensed; cmux elects MIT)

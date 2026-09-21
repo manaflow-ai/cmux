@@ -23,6 +23,57 @@ missing variable. Pull requests from forks never see repository variables, so
 the fallback is where they always run: it must be a Blacksmith label, never the
 paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that.
 
+## Persistent compile-admission pilot
+
+`macos-compile-admission` has one narrow owned-Mac producer path for trusted,
+same-repository organization-member pull requests. The required
+`macOS compile admission` job remains on the ordinary paid macOS runner and
+remains the check, log, validation, and artifact-publication owner. It may
+consume a compile product from `.github/workflows/persistent-macos-compile.yml`
+after revalidating the Git revision/tree, Xcode, SDK, architecture,
+`Package.resolved`, submodules, Glaeda lineage evidence, warning budget, and
+early CLI probes. Any dispatch, queue, execution, download, or validation miss
+falls through to the existing hosted compile in that same required job.
+The required hosted macOS job is allocated without waiting for the persistent
+producer. It restores any exact reusable product first, then observes the
+producer with read-only Actions permission before deciding whether to consume
+the persistent artifact or compile hosted. That observation is nonblocking:
+the producer is consumed only when its compile is already complete at the
+decision point; an absent, queued, or running producer falls through to hosted
+compilation immediately. The PR workflow never receives
+Actions write authority: `changes` publishes a small exact-source request
+artifact, and the default-branch `persistent-macos-router.yml` workflow
+validates it against the live PR and owns producer dispatch/cancellation.
+
+The producer is `workflow_dispatch`-only and requires the
+`cmux-persistent-compile` runner group plus the dedicated
+`cmux-persistent-macos-compile` label. Before rollout, the organization-owned
+runner group must allow this public repository and restrict workflow access to
+`manaflow-ai/cmux/.github/workflows/persistent-macos-compile.yml@refs/heads/main`.
+That group policy is the external scheduling boundary: branch-modified workflow
+copies cannot acquire the owned Mac. The compile job has empty GitHub-token
+permissions, performs public Git fetches instead of `actions/checkout`, and
+receives no repository secrets. Glaeda owns DerivedData, SwiftPM,
+module-cache, and Xcode compilation-cache persistence; every run still resolves
+packages and performs exact source/toolchain admission.
+
+Rollout is reversible through two repository variables:
+
+- `CI_PERSISTENT_MAC_COMPILE=off` (or unset): hosted path only;
+- `CI_PERSISTENT_MAC_COMPILE=pilot` with
+  `CI_PERSISTENT_MAC_COMPILE_COHORT=13198,feature/name`: only matching trusted
+  PR numbers or head branches;
+- `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
+  organization-member PR.
+
+Queue and execution ceilings may be set with
+`CI_PERSISTENT_MAC_QUEUE_SECONDS` and
+`CI_PERSISTENT_MAC_EXECUTION_SECONDS`; defaults are 90 and 480 seconds.
+Admission publishes timing evidence for source preparation, package readiness,
+compile, warning validation, product publication, total wall time, runner time,
+and the `hot` / `partially-warm` / `cold-reset` / `hosted fallback`
+classification.
+
 ## Tart isolation and capacity
 
 Each GitHub runner identity is sealed into a Tart template. A job runs in a
@@ -41,6 +92,38 @@ Do not route jobs to the physical mini runner records. The supported
 self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
 that the resolved runner name starts with `tart-cmux-` and that the guest has
 the immutable `/etc/cmux-tart-ci` marker.
+
+## Shared physical-host interoperability
+
+The current required-CI policy continues to use isolated Tart guests or hosted
+providers. Any future path that executes directly on shared CMUX-owned hardware
+must preserve a separate caller identity, semantic workload request, and
+machine-local physical lease.
+
+Examples of callers that may share a host include GitHub Actions, `cmux-ci`,
+developer/build tooling, direct agents, operator commands, and reviewed fleet
+schedulers. They keep their own workflow state. The host-side execution adapter
+owns fresh admission, resource ownership, bounded execution, and settlement.
+
+A scheduler may select a candidate node. That selection stays advisory until
+the node rechecks current drain/pressure/resource state and acquires its local
+lease. When the CMUX controller already holds a machine or resource reservation,
+the host adapter validates that reservation's owner, scope, generation, and
+expiry, then binds local execution to it. It never creates an unrelated
+competing reservation for the same resource.
+
+Scarce local claims include native build lanes, heavy Linux slots,
+project-native locks, artifact-publisher slots, and resident workspaces.
+Participating adapters use one collision boundary for those claims. Runner
+liveness, process names, and apparent idleness are observation only.
+
+Execution receipts correlate the caller class and external request reference
+with the semantic workload, opaque node identity/class, local lease generation,
+result, and cleanup/settlement. Caller-private workflow state remains in the
+caller.
+
+Hosted/isolated fallback remains available when the shared host refuses local
+admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
@@ -107,17 +190,34 @@ The fleet-label guard allows Tart labels only as exact manual canary choices.
 Required jobs continue to reference repository variables, so cutover and
 break-glass remain configuration changes instead of workflow edits.
 
-## No direct physical-host runners
+## CMUX-owned machine enrollment
 
-We do not route required CI directly to the persistent self-hosted mac-mini
-fleet (`cmux-mac-mini`, `studio1`, `mac4-cmuxvnc*`,
-`cmux-austin-mini-*`). Those minis carry labels that collide with cloud labels
-(notably `macos-26` and `warp-macos-26-arm64-6x`), and GitHub prefers a matching
-self-hosted runner, so a required job could silently land on a mini that cannot
-foreground a GUI app. It stays `Running Background`, breaking key-window,
-pasteboard, IME, and XCUITest behavior. Every macOS fallback therefore routes
-to Blacksmith cloud, and
-`check_no_self_hosted_fleet_runners` in `tests/test_ci_self_hosted_guard.sh`
-fails CI if a required workflow hardcodes a fleet label. Repository variables
-may point to the isolated `tart-*` pool. Legacy physical runner services remain
-disabled and their GitHub records remain offline for rollback.
+Persistent CMUX hardware can be enrolled for repository-owned semantic workloads without becoming a direct required-CI runner. See [fleet-enrollment.md](fleet-enrollment.md).
+
+The first reviewed role bindings are:
+
+- `cmux_macos_native_build -> cmux.macos.dev-check@1`
+- `cmux_linux_ci -> cmux.ci.guard@1`
+
+CMUX owns those workload profiles and their pass/fail semantics through `scripts/ci/cmux_workload_profile.py`. Glaeda owns the machine enrollment record, candidate eligibility, local admission, and acceptance receipt that binds the exact canonical `cmux-workload-result/v1` bytes.
+
+Enrollment does not register a GitHub runner or change repository runner variables. Required CI continues to use the policy above until a separately reviewed CI routing change promotes a fleet role.
+
+## Direct physical-host runner boundary
+
+Required GUI, test, Release, signing, and ordinary macOS jobs never route to
+the persistent self-hosted mac-mini fleet (`cmux-mac-mini`, `studio1`,
+`mac4-cmuxvnc*`, `cmux-austin-mini-*`). Those records can collide with cloud
+labels and lack the isolated foreground GUI guarantees expected by runtime
+tests.
+
+The sole direct-host exception is the dispatch-only
+`Persistent Apple compile` producer described above, selected by its dedicated
+workflow-restricted `cmux-persistent-compile` runner group and
+`cmux-persistent-macos-compile` label. It performs compile-only Debug work,
+carries no repository secrets, and grants its hot state zero result authority.
+Every required macOS fallback still routes to the paid hosted path.
+`check_no_self_hosted_fleet_runners` in
+`tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects
+any second required-job or generic fleet route. Repository variables may keep
+pointing at the isolated `tart-*` pool for their existing jobs.

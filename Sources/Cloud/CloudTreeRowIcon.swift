@@ -26,7 +26,7 @@ struct CloudTreeRowIcon: View {
                 .foregroundStyle(tint.opacity(dimmed ? 0.45 : 0.85))
                 .frame(width: scaled(style.iconSlot), alignment: .center)
         case .chips:
-            let side = scaled(style.iconSlot - 4)
+            let side = scaled(max(0, style.iconSlot - 4))
             RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
                 .fill(tint.opacity(dimmed ? 0.4 : 0.9))
                 .frame(width: side, height: side)
