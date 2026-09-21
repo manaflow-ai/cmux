@@ -4,21 +4,16 @@ import Foundation
 /// Owns refresh tasks after a timeout so a cancellation-ignoring transport
 /// cannot wedge the empty-state control or accumulate unbounded work.
 actor MobileWorkspaceRetryCoordinator {
-    struct Attempt: Sendable {
-        let id: UUID
-        let task: Task<Void, Never>
-    }
-
     private static let maximumAbandonedAttempts = 3
     private var activeAttempt: Attempt?
     private var abandonedAttempts: [UUID: Task<Void, Never>] = [:]
 
-    func start(_ operation: @escaping @Sendable () async -> Void) -> Attempt? {
+    func start(_ operation: @escaping @Sendable () async -> Void) -> MobileWorkspaceRetryAttempt? {
         guard activeAttempt == nil,
               abandonedAttempts.count < Self.maximumAbandonedAttempts else {
             return nil
         }
-        let attempt = Attempt(id: UUID(), task: Task { await operation() })
+        let attempt = MobileWorkspaceRetryAttempt(id: UUID(), task: Task { await operation() })
         activeAttempt = attempt
         Task { [weak self] in
             await attempt.task.value
