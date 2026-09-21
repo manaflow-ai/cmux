@@ -48,6 +48,35 @@ def args(**overrides):
 
 
 class RoutingTests(unittest.TestCase):
+    def test_retry_wait_retries_with_bounded_backoff_without_fixed_sleep(self):
+        current = [0.0]
+        waits = []
+        probes = []
+
+        def clock():
+            return current[0]
+
+        def wait(delay):
+            waits.append(delay)
+            current[0] += delay
+            return False
+
+        waiter = route.RetryWait(clock=clock, wait=wait)
+
+        def probe():
+            probes.append(current[0])
+            return (len(probes) == 3, "ready" if len(probes) == 3 else None)
+
+        self.assertEqual(waiter.until(10.0, probe), "ready")
+        self.assertEqual(len(probes), 3)
+        self.assertEqual(waits, [0.5, 1.0])
+
+    def test_retry_wait_is_cancellation_aware(self):
+        waiter = route.RetryWait()
+        waiter.cancel()
+        with self.assertRaises(route.RetryCancelled):
+            waiter.until(route.now() + 10, lambda: (False, None))
+
     def test_only_trusted_same_repository_members_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
         self.assertEqual(
