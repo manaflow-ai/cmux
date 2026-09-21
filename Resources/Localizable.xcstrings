@@ -184,55 +184,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr could not resolve the pull request with gh%@"
+            "value": "cmux pr could not resolve the pull request with gh; run gh auth status and try again"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr konnte den Pull Request mit gh%@ nicht auflösen"
+            "value": "cmux pr konnte den Pull Request mit gh nicht auflösen; führen Sie gh auth status aus und versuchen Sie es erneut"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr n’a pas pu résoudre la pull request avec gh%@"
+            "value": "cmux pr n’a pas pu résoudre la pull request avec gh ; exécutez gh auth status puis réessayez"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux pr العثور على طلب السحب باستخدام gh%@"
+            "value": "تعذر على cmux pr العثور على طلب السحب باستخدام gh؛ شغّل gh auth status ثم حاول مرة أخرى"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr no pudo resolver la pull request con gh%@"
+            "value": "cmux pr no pudo resolver la pull request con gh; ejecuta gh auth status y vuelve a intentarlo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 無法使用 gh 解析拉取請求%@"
+            "value": "cmux pr 無法使用 gh 解析拉取請求；請執行 gh auth status 後再試"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 无法使用 gh 解析拉取请求%@"
+            "value": "cmux pr 无法使用 gh 解析拉取请求；请运行 gh auth status 后重试"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr에서 gh로 풀 리퀘스트를 확인할 수 없습니다%@"
+            "value": "cmux pr에서 gh로 풀 리퀘스트를 확인할 수 없습니다. gh auth status를 실행한 후 다시 시도하세요"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr は gh でプルリクエストを解決できませんでした%@"
+            "value": "cmux pr は gh でプルリクエストを解決できませんでした。gh auth status を実行して再試行してください"
           }
         }
       }

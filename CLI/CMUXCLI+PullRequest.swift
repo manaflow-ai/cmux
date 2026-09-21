@@ -187,12 +187,9 @@ extension CMUXCLI {
             stdinText: "", currentDirectoryPath: directory, timeout: 15
         )
         guard !result.timedOut, result.status == 0 else {
-            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw CLIError(message: String.localizedStringWithFormat(
-                CMUXDiffViewerLocalization.string(
-                    "cli.pr.error.lookupFailed",
-                    defaultValue: "cmux pr could not resolve the pull request with gh%@"
-                ), ": \(detail.isEmpty ? "gh auth status" : detail)"
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.pr.error.lookupFailed",
+                defaultValue: "cmux pr could not resolve the pull request with gh; run gh auth status and try again"
             ))
         }
         guard let data = result.stdout.data(using: .utf8),

@@ -5,7 +5,7 @@ import Testing
 extension CLICallerWorkspaceDefaultTests {
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "explicit", "tty", "worktree", "ambiguous", "mismatch", "invalid", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "explicit", "tty", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -33,6 +33,10 @@ extension CLICallerWorkspaceDefaultTests {
         let gh = bin.appendingPathComponent("gh")
         try #"""
         #!/bin/sh
+        if [ "$GH_FAILURE" = 1 ]; then
+          echo 'provider secret: do not expose this' >&2
+          exit 9
+        fi
         case "$1 $2" in
           'repo view') echo '{"nameWithOwner":"owner/repo","url":"https://github.com/owner/repo"}' ;;
           'pr view')
@@ -78,6 +82,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
         case "invalid": args[1] = "https://example.com/pull/123"
+        case "gh-failure": environment["GH_FAILURE"] = "1"
         case "clear": args[1] = "clear"
         case "blank": args += ["--workspace", ""]
         case "option": args += ["--typo"]
@@ -91,10 +96,17 @@ extension CLICallerWorkspaceDefaultTests {
         #expect(!result.timedOut)
         let lines = state.linesSnapshot()
         let mutations = lines.filter { $0.contains("workspace_pr") }
-        let shouldFail = ["ambiguous", "mismatch", "invalid", "blank", "option"].contains(scenario)
+        let shouldFail = ["ambiguous", "mismatch", "invalid", "gh-failure", "blank", "option"].contains(scenario)
         #expect((result.status != 0) == shouldFail, Comment(rawValue: result.stderr))
         #expect(!lines.contains { $0.contains("workspace.current") || $0.contains("window.focus") })
-        if shouldFail { #expect(mutations.isEmpty); return }
+        if shouldFail {
+            #expect(mutations.isEmpty)
+            if scenario == "gh-failure" {
+                #expect(!result.stderr.contains("provider secret"))
+                #expect(result.stderr.contains("gh auth status"))
+            }
+            return
+        }
         let mutation = try #require(mutations.first)
         #expect(mutations.count == 1)
         let expected = ["explicit", "tty", "worktree"].contains(scenario) ? Self.otherWorkspaceId : Self.callerWorkspaceId

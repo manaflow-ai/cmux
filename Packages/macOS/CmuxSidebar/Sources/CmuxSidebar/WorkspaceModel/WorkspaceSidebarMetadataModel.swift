@@ -71,7 +71,10 @@ public final class WorkspaceSidebarMetadataModel {
     /// independent of watcher-owned panel state so branch refreshes cannot
     /// erase a deliberate script-to-sidebar association.
     public var manualPullRequest: SidebarPullRequestState? {
-        didSet { manualPullRequestSubject.send(manualPullRequest) }
+        // Reuse the existing sidebar snapshot pulse rather than introducing a
+        // second observation stream for one field. The snapshot builder reads
+        // this value when that pulse arrives.
+        didSet { statusEntriesSubject.send(statusEntries) }
     }
 
     /// Per-panel pull-request state keyed by panel id (legacy
@@ -105,10 +108,6 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
     @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
-    // Bridges the manual value into the existing Combine sidebar snapshot pipeline.
-    // Replacing that pipeline is outside this explicit-handoff change.
-    @ObservationIgnored
-    private lazy var manualPullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(manualPullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
     @ObservationIgnored
@@ -162,12 +161,6 @@ public final class WorkspaceSidebarMetadataModel {
     /// every change (replaces the legacy `Workspace.$pullRequest`).
     public var pullRequestPublisher: AnyPublisher<SidebarPullRequestState?, Never> {
         pullRequestSubject.eraseToAnyPublisher()
-    }
-
-    /// Emits the manually attached pull request on subscription and whenever
-    /// a CLI handoff replaces or clears it.
-    public var manualPullRequestPublisher: AnyPublisher<SidebarPullRequestState?, Never> {
-        manualPullRequestSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current per-panel pull-request states on subscription, then on
