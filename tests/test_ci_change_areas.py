@@ -249,6 +249,26 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() -> None:
+    for path in (
+        "scripts/ci/app_host_test_products.py",
+        "scripts/ci/compile-app-host-test-product.sh",
+        "scripts/ci/product_input_identity.py",
+        "scripts/ci/restore-app-host-test-product.sh",
+        "scripts/ci/reuse_app_host_products.py",
+        "scripts/ci/sanitize-xcode-source-packages-cache.py",
+    ):
+        actual = module.classify_files([path])
+        assert actual.macos is True, (path, actual)
+        assert actual.web is False, (path, actual)
+        assert actual.agent_session_web is False, (path, actual)
+        assert actual.release_build is False, (path, actual)
+
+
+def test_unknown_ci_helper_still_fails_open_to_every_area() -> None:
+    assert module.classify_files(["scripts/ci/future_unknown_helper.py"]) == module.ChangeAreas.all()
+
+
 def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
     for path in (
         ".github/workflows/ci-guards.yml",
@@ -810,6 +830,20 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
 
     assert "CI router changed; running all CI areas." not in result.stdout
     assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+
+    for path in (
+        "scripts/ci/app_host_test_products.py",
+        "scripts/ci/product_input_identity.py",
+        "scripts/ci/reuse_app_host_products.py",
+    ):
+        result, outputs = run_detect_step_for_paths([path])
+        assert "CI router changed; running all CI areas." not in result.stdout, path
+        assert outputs == [
+            "macos=true",
+            "web=false",
+            "agent_session_web=false",
+            "release_build=false",
+        ], path
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
