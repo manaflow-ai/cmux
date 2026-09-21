@@ -327,6 +327,9 @@ class GhosttyApp {
             SessionScrollbackReplayStore.environmentKey,
         globalFontMagnificationPercent: {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        },
+        terminalWork: TerminalSurfaceWorkDiagnostics(log: MobileHostDiagnostics.log) { workspaceID in
+            TerminalGeometryDiagnostics().context(workspaceID: workspaceID, transition: .unknown)
         }
     )
 
@@ -9536,7 +9539,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
-    private var hasVisibilityRevealRefreshScheduled = false
+    var hasVisibilityRevealRefreshScheduled = false
+    var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
+    /// Active reconciliation origin; asynchronous refreshes capture it before return.
+    var terminalWorkTransition: TerminalWorkContext.Transition = .unknown
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -10267,24 +10273,13 @@ final class GhosttySurfaceScrollView: NSView {
         return synchronizeGeometryAndContent()
     }
 
-    /// Request an immediate terminal redraw after geometry updates so stale IOSurface
-    /// contents do not remain stretched during live resize churn.
-    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        // Portal reparent/reveal can settle geometry a tick before AppKit finishes
-        // realizing the terminal subtree's backing layer state. Flush display for the
-        // hosted subtree first so forceRefresh does not race a still-unrealized layer.
-        layoutSubtreeIfNeeded()
-        surfaceView.layoutSubtreeIfNeeded()
-        displayIfNeeded()
-        surfaceView.displayIfNeeded()
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
-    }
-
     @discardableResult
     private func synchronizeGeometryAndContent(
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
+        let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId, transition: TerminalGeometryDiagnostics().resizeTransition(in: window))
+        defer { work.end() }
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -11411,19 +11406,8 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            scheduleVisibilityRevealRefresh()
+            scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition)
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
-        }
-    }
-
-    private func scheduleVisibilityRevealRefresh() {
-        guard !hasVisibilityRevealRefreshScheduled else { return }
-        hasVisibilityRevealRefreshScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.hasVisibilityRevealRefreshScheduled = false
-            guard self.surfaceView.isVisibleInUI else { return }
-            self.refreshSurfaceNow(reason: "setVisibleInUI.deferred")
         }
     }
 
