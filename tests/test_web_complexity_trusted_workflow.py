@@ -12,6 +12,7 @@ form; an exact step cannot be weakened without this test changing with it.
 
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 
@@ -57,6 +58,108 @@ def validate_metadata_routing(document: dict) -> None:
         "opened", "edited", "reopened", "synchronize", "ready_for_review"
     ], "source changes and base retargets must still validate"
     assert "merge_group" in events and "push" in events
+
+
+
+def validate_scope_python(scope_run: str) -> None:
+    """Validate the executable Python used to select complexity work."""
+    marker = "python3 - <<'PY'\n"
+    assert scope_run.count(marker) == 1, "scope step must contain exactly one Python heredoc"
+    source = scope_run.split(marker, 1)[1]
+    assert source.endswith("\nPY"), "scope Python heredoc terminator changed"
+    tree = ast.parse(source[:-3])
+
+    assignments = {
+        target.id: node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    assert ast.literal_eval(assignments["policy"]) == {
+        b".github/workflows/web-complexity-trusted.yml",
+        b"web/.oxlintrc.json",
+        b"web/bun.lock",
+        b"web/package.json",
+        b"web/oxlint-complexity-baseline.txt",
+        b"web/scripts/check-complexity.mjs",
+    }, "trusted complexity policy inputs changed"
+    assert ast.literal_eval(assignments["excluded"]) == (
+        b".next/",
+        b"coverage/",
+        b"db/migrations/",
+        b"e2e/",
+        b"node_modules/",
+        b"out/",
+        b"public/",
+        b"scripts/",
+        b"tests/",
+        b"tools/",
+    ), "trusted complexity exclusions changed"
+
+    changed = assignments["changed"]
+    assert (
+        isinstance(changed, ast.Call)
+        and isinstance(changed.func, ast.Attribute)
+        and changed.func.attr == "split"
+        and len(changed.args) == 1
+        and isinstance(changed.args[0], ast.Constant)
+        and changed.args[0].value == b"\0"
+    ), "changed paths must split NUL-delimited git output"
+    check_output = changed.func.value
+    assert (
+        isinstance(check_output, ast.Call)
+        and isinstance(check_output.func, ast.Attribute)
+        and isinstance(check_output.func.value, ast.Name)
+        and check_output.func.value.id == "subprocess"
+        and check_output.func.attr == "check_output"
+        and len(check_output.args) == 1
+        and not check_output.keywords
+    ), "changed paths must come directly from subprocess.check_output"
+    argv = check_output.args[0]
+    assert isinstance(argv, ast.List), "git diff argv must be a literal list"
+    actual_argv = [
+        ("name", item.id) if isinstance(item, ast.Name)
+        else ("const", item.value) if isinstance(item, ast.Constant)
+        else ("other", ast.dump(item))
+        for item in argv.elts
+    ]
+    assert actual_argv == [
+        ("const", "git"),
+        ("const", "-C"),
+        ("name", "root"),
+        ("const", "diff"),
+        ("const", "--no-renames"),
+        ("const", "--name-only"),
+        ("const", "-z"),
+        ("name", "base"),
+        ("name", "head"),
+        ("const", "--"),
+    ], "trusted complexity git diff command changed"
+
+    if_tests = [node.test for node in ast.walk(tree) if isinstance(node, ast.If)]
+    assert any(
+        isinstance(test, ast.Compare)
+        and isinstance(test.left, ast.Name)
+        and test.left.id == "path"
+        and any(isinstance(op, ast.In) for op in test.ops)
+        and any(isinstance(value, ast.Name) and value.id == "policy" for value in test.comparators)
+        for test in if_tests
+    ), "policy must be used by an executable path filter"
+    assert any(
+        any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "web_path"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "excluded"
+            for node in ast.walk(test)
+        )
+        for test in if_tests
+    ), "excluded prefixes must be used by an executable path filter"
 
 
 EXPECTED_CHECKS = [
@@ -128,17 +231,11 @@ def main() -> int:
 
     scope = steps[scope_index]
     scope_run = str(scope.get("run", ""))
-    for required in (
-        'git", "-C", root, "diff", "--no-renames", "--name-only", "-z"',
-        'b".github/workflows/web-complexity-trusted.yml"',
-        'b"web/scripts/check-complexity.mjs"',
-        'b"web/oxlint-complexity-baseline.txt"',
-        'b"tests/"',
-        'b"scripts/"',
-    ):
-        if required not in scope_run:
-            print(f"FAIL: trusted complexity scope is missing {required}")
-            return 1
+    try:
+        validate_scope_python(scope_run)
+    except (AssertionError, KeyError, SyntaxError, ValueError) as error:
+        print(f"FAIL: trusted complexity scope contract changed: {error}")
+        return 1
 
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
