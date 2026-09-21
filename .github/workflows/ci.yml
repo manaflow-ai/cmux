@@ -2903,11 +2903,41 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
-      - name: Reuse compatible compiled products in merge queue
+      - name: Reuse exact compatible compiled products
         id: reuse-products
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      - name: Record compiled-product reuse metrics
+        if: always()
+        env:
+          REUSE_HIT: ${{ steps.reuse-products.outputs.hit }}
+          REUSE_REASON: ${{ steps.reuse-products.outputs.reason }}
+          REUSE_MISS_REASONS: ${{ steps.reuse-products.outputs.miss_reasons }}
+          REUSE_COMPILE_SECONDS: ${{ steps.reuse-products.outputs.compile_seconds_avoided }}
+          REUSE_LOOKUP_SECONDS: ${{ steps.reuse-products.outputs.lookup_seconds }}
+          REUSE_TRANSFER_SECONDS: ${{ steps.reuse-products.outputs.transfer_seconds }}
+          REUSE_RESTORE_SECONDS: ${{ steps.reuse-products.outputs.restore_seconds }}
+          REUSE_TOTAL_SECONDS: ${{ steps.reuse-products.outputs.total_reuse_seconds }}
+          REUSE_MACOS_MINUTES_SAVED: ${{ steps.reuse-products.outputs.macos_runner_minutes_saved }}
+        run: |
+          set -euo pipefail
+          show() {
+            if [ -n "${1:-}" ]; then printf '%s' "$1"; else printf '%s' "n/a"; fi
+          }
+          {
+            echo "### Compiled-product reuse"
+            echo "- hit: $(show "$REUSE_HIT")"
+            echo "- outcome: $(show "$REUSE_REASON")"
+            echo "- miss/fallback reasons: $(show "$REUSE_MISS_REASONS")"
+            echo "- compile seconds avoided: $(show "$REUSE_COMPILE_SECONDS")"
+            echo "- lookup seconds: $(show "$REUSE_LOOKUP_SECONDS")"
+            echo "- transfer seconds: $(show "$REUSE_TRANSFER_SECONDS")"
+            echo "- restore seconds: $(show "$REUSE_RESTORE_SECONDS")"
+            echo "- total reuse seconds: $(show "$REUSE_TOTAL_SECONDS")"
+            echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Capture Ghostty revision
         if: steps.reuse-products.outputs.hit != 'true'
@@ -2977,7 +3007,11 @@ jobs:
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
 
+      # A reuse hit can carry only the compiled product tree. Eligibility requires
+      # the producer's entire compile-admission job to have succeeded, including
+      # this warning gate, so producer-only build logs are unnecessary to restore.
       - name: Validate Swift warning budget
+        if: steps.reuse-products.outputs.hit != 'true'
         run: python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
 
       - name: Stage compiled package frameworks
