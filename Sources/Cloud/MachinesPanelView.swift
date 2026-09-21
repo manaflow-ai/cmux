@@ -35,14 +35,13 @@ struct MachinesPanelView: View {
 
     init(
         chromeBackgroundColor: NSColor,
-        defaultMachineStore: DefaultCloudMachineStore,
         machinePinStore: CloudMachinePinStore? = nil,
         tabManager: TabManager? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore,
+            machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
                 return tabManager.tabs.map {
@@ -50,15 +49,6 @@ struct MachinesPanelView: View {
                 }
             }
         ))
-    }
-
-    init(chromeBackgroundColor: NSColor, machinePinStore: CloudMachinePinStore? = nil, tabManager: TabManager? = nil) {
-        self.init(
-            chromeBackgroundColor: chromeBackgroundColor,
-            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
-            machinePinStore: machinePinStore,
-            tabManager: tabManager
-        )
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -95,9 +85,6 @@ struct MachinesPanelView: View {
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
-        }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
         }
         .onDisappear {
             viewModel.stopPolling()
@@ -499,9 +486,6 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
-        }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(

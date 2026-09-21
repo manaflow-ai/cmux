@@ -138,5 +138,96 @@ class MeasurementTests(unittest.TestCase):
                     self.assertNotIn('a' * 64, json.dumps(receipt))
 
 
+class ReadinessTests(unittest.TestCase):
+    def scenario(self, responses):
+        body = b'canary bytes'
+        calls = []
+        clock = [0.0]
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / verify.TOKEN_FILE).write_text('a' * 64)
+            output = work / 'receipt.json'
+            sequence = iter(responses)
+            def advance_fake_clock(seconds):
+                self.assertGreaterEqual(seconds, 10)
+                clock[0] += seconds
+            def curl(args, **kwargs):
+                self.assertNotIn('a' * 64, ' '.join(args))
+                calls.append((args[-1], clock[0]))
+                status, marker, code = next(sequence, (404, '', 22))
+                clock[0] += 1
+                if code == -1:
+                    raise subprocess.TimeoutExpired(args, kwargs['timeout'], output='a' * 64)
+                headers = Path(args[args.index('--dump-header') + 1])
+                headers.write_text('Server: cloudflare\nCF-Ray: 0123456789abcdef-SJC\n'
+                    + f'X-Cmux-Canary-Stage: {marker}\n'
+                    + ('X-Cmux-Artifact-Cache: fill\n' if len([c for c in calls if c[0].endswith('.zip')]) == 1 else 'X-Cmux-Artifact-Cache: hit\n')
+                    + 'Set-Cookie: secret\nAuthorization: aaaaa\nX-Cmux-Canary-Token: ' + 'a' * 64 + '\n')
+                Path(args[args.index('--output') + 1]).write_bytes(body if status == 200 else b'')
+                return subprocess.CompletedProcess(args, code, stdout=f'{status:03d} 0.1 0.2 {len(body) if status == 200 else 0}', stderr='a' * 64)
+            with patch.object(verify, 'metadata', lambda: {'id': verify.ARTIFACT}), \
+                 patch.object(verify, 'SIZE', len(body)), patch.object(verify, 'DIGEST', hashlib.sha256(body).hexdigest()), \
+                 patch.object(verify.subprocess, 'run', curl), patch.object(verify.time, 'monotonic', lambda: clock[0]), \
+                 patch.object(verify.time, 'sleep', advance_fake_clock), patch.dict(os.environ, {'RUNNER_TEMP': directory}), \
+                 patch('sys.argv', ['verify', '--origin', 'https://cmux-ci-artifacts-canary-123-1.test.workers.dev', '--receipt', str(output)]):
+                with self.assertRaises(SystemExit) as exited:
+                    verify.main()
+            receipt = json.loads(output.read_text())
+            self.assertNotIn('a' * 64, output.read_text())
+            self.assertNotIn('Set-Cookie', output.read_text())
+            return exited.exception.code, receipt, calls, clock[0]
+
+    def test_routing_retry_precedes_exactly_one_cold_and_warm_request(self):
+        code, receipt, calls, virtual_seconds = self.scenario([(404, '', 22), (204, 'ready-v1', 0), (200, 'artifact-v1', 0), (200, 'artifact-v1', 0)])
+        self.assertEqual(code, 0)
+        self.assertEqual([r['phase'] for r in receipt['requests']], ['readiness', 'readiness', 'cold', 'warm'])
+        self.assertTrue(all('__cmux_artifact_canary_ready' in url for url, _ in calls[:2]))
+        self.assertEqual(sum(url.endswith('.zip') for url, _ in calls), 2)
+        self.assertGreaterEqual(calls[1][1] - calls[0][1], 10)
+
+    def test_marked_gate_rejection_stops_without_import_or_sleep(self):
+        code, receipt, calls, virtual_seconds = self.scenario([(404, 'gate-rejected', 22)])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(receipt['requests'][0]['http_status'], 404)
+        self.assertEqual(receipt['requests'][0]['canary_stage'], 'gate-rejected')
+        self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
+        self.assertEqual(virtual_seconds, 1)
+
+    def test_unready_routes_are_bounded_and_never_import(self):
+        code, receipt, calls, virtual_seconds = self.scenario([])
+        self.assertEqual(code, 1)
+        self.assertLessEqual(len(calls), 6)
+        self.assertEqual(virtual_seconds, 56)  # Six simulated 1s probes and five 10s advances.
+        self.assertTrue(all(b[1] - a[1] >= 10 for a, b in zip(calls, calls[1:])))
+        self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
+
+    def test_204_without_protocol_marker_never_passes_readiness(self):
+        code, receipt, calls, virtual_seconds = self.scenario([(204, '', 0)] * 6)
+        self.assertEqual(code, 1)
+        self.assertFalse(any(url.endswith('.zip') for url, _ in calls))
+
+    def test_process_timeout_cannot_inherit_readiness_headers_or_leak_exception_output(self):
+        code, receipt, calls, virtual_seconds = self.scenario([(204, 'ready-v1', 0), (0, '', -1)])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 2)
+        row = receipt['requests'][-1]
+        self.assertEqual(row['phase'], 'cold')
+        self.assertEqual(row['request_error'], 'process-timeout')
+        self.assertNotIn('canary_stage', row)
+        self.assertEqual(receipt['error_stage'], 'cold')
+
+    def test_artifact_http_errors_and_timeouts_are_recorded_without_retry(self):
+        for status, exit_code in [(404, 22), (502, 22), (0, 28)]:
+            with self.subTest(status=status):
+                code, receipt, calls, virtual_seconds = self.scenario([(204, 'ready-v1', 0), (status, 'artifact-v1', exit_code)])
+                self.assertEqual(code, 1)
+                self.assertEqual([r['phase'] for r in receipt['requests']], ['readiness', 'cold'])
+                self.assertEqual(sum(url.endswith('.zip') for url, _ in calls), 1)
+                self.assertEqual(receipt['requests'][-1]['http_status'], status)
+                self.assertEqual(receipt['requests'][-1]['canary_stage'], 'artifact-v1')
+                self.assertEqual(receipt['error_stage'], 'cold')
+
+
 if __name__ == '__main__':
     unittest.main()
