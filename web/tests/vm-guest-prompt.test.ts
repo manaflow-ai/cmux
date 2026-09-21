@@ -61,7 +61,7 @@ describe("Cloud Bash prompt", () => {
       .update(readFileSync(path.join(directory, name), "utf8").replaceAll(directory, "/etc/cmux"))
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
-      bashrc: "bd10a566dba17a1ad7c519badfa2587df2dc4b2cb0e9ca9c380fe9fc15fbe89f",
+      bashrc: "655407e6c2253be284616e4f1a210d65b888a4a138c6349559a7eaef71a6b0f3",
       prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
     });
   });

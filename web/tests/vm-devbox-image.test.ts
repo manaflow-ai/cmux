@@ -299,7 +299,7 @@ describe("devbox image template", () => {
       });
       expect(result.status).toBe(0);
       expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
-        path.join(directory, ".cache", "cmux-blesh-runtime"),
+        "/tmp/cmux-blesh-runtime-" + (process.getuid?.() ?? 0),
       );
       expect(result.stdout).toBe(transientRuntime);
     } finally {
