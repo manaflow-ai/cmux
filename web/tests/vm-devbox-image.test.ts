@@ -266,8 +266,10 @@ describe("devbox image template", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
     const blesh = path.join(directory, "blesh");
     const transientRuntime = path.join(directory, "transient-runtime");
+    const bootRuntime = "/tmp/cmux-blesh-runtime-" + (process.getuid?.() ?? 0);
     mkdirSync(blesh);
     mkdirSync(transientRuntime);
+    rmSync(bootRuntime, { recursive: true, force: true });
     writeFileSync(path.join(blesh, "ble.sh"), [
       "BLE_VERSION=fixture",
       "bleopt() { :; }",
@@ -299,7 +301,7 @@ describe("devbox image template", () => {
       });
       expect(result.status).toBe(0);
       expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
-        "/tmp/cmux-blesh-runtime-" + (process.getuid?.() ?? 0),
+        bootRuntime,
       );
       expect(result.stdout).toBe(transientRuntime);
     } finally {

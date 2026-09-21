@@ -61,7 +61,14 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   __cmux_blesh_runtime_dir="/tmp/cmux-blesh-runtime-${UID}"
   __cmux_blesh_had_xdg_runtime_dir=${XDG_RUNTIME_DIR+x}
   __cmux_blesh_saved_xdg_runtime_dir=${XDG_RUNTIME_DIR-}
-  if mkdir -p "$__cmux_blesh_runtime_dir" 2>/dev/null && chmod 700 "$__cmux_blesh_runtime_dir" 2>/dev/null; then
+  __cmux_blesh_runtime_ready=
+  if mkdir -m 700 "$__cmux_blesh_runtime_dir" 2>/dev/null; then
+    __cmux_blesh_runtime_ready=1
+  elif [ -d "$__cmux_blesh_runtime_dir" ] && [ ! -L "$__cmux_blesh_runtime_dir" ] \
+    && [ -O "$__cmux_blesh_runtime_dir" ] && [ "$(stat -c %a "$__cmux_blesh_runtime_dir" 2>/dev/null)" = 700 ]; then
+    __cmux_blesh_runtime_ready=1
+  fi
+  if [[ $__cmux_blesh_runtime_ready ]]; then
     export XDG_RUNTIME_DIR="$__cmux_blesh_runtime_dir"
   else
     # If HOME is temporarily unavailable, make ble.sh choose its /tmp
@@ -75,7 +82,7 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
     unset XDG_RUNTIME_DIR
   fi
   unset __cmux_blesh_had_xdg_runtime_dir __cmux_blesh_saved_xdg_runtime_dir
-  unset __cmux_blesh_runtime_dir
+  unset __cmux_blesh_runtime_dir __cmux_blesh_runtime_ready
   bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=
   # Minimal integration: token highlighting off entirely (the stock faces
   # paint colored backgrounds under mistyped commands and mid-word input,
