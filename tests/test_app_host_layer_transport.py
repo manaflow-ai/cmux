@@ -280,7 +280,8 @@ class LayerTransportTests(unittest.TestCase):
         self.assertEqual(self.api.downloaded, [])
 
     def test_assembler_failure_leaves_consumer_absent_for_legacy_fallback(self):
-        def fail(manifest, destination, identity):
+        def fail(manifest, destination, identity, selected):
+            self.assertEqual(selected, t.NAMES)
             (manifest.parent / "partial").write_text("must not publish")
             raise ValueError("local archive validation failed")
         with self.assertRaises(ValueError):
