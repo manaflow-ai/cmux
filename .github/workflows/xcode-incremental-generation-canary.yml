@@ -41,7 +41,7 @@ jobs:
           CMUX_CANARY_SUPPORT_ARCHIVE: ${{ runner.temp }}/cmux-incremental-support.tar.gz
         run: |
           set -euo pipefail
-          ./scripts/ci/benchmark-incremental-generation.sh seed "$BASE_SHA"
+          bash ./scripts/ci/benchmark-incremental-generation.sh seed "$BASE_SHA"
           python3 - "$CMUX_CANARY_RESULTS/metrics.jsonl" <<'PY'
           import json, pathlib, sys
           rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
@@ -114,7 +114,7 @@ jobs:
           CMUX_CANARY_SUPPORT_ARCHIVE: ${{ runner.temp }}/cmux-incremental-support.tar.gz
         run: |
           set -euo pipefail
-          ./scripts/ci/benchmark-incremental-generation.sh consume "$BASE_SHA" "$GITHUB_SHA"
+          bash ./scripts/ci/benchmark-incremental-generation.sh consume "$BASE_SHA" "$GITHUB_SHA"
 
       - name: Upload consumer metrics and logs
         if: always()
