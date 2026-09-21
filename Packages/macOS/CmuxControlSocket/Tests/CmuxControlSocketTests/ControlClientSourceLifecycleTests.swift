@@ -63,7 +63,16 @@ struct ControlClientSourceLifecycleTests {
         close(pair.writer)
     }
 
-    /// Cancels only after libdispatch registers the real backpressured source.
+    /// Reads the runtime count under the barrier's existing synchronization.
+    private func sourceCount(_ writer: ControlClientAsyncWriter) -> Int {
+        let barrier = writer.sourceCancellationBarrier
+        barrier.lock.lock()
+        defer { barrier.lock.unlock() }
+        return barrier.registrations
+    }
+
+    /// Cancels only after writeAll suspends with its real EAGAIN source active.
+    @available(macOS 15.0, *)
     @Test(.timeLimit(.minutes(1)))
     func writableSourceCancelsBeforeOwnerClose() async throws {
         let pair = try UnixSocketFixture.makeSocketPair()
@@ -99,12 +108,10 @@ struct ControlClientSourceLifecycleTests {
         let registrations = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         defer { registrations.continuation.finish() }
         let writer = ControlClientAsyncWriter(socket: pair.writer)
-        let source = DispatchSource.makeWriteSource(
-            fileDescriptor: pair.writer,
-            queue: .global(qos: .utility)
-        )
-        source.setRegistrationHandler {
-            registrations.continuation.yield(())
+        let executor = SocketWriterTestExecutor {
+            if sourceCount(writer) == 1 {
+                registrations.continuation.yield(())
+            }
         }
         // Exercise combined connection teardown: a pending read, generation
         // revocation, and a backpressured write all share the accepted socket.
@@ -115,15 +122,14 @@ struct ControlClientSourceLifecycleTests {
             authorizationRevocationSignal: signal
         )
         let reading = Task { await reader.nextLine { true } }
-        let pending = Task {
-            // Call the same runtime operation used by writeAll after EAGAIN.
-            // Source observation stays in the test target; no factory hook.
-            await writer.waitForWritable(source: source)
+        let pending = Task(executorPreference: executor) {
+            await writer.writeAll(Data(repeating: 0x58, count: 64 * 1024))
         }
         var registration = registrations.stream.makeAsyncIterator()
         let registered: Void? = await registration.next()
-        // This event comes from libdispatch after activation, not from a yield
-        // count or elapsed time. The runtime wait must activate this source.
+        // The executor reports runtime state only after writeAll suspends.
+        // A full buffer prevents readiness, so a count of one proves EAGAIN,
+        // source creation, activation, and suspension all occurred before cancel.
         pending.cancel()
         signal.revoke()
         #expect(await pending.value == false)
@@ -131,6 +137,7 @@ struct ControlClientSourceLifecycleTests {
         await reader.cancelAndWait()
         await writer.cancelAndWait()
         #expect(registered != nil)
+        #expect(sourceCount(writer) == 0)
         #expect(fcntl(pair.writer, F_GETFD) >= 0)
         shutdown(pair.writer, SHUT_RDWR)
     }

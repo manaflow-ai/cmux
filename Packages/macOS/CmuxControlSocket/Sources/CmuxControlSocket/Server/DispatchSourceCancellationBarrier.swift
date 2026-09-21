@@ -10,8 +10,9 @@ final class DispatchSourceCancellationBarrier: @unchecked Sendable {
     // This lock protects only the count and continuation handoff, never I/O or
     // an await. Every continuation is removed under the lock and resumed after
     // unlocking; all mutable state is locked, which justifies Sendable above.
-    private let lock = NSLock()
-    private var registrations = 0
+    let lock = NSLock()
+    /// The source-of-truth count; readers must hold ``lock``.
+    internal private(set) var registrations = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
     /// Registers one source before it is activated.
@@ -49,4 +50,3 @@ final class DispatchSourceCancellationBarrier: @unchecked Sendable {
         }
     }
 }
-
