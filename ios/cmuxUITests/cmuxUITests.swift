@@ -11758,7 +11758,13 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
+            let statusLine = app.descendants(matching: .any)[
+                "MobileWorkspaceConnectionStatusLine"
+            ]
+            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
+            XCTAssertEqual(statusLine.label, "Reconnecting…")
             XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
             // Emit an empty-list update before the pending refresh completes.
             app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
             XCTAssertTrue(app.descendants(matching: .any)[
