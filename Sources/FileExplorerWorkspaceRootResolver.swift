@@ -6,12 +6,16 @@ struct FileExplorerWorkspaceRootResolver {
     /// Builds the root request shared by the main sidebar and tool panes.
     func resolve(_ workspace: Workspace) -> FileExplorerWorkspaceRoot {
         if let binding = workspace.cloudVMBinding {
-            let policyEnabled = ManagedCloudPolicy.isEnabled && CloudMachinesFeature.isEnabled
+            let managedPolicyEnabled = ManagedCloudPolicy.isEnabled
+            let featureEnabled = CloudMachinesFeature.isEnabled
+            let policyEnabled = managedPolicyEnabled && featureEnabled
             let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: binding.vmID)
             let connected = provider?.info.linkState == .connected
             let detail: String?
-            if !policyEnabled {
+            if !managedPolicyEnabled {
                 detail = ManagedCloudPolicy.disabledMessage
+            } else if !featureEnabled {
+                detail = CloudMachinesFeature.disabledMessage
             } else if !connected {
                 detail = provider?.info.linkError ?? String(localized: "fileExplorer.status.cloudDisconnected", defaultValue: "Cloud machine is not connected")
             } else {
