@@ -791,13 +791,23 @@ async function readWithProbeTimeout(
   readonly pending: Promise<ReadableStreamReadResult<Uint8Array>>;
 }> {
   throwIfAbortedSignal(signal);
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const raceSignal = AbortSignal.any([signal, timeoutSignal]);
   const pending = reader.read();
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new ProbeIdleTimeout()), timeoutMs);
+  let onAbort: (() => void) | undefined;
+  const cancellation = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      if (signal.aborted) {
+        reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      } else {
+        reject(new ProbeIdleTimeout());
+      }
+    };
+    if (raceSignal.aborted) onAbort();
+    else raceSignal.addEventListener("abort", onAbort, { once: true });
   });
   try {
-    return await Promise.race([pending, timeout]);
+    return await Promise.race([pending, cancellation]);
   } catch (error) {
     if (error instanceof ProbeIdleTimeout) {
       // A quiet stream is handed back to the caller after the bounded probe.
@@ -805,7 +815,7 @@ async function readWithProbeTimeout(
     }
     throw error;
   } finally {
-    if (timer) clearTimeout(timer);
+    if (onAbort) raceSignal.removeEventListener("abort", onAbort);
   }
 }
 

@@ -710,19 +710,29 @@ async function readClaudeProbe(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   signal: AbortSignal,
 ): Promise<ClaudeProbeRead> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const pending = reader.read();
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("claude_probe_idle")), CLAUDE_PREOUTPUT_PROBE_IDLE_MS);
+  const timeoutSignal = AbortSignal.timeout(CLAUDE_PREOUTPUT_PROBE_IDLE_MS);
+  const raceSignal = AbortSignal.any([signal, timeoutSignal]);
+  let onAbort: (() => void) | undefined;
+  const cancellation = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      if (signal.aborted) {
+        reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      } else {
+        reject(new Error("claude_probe_idle"));
+      }
+    };
+    if (raceSignal.aborted) onAbort();
+    else raceSignal.addEventListener("abort", onAbort, { once: true });
   });
   try {
-    return await Promise.race([pending, timeout]);
+    return await Promise.race([pending, cancellation]);
   } catch (error) {
     if (error instanceof Error && error.message === "claude_probe_idle") return { timedOut: true, pending };
     if (signal.aborted) throw signal.reason ?? error;
     throw error;
   } finally {
-    if (timer) clearTimeout(timer);
+    if (onAbort) raceSignal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -732,10 +742,13 @@ function classifyClaudeStreamPrefix(text: string): "waiting" | "output" | "overl
     const data = block.match(/^data:\s*(.*)$/m)?.[1]?.trim();
     if (!data) continue;
     try {
-      const event = JSON.parse(data) as { error?: { type?: unknown } };
+      const event = JSON.parse(data) as { type?: unknown; error?: { type?: unknown } };
       const errorType = String(event.error?.type ?? "").toLowerCase();
       if (errorType === "overloaded_error" || errorType === "rate_limit_error") return "overloaded";
-      return "output";
+      // Anthropic sends message_start, pings, and block start/stop metadata
+      // before the first content delta. Keep probing through those records so
+      // a provider error that follows metadata can still fail over safely.
+      if (event.type === "content_block_delta") return "output";
     } catch {
       // Wait for the rest of a split JSON event.
     }
