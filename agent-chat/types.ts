@@ -1,6 +1,21 @@
 // Common event schema every adapter normalizes into. The UI only knows this.
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
+  /** Stable request lineage. Kept as an event so reconnects and handoffs can
+   * explain which conversation/request was routed without relying on logs. */
+  | {
+      kind: "routing";
+      phase: "started" | "rerouted" | "handoff" | "completed";
+      conversationId: string;
+      requestId: string;
+      attempt: number;
+      parentSessionId?: string;
+      parentConversationId?: string;
+      provider?: string;
+      model?: string;
+      reason?: string;
+      retryAfterMs?: number;
+    }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
@@ -67,6 +82,11 @@ export interface SessionCtx {
   provider: string;
   cwd: string;
   title: string;
+  /** Stable across reconnects; a fork receives a new id and parent metadata. */
+  conversationId?: string;
+  parentSessionId?: string;
+  parentConversationId?: string;
+  startRequestId?: string;
   autoApprove: boolean;
   startOptions: Record<string, OptionValue>;
   seedOptions?: SessionOption[];

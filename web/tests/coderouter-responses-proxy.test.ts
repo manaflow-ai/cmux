@@ -107,6 +107,79 @@ function responsesRequest(headers: Record<string, string> = {}): Request {
 }
 
 describe("codex responses proxy session routing", () => {
+  function testCredential(accountId: string) {
+    return {
+      provider: "codex" as const,
+      accessToken: `access-${accountId}`,
+      refreshToken: "refresh",
+      idToken: "id",
+      accountId: "chatgpt-account",
+      email: "person@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+  }
+
+  function capacityProxy(fetchImpl: typeof fetch) {
+    const candidates = ["acct-capacity", "acct-healthy"];
+    return createCodexResponsesProxy({
+      authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1", vmId: null }),
+      select: async (input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const id = candidates.find((candidate) => !excluded.has(candidate));
+        if (!id) return null;
+        return { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: null, sticky: false };
+      },
+      credential: async ({ accountId }) => testCredential(accountId),
+      cooldown: async (accountId) => { cooldowns.push(accountId); },
+    }, { fetch: fetchImpl });
+  }
+
+  test("fails over a pre-output usage_limit_reached SSE event", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n` +
+        `data: ${JSON.stringify({ type: "error", code: "usage_limit_reached" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("treats response.created as metadata and preserves the complete stream", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "full" })}\n\n`,
+    ].join("");
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
+  test("hands a quiet pre-output stream back after a bounded probe", async () => {
+    const body = [
+      `data: ${JSON.stringify({ type: "response.created" })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "late" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode(body[0]!));
+        await new Promise<void>((resolve) => setTimeout(resolve, 600));
+        controller.enqueue(new TextEncoder().encode(body[1]!));
+        controller.close();
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body.join(""));
+  });
+
   test("passes the session_id header to account selection", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const response = await proxy(responsesRequest({ session_id: "session-abc" }));

@@ -90,6 +90,15 @@ function sessionKeyFromRequest(request: Request): string | null {
 
 const STICKY_REFRESH_RETRIES = 4;
 const STICKY_REFRESH_RETRY_DELAY_MS = 500;
+/**
+ * Capacity errors can arrive inside a successful streaming response. Keep the
+ * pre-output probe small and bounded: provider error events are headers-sized,
+ * while generated output must start flowing immediately after the first
+ * non-error event.
+ */
+const MAX_PREOUTPUT_PROBE_BYTES = 64 * 1024;
+const CAPACITY_COOLDOWN_MS = 60_000;
+const PREOUTPUT_PROBE_IDLE_MS = 500;
 
 /**
  * A sticky session that hits a refresh already in flight should wait for the
@@ -457,6 +466,36 @@ async function proxyCodexRequestWith(
       }
       continue;
     }
+    if (isStreamingResponse(upstream)) {
+      const probed = await probeCodexCapacity(upstream, request.signal);
+      if (probed.kind === "capacity") {
+        reportCoderouterFailure("provider_rate_limit", new Error("provider capacity"), {
+          provider: "codex",
+          capacity: true,
+          attempt: attempt + 1,
+          request_id: requestId,
+        });
+        try {
+          await withCoderouterOperationDeadline(
+            request.signal,
+            upstreamHeaderDeadlineAt,
+            runtime.now,
+            (signal) => dependencies.cooldown(account.id, probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS, signal),
+          );
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          if (error instanceof CoderouterOperationDeadlineError) {
+            failureStage = "upstream_transport";
+            upstream = null;
+            break;
+          }
+          throw error;
+        }
+        upstream = null;
+        continue;
+      }
+      upstream = probed.response;
+    }
     break;
   }
   if (!upstream) {
@@ -524,6 +563,173 @@ async function proxyCodexRequestWith(
     status: upstream.status,
     headers: responseHeaders,
   });
+}
+
+type CodexCapacityProbe =
+  | { readonly kind: "response"; readonly response: Response }
+  | { readonly kind: "capacity"; readonly retryAfterMs?: number };
+
+/**
+ * Inspects only the beginning of an SSE/NDJSON response. A capacity event is
+ * safe to replay before any model output has been exposed; after the first
+ * non-error event the response is returned with its bytes preserved. This
+ * avoids replaying partial generations or consuming an upstream stream that
+ * the caller still needs to read.
+ */
+async function probeCodexCapacity(
+  response: Response,
+  signal: AbortSignal,
+): Promise<CodexCapacityProbe> {
+  const body = response.body;
+  if (!body) return { kind: "response", response };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let text = "";
+  let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
+  const decoder = new TextDecoder();
+  try {
+    for (;;) {
+      throwIfAbortedSignal(signal);
+      const next = await readWithProbeTimeout(reader, PREOUTPUT_PROBE_IDLE_MS, signal);
+      if ("timedOut" in next) {
+        pendingRead = next.pending;
+        break;
+      }
+      if (next.done) break;
+      chunks.push(next.value);
+      total += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+      const verdict = classifyCodexCapacityPrefix(text);
+      if (verdict.kind === "capacity") {
+        await reader.cancel();
+        return verdict;
+      }
+      if (verdict.kind === "output" || total >= MAX_PREOUTPUT_PROBE_BYTES) break;
+    }
+    text += decoder.decode();
+    const finalVerdict = classifyCodexCapacityPrefix(`${text}\n\n`);
+    if (finalVerdict.kind === "capacity") {
+      await reader.cancel();
+      return finalVerdict;
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+  let buffered = chunks.slice();
+  let upstreamDone = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const chunk = buffered.shift();
+      if (chunk) {
+        controller.enqueue(chunk);
+        return;
+      }
+      if (upstreamDone) {
+        controller.close();
+        return;
+      }
+      const next = await (pendingRead ?? reader.read());
+      pendingRead = undefined;
+      if (next.done) {
+        upstreamDone = true;
+        controller.close();
+      } else {
+        controller.enqueue(next.value);
+      }
+    },
+    async cancel(reason) {
+      upstreamDone = true;
+      await reader.cancel(reason);
+    },
+  });
+  return { kind: "response", response: new Response(stream, { status: response.status, headers: response.headers }) };
+}
+
+async function readWithProbeTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array> | {
+  readonly timedOut: true;
+  readonly pending: Promise<ReadableStreamReadResult<Uint8Array>>;
+}> {
+  throwIfAbortedSignal(signal);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const pending = reader.read();
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ProbeIdleTimeout()), timeoutMs);
+  });
+  try {
+    return await Promise.race([pending, timeout]);
+  } catch (error) {
+    if (error instanceof ProbeIdleTimeout) {
+      // A quiet stream is handed back to the caller after the bounded probe.
+      return { timedOut: true, pending };
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+class ProbeIdleTimeout extends Error {}
+
+function throwIfAbortedSignal(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+}
+
+function classifyCodexCapacityPrefix(text: string):
+  | { readonly kind: "waiting" }
+  | { readonly kind: "output" }
+  | { readonly kind: "capacity"; readonly retryAfterMs?: number } {
+  const events = text.split(/\r?\n\r?\n/);
+  for (const event of events.slice(0, -1)) {
+    const data = event.match(/^data:\s*(.*)$/m)?.[1]?.trim();
+    if (!data) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      continue;
+    }
+    if (isCodexCapacityPayload(parsed)) {
+      return { kind: "capacity", retryAfterMs: retryAfterFromCodexPayload(parsed) };
+    }
+    if (isCodexOutputPayload(parsed)) return { kind: "output" };
+  }
+  return { kind: "waiting" };
+}
+
+function isCodexCapacityPayload(value: unknown): boolean {
+  const text = JSON.stringify(value).toLowerCase();
+  return text.includes("usage_limit_reached") ||
+    text.includes("rate_limit_exceeded") ||
+    text.includes("selected model is at capacity") ||
+    text.includes("model is at capacity") ||
+    text.includes("model_capacity");
+}
+
+function isCodexOutputPayload(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const type = String((value as { type?: unknown }).type ?? "");
+  // Any delta means bytes describing model output are now client-visible;
+  // replaying after that point could duplicate a partial generation.
+  return type.endsWith(".delta");
+}
+
+function retryAfterFromCodexPayload(value: unknown): number | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = (value as { retry_after?: unknown; retry_after_ms?: unknown }).retry_after_ms ??
+    (value as { retry_after?: unknown }).retry_after;
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(1_000, raw < 100 ? raw * 1_000 : raw);
+  if (typeof raw === "string" && /^\d+(?:\.\d+)?s?$/.test(raw)) {
+    const seconds = Number.parseFloat(raw);
+    return Math.max(1_000, raw.endsWith("s") || seconds < 100 ? seconds * 1_000 : seconds);
+  }
+  return undefined;
 }
 
 type CodexModelsDependencies = {

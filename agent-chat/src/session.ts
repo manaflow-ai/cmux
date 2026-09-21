@@ -4,6 +4,19 @@ import { applyThemeVars } from "./theme";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
+  | {
+      kind: "routing";
+      phase: "started" | "rerouted" | "handoff" | "completed";
+      conversationId: string;
+      requestId: string;
+      attempt: number;
+      parentSessionId?: string;
+      parentConversationId?: string;
+      provider?: string;
+      model?: string;
+      reason?: string;
+      retryAfterMs?: number;
+    }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
@@ -76,7 +89,18 @@ export type Block =
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
-export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
+export interface SessionSummary {
+  id: string;
+  provider: string;
+  cwd: string;
+  title: string;
+  status: string;
+  capabilities?: ProviderCapabilities;
+  conversationId?: string;
+  parentSessionId?: string;
+  parentConversationId?: string;
+  startRequestId?: string;
+}
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {
@@ -141,6 +165,7 @@ export interface SessionState {
   ctrlJ: CtrlJMode;
   phase: "composer" | "chat";
   session: SessionSummary | null;
+  routing: Extract<AgentEvent, { kind: "routing" }> | null;
   blocks: Block[];
   options: SessionOption[];
   actions: SessionActions;
@@ -192,6 +217,10 @@ const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
+function newClientRequestId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
   storage.setItem(composerDraftKey, prompt);
 }
@@ -211,6 +240,7 @@ export function useSession(): SessionState {
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
+  const [routing, setRouting] = useState<Extract<AgentEvent, { kind: "routing" }> | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -227,12 +257,13 @@ export function useSession(): SessionState {
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
   const pendingStartRef = useRef<{
     requestId: string;
+    conversationId: string;
     key: string;
     provider: string;
     cwd: string;
     prompt: string;
     options?: Record<string, OptionValue>;
-    queuedReplies: string[];
+    queuedReplies: { requestId: string; prompt: string }[];
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
@@ -254,6 +285,7 @@ export function useSession(): SessionState {
     sessionIdRef.current = null;
     optimisticUsersRef.current = [];
     setSession(null);
+    setRouting(null);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -289,7 +321,7 @@ export function useSession(): SessionState {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
-          sendRaw({ op: "start", requestId: pending.requestId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
+          sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
       };
@@ -315,11 +347,13 @@ export function useSession(): SessionState {
               clearPendingStartTimeout();
               pendingStartRef.current = null;
               setSession({ ...msg.session, status: "running" });
-              for (const prompt of queuedReplies) {
-                sendRaw({ op: "send", sessionId: msg.session.id, prompt });
+              setRouting(msg.routing?.kind === "routing" ? msg.routing : null);
+              for (const queued of queuedReplies) {
+                sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
               setSession(msg.session);
+              setRouting(msg.routing?.kind === "routing" ? msg.routing : null);
               setBlocks([]);
               optimisticUsersRef.current = [];
             }
@@ -334,6 +368,7 @@ export function useSession(): SessionState {
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             setSession(msg.session);
+            setRouting(latestRouting(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
@@ -347,6 +382,7 @@ export function useSession(): SessionState {
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
+            setRouting(null);
             setOptions([]);
             setActions({});
             setCommands([]);
@@ -363,6 +399,7 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
+              if (evt.kind === "routing") setRouting(evt);
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
                 break;
               }
@@ -437,9 +474,10 @@ export function useSession(): SessionState {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
     const current = pendingStartRef.current;
     if (current && !current.failed && current.key === key) return false;
-    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    if (!sendRaw({ op: "start", requestId, ...opts })) return false;
-    pendingStartRef.current = { requestId, key, queuedReplies: [], ...opts };
+    const requestId = newClientRequestId("start");
+    const conversationId = crypto.randomUUID();
+    if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
+    pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
     sessionIdRef.current = null;
@@ -452,7 +490,10 @@ export function useSession(): SessionState {
       cwd: opts.cwd,
       title: opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt,
       status: "running",
+      conversationId,
+      startRequestId: requestId,
     });
+    setRouting(null);
     setBlocks([{ kind: "user", text: opts.prompt }]);
     setOptions([]);
     setActions({});
@@ -468,6 +509,7 @@ export function useSession(): SessionState {
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
+    setRouting(null);
     setSession(null);
     setBlocks([]);
     setOptions([]);
@@ -484,13 +526,13 @@ export function useSession(): SessionState {
       return;
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
-      pending.queuedReplies.push(text);
+      pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       return;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text })) {
+      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
       }
     }
@@ -535,6 +577,7 @@ export function useSession(): SessionState {
     ctrlJ,
     phase,
     session,
+    routing,
     blocks,
     options,
     actions,
@@ -566,6 +609,13 @@ function latestOptions(events: AgentEvent[]): SessionOption[] {
     if (events[i].kind === "options") return (events[i] as Extract<AgentEvent, { kind: "options" }>).options;
   }
   return [];
+}
+
+export function latestRouting(events: AgentEvent[]): Extract<AgentEvent, { kind: "routing" }> | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === "routing") return events[i] as Extract<AgentEvent, { kind: "routing" }>;
+  }
+  return null;
 }
 
 function latestActions(events: AgentEvent[]): SessionActions {
