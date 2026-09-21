@@ -1,0 +1,6 @@
+Current-main app-host census marker.
+
+Baseline commit: 0ddc6f406cefbeaaff9b5d90dc8146624e203485
+Purpose: route the unchanged app/test product through the full macOS suite so the
+2026-09-21 failure census is measured from current main rather than stale issue data.
+This file is not executed or bundled into the application/test target.
