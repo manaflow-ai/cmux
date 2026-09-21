@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: read
 
 jobs:
@@ -37,4 +38,5 @@ jobs:
           REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
           AGENT_REVIEW_REPLY_ACTORS: ${{ vars.AGENT_REVIEW_REPLY_ACTORS || github.event.pull_request.user.login }}
           REQUIRE_BOT_REVIEW_COVERAGE: ${{ vars.REQUIRE_BOT_REVIEW_COVERAGE || '0' }}
-        run: python3 .github/scripts/agent-pr-review-gate.py
+          REVIEW_ATTENTION_LABEL: ${{ vars.AGENT_REVIEW_ATTENTION_LABEL || 'review: needs-attention' }}
+        run: python3 .github/scripts/agent-pr-review-gate.py --sync-label
