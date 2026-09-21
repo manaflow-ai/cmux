@@ -21,7 +21,12 @@ class ReuseProducts(TestProductHandoff):
     def setUp(self):
         super().setUp()
         self.contract = {
-            "tree": "same-tree",
+            "product_inputs": {
+                "schema": "cmux-app-host-product-inputs/v1",
+                "algorithm": "a" * 64,
+                "source": "b" * 64,
+                "recipe": "c" * 64,
+            },
             "xcode": "same-xcode",
             "sdk": "same-sdk",
             "os": "same-os",
@@ -57,17 +62,26 @@ class ReuseProducts(TestProductHandoff):
     def restore_reuse(self, *, current_run="13", current_attempt="1",
                       revision="def456", destination=None, report=None):
         current = {**self.identity, "revision": revision, "checkout": "/queue/work/cmux"}
-        return reuse.restore(
-            self.api,
-            self.contract,
-            destination or self.consumer,
-            current_run,
-            current,
-            current_attempt,
-            report,
-        )
 
-    def test_other_commit_same_tree_reuses_and_relocates_without_test_result(self):
+        def product_identity(api, source_revision):
+            return api.product_identities[source_revision]
+
+        with mock.patch.object(
+            reuse,
+            "github_product_identity",
+            side_effect=product_identity,
+        ):
+            return reuse.restore(
+                self.api,
+                self.contract,
+                destination or self.consumer,
+                current_run,
+                current,
+                current_attempt,
+                report,
+            )
+
+    def test_other_commit_same_product_inputs_reuses_and_relocates_without_test_result(self):
         # The full run failed tests, while compilation itself succeeded.
         self.api.run["conclusion"] = "failure"
         self.assertTrue(self.restore_reuse())
@@ -115,17 +129,24 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.contract = original
 
-    def test_changed_source_tree_is_a_miss(self):
-        original = self.contract
-        self.contract = {**self.contract, "tree": "changed-tree"}
+    def test_changed_product_inputs_are_a_miss(self):
+        original = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original,
+            "source": "d" * 64,
+        }
         self.assertFalse(self.restore_reuse())
-        self.contract = original
+        self.api.product_identities["abc123"] = original
 
     def test_actual_source_and_run_provenance_must_match(self):
-        self.api.trees["abc123"] = "different-tree"
+        original_identity = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original_identity,
+            "recipe": "d" * 64,
+        }
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
-        self.api.trees["abc123"] = "same-tree"
+        self.api.product_identities["abc123"] = original_identity
         root = self.producer / "Build/Products"
         receipt = json.loads((root / reuse.RECEIPT).read_text())
         receipt["run_id"] = "999"
@@ -537,8 +558,10 @@ class FakeGitHub:
     repository = "manaflow-ai/cmux"
 
     def __init__(self, contract):
-        self.tree = contract["tree"]
-        self.trees = {"abc123": self.tree, "def456": self.tree}
+        self.product_identities = {
+            "abc123": contract["product_inputs"],
+            "def456": contract["product_inputs"],
+        }
         self.artifact = {
             "id": 42,
             "name": reuse.PREFIX + reuse.key(contract) + "-1",
@@ -599,8 +622,7 @@ class FakeGitHub:
                 return {"jobs": [self.job]}
             raise OSError("jobs unavailable")
         if path.startswith("git/commits/"):
-            revision = path.rsplit("/", 1)[-1]
-            return {"tree": {"sha": self.trees.get(revision, self.tree)}}
+            return {"tree": {"sha": "f" * 40}}
         raise AssertionError(path)
 
     def download(self, artifact_id, target):
