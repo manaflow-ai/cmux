@@ -146,7 +146,6 @@ def main() -> int:
             capture_output=True,
             cwd=workspace,
             env=helper_env,
-            timeout=5,
             check=False,
         )
         if custom_global_validate.returncode != 0:
@@ -169,7 +168,6 @@ def main() -> int:
             capture_output=True,
             cwd=workspace,
             env=helper_env,
-            timeout=5,
             check=False,
         )
         if explicit_project_validate.returncode == 0:
@@ -364,7 +362,6 @@ def main() -> int:
             text=True,
             capture_output=True,
             env=helper_env,
-            timeout=5,
             check=False,
         )
         if helper_result.returncode == 0:
@@ -386,7 +383,6 @@ def main() -> int:
             text=True,
             capture_output=True,
             env=helper_env,
-            timeout=5,
             check=False,
         )
         if helper_validate_result.returncode == 0:

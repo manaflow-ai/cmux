@@ -352,14 +352,20 @@ public actor JSONConfigStore {
         for url: URL,
         fileManager: FileManager = .default
     ) -> URL {
-        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
-            return url
+        // Canonicalize the parent first so native and helper writers derive
+        // one sidecar lock path even when an ancestor directory is a symlink.
+        let canonical = url.deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(url.lastPathComponent)
+            .standardizedFileURL
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: canonical.path) else {
+            return canonical
         }
         let destinationURL: URL
         if destination.hasPrefix("/") {
             destinationURL = URL(fileURLWithPath: destination)
         } else {
-            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+            destinationURL = canonical.deletingLastPathComponent().appendingPathComponent(destination)
         }
         return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
     }
