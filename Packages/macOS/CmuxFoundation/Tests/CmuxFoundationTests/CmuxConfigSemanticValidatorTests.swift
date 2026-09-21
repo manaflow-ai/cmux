@@ -111,14 +111,18 @@ struct CmuxConfigSemanticValidatorTests {
 
     @Test("rejects large values that are not exact multiples")
     func rejectsLargeNonMultiple() throws {
-        let result = try issues(["terminal": ["sessionContentMaxWidth": 100_000_000_001]])
-        #expect(
-            contains(
-                result,
-                path: "$.terminal.sessionContentMaxWidth",
-                message: "must be a multiple of 20"
-            )
+        let validator = CmuxConfigSemanticValidator(scope: .global)
+        let result = validator.validateObject(
+            ["width": 100_000_000_001],
+            schema: [
+                "type": "object",
+                "properties": ["width": ["type": "number", "multipleOf": 20]],
+                "additionalProperties": false,
+            ],
+            path: "$",
+            tolerateUnknownProperties: false
         )
+        #expect(contains(result, path: "$.width", message: "must be a multiple of 20"))
     }
 
     @Test("future schema versions tolerate unknown additions but still validate known fields")
