@@ -17,18 +17,12 @@ import Network
 /// waiting on a callback from the same queue that would deliver it risks
 /// deadlock, and the existing daemon-backed implementation of this protocol
 /// already blocks its caller's queue for an RPC round-trip, so a bounded
-/// blocking dial here preserves the same contract. ``RemoteTmuxBrowserProxyListener``
-/// gives every accepted connection its own dedicated queue, so this only
-/// ever blocks that one connection, never another's acceptance or I/O.
+/// blocking dial here preserves the same contract.
 ///
 /// `openStreams` is guarded by `stateLock`, a plain `NSLock`, not an actor:
 /// ``RemoteProxyStreamOpening`` is synchronous and non-`async` by design (see
 /// above), so a caller can't `await` into actor isolation without breaking
-/// that shared, production protocol. The lock is real synchronization, not
-/// decoration — `openStream`/`writeStream`/`attachStream`/`closeStream` run
-/// on this instance's owning queue while `DispatchIO`'s own read/write/
-/// cleanup callbacks run on `ioQueue` — but it only ever guards a dictionary
-/// read/write, never I/O or a wait.
+/// that shared, production protocol.
 final class RemoteTmuxSocksProxyStreamClient: RemoteProxyStreamOpening, @unchecked Sendable {
     private let localForwardPort: Int
     private let ioQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-stream-io", qos: .userInitiated)
