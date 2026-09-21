@@ -3423,6 +3423,64 @@
         }
       }
     },
+    "glaeda.cli.taskHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [options]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [Optionen]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [paramètres]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [خيارات]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [opciones]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [選項]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [选项]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [옵션]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [オプション]"
+          }
+        }
+      }
+    },
     "glaeda.cli.usage": {
       "extractionState": "manual",
       "localizations": {
