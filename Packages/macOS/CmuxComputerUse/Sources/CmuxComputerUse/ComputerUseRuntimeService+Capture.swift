@@ -87,7 +87,7 @@ extension ComputerUseRuntimeService {
     #endif
     nonisolated static func verifyDirectScreenCaptureOutcomes(
         paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
+        transport: SocketTransport = SocketTransport()
         expectedPeerIdentities:
             [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
     ) async -> ComputerUseDirectScreenCaptureVerification {
@@ -117,7 +117,7 @@ extension ComputerUseRuntimeService {
     #endif
     nonisolated static func verifyDirectScreenCaptureOutcome(
         paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
+        transport: SocketTransport = SocketTransport()
         expectedPeerIdentity: AgentPIDProcessIdentity,
         socketURL: URL? = nil
     ) async -> ComputerUseDirectScreenCaptureVerification {

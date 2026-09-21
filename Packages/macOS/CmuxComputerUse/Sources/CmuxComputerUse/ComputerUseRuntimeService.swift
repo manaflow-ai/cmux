@@ -965,6 +965,15 @@ public final class ComputerUseRuntimeService {
                 return
             }
         }
+        // The first profile was configured while the second was still being
+        // launched. Revalidate both profiles together before opening either
+        // daemon's functional admission.
+        for profile in ComputerUseDaemonProfile.allCases {
+            guard await configureHostAuthority(for: profile) else {
+                _ = await stopDaemon()
+                return
+            }
+        }
     }
 
     func stopDaemon() async -> Bool {
@@ -1141,11 +1150,52 @@ public final class ComputerUseRuntimeService {
         guard await configureStateAuthentication(for: profile) else {
             return false
         }
+        let validation = await validateHelperProfilesForAdmission()
+        guard validation.listening else {
+            return await publishExternalPermissionReadiness(
+                for: profile, readyOverride: false
+            )
+        }
+        guard validation.permissions else {
+            if onboarding.completionCommitted || onboarding.phase.isReady {
+                onboarding.invalidateCompletion()
+            }
+            return await publishExternalPermissionReadiness(
+                for: profile, readyOverride: false
+            )
+        }
+        onboarding.statusChanged()
         return await publishExternalPermissionReadiness(for: profile)
     }
 
+    private func validateHelperProfilesForAdmission() async -> (
+        listening: Bool,
+        permissions: Bool
+    ) {
+        for profile in ComputerUseDaemonProfile.allCases {
+            guard await Self.isDaemonListening(
+                paths: paths,
+                transport: transport,
+                socketURL: socketURL(for: profile)
+            ), let peer = processIdentity(for: profile),
+                let status = await daemonAdmission.permissionStatus(
+                    at: socketURL(for: profile), peer: peer
+                ) else {
+                return (false, false)
+            }
+            guard status.helperOwnsPermissions,
+                  status.accessibility,
+                  status.screenRecording else {
+                return (true, false)
+            }
+            if profile == .native { cachedStatus = status }
+        }
+        return (true, true)
+    }
+
     func publishExternalPermissionReadiness(
-        for profile: ComputerUseDaemonProfile
+        for profile: ComputerUseDaemonProfile,
+        readyOverride: Bool? = nil
     ) async -> Bool {
         guard
             let runningIdentity = processIdentity(for: profile),
@@ -1154,7 +1204,7 @@ public final class ComputerUseRuntimeService {
         else {
             return false
         }
-        let ready = desiredEnabled && onboarding.phase.isReady && onboarding.completionCommitted
+        let ready = readyOverride ?? (desiredEnabled && onboarding.phase.isReady && onboarding.completionCommitted)
         guard let response = await Self.sendDaemonRequest(
             [
                 "method": "set_external_permission_ready",
@@ -1168,11 +1218,8 @@ public final class ComputerUseRuntimeService {
         ) else {
             return false
         }
-        return
-            response["ok"] as? Bool == true
-                && (response["result"] as? [String: Any])?[
-                    "external_permission_ready"
-                ] as? Bool == ready
+        return response["ok"] as? Bool == true
+            && (response["result"] as? [String: Any])?["external_permission_ready"] as? Bool == ready
     }
 
     private func transitionPermissionPhase(
