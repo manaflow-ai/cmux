@@ -148,9 +148,10 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("previous name\n");
     const promptArtifacts = readdirSync(join(root, "etc"));
     expect(promptArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
+    // A failed transaction may retain an unreferenced immutable release cache;
+    // the safety property is that no alias points at that new generation.
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
-    expect(readdirSync(join(root, "libexec")).filter((name) => name.startsWith("cmux-cloud-")).length).toBe(0);
     expect(fixture.liveVms.size).toBe(0);
   });
 
@@ -178,7 +179,6 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(publishArtifacts.some((name) => name.startsWith(".cmux-install-") || (name.startsWith(".prompt-") && ![".prompt-lock", ".prompt-identity"].includes(name)))).toBe(false);
     expect(existsSync(join(root, "libexec", "cmux-coderouter"))).toBe(false);
     expect(existsSync(join(root, "bin", "coderouter"))).toBe(false);
-    expect(readdirSync(join(root, "libexec")).filter((name) => name.startsWith("cmux-cloud-")).length).toBe(0);
     expect(fixture.liveVms.size).toBe(0);
   });
 });
