@@ -158,6 +158,12 @@ export class DurableTaskStore {
             // Best effort cleanup only.
           }
         }
+      })
+      .catch((error) => {
+        // Keep a failed snapshot dirty so a later flush or mutation can retry.
+        // Do not clear a newer dirty flag set while this write was pending.
+        this.dirty = true;
+        throw error;
       });
   }
 }
@@ -243,9 +249,7 @@ function isAgentEvent(value: unknown): value is AgentEvent {
         (event.providerSessionId === undefined || isString(event.providerSessionId));
     case "options":
       return Array.isArray(event.options) && event.options.every(isSessionOption) &&
-        (event.actions === undefined || (typeof event.actions === "object" && event.actions !== null &&
-          (event.actions as Record<string, unknown>).fork !== undefined &&
-          isBoolean((event.actions as Record<string, unknown>).fork)));
+        (event.actions === undefined || isSessionActions(event.actions));
     case "commands": {
       if (event.trigger !== "/" && event.trigger !== "$" && event.trigger !== "@") return false;
       if (!Array.isArray(event.commands)) return false;
@@ -281,4 +285,10 @@ function isAgentEvent(value: unknown): value is AgentEvent {
     default:
       return false;
   }
+}
+
+function isSessionActions(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const actions = value as Record<string, unknown>;
+  return actions.fork === undefined || isBoolean(actions.fork);
 }

@@ -105,7 +105,7 @@ const validEvents: AgentEvent[] = [
     { id: "model", label: "Model", kind: "select", value: "model", role: "effort",
       choices: [{ value: "model", label: "Model", efforts: [{ value: "high", label: "High" }], defaultEffort: "high" }] },
     { id: "approval", label: "Approval", kind: "toggle", value: true, disabled: false },
-  ], actions: { fork: true } },
+  ], actions: {} },
   { kind: "commands", trigger: "/", commands: [{ name: "compact", description: "Compact", source: "provider" }] },
   ...(["user", "status", "delta", "assistant", "thinking"] as const).map((kind) => ({ kind, text: "text" })),
   { kind: "tool-start", toolId: "tool", name: "Read", detail: "file" },
