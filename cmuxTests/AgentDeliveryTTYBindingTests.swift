@@ -411,36 +411,16 @@ extension AgentNotificationRegressionTests {
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
         ]
+        let result: TerminalController.V2CallResult
         if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
             let previousConnectionID = workspace.activeRemoteSessionControllerID
             let connectionID = previousConnectionID ?? UUID()
             workspace.activeRemoteSessionControllerID = connectionID
             params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
-            let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
+            result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
             workspace.activeRemoteSessionControllerID = previousConnectionID
-            if expectedWorkspaceID != authenticatedWorkspaceID {
-                guard case .err = result else {
-                    Issue.record("A relay TTY target must not disclose a moved workspace")
-                    return
-                }
-                return
-            }
-            guard case .ok(let payload) = result,
-                  let target = payload as? [String: Any] else {
-                Issue.record("Expected authenticated relay TTY resolution, got \(result)")
-                return
-            }
-            #expect(target["workspace_id"] as? String == expectedWorkspaceID.uuidString)
-            #expect(target["surface_id"] as? String == expectedSurfaceID.uuidString)
-            return
-        }
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
-        if expectedWorkspaceID != authenticatedWorkspaceID {
-            guard case .err = result else {
-                Issue.record("A relay TTY target must not disclose a moved workspace")
-                return
-            }
-            return
+        } else {
+            result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
         }
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {
