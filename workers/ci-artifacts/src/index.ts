@@ -1,9 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
+import { authenticateActionsRequest, type ActionsIdentity } from "./actions-oidc";
 
 const REPOSITORY = "manaflow-ai/cmux";
 const MAX_BYTES = 2 * 1024 ** 3;
 const IMPORT_TIMEOUT_MS = 150_000;
 const API_LIMIT = 2 * 1024 ** 2;
+const CALLER_AUTH_TIMEOUT_MS = 5_000;
+const ADMISSION_TIMEOUT_MS = 2_000;
+const REQUESTS_PER_RUN_PER_MINUTE = 16;
+const REQUESTS_GLOBAL_PER_MINUTE = 120;
 
 class ArtifactError extends Error {}
 
@@ -58,7 +63,10 @@ async function api(path: string, token: string, signal: AbortSignal): Promise<Re
   return object(JSON.parse(new TextDecoder().decode(bytes)));
 }
 
-async function authorize(id: number, digest: string, token: string, signal: AbortSignal): Promise<Artifact> {
+async function authorize(
+  id: number, digest: string, token: string, signal: AbortSignal,
+  expectedRunId?: number, expectedRunAttempt?: number,
+): Promise<Artifact> {
   // Revalidate even a cache hit: an expired artifact or newly private repo is
   // not a public download. The bucket must not have a public domain/r2.dev URL.
   const repository = await api("", token, signal);
@@ -74,8 +82,13 @@ async function authorize(id: number, digest: string, token: string, signal: Abor
   if (typeof runId !== "number" || !Number.isSafeInteger(runId) || runId <= 0) throw new ArtifactError("invalid producer");
   const run = await api(`/actions/runs/${runId}`, token, signal);
   const attempt = Number(name[1]);
-  if (run.path !== ".github/workflows/ci.yml" || !["pull_request", "merge_group", "workflow_dispatch"].includes(String(run.event))
-      || object(run.head_repository).full_name !== REPOSITORY || run.run_attempt !== attempt) throw new ArtifactError("invalid producer");
+  if ((expectedRunId !== undefined && runId !== expectedRunId)
+      || (expectedRunAttempt !== undefined && attempt !== expectedRunAttempt)
+      || run.path !== ".github/workflows/ci.yml"
+      || !["pull_request", "merge_group", "workflow_dispatch"].includes(String(run.event))
+      || object(run.head_repository).full_name !== REPOSITORY || run.run_attempt !== attempt) {
+    throw new ArtifactError("invalid producer");
+  }
   // The full CI run is deliberately allowed to remain in progress: its test
   // consumers are waiting for this artifact. Only the producer must finish.
   for (let page = 1; page <= 3; page++) {
@@ -111,15 +124,51 @@ async function archive(artifact: Artifact, token: string, signal: AbortSignal): 
   return response;
 }
 
+type AdmissionState = { minute: number; total: number; runs: Record<string, number> };
+
+export class RequestAdmission extends DurableObject<Env> {
+  private serial: Promise<void> = Promise.resolve();
+
+  private async admit(runId: string): Promise<boolean> {
+    let allowed = false;
+    const operation = this.serial.then(async () => {
+      const minute = Math.floor(Date.now() / 60_000);
+      const stored = await this.ctx.storage.get<AdmissionState>("rate");
+      const state: AdmissionState = stored?.minute === minute
+        ? stored : { minute, total: 0, runs: {} };
+      const runCount = state.runs[runId] || 0;
+      if (state.total >= REQUESTS_GLOBAL_PER_MINUTE || runCount >= REQUESTS_PER_RUN_PER_MINUTE) return;
+      state.total++;
+      state.runs[runId] = runCount + 1;
+      await this.ctx.storage.put("rate", state);
+      allowed = true;
+    });
+    this.serial = operation.catch(() => {});
+    await operation;
+    return allowed;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    const runId = request.headers.get("X-Cmux-Run-Id") || "";
+    if (!/^[1-9][0-9]{0,19}$/.test(runId)) return new Response("invalid admission identity", { status: 400 });
+    return new Response(null, { status: await this.admit(runId) ? 204 : 429 });
+  }
+}
+
 export class ArtifactImport extends DurableObject<Env> {
   private importing: Promise<Cached> | undefined;
 
-  private async ensure(id: number, digest: string, timeout: number): Promise<Cached> {
+  private async ensure(
+    id: number, digest: string, timeout: number,
+    expectedRunId?: number, expectedRunAttempt?: number,
+  ): Promise<Cached> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     const signal = controller.signal;
     try {
-      const artifact = await bounded(authorize(id, digest, this.env.GITHUB_ARTIFACT_TOKEN, signal), timeout);
+      const artifact = await bounded(authorize(
+        id, digest, this.env.GITHUB_ARTIFACT_TOKEN, signal, expectedRunId, expectedRunAttempt,
+      ), timeout);
       const key = `github/${REPOSITORY}/${id}/${digest}.zip`;
       const existing = await bounded(this.env.ARTIFACTS.head(key), 10_000);
       if (existing?.size === artifact.size && existing.customMetadata?.sha256 === digest) {
@@ -155,12 +204,22 @@ export class ArtifactImport extends DurableObject<Env> {
     const identity = route(request);
     if (!identity) return new Response("Not found", { status: 404 });
     try {
+      const expectedRunHeader = request.headers.get("X-Cmux-Expected-Run-Id");
+      const expectedAttemptHeader = request.headers.get("X-Cmux-Expected-Run-Attempt");
+      const expectedRunId = expectedRunHeader === null ? undefined : Number(expectedRunHeader);
+      const expectedRunAttempt = expectedAttemptHeader === null ? undefined : Number(expectedAttemptHeader);
+      if ((expectedRunHeader !== null && (!Number.isSafeInteger(expectedRunId) || expectedRunId! <= 0))
+          || (expectedAttemptHeader !== null && (!Number.isSafeInteger(expectedRunAttempt) || expectedRunAttempt! <= 0))) {
+        throw new ArtifactError("invalid caller run");
+      }
       // State belongs to this artifact's Durable Object, not a Worker isolate.
       // Concurrent consumers await one import, rather than downloading six ZIPs.
       const configured = Number(this.env.IMPORT_TIMEOUT_MS);
       const timeout = Number.isFinite(configured) && configured >= 25
         ? Math.min(configured, IMPORT_TIMEOUT_MS) : IMPORT_TIMEOUT_MS;
-      this.importing ??= this.ensure(identity.id, identity.digest, timeout).finally(() => {
+      this.importing ??= this.ensure(
+        identity.id, identity.digest, timeout, expectedRunId, expectedRunAttempt,
+      ).finally(() => {
         this.importing = undefined;
       });
       // HTTP callers have a deadline even if an R2 binding call stalls. The
@@ -182,10 +241,51 @@ export class ArtifactImport extends DurableObject<Env> {
   }
 }
 
+export async function artifactHandler(
+  request: Request, env: Env, expectedRunId?: string, expectedRunAttempt?: string,
+): Promise<Response> {
+  const identity = route(request);
+  if (!identity) return new Response("Not found", { status: 404 });
+  // Strip caller credentials before the request enters the artifact Durable Object.
+  const headers = new Headers();
+  if (expectedRunId !== undefined) headers.set("X-Cmux-Expected-Run-Id", expectedRunId);
+  if (expectedRunAttempt !== undefined) headers.set("X-Cmux-Expected-Run-Attempt", expectedRunAttempt);
+  const internal = new Request(request.url, { method: "GET", headers });
+  const owner = expectedRunId === undefined ? "unbound" : `run/${expectedRunId}/${expectedRunAttempt}`;
+  return env.ARTIFACT_IMPORTS.getByName(`${REPOSITORY}/${owner}/${identity.id}/${identity.digest}`).fetch(internal);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const identity = route(request);
-    if (!identity) return new Response("Not found", { status: 404 });
-    return env.ARTIFACT_IMPORTS.getByName(`${REPOSITORY}/${identity.id}/${identity.digest}`).fetch(request);
+    if (!route(request)) return new Response("Not found", { status: 404 });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CALLER_AUTH_TIMEOUT_MS);
+    let caller: ActionsIdentity;
+    try {
+      caller = await bounded(
+        authenticateActionsRequest(request, fetch, Date.now(), controller.signal),
+        CALLER_AUTH_TIMEOUT_MS,
+      );
+      const admission = await bounded(
+        env.REQUEST_ADMISSION.getByName("production").fetch(new Request("https://admission.internal/admit", {
+          headers: { "X-Cmux-Run-Id": caller.runId },
+        })),
+        ADMISSION_TIMEOUT_MS,
+      );
+      if (admission.status === 429) {
+        console.warn(JSON.stringify({ event: "artifact-rate-limited", run: caller.runId }));
+        return new Response("Artifact broker busy; use GitHub", { status: 429, headers: { "Cache-Control": "no-store" } });
+      }
+      if (admission.status !== 204) throw new ArtifactError("request admission unavailable");
+    } catch (error) {
+      console.warn(JSON.stringify({ event: "artifact-auth-miss", reason: error instanceof Error ? error.message : "unknown" }));
+      return new Response("Artifact broker authentication unavailable; use GitHub", {
+        status: 502, headers: { "Cache-Control": "no-store" },
+      });
+    } finally {
+      controller.abort();
+      clearTimeout(timer);
+    }
+    return artifactHandler(request, env, caller.runId, caller.runAttempt);
   },
 } satisfies ExportedHandler<Env>;
