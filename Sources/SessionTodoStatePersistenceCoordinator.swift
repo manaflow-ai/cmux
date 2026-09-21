@@ -11,6 +11,9 @@ final class SessionTodoStatePersistenceCoordinator {
     private var pending: [UUID: SessionTodoStateSnapshot] = [:]
     private var writeInFlight = false
     private var fallbackRequested = false
+    private var scheduledWrite: Task<Void, Never>?
+
+    private static let coalescingDelay: Duration = .milliseconds(100)
 
     init(
         queue: DispatchQueue,
@@ -28,6 +31,20 @@ final class SessionTodoStatePersistenceCoordinator {
     }
 
     private func scheduleWriteIfNeeded() {
+        guard !writeInFlight, !pending.isEmpty, scheduledWrite == nil else { return }
+        scheduledWrite = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: Self.coalescingDelay)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.scheduledWrite = nil
+            self.startWrite()
+        }
+    }
+
+    private func startWrite() {
         guard !writeInFlight, !pending.isEmpty else { return }
         writeInFlight = true
         let updates = Array(pending.values)
@@ -35,23 +52,29 @@ final class SessionTodoStatePersistenceCoordinator {
         let snapshotStore = snapshotStore
 
         queue.async { [weak self] in
+            var saveSucceeded = false
             if var snapshot = snapshotStore.load(fileURL: nil) {
                 for update in updates {
                     _ = update.apply(to: &snapshot)
                 }
-                _ = snapshotStore.save(snapshot, fileURL: nil)
+                saveSucceeded = snapshotStore.save(snapshot, fileURL: nil)
             } else {
                 Task { @MainActor [weak self] in
                     self?.requestFallbackSaveIfNeeded()
                 }
             }
             Task { @MainActor [weak self] in
-                self?.finishWrite()
+                self?.finishWrite(updates: updates, saveSucceeded: saveSucceeded)
             }
         }
     }
 
-    private func finishWrite() {
+    private func finishWrite(updates: [SessionTodoStateSnapshot], saveSucceeded: Bool) {
+        if !saveSucceeded {
+            for update in updates where pending[update.workspaceID] == nil {
+                pending[update.workspaceID] = update
+            }
+        }
         writeInFlight = false
         scheduleWriteIfNeeded()
     }
