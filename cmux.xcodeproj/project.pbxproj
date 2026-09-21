@@ -1967,6 +1967,7 @@
 		F0A110030000000000000001 /* GhosttyMouseSessionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */; };
 		A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */; };
 		D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */; };
+		123810000000000000000006 /* GhosttyNSView+CellMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */; };
 		B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */; };
 		B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */; };
 		F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */; };
@@ -5989,6 +5990,7 @@
 		F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerTests.swift; sourceTree = "<group>"; };
 		A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationDispatcherTests.swift; sourceTree = "<group>"; };
 		D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationScrollRuntimeBridge.swift; sourceTree = "<group>"; };
+		123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+CellMetrics.swift"; sourceTree = "<group>"; };
 		B88357000000000000000002 /* GhosttyNSView+ClipboardActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardActions.swift"; sourceTree = "<group>"; };
 		B88357000000000000000004 /* GhosttyNSView+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000002 /* GhosttyNSView+ForkConversationContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttyNSView+ForkConversationContextMenu.swift"; sourceTree = "<group>"; };
@@ -9649,6 +9651,7 @@
 				F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */,
 				F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				123810000000000000000005 /* GhosttyNSView+CellMetrics.swift */,
 				126570000000000000000007 /* GhosttyTerminalView+Representable.swift */,
 				030176C8103741F8BDD27F26 /* CloudTerminalReconnectOverlayView.swift */,
 				DF976CA511F242519ADA8204 /* CloudTerminalOverlayCoordinator.swift */,
@@ -13964,6 +13967,7 @@
 				F0A1100B0000000000000001 /* GhosttyMouseSessionLedgerSession.swift in Sources */,
 				F0A110070000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift in Sources */,
 				D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */,
+				123810000000000000000006 /* GhosttyNSView+CellMetrics.swift in Sources */,
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,
 				F0ACC0DE0000000000000001 /* GhosttyNSView+ForkConversationContextMenu.swift in Sources */,
