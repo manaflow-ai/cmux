@@ -60,7 +60,10 @@ final class BrowserPaneDropTargetView: NSView {
         let routingContext = WindowInputRoutingContext(eventType: eventType)
         // Mouse-up belongs to a drop destination only while its native drag
         // registration is live. Pasteboard payloads outlive completed drags.
-        if routingContext.eventKind == .pointerUp, !hasActiveDropDrag {
+        if routingContext.eventKind == .pointerUp,
+           !hasActiveDropDrag,
+           !hasLiveTabTransfer,
+           !hasLiveFileDropPayload {
             return false
         }
 

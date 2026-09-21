@@ -118,6 +118,11 @@ struct BrowserPaneFileDropUploadRegressionTests {
             eventType: eventType,
             hasActiveDropDrag: true
         ))
+        #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+            eventType: eventType,
+            hasLiveTabTransfer: true
+        ))
     }
 
     @Test(arguments: [NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel])
