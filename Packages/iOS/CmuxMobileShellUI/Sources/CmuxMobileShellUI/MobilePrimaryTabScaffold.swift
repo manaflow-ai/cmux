@@ -14,6 +14,7 @@ struct MobilePrimaryTabScaffold<
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
     let taskComposerAction: (() -> Void)?
+    let voiceModeAction: (() -> Void)?
     let workspaces: Workspaces
     let notifications: Notifications
     let search: Search
@@ -23,6 +24,7 @@ struct MobilePrimaryTabScaffold<
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
         taskComposerAction: (() -> Void)? = nil,
+        voiceModeAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder search: () -> Search
@@ -31,6 +33,7 @@ struct MobilePrimaryTabScaffold<
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
         self.taskComposerAction = taskComposerAction
+        self.voiceModeAction = voiceModeAction
         self.workspaces = workspaces()
         self.notifications = notifications()
         self.search = search()
@@ -54,11 +57,21 @@ struct MobilePrimaryTabScaffold<
                     searchCoordinator.synchronizeSelection(selection)
                 }
 
-                if selection == .workspaces, let taskComposerAction {
-                    TaskComposerButton(
-                        action: taskComposerAction,
-                        diameter: iOS26BottomControlDiameter
-                    )
+                if selection == .workspaces, taskComposerAction != nil || voiceModeAction != nil {
+                    VStack(spacing: iOS26BottomControlSpacing) {
+                        if let voiceModeAction {
+                            VoiceModeButton(
+                                action: voiceModeAction,
+                                diameter: iOS26BottomControlDiameter
+                            )
+                        }
+                        if let taskComposerAction {
+                            TaskComposerButton(
+                                action: taskComposerAction,
+                                diameter: iOS26BottomControlDiameter
+                            )
+                        }
+                    }
                     .padding(.trailing, iOS26BottomControlInset)
                     .padding(.bottom, iOS26TaskComposerBottomPadding)
                     // Compose anchors to the screen, not the keyboard. The

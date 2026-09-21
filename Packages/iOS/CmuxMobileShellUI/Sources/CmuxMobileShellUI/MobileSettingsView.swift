@@ -258,6 +258,8 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
                 }
 
+                MobileVoiceSettingsSection()
+
                 Section {
                     Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
                         Text(L10n.string(
