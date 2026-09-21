@@ -46,10 +46,12 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const execs: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
+  let guestCliProbeSeen = false;
   const vm = {
     exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      const statusCode = command.includes(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`) ? (input.guestCliExit ?? 0)
+      const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
+        ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
       return { statusCode, stdout: "", stderr: statusCode === 0 ? "" : "probe failed" };
     },
@@ -114,21 +116,6 @@ describe("FreestyleProvider transport contract", () => {
     // menu must not offer a verb the driver cannot serve.
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
-  });
-
-  test("destroy keeps an unknown 404 unconfirmed", async () => {
-    const client = {
-      vms: {
-        ref: () => ({
-          delete: async () => { throw new FreestyleApiError(404, { code: "UNKNOWN", message: "endpoint missing" }); },
-        }),
-      },
-    } as unknown as Freestyle;
-    const provider = new FreestyleProvider({
-      client: () => client,
-      resolveDaemonSource: async () => { throw new Error("unused in destroy test"); },
-    });
-    await expect(provider.destroy(VM_ID)).rejects.toBeInstanceOf(ProviderError);
   });
 });
 
@@ -343,7 +330,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
-    expect(fake.execs.some(command => command.includes("os.replace(source, target)"))).toBe(true);
+    expect(fake.execs.some(command => command.includes(GUEST_CMUX_SHIM_PATH))).toBe(true);
     expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 

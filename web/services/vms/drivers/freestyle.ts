@@ -18,7 +18,6 @@ import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import { installFreestyleGuestCli, type FreestyleClientFactory } from "./freestyleGuestCli";
-import { rollbackFreestyleCreate } from "./providerCreateCleanup";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
@@ -56,7 +55,7 @@ import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { guestCliDistributionCommand } from "../guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
-import { guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
+import { guestBrowserInstallCommand, guestBrowserMimeReconcileCommand, guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
@@ -183,7 +182,7 @@ const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9
  * Production uses the env-configured client and the live manifest.
  */
 export type FreestyleProviderDependencies = {
-  readonly client: FreestyleClientFactory;
+  readonly client: (timeoutMs?: number) => Freestyle;
   readonly resolveDaemonSource: typeof resolveCmuxTuiSource;
 };
 
@@ -205,9 +204,9 @@ export function preconnectFreestyle(): void {
 }
 
 /** Exported for the publication provider, which shares this account-wide client. */
-export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS, signal?: AbortSignal): Freestyle {
+export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch = freestyleRequestFetch({
-    timeoutMs, signal,
+    timeoutMs,
     record: process.env.NODE_ENV === "development" ? (event) => {
       const traceId = currentVmRequestContext()?.traceId;
       console.info("cmux.vm.freestyle.request", JSON.stringify({
@@ -1025,8 +1024,9 @@ export class FreestyleProvider implements VMProvider {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
-            const rollback = await Effect.runPromise(Effect.either(rollbackFreestyleCreate(this.deps.client, vmId, err)));
-            if (rollback._tag === "Left") throw rollback.left;
+            await vm.delete().catch((cleanupErr) => {
+              console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
+            });
             throw err;
           }
           return {
@@ -1403,8 +1403,9 @@ export class FreestyleProvider implements VMProvider {
             await this.ensureCmuxTuiRunning(vm, vmId, false).catch(() => undefined);
             await this.announcePrivateAddresses(vm, data);
           } catch (err) {
-            const rollback = await Effect.runPromise(Effect.either(rollbackFreestyleCreate(this.deps.client, vmId, err)));
-            if (rollback._tag === "Left") throw rollback.left;
+            await vm.delete().catch((cleanupErr) => {
+              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
+            });
             throw err;
           }
           return {
@@ -1732,13 +1733,13 @@ export class FreestyleProvider implements VMProvider {
       return;
     }
     if (installReporter) await this.installGuestCli(vm, vmId);
-    else await this.installGuestCliFiles(vmId);
+    else await this.installGuestCliFiles(vm, vmId);
   }
 
   /** Separate guest paths may initialize together; rollback waits for both to settle. */
   private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const [cli] = await Promise.allSettled([
-      this.installGuestCliFiles(vmId, promptIdentity),
+      this.installGuestCliFiles(vm, vmId, promptIdentity),
       this.ensureResourceReporter(vm, vmId),
     ]);
     if (cli.status === "rejected") throw cli.reason;
@@ -1751,7 +1752,7 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCliFiles(vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCliFiles(_vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
     await withVmSpan("cmux.vm.guest_cli.install", "provider", {}, async (span) => {
       const result = await Effect.runPromise(Effect.either(installFreestyleGuestCli(this.deps.client, vmId, promptIdentity)));
       if (result._tag === "Left") {
