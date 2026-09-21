@@ -176,7 +176,7 @@ class GlaedaExecutionCLITests(unittest.TestCase):
                 str(path),
             )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(b"does not correlate", result.stderr)
+        self.assertIn(b"glaeda observe:", result.stderr)
 
     def test_observe_requires_real_json_booleans_for_zero_authority(self) -> None:
         receipt = json.loads(RECEIPT.read_text())
