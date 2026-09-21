@@ -136,6 +136,10 @@ final class SessionTodoStatePersistenceCoordinator {
         }
 
         if fallbackSave() {
+            // The full snapshot captured the current live workspaces, so the
+            // incremental updates that led here are now represented or no
+            // longer applicable because their workspace was closed.
+            pending.removeAll(keepingCapacity: true)
             consecutiveFailures = 0
             scheduleWriteIfNeeded()
         } else {
