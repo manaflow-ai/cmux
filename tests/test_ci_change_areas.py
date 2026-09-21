@@ -1027,7 +1027,9 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
     assert "        env:" in ci_instant_step
     assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
-    assert "        run: bun run test:instant" in ci_instant_step
+    assert "run: bun run test:instant" in {
+        line.strip() for line in ci_instant_step.splitlines()
+    }
 
     validation_typecheck = web_validation.index("      - run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
@@ -1036,6 +1038,9 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     validation_instant_step = web_validation[validation_instant:]
     assert "CMUX_INSTANT_CHECK_TYPECHECK" not in validation_instant_step
     assert '        env:\n          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in validation_instant_step
+    assert "- run: bun run test:instant" in {
+        line.strip() for line in validation_instant_step.splitlines()
+    }
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
