@@ -1788,6 +1788,9 @@ final class cmuxUITests: XCTestCase {
     func testDisconnectedTerminalComposerStaysAboveSafeArea() async throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED_TERMINAL": "1",
+        ], launchArguments: [
+            "-dev.cmux.mobile.whatsNew.newestAcknowledgedEntryId",
+            "connections.v2",
         ])
         defer { app.terminate() }
 
@@ -8154,7 +8157,10 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [String: String] = [:]) -> XCUIApplication {
+    private func launchWorkspaceDetailDelayedTerminalPreviewApp(
+        environment: [String: String] = [:],
+        launchArguments: [String] = []
+    ) -> XCUIApplication {
         var launchEnvironment = [
             "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
@@ -8162,7 +8168,11 @@ final class cmuxUITests: XCTestCase {
         for (key, value) in environment {
             launchEnvironment[key] = value
         }
-        let app = launchApp(mockData: false, environment: launchEnvironment)
+        let app = launchApp(
+            mockData: false,
+            environment: launchEnvironment,
+            launchArguments: launchArguments
+        )
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         return app
     }
