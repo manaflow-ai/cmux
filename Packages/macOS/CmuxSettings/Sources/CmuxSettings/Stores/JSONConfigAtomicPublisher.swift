@@ -37,7 +37,9 @@ struct JSONConfigAtomicPublisher: Sendable {
                 }
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
-            try fileManager.removeItem(at: staging)
+            // Publication is complete. Failure to remove the private staging
+            // link must not turn a committed write into a reported failure.
+            try? fileManager.removeItem(at: staging)
             return
         }
 
@@ -51,7 +53,17 @@ struct JSONConfigAtomicPublisher: Sendable {
         try exchange(staging, target)
         stagingContainsRecovery = true
 
-        let recovered = try Data(contentsOf: staging)
+        let recovered: Data
+        do {
+            recovered = try Data(contentsOf: staging)
+        } catch {
+            // The swap already installed our candidate. Restore the prior entry
+            // when possible before surfacing the validation failure.
+            if (try? exchange(staging, target)) != nil {
+                stagingContainsRecovery = false
+            }
+            throw error
+        }
         guard recovered == expected else {
             // The live path changed after our source read. Restore the entry
             // that won that race only while the published candidate and the
@@ -73,7 +85,9 @@ struct JSONConfigAtomicPublisher: Sendable {
             throw JSONConfigWriteConflict.sourceChanged
         }
 
-        try fileManager.removeItem(at: staging)
+        // The live target has been validated as the committed candidate. A
+        // cleanup error here must not make the caller believe publication failed.
+        try? fileManager.removeItem(at: staging)
         stagingContainsRecovery = false
     }
 
