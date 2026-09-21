@@ -504,7 +504,7 @@ private struct WorkspaceTodoPaneContent: View {
 private struct WorkspaceTodoPaneItemRowActions {
     let toggleCompletion: () -> Void
     let beginEdit: () -> Void
-    let editText: (UUID, String) -> Void
+    let editText: (String) -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
     let focusEditor: () -> Void
@@ -572,7 +572,7 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: editingText) { _, newValue in
-                    actions.editText(item.id, newValue)
+                    actions.editText(newValue)
                 }
                 .backport.onKeyPress(.return) { modifiers in
                     if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
