@@ -14,6 +14,14 @@ struct CloudVMLoadingPanelView: View {
                     actions: .bound(coordinator: .shared),
                     elapsedSeconds: max(0, Int(context.date.timeIntervalSince(operation.startedAt).rounded(.down)))
                 )
+            } else if panel.isLoading {
+                // Base opens already reserve the destination workspace and the
+                // Machines panel owns the optimistic progress state. Keep this
+                // pane visually quiet until the real Cloud terminal adopts it;
+                // the old full-pane “Opening Cloud VM” card made an optimistic
+                // workspace look blocked and duplicated the sidebar status.
+                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 baseContent(elapsedSeconds: elapsedSeconds)
             }
