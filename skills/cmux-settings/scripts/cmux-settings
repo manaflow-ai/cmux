@@ -39,7 +39,7 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
+import signal
 from pathlib import Path
 from typing import Any
 
@@ -154,15 +154,20 @@ def mutation_lock(configured: Path):
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
             raise SystemExit("error: refusing unsafe cmux config writer lock")
-        deadline = time.monotonic() + 2.0
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise SystemExit("error: another cmux config write is in progress; retry")
-                time.sleep(0.01)
+        previous_alarm_handler = signal.getsignal(signal.SIGALRM)
+
+        def lock_timeout(_signum, _frame):
+            raise TimeoutError
+
+        signal.signal(signal.SIGALRM, lock_timeout)
+        signal.setitimer(signal.ITIMER_REAL, 2.0)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except TimeoutError:
+            raise SystemExit("error: another cmux config write is in progress; retry")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
         if resolved_write_path(configured) != target:
             raise SystemExit("error: cmux config target changed while preparing the edit; retry")
         yield target
