@@ -219,7 +219,7 @@ Dynamic provider startup is disabled by default. Persistent configuration covers
 ```json
 {
   "machine_provider": {
-    "command": ["/opt/tui-cloud/provider.mjs"]
+    "command": ["/usr/local/bin/my-machine-provider", "--control"]
   }
 }
 ```
