@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxIrohTransport
 import CmuxV3Native
 import CmuxV3Transport
 import CmuxIrxTransport
