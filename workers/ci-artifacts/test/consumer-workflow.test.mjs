@@ -89,11 +89,12 @@ else:
           GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1", GITHUB_REPOSITORY: "manaflow-ai/cmux",
           ...Object.fromEntries(Object.entries(layered.env).map(([key, value]) => [key, render(value, values)])),
         } });
-        assert.equal(result.status, 1);
-        assert.match(result.stderr, layerFailure === "identity" ? /CalledProcessError/ : /invalid source identity/);
-        assert.equal(fs.existsSync(output), false);
-        // Ordinary step conditions carry GitHub's implicit success() check.
-        jobSucceeded = result.status === 0 || layered["continue-on-error"] === true;
+        assert.equal(result.status, 0);
+        assert.match(result.stdout, layerFailure === "identity" ? /CalledProcessError/ : /invalid source identity/);
+        assert.equal(fs.readFileSync(output, "utf8"), "hit=false\n");
+        // Restore initialization failures are explicit misses; the workflow
+        // still has continue-on-error as a final fallback boundary.
+        jobSucceeded = true;
       }
       const tryR2 = jobSucceeded && evaluate(restore.if, values) === "true";
       assert.equal(tryR2, layerHit !== "true");
