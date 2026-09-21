@@ -60,8 +60,8 @@ final class SessionTodoStatePersistenceCoordinator {
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + delay)
-        timer.setEventHandler { [weak self, weak timer] in
-            timer?.cancel()
+        timer.setEventHandler { [weak self] in
+            self?.writeTimer?.cancel()
             self?.writeTimer = nil
             self?.startWrite()
         }
