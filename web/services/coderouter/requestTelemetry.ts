@@ -61,6 +61,7 @@ export type CoderouterSurface =
   | "claude_upstream"
   | "vm_usage"
   | "vm_reflection"
+  | "vm_reflection_name"
   | "analytics"
   | "health";
 

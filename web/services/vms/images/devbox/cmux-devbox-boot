@@ -181,6 +181,11 @@ while true; do
         ( rekey_ssh_host & )
         ( announce_network & )
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+        # The prompt sync is a clone-local oneshot. A memory snapshot can
+        # carry an already-active systemd unit, so explicitly restart it after
+        # the fresh instance identity is bound. Older images simply have no
+        # unit and continue without this optional cosmetic feature.
+        systemctl --no-block restart cmux-prompt-sync.service >/dev/null 2>&1 || true
       fi
       if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
         [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
