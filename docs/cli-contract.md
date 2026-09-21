@@ -194,6 +194,43 @@ Environment:
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
+
+## Glaeda execution exchange and current-work ownership
+
+`cmux glaeda` is an execution exchange seam, not another CMUX work database. A
+complete transport-independent flow can look like this:
+
+```sh
+cmux glaeda request \
+  --request-ref cmux:exec:42 \
+  --work-ref cmux:work:42 \
+  --repository owner/repo \
+  --commit <commit> \
+  --tree <tree> > request.json
+
+# Carry request.json through the selected transport and receive result.json.
+
+cmux glaeda observe \
+  --request request.json \
+  --receipt result.json > observation.json
+
+cmux current --json
+```
+
+The observation is bounded correlation/evidence: request identity, the caller's
+`work_ref`, terminal state, and receipt digests. The caller that already owns
+the CMUX work item uses `work_ref` to associate that evidence with its existing
+work lifecycle. `observe` does not create a workspace, work item, scheduler
+record, or placement decision, and `cmux current` does not ingest
+`observation.json`.
+
+`cmux current --json` and **Find Work** continue to read the same bounded,
+read-only projection of work already owned by CMUX, as described in
+[Current work](current-work.md). When an existing owner records its normal
+lifecycle change, that ordinary CMUX projection reflects it. The execution
+transport, machine placement, physical attempt, and recovery truth remain with
+their existing owners rather than being duplicated into a second CMUX ledger.
+
 ## Surface Selection Contract
 
 `surface.read_selection` is a v2 worker-lane socket method advertised by
