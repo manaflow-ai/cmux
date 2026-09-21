@@ -2360,6 +2360,1127 @@
           }
         }
       }
+    },
+    "glaeda.cli.error.documentTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document exceeds the size limit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument überschreitet das Größenlimit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda dépasse la limite de taille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتجاوز مستند إدخال Glaeda حد الحجم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda supera el límite de tamaño."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件超過大小限制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档超过大小限制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서가 크기 제한을 초과합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書がサイズ制限を超えています。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.documentUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document is unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda est indisponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستند إدخال Glaeda غير متاح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書を利用できません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.duplicateOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ may only be supplied once."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ darf nur einmal angegeben werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne peut être fourni qu’une seule fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن توفير %@ مرة واحدة فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solo se puede proporcionar una vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 只能提供一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 只能提供一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@는 한 번만 지정할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は 1 回だけ指定できます。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.encodingFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda document could not be encoded."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Dokument konnte nicht codiert werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document Glaeda n’a pas pu être encodé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر ترميز مستند Glaeda."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo codificar el documento de Glaeda."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法編碼 Glaeda 文件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法编码 Glaeda 文档。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 문서를 인코딩할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 文書をエンコードできませんでした。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.helpArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help accepts no additional arguments."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help akzeptiert keine zusätzlichen Argumente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help n’accepte aucun argument supplémentaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل cmux glaeda help أي وسيطات إضافية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help no acepta argumentos adicionales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help 不接受其他引數。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help 不接受其他参数。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help는 추가 인수를 받지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux glaeda help は追加の引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document is invalid JSON."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument enthält ungültiges JSON."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda contient un JSON invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستند إدخال Glaeda ليس JSON صالحًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda contiene JSON no válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件不是有效的 JSON。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档不是有效的 JSON。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서의 JSON이 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書の JSON が無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidReceipt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda receipt does not match this request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Glaeda-Beleg passt nicht zu dieser Anfrage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le reçu Glaeda ne correspond pas à cette demande."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتطابق إيصال Glaeda مع هذا الطلب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El recibo de Glaeda no coincide con esta solicitud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 收據與此要求不符。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 收据与此请求不匹配。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 영수증이 이 요청과 일치하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda レシートがこのリクエストと一致しません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda request is invalid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Glaeda-Anfrage ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande Glaeda est invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب Glaeda غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La solicitud de Glaeda no es válida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 要求無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 请求无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 요청이 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda リクエストが無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidWorkloadDigest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda workload receipt digest is invalid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Digest des Glaeda-Workload-Belegs ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le condensat du reçu de charge Glaeda est invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بصمة إيصال حمل عمل Glaeda غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El hash del recibo de carga de Glaeda no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 工作負載收據摘要無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 工作负载收据摘要无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 워크로드 영수증 다이제스트가 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda ワークロードレシートのダイジェストが無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.missingOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing required option: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erforderliche Option fehlt: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option requise manquante : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخيار المطلوب مفقود: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta la opción obligatoria: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少必要選項：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少必需选项：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수 옵션이 없습니다: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須オプションがありません: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.noncanonicalJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document must use canonical JSON."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument muss kanonisches JSON verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda doit utiliser un JSON canonique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يستخدم مستند إدخال Glaeda JSON أساسيًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda debe usar JSON canónico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件必須使用標準 JSON。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档必须使用规范 JSON。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서는 표준 JSON을 사용해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書は正規 JSON を使用する必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.objectRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document must be a JSON object."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument muss ein JSON-Objekt sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda doit être un objet JSON."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون مستند إدخال Glaeda كائن JSON."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda debe ser un objeto JSON."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件必須是 JSON 物件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档必须是 JSON 对象。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서는 JSON 객체여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書は JSON オブジェクトである必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.optionValueRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a value."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ benötigt einen Wert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite une valeur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ قيمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere un valor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 값이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には値が必要です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.regularFileRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda input document must be a regular file."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Glaeda-Eingabedokument muss eine reguläre Datei sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée Glaeda doit être un fichier ordinaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون مستند إدخال Glaeda ملفًا عاديًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada de Glaeda debe ser un archivo normal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 輸入文件必須是一般檔案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 输入文档必须是普通文件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 입력 문서는 일반 파일이어야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 入力文書は通常ファイルである必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.requestDigestMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda receipt request digest does not match."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Anfrage-Digest im Glaeda-Beleg stimmt nicht überein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le condensat de demande du reçu Glaeda ne correspond pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتطابق بصمة الطلب في إيصال Glaeda."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El hash de solicitud del recibo de Glaeda no coincide."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 收據的要求摘要不符。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 收据的请求摘要不匹配。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 영수증의 요청 다이제스트가 일치하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda レシートのリクエストダイジェストが一致しません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.terminalEvidenceMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Glaeda terminal result is missing workload evidence."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im terminalen Glaeda-Ergebnis fehlt der Workload-Nachweis."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le résultat terminal Glaeda ne contient pas la preuve de charge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفتقد نتيجة Glaeda النهائية دليل حمل العمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al resultado terminal de Glaeda le falta la evidencia de carga."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 終止結果缺少工作負載證據。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 终止结果缺少工作负载证据。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda 종료 결과에 워크로드 증거가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glaeda の終了結果にワークロード証拠がありません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has an unknown option: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat eine unbekannte Option: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ contient une option inconnue : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي %@ على خيار غير معروف: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tiene una opción desconocida: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 含有未知選項：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 包含未知选项：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 알 수 없는 옵션이 있습니다: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に不明なオプションがあります: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown Glaeda subcommand: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Glaeda-Unterbefehl: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande Glaeda inconnue : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر Glaeda فرعي غير معروف: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de Glaeda desconocido: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 Glaeda 子命令：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 Glaeda 子命令：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 Glaeda 하위 명령: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な Glaeda サブコマンド: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux glaeda <request|observe> [options]\n\nExchange one semantic execution request with Glaeda.\n\nSubcommands:\n  request\n    --request-ref <ref>        CMUX caller correlation reference\n    --work-ref <ref>           CMUX work correlation reference\n    --repository <owner/repo>  Canonical Git repository identity\n    --commit <40-hex>          Exact Git commit\n    --tree <40-hex>            Exact Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Emits canonical Glaeda execution-request JSON to stdout.\n    CMUX workspace, machine, shell command, and environment stay outside this request.\n\n  observe\n    --request <path>           Exact request document previously emitted\n    --receipt <path|->         Bounded Glaeda receipt, or - for stdin\n\n    Validates request/result correlation and emits a bounded CMUX observation.\n    Terminal states require a Glaeda workload-receipt digest.\n\nExamples:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux glaeda <request|observe> [Optionen]\n\nTauscht eine semantische Ausführungsanfrage mit Glaeda aus.\n\nUnterbefehle:\n  request\n    --request-ref <ref>        CMUX-Korrelationsreferenz der Anfrage\n    --work-ref <ref>           CMUX-Korrelationsreferenz der Arbeit\n    --repository <owner/repo>  Kanonische Git-Repository-Identität\n    --commit <40-hex>          Exakter Git-Commit\n    --tree <40-hex>            Exakter Git-Tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Gibt kanonisches Glaeda-Anfrage-JSON auf stdout aus.\n    CMUX-Arbeitsbereich, Maschine, Shell-Befehl und Umgebung bleiben außerhalb dieser Anfrage.\n\n  observe\n    --request <pfad>           Zuvor ausgegebenes exaktes Anfragedokument\n    --receipt <pfad|->         Begrenzter Glaeda-Beleg oder - für stdin\n\n    Prüft die Korrelation von Anfrage und Ergebnis und gibt eine begrenzte CMUX-Beobachtung aus.\n    Terminale Zustände benötigen einen Glaeda-Workload-Beleg-Digest.\n\nBeispiele:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux glaeda <request|observe> [options]\n\nÉchange une demande d’exécution sémantique avec Glaeda.\n\nSous-commandes :\n  request\n    --request-ref <ref>        Référence de corrélation CMUX de la demande\n    --work-ref <ref>           Référence de corrélation CMUX du travail\n    --repository <owner/repo>  Identité canonique du dépôt Git\n    --commit <40-hex>          Commit Git exact\n    --tree <40-hex>            Arbre Git exact\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Émet le JSON canonique de demande Glaeda sur stdout.\n    L’espace de travail CMUX, la machine, la commande shell et l’environnement restent hors de cette demande.\n\n  observe\n    --request <chemin>         Document exact de demande émis auparavant\n    --receipt <chemin|->       Reçu Glaeda borné, ou - pour stdin\n\n    Valide la corrélation demande/résultat et émet une observation CMUX bornée.\n    Les états terminaux exigent un condensat de reçu de charge Glaeda.\n\nExemples :\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux glaeda <request|observe> [خيارات]\n\nيتبادل طلب تنفيذ دلالي واحد مع Glaeda.\n\nالأوامر الفرعية:\n  request\n    --request-ref <ref>        مرجع ربط الطلب في CMUX\n    --work-ref <ref>           مرجع ربط العمل في CMUX\n    --repository <owner/repo>  هوية مستودع Git الأساسية\n    --commit <40-hex>          معرّف Git commit الدقيق\n    --tree <40-hex>            معرّف Git tree الدقيق\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    يطبع JSON أساسيًا لطلب Glaeda إلى stdout.\n    تبقى مساحة عمل CMUX والجهاز وأمر shell والبيئة خارج هذا الطلب.\n\n  observe\n    --request <path>           مستند الطلب الدقيق الذي تم إنشاؤه سابقًا\n    --receipt <path|->         إيصال Glaeda محدود، أو - لـ stdin\n\n    يتحقق من ربط الطلب بالنتيجة ويطبع ملاحظة CMUX محدودة.\n    تتطلب الحالات النهائية بصمة إيصال حمل عمل Glaeda.\n\nأمثلة:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux glaeda <request|observe> [opciones]\n\nIntercambia una solicitud de ejecución semántica con Glaeda.\n\nSubcomandos:\n  request\n    --request-ref <ref>        Referencia de correlación de solicitud de CMUX\n    --work-ref <ref>           Referencia de correlación de trabajo de CMUX\n    --repository <owner/repo>  Identidad canónica del repositorio Git\n    --commit <40-hex>          Commit Git exacto\n    --tree <40-hex>            Árbol Git exacto\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Emite JSON canónico de solicitud de Glaeda por stdout.\n    El espacio de trabajo de CMUX, la máquina, el comando shell y el entorno quedan fuera de esta solicitud.\n\n  observe\n    --request <ruta>           Documento exacto de solicitud emitido antes\n    --receipt <ruta|->         Recibo acotado de Glaeda, o - para stdin\n\n    Valida la correlación solicitud/resultado y emite una observación acotada de CMUX.\n    Los estados terminales requieren un hash de recibo de carga de Glaeda.\n\nEjemplos:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux glaeda <request|observe> [選項]\n\n與 Glaeda 交換一個語意執行要求。\n\n子命令：\n  request\n    --request-ref <ref>        CMUX 要求關聯參照\n    --work-ref <ref>           CMUX 工作關聯參照\n    --repository <owner/repo>  標準 Git 儲存庫識別\n    --commit <40-hex>          精確 Git commit\n    --tree <40-hex>            精確 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    將標準 Glaeda 執行要求 JSON 輸出到 stdout。\n    CMUX 工作區、機器、shell 命令與環境不會進入此要求。\n\n  observe\n    --request <path>           先前輸出的精確要求文件\n    --receipt <path|->         有界 Glaeda 收據，或以 - 讀取 stdin\n\n    驗證要求與結果的關聯，並輸出有界 CMUX 觀察。\n    終止狀態需要 Glaeda 工作負載收據摘要。\n\n範例：\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux glaeda <request|observe> [选项]\n\n与 Glaeda 交换一个语义执行请求。\n\n子命令：\n  request\n    --request-ref <ref>        CMUX 请求关联引用\n    --work-ref <ref>           CMUX 工作关联引用\n    --repository <owner/repo>  规范 Git 仓库标识\n    --commit <40-hex>          精确 Git commit\n    --tree <40-hex>            精确 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    将规范 Glaeda 执行请求 JSON 输出到 stdout。\n    CMUX 工作区、机器、shell 命令和环境不会进入此请求。\n\n  observe\n    --request <path>           先前输出的精确请求文档\n    --receipt <path|->         有界 Glaeda 收据，或用 - 读取 stdin\n\n    验证请求与结果的关联，并输出有界 CMUX 观察。\n    终止状态需要 Glaeda 工作负载收据摘要。\n\n示例：\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux glaeda <request|observe> [옵션]\n\nGlaeda와 하나의 의미 기반 실행 요청을 교환합니다.\n\n하위 명령:\n  request\n    --request-ref <ref>        CMUX 요청 상관 참조\n    --work-ref <ref>           CMUX 작업 상관 참조\n    --repository <owner/repo>  표준 Git 저장소 식별자\n    --commit <40-hex>          정확한 Git commit\n    --tree <40-hex>            정확한 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    표준 Glaeda 실행 요청 JSON을 stdout으로 출력합니다.\n    CMUX 작업 공간, 머신, shell 명령, 환경은 이 요청에 포함되지 않습니다.\n\n  observe\n    --request <path>           이전에 출력한 정확한 요청 문서\n    --receipt <path|->         제한된 Glaeda 영수증 또는 stdin용 -\n\n    요청/결과 상관관계를 검증하고 제한된 CMUX 관찰을 출력합니다.\n    종료 상태에는 Glaeda 워크로드 영수증 다이제스트가 필요합니다.\n\n예:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux glaeda <request|observe> [オプション]\n\nGlaeda と 1 件の意味的な実行リクエストを交換します。\n\nサブコマンド:\n  request\n    --request-ref <ref>        CMUX リクエスト相関参照\n    --work-ref <ref>           CMUX 作業相関参照\n    --repository <owner/repo>  正規 Git リポジトリ識別子\n    --commit <40-hex>          正確な Git commit\n    --tree <40-hex>            正確な Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    正規 Glaeda 実行リクエスト JSON を stdout に出力します。\n    CMUX ワークスペース、マシン、shell コマンド、環境はこのリクエストに含めません。\n\n  observe\n    --request <path>           以前出力した正確なリクエスト文書\n    --receipt <path|->         制限付き Glaeda レシート、または stdin 用の -\n\n    リクエストと結果の相関を検証し、制限付き CMUX 観察を出力します。\n    終了状態には Glaeda ワークロードレシートのダイジェストが必要です。\n\n例:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
