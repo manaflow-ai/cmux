@@ -7,6 +7,9 @@ on:
       - 'tests/test_cli_broken_pipe_writes.py'
       - 'tests/test_cli_socket_operation_deadline.py'
       - 'tests/test_cli_config_doctor.py'
+      - 'tests/test_cli_glaeda_execution.py'
+      - 'tests/fixtures/glaeda-external-request.json'
+      - 'tests/fixtures/glaeda-external-result.json'
       - 'scripts/generate-cmux-config-schema.py'
       - 'web/data/cmux.schema.json'
       - 'cmux.xcodeproj/**'
@@ -88,6 +91,7 @@ jobs:
           export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
           python3 tests/test_cli_broken_pipe_writes.py 2>&1 | tee "$RUNNER_TEMP/cli-pipes.log"
           python3 tests/test_cli_config_doctor.py 2>&1 | tee "$RUNNER_TEMP/cli-config-validation.log"
+          python3 tests/test_cli_glaeda_execution.py 2>&1 | tee "$RUNNER_TEMP/glaeda-execution.log"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -98,4 +102,5 @@ jobs:
             ${{ runner.temp }}/cli-build.log
             ${{ runner.temp }}/cli-pipes.log
             ${{ runner.temp }}/cli-config-validation.log
+            ${{ runner.temp }}/glaeda-execution.log
           retention-days: 7
