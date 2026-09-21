@@ -17,6 +17,7 @@ final class WorkspacePresenceController {
     private(set) var activeScope: WorkspacePresenceScope?
     private(set) var participants: [WorkspacePresenceParticipant] = []
     private var auth: AuthCoordinator?
+    private weak var selectedWorkspace: Workspace?
     private var session: WorkspacePresenceSession?
     private var task: Task<Void, Never>?
     private var snapshotTask: Task<Void, Never>?
@@ -40,11 +41,13 @@ final class WorkspacePresenceController {
             }
         }
         if observers.isEmpty {
-            observers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map { name in
+            observers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification, NSWindow.didBecomeMainNotification].map { name in
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     MainActor.assumeIsolated {
                         if note.name == NSApplication.didResignActiveNotification { self?.session?.setViewing(false) }
-                        else if self?.activeScope != nil { self?.session?.setViewing(true) }
+                        else if note.name == NSWindow.didBecomeMainNotification {
+                            self?.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace)
+                        } else if self?.activeScope != nil { self?.session?.setViewing(true) }
                     }
                 }
             }
@@ -52,7 +55,10 @@ final class WorkspacePresenceController {
         restartForAuth()
     }
 
-    func setActiveWorkspace(_ workspace: Workspace?) { setActiveScope(WorkspacePresenceScope.forWorkspace(workspace)) }
+    func setActiveWorkspace(_ workspace: Workspace?) {
+        selectedWorkspace = workspace
+        setActiveScope(WorkspacePresenceScope.forWorkspace(workspace))
+    }
 
     func setActiveScope(_ scope: WorkspacePresenceScope?) {
         guard scope != activeScope else { session?.setViewing(scope != nil && NSApp.isActive); return }
@@ -67,12 +73,12 @@ final class WorkspacePresenceController {
         snapshotTask = Task { @MainActor [weak self, weak auth, model] in
             for await values in model.snapshots() {
                 guard let self, self.session === model else { return }
-                self.updateParticipants(values.map {
+                self.updateParticipants(values.map { participant in
                     WorkspacePresenceParticipant(
-                        id: $0.id,
-                        displayName: $0.displayName,
-                        avatarURL: $0.avatarURL,
-                        lastSeenAt: Date()
+                        id: participant.id,
+                        displayName: participant.displayName,
+                        avatarURL: participant.avatarURL,
+                        lastSeenAt: self.participants.first(where: { $0.id == participant.id })?.lastSeenAt ?? Date()
                     )
                 })
                 self.phase = model.phase == .available ? .available : .unavailable
@@ -114,9 +120,7 @@ final class WorkspacePresenceController {
     }
 
     private func restartForAuth() {
-        let scope = activeScope
-        setActiveScope(nil)
-        if auth?.isAuthenticated == true { setActiveScope(scope) }
+        setActiveScope(WorkspacePresenceScope.forWorkspace(selectedWorkspace))
     }
 }
 

@@ -2,83 +2,64 @@ public import CMUXMobileCore
 import CmuxWorkspacePresence
 import Foundation
 
-/// Publishes one phone's active workspace through a separate, account-scoped
-/// viewing lease. Device reachability presence stays owned by the legacy client.
-public actor MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing {
-    private let connector: any WorkspacePresenceConnecting
+/// Owns one cancellable iOS workspace-view session and its auth generation.
+@MainActor
+public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing {
+    private let transport: WorkspacePresenceWebSocket
     private let tokenSource: PresenceTokenSource
-    private var connection: (any WorkspacePresenceConnection)?
-    private var leaseTask: Task<Void, Never>?
-    private var generation: UInt64 = 0
-    private var revision: UInt64 = 0
+    private var session: WorkspacePresenceSession
+    private var runTask: Task<Void, Never>?
     private var scope: WorkspacePresenceScope?
     private var accountID: String?
+    private var generation: UInt64 = 0
 
-    /// Creates a lease publisher for the configured presence origin.
-    /// - Parameters:
-    ///   - serviceBaseURL: Worker origin for `/v1/workspace-presence`.
-    ///   - tokenSource: Account-scoped Stack token source.
-    ///   - teamIDProvider: Selected team used for Cloud workspace scopes.
-    public init(
+    /// Creates a lease publisher, or nil when the service origin is invalid.
+    public init?(
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil }
     ) {
-        self.connector = WorkspacePresenceWebSocket(baseURL: URL(string: serviceBaseURL) ?? URL(string: "http://127.0.0.1")!)
+        guard let url = URL(string: serviceBaseURL),
+              url.user == nil, url.password == nil,
+              url.scheme == "https"
+                || (url.scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(url.host ?? "")) else {
+            return nil
+        }
+        transport = WorkspacePresenceWebSocket(baseURL: url)
         self.tokenSource = tokenSource
-        _ = teamIDProvider // Team membership is carried in the validated scope.
+        _ = teamIDProvider // Cloud team authority is carried by the validated scope.
+        session = WorkspacePresenceSession(transport: transport)
     }
 
-    /// Replaces the active workspace lease. `nil` closes the old lease first.
-    public func setWorkspaceScope(_ scope: WorkspacePresenceScope?) async {
+    /// Replaces the active workspace lease. An unchanged scope is a no-op.
+    public func setWorkspaceScope(_ nextScope: WorkspacePresenceScope?) async {
+        guard nextScope != scope else { return }
         generation &+= 1
         let currentGeneration = generation
-        leaseTask?.cancel()
-        leaseTask = nil
-        connection?.close()
-        connection = nil
-        self.scope = scope
+        runTask?.cancel()
+        runTask = nil
+        session.stop()
+        scope = nextScope
         accountID = await tokenSource.currentUserID()
-        guard scope != nil else { return }
-        leaseTask = Task { [weak self] in
-            await self?.runLeaseLoop(generation: currentGeneration)
+        guard let nextScope, self.scope == nextScope, generation == currentGeneration else { return }
+        session.setViewing(true)
+        runTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.session.run(
+                scope: nextScope,
+                accessToken: {
+                    guard let accountID = self.accountID else { return nil }
+                    return await self.tokenSource.accessToken(expectedUserID: accountID)
+                },
+                isCurrent: {
+                    self.generation == currentGeneration && self.scope == nextScope
+                }
+            )
         }
     }
 
-    private func runLeaseLoop(generation expectedGeneration: UInt64) async {
-        var backoff: Duration = .seconds(1)
-        while !Task.isCancelled, generation == expectedGeneration, let scope {
-            guard let accountID,
-                  let token = await tokenSource.accessToken(expectedUserID: accountID) else {
-                try? await Task.sleep(for: backoff)
-                backoff = min(backoff * 2, .seconds(60))
-                continue
-            }
-            do {
-                let opened = try await connector.connect(scope: scope, accessToken: token)
-                guard generation == expectedGeneration, self.scope == scope else {
-                    opened.close()
-                    return
-                }
-                connection = opened
-                revision &+= 1
-                try await opened.sendViewing(true, revision: revision)
-                backoff = .seconds(1)
-                while !Task.isCancelled, generation == expectedGeneration, self.scope == scope {
-                    try await Task.sleep(for: .seconds(15))
-                    revision &+= 1
-                    try await opened.sendViewing(true, revision: revision)
-                }
-                opened.close()
-                connection = nil
-            } catch is CancellationError {
-                return
-            } catch {
-                connection?.close()
-                connection = nil
-                try? await Task.sleep(for: backoff)
-                backoff = min(backoff * 2, .seconds(60))
-            }
-        }
+    /// Updates the lease when the mobile scene enters or leaves the foreground.
+    public func setWorkspaceViewing(_ active: Bool) {
+        session.setViewing(active)
     }
 }

@@ -31,6 +31,8 @@ public final class WorkspacePresenceSession {
         self.now = now
     }
 
+    deinit { connection?.close() }
+
     /// Changes active viewing immediately, independent of the lease renewal cadence.
     /// - Parameter active: False when hidden, backgrounded or inactive.
     public func setViewing(_ active: Bool) {
@@ -98,7 +100,16 @@ public final class WorkspacePresenceSession {
                 }
                 defer { renewal.cancel(); opened.close() }
                 while !Task.isCancelled {
-                    let snapshot = try await opened.receive()
+                    let snapshot = try await withThrowingTaskGroup(of: WorkspacePresenceSnapshot.self) { group in
+                        group.addTask { try await opened.receive() }
+                        group.addTask {
+                            try await self.clock.sleep(for: .milliseconds(max(self.renewAfterMs * 3, 45_000)))
+                            throw WorkspacePresenceError.stale
+                        }
+                        defer { group.cancelAll() }
+                        guard let next = try await group.next() else { throw WorkspacePresenceError.stale }
+                        return next
+                    }
                     guard self.generation == epoch, isCurrent() else { return }
                     guard snapshot.isValid(for: scope) else { throw WorkspacePresenceError.invalidSnapshot }
                     lastReceivedAt = now()

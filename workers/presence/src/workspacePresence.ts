@@ -51,7 +51,8 @@ export function workspaceRoom(scope: WorkspaceScope, user: AuthedUser): string |
 
 /** Profile metadata is bounded and comes only from Stack, never socket messages. */
 export function viewerIdentity(user: AuthedUser): ViewerIdentity {
-  const displayName = user.displayName?.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 128);
+  const normalizedName = user.displayName?.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  const displayName = normalizedName ? Array.from(normalizedName).slice(0, 128).join("") : undefined;
   let avatarURL: string | undefined;
   try {
     const url = new URL(user.profileImageURL ?? "");

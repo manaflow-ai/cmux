@@ -88,4 +88,9 @@ describe("viewer identity", () => {
     }));
     expect(result).toEqual({ id: "user-1", displayName: "Ada Lovelace" });
   });
+
+  it("truncates by Unicode code points at the profile boundary", () => {
+    const result = viewerIdentity(user({ displayName: `${"a".repeat(127)}😀` }));
+    expect(result.displayName).toBe(`${"a".repeat(127)}😀`);
+  });
 });

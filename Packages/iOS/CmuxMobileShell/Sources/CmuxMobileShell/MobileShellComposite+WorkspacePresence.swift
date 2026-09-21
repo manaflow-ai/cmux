@@ -7,30 +7,19 @@ extension MobileShellComposite {
             clearWorkspacePresenceScope()
             return
         }
-        let ownerID = workspace.macDeviceID
-        let instanceTag = workspace.macInstanceTag ?? "default"
-        let workspaceID = workspace.rpcWorkspaceID.rawValue
-        let selectedID = selectedWorkspaceID
-        Task { @MainActor [weak self, workspacePresenceAnnouncer] in
-            guard let self, self.selectedWorkspaceID == selectedID else { return }
-            let scope: WorkspacePresenceScope?
-            if let ownerID,
-               let owner = UUID(uuidString: ownerID),
-               let workspace = UUID(uuidString: workspaceID) {
-                scope = WorkspacePresenceScope(kind: .mac,
-                                               ownerID: owner.uuidString,
-                                               instanceTag: instanceTag,
-                                               workspaceID: workspace.uuidString)
-            } else if let ownerID,
-                      let teamID = await self.teamIDProvider(),
-                      !teamID.isEmpty {
-                scope = WorkspacePresenceScope(kind: .cloud,
-                                               ownerID: ownerID,
-                                               workspaceID: workspaceID,
-                                               teamID: teamID)
-            } else {
-                scope = nil
-            }
+        guard let ownerID = workspace.macDeviceID,
+              let owner = UUID(uuidString: ownerID),
+              let workspaceID = UUID(uuidString: workspace.rpcWorkspaceID.rawValue) else {
+            clearWorkspacePresenceScope()
+            return
+        }
+        let scope = WorkspacePresenceScope(
+            kind: .mac,
+            ownerID: owner.uuidString,
+            instanceTag: workspace.macInstanceTag ?? "default",
+            workspaceID: workspaceID.uuidString
+        )
+        Task { [workspacePresenceAnnouncer] in
             await workspacePresenceAnnouncer?.setWorkspaceScope(scope)
         }
     }

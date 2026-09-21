@@ -194,7 +194,7 @@ struct RightSidebarPanelView: View {
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
-        .onAppear { AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(tabManager.selectedWorkspace)
+        .onAppear { AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace ?? tabManager.selectedWorkspace)
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
@@ -207,7 +207,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
-        } .onChange(of: tabManager.selectedTabId) { _, _ in AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(tabManager.selectedWorkspace) }
+        } .onChange(of: tabManager.selectedTabId) { _, _ in AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace ?? tabManager.selectedWorkspace) }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }

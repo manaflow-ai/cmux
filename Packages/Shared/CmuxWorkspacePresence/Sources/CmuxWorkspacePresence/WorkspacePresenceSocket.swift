@@ -20,6 +20,8 @@ actor WorkspacePresenceSocket: WorkspacePresenceConnection {
         socket.resume()
     }
 
+    deinit { close() }
+
     func receive() async throws -> WorkspacePresenceSnapshot {
         do {
             return try await withTaskCancellationHandler {
