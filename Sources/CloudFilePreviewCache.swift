@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Owns only its newly-created preview files. Open panels hold leases, so no
@@ -10,7 +11,11 @@ actor CloudFilePreviewCache {
 
     init(directory: URL = FileManager.default.temporaryDirectory, maximumEntries: Int = 32) {
         Self.removeStaleDirectories(in: directory)
-        root = directory.appendingPathComponent("cmux-cloud-previews-" + UUID().uuidString, isDirectory: true)
+        let owner = ProcessInfo.processInfo.processIdentifier
+        root = directory.appendingPathComponent(
+            "cmux-cloud-previews-\(owner)-\(UUID().uuidString)",
+            isDirectory: true
+        )
         self.maximumEntries = maximumEntries
     }
 
@@ -22,6 +27,11 @@ actor CloudFilePreviewCache {
         ) else { return }
         let cutoff = Date().addingTimeInterval(-staleDirectoryAge)
         for url in urls where url.lastPathComponent.hasPrefix("cmux-cloud-previews-") {
+            let components = url.lastPathComponent.split(separator: "-")
+            guard components.count > 3, let owner = Int32(components[3]) else { continue }
+            if owner == ProcessInfo.processInfo.processIdentifier || kill(owner, 0) == 0 || errno == EPERM {
+                continue
+            }
             guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
                   values.isDirectory == true,
                   (values.contentModificationDate ?? .distantFuture) < cutoff else { continue }

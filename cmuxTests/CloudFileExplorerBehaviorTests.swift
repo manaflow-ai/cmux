@@ -161,7 +161,7 @@ struct CloudFileExplorerBehaviorTests {
         let currentTarget = CloudFileExplorerTarget(
             identity: .init(
                 workspaceID: UUID(), vmID: "vivid-newt", remoteWorkspaceID: nil,
-                team: scope, provider: ObjectIdentifier(NSObject()), generation: nil
+                team: scope, provider: ObjectIdentifier(NSObject())
             ),
             isCurrent: { true }
         )

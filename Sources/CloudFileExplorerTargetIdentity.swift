@@ -8,5 +8,4 @@ struct CloudFileExplorerTargetIdentity: Equatable, Sendable {
     let remoteWorkspaceID: String?
     let team: AuthenticatedTeamScope
     let provider: ObjectIdentifier
-    let generation: String?
 }

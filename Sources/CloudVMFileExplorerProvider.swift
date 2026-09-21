@@ -10,7 +10,11 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
     let isAvailable: Bool
     private let service: CloudFileExplorerService
 
-    nonisolated var remoteIdentity: String { "cloud:\(id.uuidString)" }
+    nonisolated var remoteIdentity: String {
+        guard let target else { return "cloud-provider:\(id.uuidString)" }
+        let remoteWorkspace = target.identity.remoteWorkspaceID ?? ""
+        return "cloud:\(target.identity.workspaceID.uuidString):\(target.identity.vmID):\(remoteWorkspace):\(target.identity.team.teamID):\(target.identity.team.generation)"
+    }
 
     /// Creates a provider for one Cloud machine.
     init(

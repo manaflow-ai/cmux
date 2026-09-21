@@ -126,7 +126,6 @@ struct FileExplorerWorkspaceRootResolver {
             return nil
         }
         return CloudFileExplorerTarget.Identity(workspaceID: workspace.id, vmID: vmID,
-            remoteWorkspaceID: remoteID, team: team, provider: ObjectIdentifier(provider),
-            generation: catalog.cloudStates[.cloud(vmID)]?.cursor?.generation)
+            remoteWorkspaceID: remoteID, team: team, provider: ObjectIdentifier(provider))
     }
 }
