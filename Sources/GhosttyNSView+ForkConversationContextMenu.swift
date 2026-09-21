@@ -2,12 +2,24 @@ import AppKit
 import CmuxControlSocket
 import Foundation
 
-nonisolated enum SurfaceResumeContextMenuState: Equatable {
+enum SurfaceResumeContextMenuState: Equatable, Sendable {
     case unavailable
     case unbound
     case agentManaged
     case ordinary(command: String)
     case approvalPending
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.unavailable, .unavailable), (.unbound, .unbound),
+             (.agentManaged, .agentManaged), (.approvalPending, .approvalPending):
+            return true
+        case let (.ordinary(lhsCommand), .ordinary(rhsCommand)):
+            return lhsCommand == rhsCommand
+        default:
+            return false
+        }
+    }
 }
 
 extension GhosttyNSView {
