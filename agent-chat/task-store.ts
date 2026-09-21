@@ -5,7 +5,6 @@ import type { AgentEvent, OptionValue, SessionStatus } from "./types";
 
 const STORE_VERSION = 1;
 const DEFAULT_MAX_EVENTS = 5_000;
-const DEFAULT_DEBOUNCE_MS = 100;
 
 export interface DurableTaskRecord {
   id: string;
@@ -44,16 +43,13 @@ export interface DurableTaskStoreOptions {
 export class DurableTaskStore {
   readonly path: string;
   private readonly maxEvents: number;
-  private readonly debounceMs: number;
   private readonly records = new Map<string, DurableTaskRecord>();
   private writeChain: Promise<void> = Promise.resolve();
-  private writeTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
   constructor(path: string, options: DurableTaskStoreOptions = {}) {
     this.path = path;
     this.maxEvents = Math.max(1, Math.floor(options.maxEvents ?? DEFAULT_MAX_EVENTS));
-    this.debounceMs = Math.max(0, Math.floor(options.debounceMs ?? DEFAULT_DEBOUNCE_MS));
     this.load();
   }
 
@@ -89,13 +85,9 @@ export class DurableTaskStore {
   /** Wait until all currently queued journal writes have reached disk. */
   async flush(): Promise<void> {
     for (;;) {
-      if (this.writeTimer) {
-        clearTimeout(this.writeTimer);
-        this.writeTimer = null;
-      }
       if (this.dirty) this.beginWrite();
       await this.writeChain;
-      if (!this.dirty && !this.writeTimer) return;
+      if (!this.dirty) return;
     }
   }
 
@@ -123,14 +115,7 @@ export class DurableTaskStore {
   private markDirty(): void {
     if (!this.path) return;
     this.dirty = true;
-    if (this.writeTimer || this.debounceMs === 0) {
-      if (this.debounceMs === 0) this.beginWrite();
-      return;
-    }
-    this.writeTimer = setTimeout(() => {
-      this.writeTimer = null;
-      this.beginWrite();
-    }, this.debounceMs);
+    this.beginWrite();
   }
 
   private beginWrite(): void {
