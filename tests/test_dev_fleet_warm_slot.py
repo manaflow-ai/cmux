@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -573,7 +574,7 @@ class WarmSlotTest(unittest.TestCase):
                 time.sleep(0.01)
             self.fail("native launch never published process-group identity")
 
-        thread = __import__("threading").Thread(target=request_preempt)
+        thread = threading.Thread(target=request_preempt)
         thread.start()
         try:
             with (
