@@ -20,26 +20,52 @@ from test_app_host_test_products import TestProductHandoff
 class ReuseProducts(TestProductHandoff):
     def setUp(self):
         super().setUp()
-        self.contract = {"tree": "same-tree", "xcode": "same-xcode"}
+        self.contract = {
+            "tree": "same-tree",
+            "xcode": "same-xcode",
+            "sdk": "same-sdk",
+            "os": "same-os",
+            "architecture": "arm64",
+            "tools": {"rustc": "rustc 1.0", "cargo": "cargo 1.0"},
+            "environment": {"RUSTFLAGS": "", "SDKROOT": ""},
+            "runner": "macos-arm64",
+        }
         self.api = FakeGitHub(self.contract)
         self.api.archive = self.producer.parent / "artifact.zip"
         self.seal()
 
+    def package(self, derived, archive_path):
+        root = derived / "Build/Products"
+        archive = derived.parent / "app-host-products.tar.gz"
+        with tarfile.open(archive, "w:gz", dereference=True) as tar:
+            tar.add(root, arcname="Build/Products")
+        with zipfile.ZipFile(archive_path, "w") as z:
+            z.write(archive, "app-host-products.tar.gz")
+        return "sha256:" + hashlib.sha256(archive_path.read_bytes()).hexdigest()
+
     def seal(self):
         reuse.products.stamp(self.producer, self.identity)
         root = self.producer / "Build/Products"
-        (root / reuse.RECEIPT).write_text(json.dumps({"contract": self.contract,
-            "revision": self.identity["revision"], "run_id": "12", "run_attempt": str(self.api.run["run_attempt"])}))
-        archive = self.producer.parent / "app-host-products.tar.gz"
-        with tarfile.open(archive, "w:gz", dereference=True) as tar:
-            tar.add(root, arcname="Build/Products")
-        with zipfile.ZipFile(self.api.archive, "w") as z:
-            z.write(archive, "app-host-products.tar.gz")
-        self.api.artifact["digest"] = "sha256:" + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
+        (root / reuse.RECEIPT).write_text(json.dumps({
+            "contract": self.contract,
+            "revision": self.identity["revision"],
+            "run_id": str(self.api.run["id"]),
+            "run_attempt": str(self.api.run["run_attempt"]),
+        }))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
 
-    def restore_reuse(self):
-        current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
-        return reuse.restore(self.api, self.contract, self.consumer, "13", current)
+    def restore_reuse(self, *, current_run="13", current_attempt="1",
+                      revision="def456", destination=None, report=None):
+        current = {**self.identity, "revision": revision, "checkout": "/queue/work/cmux"}
+        return reuse.restore(
+            self.api,
+            self.contract,
+            destination or self.consumer,
+            current_run,
+            current,
+            current_attempt,
+            report,
+        )
 
     def test_other_commit_same_tree_reuses_and_relocates_without_test_result(self):
         # The full run failed tests, while compilation itself succeeded.
@@ -75,17 +101,38 @@ class ReuseProducts(TestProductHandoff):
         self.api.artifact.pop('digest')
         self.assertFalse(self.restore_reuse())
 
-    def test_environment_changes_do_not_reuse(self):
-        self.contract = {**self.contract, 'xcode': 'different-xcode'}
-        self.assertFalse(self.restore_reuse())
+    def test_build_contract_changes_do_not_reuse(self):
+        cases = {
+            "xcode": {**self.contract, "xcode": "different-xcode"},
+            "sdk": {**self.contract, "sdk": "different-sdk"},
+            "tooling": {**self.contract, "tools": {**self.contract["tools"], "rustc": "rustc 2.0"}},
+            "environment": {**self.contract, "environment": {**self.contract["environment"], "RUSTFLAGS": "-Dwarnings"}},
+        }
+        for name, changed in cases.items():
+            with self.subTest(name=name):
+                original = self.contract
+                self.contract = changed
+                self.assertFalse(self.restore_reuse())
+                self.contract = original
 
-    def test_actual_source_and_attempt_must_match(self):
-        self.api.tree = 'different-tree'
+    def test_changed_source_tree_is_a_miss(self):
+        original = self.contract
+        self.contract = {**self.contract, "tree": "changed-tree"}
+        self.assertFalse(self.restore_reuse())
+        self.contract = original
+
+    def test_actual_source_and_run_provenance_must_match(self):
+        self.api.trees["abc123"] = "different-tree"
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
-        self.api.tree = 'same-tree'
-        self.api.run['run_attempt'] = 2
+        self.api.trees["abc123"] = "same-tree"
+        root = self.producer / "Build/Products"
+        receipt = json.loads((root / reuse.RECEIPT).read_text())
+        receipt["run_id"] = "999"
+        (root / reuse.RECEIPT).write_text(json.dumps(receipt))
+        self.api.artifact["digest"] = self.package(self.producer, self.api.archive)
         self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
 
     def test_corrupt_archive_never_populates_consumer(self):
         self.api.archive.write_bytes(b'corrupt')
@@ -134,12 +181,20 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(self.api.artifact['name'].endswith('-1'))
         self.assertTrue(self.restore_reuse())
 
-    def test_later_attempt_gets_its_own_artifact_and_receipt(self):
-        self.api.run['run_attempt'] = 2
-        self.assertFalse(self.restore_reuse())
-        self.api.artifact['name'] = reuse.PREFIX + reuse.key(self.contract) + '-2'
+    def test_successful_exact_rerun_reuses_prior_attempt(self):
+        self.api.run.update({"id": 13, "run_attempt": 1, "head_sha": "abc123"})
+        self.api.consumer_run.update({"id": 13, "run_attempt": 2, "head_sha": "abc123"})
+        self.api.artifact["workflow_run"]["id"] = 13
+        self.api.artifact["name"] = reuse.PREFIX + reuse.key(self.contract) + "-1"
         self.seal()
-        self.assertTrue(self.restore_reuse())
+        report = {}
+        self.assertTrue(self.restore_reuse(
+            current_run="13", current_attempt="2", revision="abc123", report=report))
+        self.assertEqual(report["reason"], "hit")
+        self.assertEqual(report["compile_seconds_avoided"], 600.0)
+        self.assertGreaterEqual(report["transfer_seconds"], 0)
+        self.assertGreaterEqual(report["restore_seconds"], 0)
+        self.assertGreater(report["macos_runner_minutes_saved"], 0)
 
     def test_oversize_compressed_artifact_is_rejected_without_download(self):
         with mock.patch.object(reuse, 'MAX_ARCHIVE_BYTES', 1), \
@@ -174,17 +229,172 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(self.restore_reuse())
 
     def test_api_failure_cli_falls_back_to_compile(self):
-        output = self.producer.parent / 'github-output'
-        env = {'GITHUB_OUTPUT': str(output), 'GITHUB_EVENT_NAME': 'merge_group',
-               'GITHUB_REPOSITORY': self.api.repository, 'GITHUB_RUN_ID': '13'}
-        with mock.patch.dict(os.environ, env), mock.patch.object(sys, 'argv',
-                ['reuse', 'restore', str(self.consumer)]), \
-                mock.patch.object(reuse, 'contract', return_value=self.contract), \
-                mock.patch.object(reuse.products, 'identity', return_value=self.identity), \
-                mock.patch.object(reuse.GitHub, 'get', side_effect=OSError('API unavailable')):
+        output = self.producer.parent / "github-output"
+        env = {
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_EVENT_NAME": "merge_group",
+            "GITHUB_REPOSITORY": self.api.repository,
+            "GITHUB_RUN_ID": "13",
+            "GITHUB_RUN_ATTEMPT": "1",
+        }
+        with mock.patch.dict(os.environ, env), mock.patch.object(
+                sys, "argv", ["reuse", "restore", str(self.consumer)]), \
+                mock.patch.object(reuse, "contract", return_value=self.contract), \
+                mock.patch.object(reuse.products, "identity", return_value=self.identity), \
+                mock.patch.object(reuse.GitHub, "get", side_effect=OSError("API unavailable")):
             reuse.main()
-        self.assertEqual(output.read_text(), 'hit=false\n')
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["hit"], "false")
+        self.assertEqual(outputs["reason"], "miss")
+        self.assertEqual(outputs["miss_reasons"], "consumer_provenance_unavailable")
         self.assertFalse(self.consumer.exists())
+
+
+    def test_permitted_producer_consumer_matrix(self):
+        base = {
+            "path": ".github/workflows/ci.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [{"number": 7}],
+        }
+        cases = [
+            ("pr_same_pr", {**base, "event": "pull_request"},
+             {**base, "event": "pull_request"}, True),
+            ("pr_other_pr", {**base, "event": "pull_request", "pull_requests": [{"number": 8}]},
+             {**base, "event": "pull_request"}, False),
+            ("merge_group_to_pr", {**base, "event": "merge_group"},
+             {**base, "event": "pull_request"}, False),
+            ("pr_to_merge_group", {**base, "event": "pull_request"},
+             {**base, "event": "merge_group"}, True),
+            ("merge_group_to_merge_group", {**base, "event": "merge_group"},
+             {**base, "event": "merge_group"}, True),
+        ]
+        for name, producer, consumer, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reuse.permitted_pair(producer, consumer, self.api.repository),
+                    expected,
+                )
+        fork = {**base, "event": "pull_request",
+                "head_repository": {"full_name": "fork/cmux"}}
+        self.assertFalse(reuse.permitted_pair(fork, {**base, "event": "pull_request"},
+                                              self.api.repository))
+        self.assertFalse(reuse.permitted_pair({**base, "event": "pull_request"}, fork,
+                                              self.api.repository))
+
+    def test_failed_producer_compile_is_a_miss(self):
+        self.api.job["conclusion"] = "failure"
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_wrong_repository_provenance_is_a_miss(self):
+        self.api.run["head_repository"] = {"full_name": "other/cmux"}
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_expired_and_missing_artifacts_are_misses(self):
+        self.api.artifact["expired"] = True
+        self.assertFalse(self.restore_reuse())
+        self.api.artifact["expired"] = False
+        self.api.artifacts = []
+        self.assertFalse(self.restore_reuse())
+
+    def test_candidate_lookup_is_bounded(self):
+        original_get = self.api.get
+        artifact_pages = []
+        def no_matches(path):
+            if path.startswith("actions/artifacts?"):
+                artifact_pages.append(path)
+                return {"artifacts": [{"name": "unrelated"} for _ in range(100)]}
+            return original_get(path)
+        with mock.patch.object(self.api, "get", side_effect=no_matches):
+            self.assertFalse(self.restore_reuse())
+        self.assertEqual(len(artifact_pages), 3)
+
+        prefix = reuse.PREFIX + reuse.key(self.contract) + "-1"
+        candidates = [
+            {"id": 100 + index, "name": prefix, "size_in_bytes": 100,
+             "expired": False, "digest": self.api.artifact["digest"],
+             "workflow_run": {"id": 20 + index}}
+            for index in range(7)
+        ]
+        attempts = []
+        def six_candidates(path):
+            if path.startswith("actions/artifacts?"):
+                return {"artifacts": candidates}
+            if path.startswith("actions/runs/") and "/attempts/" in path and "/jobs?" not in path:
+                attempts.append(path)
+                return {
+                    **self.api.run,
+                    "id": int(path.split("/")[2]),
+                    "run_attempt": 1,
+                    "head_repository": {"full_name": "other/cmux"},
+                }
+            return original_get(path)
+        with mock.patch.object(self.api, "get", side_effect=six_candidates):
+            self.assertFalse(self.restore_reuse())
+        self.assertEqual(len(attempts), 6)
+
+    def test_multi_hop_reuse_preserves_original_producer(self):
+        first_report = {}
+        self.assertTrue(self.restore_reuse(report=first_report))
+        first_provenance = json.loads(
+            (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(first_provenance["original_producer"]["run_id"], "12")
+        self.assertEqual(first_provenance["immediate_producer"]["run_id"], "12")
+
+        root = self.consumer / "Build/Products"
+        (root / reuse.RECEIPT).write_text(json.dumps({
+            "contract": self.contract,
+            "revision": "def456",
+            "run_id": "13",
+            "run_attempt": "1",
+        }))
+        second_archive = self.consumer.parent / "second-artifact.zip"
+        self.api.archive = second_archive
+        self.api.artifact.update({
+            "id": 43,
+            "name": reuse.PREFIX + reuse.key(self.contract) + "-1",
+            "workflow_run": {"id": 13},
+            "expired": False,
+        })
+        self.api.artifact["digest"] = self.package(self.consumer, second_archive)
+        self.api.run.update({
+            "id": 13,
+            "run_attempt": 1,
+            "head_sha": "def456",
+            "event": "pull_request",
+            "pull_requests": [{"number": 7}],
+        })
+        # This producer reused the original product, so its compile step was skipped
+        # even though the compile-admission job itself completed successfully.
+        self.api.job["steps"] = []
+        self.api.consumer_run.update({
+            "id": 15,
+            "run_attempt": 1,
+            "head_sha": "fed789",
+            "event": "merge_group",
+            "pull_requests": [],
+        })
+        self.api.trees["fed789"] = "same-tree"
+        second = self.consumer.parent / "second-consumer" / "derived"
+        second_report = {}
+        self.assertTrue(self.restore_reuse(
+            current_run="15",
+            revision="fed789",
+            destination=second,
+            report=second_report,
+        ))
+        provenance = json.loads(
+            (second / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(provenance["original_producer"]["run_id"], "12")
+        self.assertEqual(provenance["original_producer"]["revision"], "abc123")
+        self.assertEqual(provenance["immediate_producer"]["run_id"], "13")
+        self.assertEqual(provenance["immediate_producer"]["revision"], "def456")
+        self.assertEqual(provenance["consumer"]["run_id"], "15")
+        self.assertEqual(provenance["consumer"]["revision"], "fed789")
+        self.assertEqual(provenance["restore_route"], "github_artifact")
+        self.assertEqual(provenance["metrics"]["compile_seconds_avoided"], 600.0)
+        self.assertEqual(second_report["compile_seconds_avoided"], 600.0)
 
 
     def test_tar_cannot_escape_staging(self):
@@ -201,27 +411,77 @@ class ReuseProducts(TestProductHandoff):
 
 
 class FakeGitHub:
-    repository = 'manaflow-ai/cmux'
+    repository = "manaflow-ai/cmux"
+
     def __init__(self, contract):
-        self.tree = contract['tree']
-        self.artifact = {'id': 42, 'name': reuse.PREFIX + reuse.key(contract) + '-1', 'size_in_bytes': 100,
-                         'expired': False, 'workflow_run': {'id': 12}}
-        self.run = {'id': 12, 'path': '.github/workflows/ci.yml', 'event': 'pull_request',
-                    'head_repository': {'full_name': self.repository}, 'run_attempt': 1,
-                    'head_sha': 'abc123', 'html_url': 'https://github.com/manaflow-ai/cmux/actions/runs/12'}
-        self.job = {'name': 'macOS compile admission', 'conclusion': 'success', 'status': 'completed'}
+        self.tree = contract["tree"]
+        self.trees = {"abc123": self.tree, "def456": self.tree}
+        self.artifact = {
+            "id": 42,
+            "name": reuse.PREFIX + reuse.key(contract) + "-1",
+            "size_in_bytes": 100,
+            "expired": False,
+            "workflow_run": {"id": 12},
+        }
+        self.artifacts = [self.artifact]
+        self.run = {
+            "id": 12,
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "head_repository": {"full_name": self.repository},
+            "pull_requests": [{"number": 7}],
+            "run_attempt": 1,
+            "head_sha": "abc123",
+            "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/12",
+        }
+        self.consumer_run = {
+            "id": 13,
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "head_repository": {"full_name": self.repository},
+            "pull_requests": [{"number": 7}],
+            "run_attempt": 1,
+            "head_sha": "def456",
+            "html_url": "https://github.com/manaflow-ai/cmux/actions/runs/13",
+        }
+        self.job = {
+            "name": "macOS compile admission",
+            "conclusion": "success",
+            "status": "completed",
+            "steps": [{
+                "name": "Compile app-host test product",
+                "conclusion": "success",
+                "status": "completed",
+                "started_at": "2026-09-21T08:00:00Z",
+                "completed_at": "2026-09-21T08:10:00Z",
+            }],
+        }
+
     def get(self, path):
-        if path.startswith('actions/artifacts?'):
-            return {'artifacts': [self.artifact]}
-        if '/jobs?' in path:
-            return {'jobs': [self.job]}
-        if path.startswith('actions/runs/'):
-            return self.run
-        if path.startswith('git/commits/'):
-            return {'tree': {'sha': self.tree}}
+        if path.startswith("actions/artifacts?"):
+            return {"artifacts": self.artifacts}
+        if path == f"actions/runs/{self.consumer_run['id']}":
+            return self.consumer_run
+        match = __import__("re").fullmatch(r"actions/runs/(\d+)/attempts/(\d+)", path)
+        if match:
+            run_id, attempt = map(int, match.groups())
+            if run_id == int(self.run["id"]) and attempt == int(self.run["run_attempt"]):
+                return self.run
+            raise OSError("attempt unavailable")
+        match = __import__("re").fullmatch(
+            r"actions/runs/(\d+)/attempts/(\d+)/jobs\?per_page=100&page=(\d+)", path)
+        if match:
+            run_id, attempt, _ = map(int, match.groups())
+            if run_id == int(self.run["id"]) and attempt == int(self.run["run_attempt"]):
+                return {"jobs": [self.job]}
+            raise OSError("jobs unavailable")
+        if path.startswith("git/commits/"):
+            revision = path.rsplit("/", 1)[-1]
+            return {"tree": {"sha": self.trees.get(revision, self.tree)}}
         raise AssertionError(path)
+
     def download(self, artifact_id, target):
-        assert artifact_id == 42
+        assert artifact_id == self.artifact["id"]
         shutil.copyfile(self.archive, target)
 
 
