@@ -10,6 +10,21 @@ inputs:
 runs:
   using: composite
   steps:
+    # Hosted images ship rustup; a self-hosted image (tart-macos-15) may not,
+    # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
+    # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
+    # install below.
+    - name: Ensure rustup is available
+      shell: bash
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.cargo/bin:$PATH"
+        if ! command -v rustup >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+        fi
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        "$HOME/.cargo/bin/rustup" --version || rustup --version
     - name: Install pinned Rust toolchain
       shell: bash
       env:

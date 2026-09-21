@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import AppKit
 import CMUXAgentLaunch
 import CmuxSettings

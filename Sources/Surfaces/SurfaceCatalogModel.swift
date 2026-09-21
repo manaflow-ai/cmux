@@ -1746,29 +1746,6 @@ enum SurfaceLinkState: String, Codable, Sendable {
     case notApplicable = "n/a"
 }
 
-/// The catalog as one value: what the sidebar renders, what `surface.catalog` and
-/// `cmux vm tree --json` print. Machines are ordered local first, then by name.
-struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
-    var machines: [SurfaceMachineInfo]
-    var resources: [SurfaceResource]
-    var projections: [SurfaceProjection]
-
-    static let empty = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
-
-    func resources(on machine: SurfaceMachineID) -> [SurfaceResource] {
-        resources.filter { $0.machine == machine }
-    }
-
-    func projections(of resource: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == resource }
-    }
-
-    func isOpen(_ resource: SurfaceResourceID) -> Bool {
-        projections.contains { $0.resource == resource }
-    }
-
-}
-
 /// One atomic export for agent and socket readers. The sidebar consumes only
 /// `catalog`; the complete daemon graphs stay out of its high-frequency value.
 /// Both halves are captured in the same main-actor turn, so their cursors and
@@ -1780,6 +1757,9 @@ struct SurfaceCatalogExport: Sendable {
     /// This preserves cursor/raw-snapshot equality while making offline state
     /// explicit to agents.
     var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Existing stable local owner IDs, captured beside this read's runtime projections.
+    /// Missing owners remain unknown; these values never become resource or mutation IDs.
+    var projectionIdentities: [SurfaceProjection: SurfaceProjectionIdentity] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane

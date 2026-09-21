@@ -945,7 +945,7 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -953,7 +953,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
-                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
             onComplete: completeOnboarding
         )

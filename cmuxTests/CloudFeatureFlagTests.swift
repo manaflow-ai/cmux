@@ -202,7 +202,7 @@ struct CloudFeatureFlagTests {
                 }
                 return VMListPage(vms: [VMSummary(id: "saved", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)], limits: nil)
             },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {},
             notificationCenter: center
         )
