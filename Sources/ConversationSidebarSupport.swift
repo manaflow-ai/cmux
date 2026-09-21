@@ -168,12 +168,39 @@ struct ConversationSidebarProjection {
 }
 
 @MainActor
+private final class ConversationSidebarRefreshScheduler: ObservableObject {
+    private var pendingTask: Task<Void, Never>?
+
+    func schedule(_ operation: @escaping @MainActor () async -> Void) {
+        pendingTask?.cancel()
+        pendingTask = Task { @MainActor [weak self] in
+            // Yield once so a synchronous burst of registry notifications
+            // collapses into one trailing refresh without retaining a SwiftUI
+            // State value that itself owns a closure-bearing Task.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            await operation()
+            self?.pendingTask = nil
+        }
+    }
+
+    func cancel() {
+        pendingTask?.cancel()
+        pendingTask = nil
+    }
+
+    deinit {
+        pendingTask?.cancel()
+    }
+}
+
+@MainActor
 struct ConversationSidebarLiveRefreshModifier: ViewModifier {
     let store: SessionIndexStore
     @Binding var revision: UInt64
     @Binding var presentationAgentsByDirectory: [String: [String: SessionAgent]]
     @State private var loadedDirectoryKeys: Set<String> = []
-    @State private var pendingRefreshTask: Task<Void, Never>?
+    @StateObject private var refreshScheduler = ConversationSidebarRefreshScheduler()
     private let projection = ConversationSidebarProjection()
 
     func body(content: Content) -> some View {
@@ -188,18 +215,14 @@ struct ConversationSidebarLiveRefreshModifier: ViewModifier {
                     // turn (pre-tool, post-tool, and transcript updates). A
                     // cancellable trailing task coalesces the burst while
                     // guaranteeing that the final state is eventually read.
-                    pendingRefreshTask?.cancel()
-                    pendingRefreshTask = Task { @MainActor in
-                        await Task.yield()
-                        guard !Task.isCancelled else { return }
+                    refreshScheduler.schedule { @MainActor in
                         revision &+= 1
                         await refreshPresentationAgents()
                     }
                 }
             }
             .onDisappear {
-                pendingRefreshTask?.cancel()
-                pendingRefreshTask = nil
+                refreshScheduler.cancel()
             }
             .task {
                 for await _ in NotificationCenter.default.notifications(
