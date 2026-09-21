@@ -1,0 +1,126 @@
+name: Xcode incremental generation canary
+
+on:
+  push:
+    branches:
+      - ci/incremental-worktree-dd-canary-20260921
+
+permissions:
+  contents: read
+
+concurrency:
+  group: xcode-incremental-generation-canary
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: e6e057975a84b3fef58e4b6fe2e1c9a5b8a37bb1
+  CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+
+jobs:
+  seed:
+    name: Seed A generation
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 180
+    env:
+      CMUX_CANARY_RESULTS: ${{ runner.temp }}/incremental-generation-producer-results
+      CMUX_CANARY_GENERATION_ARCHIVE: ${{ runner.temp }}/cmux-incremental-generation.tar.gz
+      CMUX_CANARY_SUPPORT_ARCHIVE: ${{ runner.temp }}/cmux-incremental-support.tar.gz
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Build and package seed generation
+        run: |
+          set -euo pipefail
+          ./scripts/ci/benchmark-incremental-generation.sh seed "$BASE_SHA"
+          python3 - "$CMUX_CANARY_RESULTS/metrics.jsonl" <<'PY'
+          import json, pathlib, sys
+          rows = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines() if line.strip()]
+          seed = next(row for row in rows if row["label"] == "seed-A")
+          if seed["exit_code"] != 0:
+              raise SystemExit(f"seed build failed: {seed}")
+          PY
+
+      - name: Upload source plus DerivedData generation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-generation-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-incremental-generation.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload shared package and compilation CAS seed
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-generation-support-${{ github.run_id }}
+          path: ${{ runner.temp }}/cmux-incremental-support.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload producer metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-generation-producer-metrics-${{ github.run_id }}
+          path: ${{ runner.temp }}/incremental-generation-producer-results
+          retention-days: 7
+          if-no-files-found: warn
+
+  benchmark:
+    name: Benchmark B reuse
+    needs: seed
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 180
+    env:
+      CMUX_CANARY_RESULTS: ${{ runner.temp }}/incremental-generation-consumer-results
+      CMUX_CANARY_GENERATION_ARCHIVE: ${{ runner.temp }}/cmux-incremental-generation.tar.gz
+      CMUX_CANARY_SUPPORT_ARCHIVE: ${{ runner.temp }}/cmux-incremental-support.tar.gz
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Download source plus DerivedData generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-generation-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - name: Download shared package and compilation CAS seed
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-generation-support-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - name: Run matched benchmark arms
+        run: |
+          set -euo pipefail
+          ./scripts/ci/benchmark-incremental-generation.sh consume "$BASE_SHA" "$GITHUB_SHA"
+
+      - name: Upload consumer metrics and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-generation-consumer-metrics-${{ github.run_id }}
+          path: ${{ runner.temp }}/incremental-generation-consumer-results
+          retention-days: 7
+          if-no-files-found: warn
