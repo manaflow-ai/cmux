@@ -851,11 +851,13 @@ final class FileExplorerStore: ObservableObject {
         rootStatusMessage = message
     }
 
-    private func resetResourceContext() {
+    private func resetResourceContext(preservingNavigation: Bool = false) {
         resourceContextID = UUID()
         cancelRemoteHomeResolution()
         cancelAllLoads()
-        selectedPath = nil; selectedPaths = []; expandedPaths = []
+        if !preservingNavigation {
+            selectedPath = nil; selectedPaths = []; expandedPaths = []
+        }
         rootNodes = []; nodesByPath = [:]; gitStatusByPath = [:]
         contentRevision &+= 1
     }
@@ -971,7 +973,7 @@ final class FileExplorerStore: ObservableObject {
         case (nil, nil): providerChanged = false
         default: providerChanged = true
         }
-        if providerChanged { resetResourceContext() }
+        if providerChanged { resetResourceContext(preservingNavigation: true) }
         provider = newProvider
         // Re-expand previously expanded nodes if provider becomes available
         if reloadIfAvailable, newProvider?.isAvailable == true {
