@@ -3,7 +3,7 @@ Object.defineProperty(globalThis, "location", {
   value: { pathname: "/" },
 });
 
-const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft } = await import("../src/session");
+const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft, shouldAcceptHandoffResponse } = await import("../src/session");
 const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 
 const writes: Record<string, string> = {};
@@ -31,6 +31,16 @@ if (!consumeOptimisticUserEcho(optimistic, "same") || queueLength() !== 0) {
 }
 if (consumeOptimisticUserEcho(optimistic, "same")) {
   throw new Error("non-optimistic repeated user message should not be suppressed");
+}
+
+if (!shouldAcceptHandoffResponse("session-1", "session-1", "session-1")) {
+  throw new Error("current pending handoff response should be accepted");
+}
+if (shouldAcceptHandoffResponse("session-1", null, "session-1")) {
+  throw new Error("cleared handoff must ignore a late response");
+}
+if (shouldAcceptHandoffResponse("session-1", "session-1", "session-2")) {
+  throw new Error("handoff response from a session the user left must be ignored");
 }
 
 const startedRoute = foldEvent([], {
