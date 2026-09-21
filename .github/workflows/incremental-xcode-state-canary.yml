@@ -1,0 +1,249 @@
+name: Incremental Xcode state canary
+
+on:
+  push:
+    branches:
+      - ci/incremental-worktree-canary-20260921
+
+permissions:
+  contents: read
+
+concurrency:
+  group: incremental-xcode-state-canary-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CMUX_CANARY_ROOT: /tmp/cmux-incremental-canary
+  CMUX_CANARY_REPO_URL: https://github.com/manaflow-ai/cmux.git
+
+jobs:
+  seed-a:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Bootstrap canary helper from commit A
+        env:
+          A_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout "$CMUX_CANARY_REPO_URL" "$RUNNER_TEMP/bootstrap"
+          git -C "$RUNNER_TEMP/bootstrap" fetch --no-tags --force origin "$A_SHA"
+          git -C "$RUNNER_TEMP/bootstrap" checkout --force --detach FETCH_HEAD
+          cp "$RUNNER_TEMP/bootstrap/scripts/ci/incremental-state-canary.sh" "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          rm -rf "$RUNNER_TEMP/bootstrap"
+      - name: Build cold seed at commit A
+        env:
+          A_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/incremental-state-canary.sh" init-root
+          "$RUNNER_TEMP/incremental-state-canary.sh" clone-source "$A_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build seed-a-cold
+      - name: Archive worktree and incremental state
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/incremental-state-canary.sh" archive "$RUNNER_TEMP/incremental-state.tar.gz"
+      - name: Mark upload start
+        run: python3 -c 'import time, pathlib; pathlib.Path("'"$RUNNER_TEMP"'/upload-start-ns").write_text(str(time.time_ns()))'
+      - name: Upload state generation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/incremental-state.tar.gz
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Record upload time
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, time
+          p = pathlib.Path("${{ runner.temp }}/upload-start-ns")
+          if p.exists():
+              seconds = (time.time_ns() - int(p.read_text())) / 1_000_000_000
+              print("CMUX_CANARY_UPLOAD " + json.dumps({"upload_seconds": round(seconds, 3)}, sort_keys=True))
+          PY
+
+  cold-b:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Bootstrap canary helper from commit B
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout "$CMUX_CANARY_REPO_URL" "$RUNNER_TEMP/bootstrap"
+          git -C "$RUNNER_TEMP/bootstrap" fetch --no-tags --force origin "$B_SHA"
+          git -C "$RUNNER_TEMP/bootstrap" checkout --force --detach FETCH_HEAD
+          cp "$RUNNER_TEMP/bootstrap/scripts/ci/incremental-state-canary.sh" "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          rm -rf "$RUNNER_TEMP/bootstrap"
+      - name: Build commit B from a cold checkout
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/incremental-state-canary.sh" init-root
+          "$RUNNER_TEMP/incremental-state-canary.sh" clone-source "$B_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build cold-b
+
+  cas-only-b:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    needs: seed-a
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Mark download start
+        run: python3 -c 'import time, pathlib; pathlib.Path("'"$RUNNER_TEMP"'/download-start-ns").write_text(str(time.time_ns()))'
+      - name: Download seed generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/canary-download
+      - name: Record download time and restore seed
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, time
+          p = pathlib.Path("${{ runner.temp }}/download-start-ns")
+          seconds = (time.time_ns() - int(p.read_text())) / 1_000_000_000
+          print("CMUX_CANARY_DOWNLOAD " + json.dumps({"download_seconds": round(seconds, 3)}, sort_keys=True))
+          PY
+          tar -xOf "$RUNNER_TEMP/canary-download/incremental-state.tar.gz" cmux-incremental-canary/src/scripts/ci/incremental-state-canary.sh > "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          "$RUNNER_TEMP/incremental-state-canary.sh" extract "$RUNNER_TEMP/canary-download/incremental-state.tar.gz"
+      - name: Keep CAS and packages, recreate source and DerivedData
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf "$CMUX_CANARY_ROOT/src" "$CMUX_CANARY_ROOT/derived" "$CMUX_CANARY_ROOT/module-cache"
+          "$RUNNER_TEMP/incremental-state-canary.sh" clone-source "$B_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build cas-only-b
+
+  fresh-checkout-restored-derived-b:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    needs: seed-a
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Mark download start
+        run: python3 -c 'import time, pathlib; pathlib.Path("'"$RUNNER_TEMP"'/download-start-ns").write_text(str(time.time_ns()))'
+      - name: Download seed generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/canary-download
+      - name: Record download time and restore seed
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, time
+          p = pathlib.Path("${{ runner.temp }}/download-start-ns")
+          seconds = (time.time_ns() - int(p.read_text())) / 1_000_000_000
+          print("CMUX_CANARY_DOWNLOAD " + json.dumps({"download_seconds": round(seconds, 3)}, sort_keys=True))
+          PY
+          tar -xOf "$RUNNER_TEMP/canary-download/incremental-state.tar.gz" cmux-incremental-canary/src/scripts/ci/incremental-state-canary.sh > "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          "$RUNNER_TEMP/incremental-state-canary.sh" extract "$RUNNER_TEMP/canary-download/incremental-state.tar.gz"
+      - name: Recreate checkout but retain DerivedData
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf "$CMUX_CANARY_ROOT/src"
+          "$RUNNER_TEMP/incremental-state-canary.sh" clone-source "$B_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build fresh-checkout-restored-derived-b
+
+  restored-worktree-restored-derived-b:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    needs: seed-a
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Mark download start
+        run: python3 -c 'import time, pathlib; pathlib.Path("'"$RUNNER_TEMP"'/download-start-ns").write_text(str(time.time_ns()))'
+      - name: Download seed generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/canary-download
+      - name: Record download time and restore seed
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, time
+          p = pathlib.Path("${{ runner.temp }}/download-start-ns")
+          seconds = (time.time_ns() - int(p.read_text())) / 1_000_000_000
+          print("CMUX_CANARY_DOWNLOAD " + json.dumps({"download_seconds": round(seconds, 3)}, sort_keys=True))
+          PY
+          tar -xOf "$RUNNER_TEMP/canary-download/incremental-state.tar.gz" cmux-incremental-canary/src/scripts/ci/incremental-state-canary.sh > "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          "$RUNNER_TEMP/incremental-state-canary.sh" extract "$RUNNER_TEMP/canary-download/incremental-state.tar.gz"
+      - name: Advance restored worktree to commit B
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/incremental-state-canary.sh" transition "$B_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build restored-worktree-restored-derived-b
+
+  synthetic-merge:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    needs: seed-a
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Download seed generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/canary-download
+      - name: Restore seed and build synthetic merge
+        env:
+          A_SHA: ${{ github.event.before }}
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tar -xOf "$RUNNER_TEMP/canary-download/incremental-state.tar.gz" cmux-incremental-canary/src/scripts/ci/incremental-state-canary.sh > "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          "$RUNNER_TEMP/incremental-state-canary.sh" extract "$RUNNER_TEMP/canary-download/incremental-state.tar.gz"
+          "$RUNNER_TEMP/incremental-state-canary.sh" synthetic-merge "$A_SHA" "$B_SHA"
+          "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          "$RUNNER_TEMP/incremental-state-canary.sh" build restored-worktree-synthetic-merge
+
+  relocated-generation:
+    if: contains(github.event.head_commit.message, '[incremental-worktree-canary]')
+    needs: seed-a
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 90
+    env:
+      RELOCATED_ROOT: /tmp/cmux-incremental-canary-relocated
+    steps:
+      - name: Download seed generation
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-xcode-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/canary-download
+      - name: Relocate seed, advance to B, and build
+        env:
+          B_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          tar -xOf "$RUNNER_TEMP/canary-download/incremental-state.tar.gz" cmux-incremental-canary/src/scripts/ci/incremental-state-canary.sh > "$RUNNER_TEMP/incremental-state-canary.sh"
+          chmod +x "$RUNNER_TEMP/incremental-state-canary.sh"
+          "$RUNNER_TEMP/incremental-state-canary.sh" extract "$RUNNER_TEMP/canary-download/incremental-state.tar.gz"
+          rm -rf "$RELOCATED_ROOT"
+          mv "$CMUX_CANARY_ROOT" "$RELOCATED_ROOT"
+          CMUX_CANARY_ROOT="$RELOCATED_ROOT" "$RUNNER_TEMP/incremental-state-canary.sh" transition "$B_SHA"
+          CMUX_CANARY_ROOT="$RELOCATED_ROOT" "$RUNNER_TEMP/incremental-state-canary.sh" setup
+          CMUX_CANARY_ROOT="$RELOCATED_ROOT" "$RUNNER_TEMP/incremental-state-canary.sh" build relocated-restored-generation-b
