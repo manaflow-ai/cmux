@@ -940,6 +940,12 @@ def run_profile(args: argparse.Namespace) -> int:
                 exit_code = 124
         elapsed = time.monotonic() - started_monotonic
         settled_cleanly, cleanup_state = settle_process_group(child.pid)
+        source_after = source_identity(source["commit"], source["tree"])
+        if source_after != source:
+            raise ProfileError("checkout source identity changed during workload")
+        inputs_after = runtime_inputs(profile)
+        if canonical_bytes(inputs_after) != canonical_bytes(inputs):
+            raise ProfileError("runtime input identity changed during workload")
     ended_ms = time.time_ns() // 1_000_000
     artifacts, missing_artifacts = collect_artifacts(profile, state_root)
 
