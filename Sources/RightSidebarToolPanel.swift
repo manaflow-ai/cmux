@@ -94,7 +94,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        if workspace.isRemoteWorkspace {
+        if fileExplorerStore.provider is any RemoteFileExplorerProvider {
             let store = fileExplorerStore
             Task { [weak workspace, weak store] in
                 guard let workspace, let store else { return }
@@ -194,39 +194,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func syncFileExplorerRoot(from workspace: Workspace, store: FileExplorerStore) {
         store.showHiddenFiles = true
-
-        if workspace.usesRemoteDirectoryProvenance {
-            guard let configuration = workspace.remoteConfiguration,
-                  configuration.transport == .ssh else {
-                store.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            store.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: workspace.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: configuration.destination,
-                        port: configuration.port,
-                        identityFile: configuration.identityFile,
-                        sshOptions: configuration.sshOptions
-                    ),
-                    displayTarget: configuration.displayTarget,
-                    rootPath: workspace.trustedRemoteCurrentDirectory,
-                    isAvailable: workspace.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !directory.isEmpty else {
-            store.applyWorkspaceRoot(.none)
-            return
-        }
-
-        store.applyWorkspaceRoot(.local(workspaceId: workspace.id, path: directory))
+        store.applyWorkspaceRoot(FileExplorerWorkspaceRootResolver().resolve(workspace))
     }
 
     private func syncSessionIndexRoot(from workspace: Workspace, store: SessionIndexStore) {

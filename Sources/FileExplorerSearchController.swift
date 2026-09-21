@@ -184,7 +184,14 @@ protocol FileSearchControlling: AnyObject {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)? { get set }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int)
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int)
     func cancel(clear: Bool)
+}
+
+extension FileSearchControlling {
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int) {
+        search(query: rawQuery, rootPath: rootPath, isLocal: scope == .local, contentRevision: contentRevision)
+    }
 }
 
 struct FileSearchPipelineUpdate: Sendable {
@@ -418,10 +425,10 @@ private enum FileSearchPipeReader {
 
 @MainActor
 final class FileSearchController: FileSearchControlling {
-    private struct Request: Equatable {
+    struct Request: Equatable {
         let query: String
         let rootPath: String
-        let isLocal: Bool
+        let scope: FileSearchScope
         let contentRevision: Int
     }
 
@@ -441,22 +448,32 @@ final class FileSearchController: FileSearchControlling {
         "!DerivedData/**",
         "!**/DerivedData/**",
     ]
-    private var process: Process?
-    private var generation = 0
-    private var request: Request?
-    private var results: [FileSearchResult] = []
+    var process: Process?
+    var generation = 0
+    var request: Request?
+    var results: [FileSearchResult] = []
     private var pipeline: FileSearchOutputPipeline?
-    private var searchTask: Task<Void, Never>?
+    var searchTask: Task<Void, Never>?
+    let cloudFileService: CloudFileExplorerService
+
+    init(cloudCommandRunner: any CloudFileExplorerCommandRunning = LiveCloudFileExplorerCommandRunner()) {
+        self.cloudFileService = CloudFileExplorerService(commandRunner: cloudCommandRunner)
+    }
 
     func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int = 0) {
+        search(query: rawQuery, rootPath: rootPath, scope: isLocal ? .local : .unsupported, contentRevision: contentRevision)
+    }
+
+    func search(query rawQuery: String, rootPath: String, scope: FileSearchScope, contentRevision: Int = 0) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let nextRequest = Request(
             query: query,
             rootPath: rootPath,
-            isLocal: isLocal,
+            scope: scope,
             contentRevision: contentRevision
         )
-        if nextRequest == request, process?.isRunning == true {
+        if (nextRequest == request && process?.isRunning == true) ||
+            (nextRequest == request && searchTask != nil) {
             return
         }
         request = nextRequest
@@ -468,12 +485,16 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard isLocal else {
-            emit(status: .unsupported, isSearching: false)
-            return
-        }
         guard !rootPath.isEmpty else {
             emit(status: .noMatches, isSearching: false)
+            return
+        }
+        if case .remoteCloud(let vmID) = scope {
+            startRemoteSearch(vmID: vmID, query: query, rootPath: rootPath)
+            return
+        }
+        guard scope == .local else {
+            emit(status: .unsupported, isSearching: false)
             return
         }
         let resolution = RipgrepExecutableResolver.resolution()
@@ -579,15 +600,6 @@ final class FileSearchController: FileSearchControlling {
         }
     }
 
-    func cancel(clear: Bool) {
-        request = nil
-        stopAndAdvanceGeneration()
-        if clear {
-            results.removeAll()
-            emit(status: .idle, isSearching: false)
-        }
-    }
-
     private func applyPipelineUpdate(_ update: FileSearchPipelineUpdate, generation searchGeneration: Int) {
         guard searchGeneration == generation else { return }
         results = update.results
@@ -606,29 +618,13 @@ final class FileSearchController: FileSearchControlling {
         emit(status: update.status, isSearching: update.isSearching)
     }
 
-    private func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
+    func emit(status: FileSearchSnapshot.Status, isSearching: Bool) {
         onSnapshotChanged?(FileSearchSnapshot(
             query: request?.query ?? "",
             results: results,
             status: status,
             isSearching: isSearching
         ))
-    }
-
-    private func stopAndAdvanceGeneration() {
-        generation += 1
-        stopCurrentProcess()
-    }
-
-    private func stopCurrentProcess() {
-        guard let process else { return }
-        self.process = nil
-        searchTask?.cancel()
-        searchTask = nil
-        pipeline = nil
-        if process.isRunning {
-            _ = Darwin.kill(process.processIdentifier, SIGTERM)
-        }
     }
 
     private nonisolated static func streamStdout(
