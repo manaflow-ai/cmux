@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 @testable import CmuxControlSocket
@@ -6,6 +7,7 @@ import Testing
 /// Exercises the same cancellation followed by close used by a CLI connection.
 @Suite(.serialized)
 struct ControlClientSourceLifecycleTests {
+    /// Stresses reuse after read and revocation sources complete cancellation.
     @Test(.timeLimit(.minutes(1)))
     func repeatedReaderCancellationBeforeOwnerClose() async throws {
         try await withThrowingTaskGroup(of: Int.self) { group in
@@ -41,6 +43,7 @@ struct ControlClientSourceLifecycleTests {
         }
     }
 
+    /// Revoking an idle connection must still join both descriptor sources.
     @Test(.timeLimit(.minutes(1)))
     func revocationSourceCancelsBeforeOwnerClose() async throws {
         let pair = try UnixSocketFixture.makeSocketPair()
@@ -60,45 +63,75 @@ struct ControlClientSourceLifecycleTests {
         close(pair.writer)
     }
 
+    /// Cancels only after libdispatch registers the real backpressured source.
     @Test(.timeLimit(.minutes(1)))
     func writableSourceCancelsBeforeOwnerClose() async throws {
         let pair = try UnixSocketFixture.makeSocketPair()
-        var sendBuffer = 4 * 1024
-        #expect(
+        defer {
+            close(pair.writer)
+            close(pair.reader)
+        }
+        var sendBuffer: Int32 = 4 * 1024
+        try #require(
             setsockopt(
                 pair.writer,
                 SOL_SOCKET,
                 SO_SNDBUF,
                 &sendBuffer,
-                socklen_t(MemoryLayout<Int>.size)
+                socklen_t(MemoryLayout<Int32>.size)
             ) == 0
         )
-        #expect(fcntl(pair.writer, F_SETFL, O_NONBLOCK) == 0)
-        let fill = [UInt8](repeating: 0x46, count: 64 * 1024)
-        var reachedWouldBlock = false
-        while !reachedWouldBlock {
+        try #require(fcntl(pair.writer, F_SETFL, O_NONBLOCK) == 0)
+        let fill = [UInt8](repeating: 0x46, count: 4 * 1024)
+        var filledBytes = 0
+        while true {
             let written = fill.withUnsafeBytes {
                 Darwin.write(pair.writer, $0.baseAddress, $0.count)
             }
-            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-                reachedWouldBlock = true
-            } else {
-                #expect(written > 0)
+            if written < 0, errno == EINTR { continue }
+            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK { break }
+            try #require(written > 0)
+            filledBytes += written
+            try #require(filledBytes <= 1024 * 1024, "Socket never applied backpressure")
+        }
+        try #require(filledBytes > 0)
+
+        let registrations = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        defer { registrations.continuation.finish() }
+        let writer = ControlClientAsyncWriter(socket: pair.writer, makeWritableSource: { descriptor in
+            let source = DispatchSource.makeWriteSource(
+                fileDescriptor: descriptor,
+                queue: .global(qos: .utility)
+            )
+            source.setRegistrationHandler {
+                registrations.continuation.yield(())
             }
-        }
-        #expect(reachedWouldBlock)
-        let writer = ControlClientAsyncWriter(socket: pair.writer)
+            return source
+        })
+        // Exercise combined connection teardown: a pending read, generation
+        // revocation, and a backpressured write all share the accepted socket.
+        let signal = SocketAuthorizationRevocationSignal()
+        try #require(signal.readFileDescriptor >= 0)
+        let reader = ControlClientAsyncLineReader(
+            socket: pair.writer,
+            authorizationRevocationSignal: signal
+        )
+        let reading = Task { await reader.nextLine { true } }
         let pending = Task {
-            await writer.writeAll(Data(repeating: 0x58, count: 16 * 1024 * 1024))
+            await writer.writeAll(Data([0x58]))
         }
-        for _ in 0..<16 {
-            await Task.yield()
-        }
+        var registration = registrations.stream.makeAsyncIterator()
+        let registered = await registration.next()
+        // This event comes from libdispatch after activation, not from a yield
+        // count or elapsed time. An early-cancel-only writer cannot satisfy it.
         pending.cancel()
+        signal.revoke()
         #expect(await pending.value == false)
+        #expect(await reading.value == nil)
+        await reader.cancelAndWait()
         await writer.cancelAndWait()
+        #expect(registered != nil)
+        #expect(fcntl(pair.writer, F_GETFD) >= 0)
         shutdown(pair.writer, SHUT_RDWR)
-        close(pair.writer)
-        close(pair.reader)
     }
 }

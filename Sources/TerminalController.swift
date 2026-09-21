@@ -2022,6 +2022,12 @@ class TerminalController {
         guard submission != .rejected else { return }
     }
 
+    /// Owns the accepted socket until the command loop and source teardown finish.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
@@ -2060,6 +2066,11 @@ class TerminalController {
 
     /// Runs the admitted command loop while retaining ownership of its async
     /// socket readers and writer until the caller joins source cancellation.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated func handleClientLoop(
         socket: Int32,
         pid: pid_t?,
