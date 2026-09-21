@@ -1,5 +1,10 @@
 # iOS agent instructions
 
+The iPhone install and authentication gates, iOS and verification capacity,
+cross-tag Mac access, and dev auth profiles live in `ios/AGENTS.md` at the
+repository root. They apply to work under `Packages/iOS/` as well, so read that
+file too.
+
 ## Follow the Apple Human Interface Guidelines
 
 Before you add or change iOS UI, fetch and read the Apple Human Interface
