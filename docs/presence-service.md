@@ -66,13 +66,6 @@ GET  /v1/presence/subscribe -> forward w/ verified team ------> WS (hibernation)
   first-authenticated-writer-wins, because presence deliberately has no
   synchronous registry dependency and the registry does not yet issue
   verifiable device credentials; blast radius is presence display only.
-- **Workspace viewers**: a heartbeat may carry an additive `workspaceId` scope.
-  The worker adds the verified Stack `viewerId`, display name, and profile image
-  URL from `/users/me`; clients never choose another person's identity. A
-  workspace switch reuses the existing `online` frame with the full instance,
-  while an unchanged heartbeat remains a lightweight `seen` tick. The existing timeout/goodbye
-  alarm removes the viewer from its old scope without a second store or
-  persistence layer.
 - **Subscribe**: WebSocket (primary; DO hibernation API, so idle teams cost
   nothing) or SSE (fallback, curl-friendly). Both deliver a `snapshot` first,
   then `online` / `offline` (with `reason: "timeout" | "goodbye"`) / `seen`
@@ -135,6 +128,44 @@ pins** are never pruned, so a change to their shape is the one case that
 genuinely requires the versioned-record plus lazy-upgrade treatment. Most
 presence deploys can ship freely; only owner-pin schema changes need care.
 
+## Workspace viewing presence
+
+Workspace viewing is a separate protocol from device reachability. The source
+of truth is the `WorkspacePresence` Durable Object selected by a validated
+`WorkspacePresenceScope`; the Worker owns authentication and room routing, and
+the client that owns the visible workspace owns its viewing lease. A room is
+either a Cloud VM workspace scoped to a verified team or an on-device workspace
+scoped to the authenticated account, host UUID, app instance tag, and host
+workspace UUID. Client messages can only set the connection's active/inactive
+view state; identity, profile image, room, and expiry are server-owned.
+
+`GET /v1/workspace-presence?scope=<encoded-scope>` upgrades to a hibernating
+WebSocket. The Worker verifies the Stack bearer, checks Cloud team membership,
+resolves the DO by a structured room key, and forwards bounded identity and
+token-expiry headers. The DO sends full versioned snapshots, coalesces multiple
+devices for one account, renews active leases every 15 seconds, expires them
+after 45 seconds, and closes the connection at the bounded authentication
+deadline. Disconnects, backgrounding, scope switches, and account changes
+therefore remove a viewer without requiring a separate leave mutation.
+
+The shared `CmuxWorkspacePresence` package owns scope validation, the wire
+snapshot, WebSocket transport, reconnect/backoff model, and injected-clock
+tests. The Mac controller follows the active workspace in the main window and
+publishes snapshots to a compact right-sidebar avatar stack with an overflow
+count and a popover list. The iOS shell publishes the selected Mac or Cloud
+workspace through the same scope protocol. Signed-out or local-only workspaces
+show an explicit “Local only”/“Only you” state, so an empty list is not
+mistaken for a failed multiplayer connection. Device heartbeats and the device
+registry intentionally remain unchanged.
+
+The Worker adds only the append-only `WorkspacePresence` Durable Object class
+migration (`v3`); no Postgres columns or platform entitlements are involved.
+Profile names and HTTPS avatar URLs are read from the verified Stack user
+record, bounded before they enter a snapshot, and have no localization or
+persistence side effects. Focused package tests cover scope and snapshot
+validation; Worker tests cover room isolation, lease expiry/coalescing, strict
+view messages, and bounded profile projection.
+
 ## CI/CD
 
 `.github/workflows/presence.yml`, path-filtered to `workers/presence/**`:
@@ -166,9 +197,7 @@ the first production deploy and dogfood.
   `DeviceRegistryClient` / `PhonePushClient` pattern: same device UUID, same
   tag, best-effort, never disturbs the Mac. Every beat carries the full
   current attach-route set, a route change triggers one immediate
-  out-of-cadence beat, and a clean quit sends a goodbye. Tab selection updates
-  the workspace scope; the right-sidebar presence controller renders distinct
-  collaborators for that same scope.
+  out-of-cadence beat, and a clean quit sends a goodbye.
 - **iOS** (`Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/PresenceClient.swift`):
   typed WebSocket subscribe client. `MobileShellComposite` owns the
   subscription (starts on sign-in, blanks and stops on sign-out, backoff
@@ -176,10 +205,11 @@ the first production deploy and dogfood.
   overlays live online/offline on the device tree
   (https://github.com/manaflow-ai/cmux/pull/5648) rows, writes pushed routes
   through to the paired-Mac store, and kicks a reconnect when the active Mac
-  comes online while the phone is disconnected. The same client publishes a
-  bounded heartbeat while the selected workspace is visible, clears the scope
-  on sign-out or selection changes, and uses the phone's durable device id so
-  Mac and phone viewers share one canonical workspace scope.
+  comes online while the phone is disconnected.
+- **Workspace viewer clients** (`CmuxWorkspacePresence` plus the Mac controller
+  and iOS announcer): use the dedicated viewing protocol described above. They
+  never add workspace identifiers or collaborator metadata to device heartbeat
+  payloads.
 
 ## Local development
 

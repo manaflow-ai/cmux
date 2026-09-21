@@ -57,12 +57,15 @@ import {
 } from "./legacyReplies";
 import { captureSentryException } from "./sentry";
 import { rateLimitedJson } from "./retryAfterResponse";
+import { WorkspacePresence } from "./workspacePresenceDo";
+import { workspacePresenceRoute } from "./workspacePresenceRoute";
 
-export { TeamPresence, AccountControlPlane };
+export { TeamPresence, AccountControlPlane, WorkspacePresence };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
+  WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -105,6 +108,10 @@ const worker = {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    if (url.pathname === "/v1/workspace-presence") {
+      return workspacePresenceRoute(request, env);
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {
@@ -288,14 +295,7 @@ const worker = {
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
-      const result = await team.stub.heartbeat(team.teamId, team.user.id, {
-        ...parsed.beat,
-        // Identity is resolved from the verified Stack response. Client JSON
-        // never gets to choose the collaborator shown to other team members.
-        viewerId: team.user.id,
-        viewerDisplayName: team.user.displayName?.trim() || undefined,
-        viewerAvatarURL: team.user.profileImageURL?.trim() || undefined,
-      });
+      const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
       if ("error" in result) {
         return result.status === 429
           ? rateLimitedJson({ error: result.error })

@@ -105,56 +105,6 @@ describe("applyHeartbeat", () => {
     expect(instance.capabilities).toEqual(["terminal"]);
   });
 
-  it("reuses the online event when a viewer switches workspace", () => {
-    const first = applyHeartbeat(
-      undefined,
-      beat({
-        workspaceId: "local:one",
-        viewerId: "user-1",
-        viewerDisplayName: "Ada",
-      }),
-      T0,
-    ).instance;
-    const next = applyHeartbeat(
-      first,
-      beat({
-        workspaceId: "cloud:vm-a:ws-2",
-        viewerId: "user-1",
-        viewerDisplayName: "Ada",
-      }),
-      T0 + HEARTBEAT_INTERVAL_MS,
-    );
-    expect(next.instance.workspaceId).toBe("cloud:vm-a:ws-2");
-    expect(next.events).toEqual([{ type: "online", instance: next.instance }]);
-  });
-
-  it("keeps verified viewer identity and scope in the snapshot", () => {
-    const instance = applyHeartbeat(
-      undefined,
-      beat({
-        workspaceId: "local:one",
-        viewerId: "user-1",
-        viewerDisplayName: "Ada",
-        viewerAvatarURL: "https://cdn.example/ada.png",
-      }),
-      T0,
-    ).instance;
-    const snapshot = buildSnapshot("team-1", [instance], T0 + 1);
-    expect(snapshot.devices[0]?.instances[0]).toMatchObject({
-      workspaceId: "local:one",
-      viewerId: "user-1",
-      viewerDisplayName: "Ada",
-      viewerAvatarURL: "https://cdn.example/ada.png",
-    });
-  });
-
-  it("clears a prior workspace scope when the heartbeat explicitly leaves it", () => {
-    const first = applyHeartbeat(undefined, beat({ workspaceId: "local:one" }), T0).instance;
-    const next = applyHeartbeat(first, beat({ workspaceId: null }), T0 + 1);
-    expect(next.instance.workspaceId).toBeUndefined();
-    expect(next.events).toEqual([{ type: "online", instance: next.instance }]);
-  });
-
   it("goodbye on an online instance flips offline immediately with reason goodbye", () => {
     const first = applyHeartbeat(undefined, beat(), T0).instance;
     const { instance, events } = applyHeartbeat(first, beat({ stopping: true }), T0 + 1_000);

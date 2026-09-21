@@ -194,7 +194,7 @@ struct RightSidebarPanelView: View {
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
-        .onAppear {
+        .onAppear { AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(tabManager.selectedWorkspace)
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
@@ -207,7 +207,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
-        }
+        } .onChange(of: tabManager.selectedTabId) { _, _ in AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(tabManager.selectedWorkspace) }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
@@ -265,7 +265,7 @@ struct RightSidebarPanelView: View {
                         )
                     )
                 }
-                WorkspaceCollaboratorsView(workspaceScope: WorkspacePresenceScope.identifier(for: tabManager.selectedWorkspace), presence: AppDelegate.shared?.workspacePresenceController ?? WorkspacePresenceController())
+                if let presence = AppDelegate.shared?.workspacePresenceController { WorkspaceCollaboratorsView(presence: presence) }
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)

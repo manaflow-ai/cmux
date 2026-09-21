@@ -18,15 +18,6 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
     /// channel (Stable / Nightly / RC / DEV) — see ``MacBuildChannel``. `nil` for
     /// an older host that doesn't announce it.
     public var bundleId: String?
-    /// Canonical workspace/thread scope currently visible in this app instance.
-    public var workspaceId: String?
-    /// Verified Stack user associated with the viewer, when announced by a
-    /// workspace-presence capable server.
-    public var viewerId: String?
-    /// Server-resolved collaborator display name.
-    public var viewerDisplayName: String?
-    /// Server-resolved collaborator profile image URL.
-    public var viewerAvatarURL: String?
     /// Capability strings announced by the host instance.
     public var capabilities: [String]
     /// Whether the instance is currently considered online by the service.
@@ -51,10 +42,6 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         case platform
         case displayName
         case bundleId
-        case workspaceId
-        case viewerId
-        case viewerDisplayName
-        case viewerAvatarURL
         case capabilities
         case online
         case lastSeenAt
@@ -80,10 +67,6 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         platform = try container.decode(String.self, forKey: .platform)
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         bundleId = try container.decodeIfPresent(String.self, forKey: .bundleId)
-        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
-        viewerId = try container.decodeIfPresent(String.self, forKey: .viewerId)
-        viewerDisplayName = try container.decodeIfPresent(String.self, forKey: .viewerDisplayName)
-        viewerAvatarURL = try container.decodeIfPresent(String.self, forKey: .viewerAvatarURL)
         capabilities = try container.decode([String].self, forKey: .capabilities)
         online = try container.decode(Bool.self, forKey: .online)
         lastSeenAt = try container.decode(Double.self, forKey: .lastSeenAt)
@@ -99,10 +82,6 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         platform: String,
         displayName: String? = nil,
         bundleId: String? = nil,
-        workspaceId: String? = nil,
-        viewerId: String? = nil,
-        viewerDisplayName: String? = nil,
-        viewerAvatarURL: String? = nil,
         capabilities: [String] = [],
         online: Bool,
         lastSeenAt: Double,
@@ -115,10 +94,6 @@ public struct PresenceInstance: Codable, Equatable, Sendable {
         self.platform = platform
         self.displayName = displayName
         self.bundleId = bundleId
-        self.workspaceId = workspaceId
-        self.viewerId = viewerId
-        self.viewerDisplayName = viewerDisplayName
-        self.viewerAvatarURL = viewerAvatarURL
         self.capabilities = capabilities
         self.online = online
         self.lastSeenAt = lastSeenAt

@@ -144,19 +144,6 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
-
-    @Test func bodyCarriesWorkspaceScopeWhenViewingSharedWorkspace() throws {
-        let body = PresenceHeartbeatClient.heartbeatBody(
-            deviceID: "11111111-2222-4333-8444-555555555555",
-            tag: "default",
-            bundleID: "com.cmuxterm.app",
-            displayName: "Studio",
-            routes: [],
-            stopping: false,
-            workspaceScope: "cloud:vm-a:workspace-1"
-        )
-        #expect(body["workspaceId"] as? String == "cloud:vm-a:workspace-1")
-    }
     // `resolvedServiceURL` is a static member of the main-actor class, so the
     // test must run on the main actor; without this the cmuxTests target does
     // not compile and no unit test in the target can run in CI.

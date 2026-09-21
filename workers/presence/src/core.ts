@@ -41,14 +41,6 @@ export interface PresenceInstance {
   /** The app's bundle id, so clients can label the build channel (Stable /
    * Nightly / RC / DEV). Absent for older hosts that don't report it. */
   bundleId?: string;
-  /** Canonical workspace/thread scope currently visible in this app instance. */
-  workspaceId?: string;
-  /** Verified Stack user that owns the viewer, when the client announced it. */
-  viewerId?: string;
-  /** Server-resolved collaborator display name. */
-  viewerDisplayName?: string;
-  /** Server-resolved collaborator profile image URL. */
-  viewerAvatarURL?: string;
   capabilities: string[];
   online: boolean;
   /** Epoch ms of the last heartbeat received. */
@@ -71,14 +63,6 @@ export interface HeartbeatInput {
   platform: string;
   displayName?: string;
   bundleId?: string;
-  /** Workspace/thread currently visible in this app instance. */
-  workspaceId?: string | null;
-  /** Set by the authenticated worker route; never trusted from client JSON. */
-  viewerId?: string;
-  /** Set by the authenticated worker route from the Stack user record. */
-  viewerDisplayName?: string;
-  /** Set by the authenticated worker route from the Stack user record. */
-  viewerAvatarURL?: string;
   capabilities?: string[];
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
@@ -144,10 +128,6 @@ export function applyHeartbeat(
   const existingRoutes = sanitizePublishedRoutes(existing?.routes);
   const beatRoutes = sanitizePublishedRoutes(beat.routes);
   const routes = beatRoutes ?? existingRoutes;
-  const workspaceId = beat.workspaceId !== undefined ? beat.workspaceId : existing?.workspaceId;
-  const viewerId = beat.viewerId ?? existing?.viewerId;
-  const viewerDisplayName = beat.viewerDisplayName ?? existing?.viewerDisplayName;
-  const viewerAvatarURL = beat.viewerAvatarURL ?? existing?.viewerAvatarURL;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -159,29 +139,16 @@ export function applyHeartbeat(
     lastSeenAt: nowMs,
     onlineSince: wasOnline ? existing.onlineSince : nowMs,
     ...(routes !== undefined ? { routes } : {}),
-    ...(workspaceId !== undefined && workspaceId !== null ? { workspaceId } : {}),
-    ...(viewerId !== undefined ? { viewerId } : {}),
-    ...(viewerDisplayName !== undefined ? { viewerDisplayName } : {}),
-    ...(viewerAvatarURL !== undefined ? { viewerAvatarURL } : {}),
   };
   if (!wasOnline) {
     return { instance, events: [{ type: "online", instance }] };
   }
   // Already online: a changed route set is the realtime "new port/IP" push;
   // an unchanged one is just a lightweight liveness tick.
-  const workspaceChanged = existing?.workspaceId !== instance.workspaceId;
-  const viewerChanged = existing?.viewerId !== instance.viewerId
-    || existing?.viewerDisplayName !== instance.viewerDisplayName
-    || existing?.viewerAvatarURL !== instance.viewerAvatarURL;
   const events: PresenceEvent[] =
-    workspaceChanged || viewerChanged
-      // Reuse the long-standing online frame for additive identity/scope
-      // changes so older phone clients can apply a switch without treating a
-      // new event kind as a decode failure.
-      ? [{ type: "online", instance }]
-      : beatRoutes !== undefined && !routesEqual(existingRoutes, beatRoutes)
-        ? [{ type: "routes", instance }]
-        : [{ type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: nowMs }];
+    beatRoutes !== undefined && !routesEqual(existingRoutes, beatRoutes)
+      ? [{ type: "routes", instance }]
+      : [{ type: "seen", deviceId: instance.deviceId, tag: instance.tag, lastSeenAt: nowMs }];
   return { instance, events };
 }
 
@@ -195,10 +162,6 @@ function applyGoodbye(
   // best-known rendezvous for "try waking this host", matching the registry
   // row that outlives the instance going offline.
   const routes = sanitizePublishedRoutes(beat.routes) ?? sanitizePublishedRoutes(existing?.routes);
-  const workspaceId = beat.workspaceId !== undefined ? beat.workspaceId : existing?.workspaceId;
-  const viewerId = beat.viewerId ?? existing?.viewerId;
-  const viewerDisplayName = beat.viewerDisplayName ?? existing?.viewerDisplayName;
-  const viewerAvatarURL = beat.viewerAvatarURL ?? existing?.viewerAvatarURL;
   const instance: PresenceInstance = {
     deviceId: beat.deviceId,
     tag: beat.tag,
@@ -211,10 +174,6 @@ function applyGoodbye(
     onlineSince: undefined,
     offlineAt: nowMs,
     ...(routes !== undefined ? { routes } : {}),
-    ...(workspaceId !== undefined && workspaceId !== null ? { workspaceId } : {}),
-    ...(viewerId !== undefined ? { viewerId } : {}),
-    ...(viewerDisplayName !== undefined ? { viewerDisplayName } : {}),
-    ...(viewerAvatarURL !== undefined ? { viewerAvatarURL } : {}),
   };
   // Only emit an offline event when the instance was actually online; a
   // goodbye from an already-offline (or never-seen) instance is a no-op tick.

@@ -28,6 +28,7 @@ import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
+
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
@@ -35,6 +36,7 @@ private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidS
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
+
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { true }
 
@@ -2722,7 +2724,6 @@ struct ContentView: View {
             selectedWorkspaceDirectoryObserver.wire(tabManager: tabManager)
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
-            syncWorkspacePresenceScope()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
             let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
@@ -2809,7 +2810,6 @@ struct ContentView: View {
             }
 #endif
             tabManager.applyWindowBackgroundForSelectedTab()
-            syncWorkspacePresenceScope()
             let retiringWorkspaceID = startWorkspaceHandoffIfNeeded(
                 newSelectedId: authoritativeSelection
             )

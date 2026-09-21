@@ -443,6 +443,7 @@ public struct CMUXMobileRootScene: View {
         )
         #endif
     }
+
     @MainActor
     private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
         let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
@@ -478,6 +479,7 @@ public struct CMUXMobileRootScene: View {
             }
         )
     }
+
     @MainActor
     package func makeStore(
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
@@ -506,7 +508,6 @@ public struct CMUXMobileRootScene: View {
             )
         }
         let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
-        let presenceClient = makePresenceClient()
         let hiddenMacStore = UserDefaultsPairedMacHiddenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
@@ -532,8 +533,7 @@ public struct CMUXMobileRootScene: View {
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
             personalIrohForget: resolvedPersonalIrohForget,
-            presence: presenceClient,
-            presenceAnnouncer: presenceClient,
+            presence: nil, workspacePresenceAnnouncer: makeWorkspacePresenceAnnouncer(),
             identityProvider: identityProvider,
             phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },

@@ -40,8 +40,6 @@ final class PresenceHeartbeatClient {
     /// included in every heartbeat so the presence service mirrors the same
     /// set the device registry stores (DO = live cache, registry = truth).
     private var currentRoutes: [CmxAttachRoute] = []
-    /// Canonical workspace/thread scope currently visible in the active window.
-    private var activeWorkspaceScope: String?
 
     private init() {}
 
@@ -87,17 +85,6 @@ final class PresenceHeartbeatClient {
         guard loopTask != nil, isEnabled else { return }
         stopLoop()
         Task { await self.sendHeartbeat(stopping: true) }
-    }
-
-    /// Update the scope announced by subsequent heartbeats and push a live
-    /// switch edge when the presence loop is already running.
-    func setActiveWorkspaceScope(_ scope: String?) {
-        let trimmed = scope?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let next = trimmed?.isEmpty == false ? trimmed : nil
-        guard next != activeWorkspaceScope else { return }
-        activeWorkspaceScope = next
-        guard loopTask != nil else { return }
-        Task { await sendHeartbeat(stopping: false) }
     }
 
     // MARK: - Routes
@@ -177,7 +164,6 @@ final class PresenceHeartbeatClient {
             routesObserveTask?.cancel()
             routesObserveTask = nil
             currentRoutes = []
-            activeWorkspaceScope = nil
         }
         if shouldRun && loopTask == nil {
             startLoop()
@@ -237,8 +223,7 @@ final class PresenceHeartbeatClient {
             bundleID: Bundle.main.bundleIdentifier,
             displayName: MobileHostIdentity.instanceDisplayName(),
             routes: currentRoutes,
-            stopping: stopping,
-            workspaceScope: activeWorkspaceScope
+            stopping: stopping
         )
 
         var req = URLRequest(url: url)
@@ -290,7 +275,6 @@ final class PresenceHeartbeatClient {
         displayName: String?,
         routes: [CmxAttachRoute],
         stopping: Bool,
-        workspaceScope: String? = nil,
         now: Date = Date()
     ) -> [String: Any] {
         var bodyDict: [String: Any] = [
@@ -298,7 +282,6 @@ final class PresenceHeartbeatClient {
             "platform": "mac",
             "tag": tag,
             "routes": routes.mobileHostJSONObjects(for: .cloudRendezvous, at: now),
-            "workspaceId": workspaceScope ?? NSNull(),
         ]
         // The app's bundle id lets the phone label the build channel on the
         // Computers screen (com.cmuxterm.app = Stable, .nightly/.rc/.staging

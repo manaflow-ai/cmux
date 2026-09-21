@@ -138,21 +138,6 @@ describe("parseHeartbeat", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.beat.stopping).toBeUndefined();
   });
-
-  it("bounds and normalizes the workspace scope", () => {
-    const result = parseHeartbeat({
-      deviceId: DEVICE_ID,
-      platform: "mac",
-      workspaceId: "  cloud:vm-a:workspace-1  ",
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.beat.workspaceId).toBe("cloud:vm-a:workspace-1");
-    expect(parseHeartbeat({
-      deviceId: DEVICE_ID,
-      platform: "mac",
-      workspaceId: "x".repeat(257),
-    })).toEqual({ ok: false, error: "invalid_workspace_id" });
-  });
 });
 
 describe("parseHeartbeat routes", () => {
