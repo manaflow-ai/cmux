@@ -86,6 +86,37 @@ class ProductPublicationTests(unittest.TestCase):
                 self.assertFalse(condition(job["if"], full_suite="false"), name)
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
         self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
+        for name in consumers:
+            self.assertNotIn("reuse-products", str(self.workflow["jobs"][name]["if"]))
+
+    def test_reuse_hit_keeps_consumer_validation_and_reports_metrics(self):
+        steps = {step["name"]: step for step in self.job["steps"]}
+        reuse_step = steps["Reuse exact compatible compiled products"]
+        self.assertNotIn("if", reuse_step)
+        self.assertEqual(
+            steps["Validate Swift warning budget"]["if"],
+            "steps.reuse-products.outputs.hit != 'true'",
+        )
+        for name in ("Stage compiled package frameworks", "Run early CLI binary smoke checks"):
+            self.assertNotIn("reuse-products", str(steps[name].get("if", "")))
+
+        report = steps["Record compiled-product reuse metrics"]
+        self.assertEqual(report["if"], "always()")
+        self.assertEqual(
+            set(report["env"]),
+            {
+                "REUSE_HIT",
+                "REUSE_REASON",
+                "REUSE_MISS_REASONS",
+                "REUSE_COMPILE_SECONDS",
+                "REUSE_LOOKUP_SECONDS",
+                "REUSE_TRANSFER_SECONDS",
+                "REUSE_RESTORE_SECONDS",
+                "REUSE_TOTAL_SECONDS",
+                "REUSE_MACOS_MINUTES_SAVED",
+            },
+        )
+
 
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
