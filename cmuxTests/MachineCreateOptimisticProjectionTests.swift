@@ -187,4 +187,113 @@ struct MachineCreateOptimisticProjectionTests {
         #expect(notices == 0, "the reserved workspace was already presented")
     }
 
+    // MARK: - In-process launch identity
+
+    @Test func startOperationExposesTheIDAndAwaitDeliversItsExactReceipt() async throws {
+        let (coordinator, launches) = makeCoordinator()
+        let workspaceID = UUID()
+        let id = try #require(coordinator.startOperation(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspaceID),
+            cancellableLaunch: launches.cancellableLaunch
+        ))
+        #expect(coordinator.operation(id: id)?.isRunning == true)
+        #expect(coordinator.launchingOperationID == nil, "the id is exposed only inside the synchronous launch")
+        let waiter = Task { await coordinator.awaitWorkspaceID(operationID: id) }
+        await Task.yield()
+        launches.complete(
+            status: 0, output: "OK machine=m\nworkspace=\(workspaceID.uuidString)\n",
+            workspaceID: workspaceID, machineID: "m"
+        )
+        #expect(await waiter.value == workspaceID)
+        #expect(await coordinator.awaitWorkspaceID(operationID: id) == nil, "a finished operation has no receipt left to wait for")
+        #expect(await coordinator.awaitWorkspaceID(operationID: UUID()) == nil)
+    }
+
+    @Test func cancellingTheAwaitCancelsTheOperationItWaitsFor() async throws {
+        let (coordinator, launches) = makeCoordinator()
+        let id = try #require(coordinator.startOperation(
+            MachineCreateCoordinatorTests.newMachineRequest(), cancellableLaunch: launches.cancellableLaunch
+        ))
+        let waiter = Task { await coordinator.awaitWorkspaceID(operationID: id) }
+        await Task.yield()
+        waiter.cancel()
+        #expect(await waiter.value == nil)
+        await Self.yieldUntil { coordinator.operations.isEmpty }
+        #expect(launches.cancellations == 1)
+    }
+
+    @Test func theLaunchingOperationIDIsVisibleDuringTheLaunchAndStableAcrossRetry() throws {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        let coordinator = MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter())
+        var seen: [UUID?] = []
+        let launch: MachineCreateCoordinator.CancellableLaunch = { arguments, progress, completion in
+            seen.append(coordinator.launchingOperationID)
+            return launches.cancellableLaunch(arguments, progress, completion)
+        }
+        let id = try #require(coordinator.startOperation(MachineCreateCoordinatorTests.newMachineRequest(), cancellableLaunch: launch))
+        #expect(seen == [id])
+        #expect(coordinator.launchingOperationID == nil)
+        launches.complete(status: 1, output: "Error: transient")
+        #expect(coordinator.retry(id))
+        #expect(seen == [id, id], "a retry reuses the operation id, so the in-process create resends the same idempotency key")
+        #expect(InProcessMachineCreateLauncher.idempotencyKey(operationID: id) == "app-" + id.uuidString.lowercased())
+    }
+
+    @Test func cancelledInProcessCompletionAfterTheReceiptDestroysTheMachineExactlyOnce() throws {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        var destroyed: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in }, notificationCenter: NotificationCenter(),
+            cancelCreatedMachine: { destroyed.append($0) }
+        )
+        let id = try #require(coordinator.startOperation(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(UUID()),
+            cancellableLaunch: launches.cancellableLaunch
+        ))
+        launches.progressHandlers[0]("OK machine=early\n")
+        coordinator.cancel(id)
+        #expect(launches.cancellations == 1)
+        #expect(destroyed == ["early"])
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 1, output: "OK machine=early\n", workspaceId: nil, machineId: "early", wasCancelled: true
+        ))
+        #expect(destroyed == ["early"], "the cancelled completion reconciles the same receipt without a second destroy")
+        #expect(coordinator.operations.isEmpty)
+    }
+
+    // MARK: - Stats poll
+
+    @Test func statsPollWaitsForRunningCreatesSkipsConnectingLinksAndStaggersTheRest() {
+        let ready = MachineSnapshot(id: "ready", provider: "freestyle", image: "i", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+        let linking = MachineSnapshot(id: "linking", provider: "freestyle", image: "i", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+        var noStats = MachineSnapshot(id: "nostats", provider: "freestyle", image: "i", isDesktop: true, activity: .ready, createdAt: nil, label: nil)
+        noStats.capabilities.stats = false
+        var snapshot = SurfaceCatalogSnapshot.empty
+        snapshot.machines = [
+            SurfaceMachineInfo(
+                id: .cloud("linking"), name: "linking", status: "running", image: "i", hasDesktop: true,
+                memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: nil
+            ),
+            SurfaceMachineInfo(
+                id: .cloud("ready"), name: "ready", status: "running", image: "i", hasDesktop: true,
+                memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, remoteWorkspaces: nil
+            )
+        ]
+        #expect(MachinesPanelViewModel.statsPollTargets(machines: [ready, linking, noStats], catalog: snapshot, hasRunningCreate: false) == ["ready"])
+        #expect(MachinesPanelViewModel.statsPollTargets(machines: [ready, linking, noStats], catalog: snapshot, hasRunningCreate: true).isEmpty,
+                "a create in flight owns the control plane's attention")
+        let schedule = MachinesPanelViewModel.statsPollSchedule(ids: ["a", "b", "c", "d"], interval: .seconds(20))
+        #expect(schedule.map(\.id) == ["a", "b", "c", "d"])
+        #expect(schedule.map(\.delay) == [.zero, .seconds(5), .seconds(10), .seconds(15)])
+        #expect(MachinesPanelViewModel.statsPollSchedule(ids: ["solo"], interval: .seconds(20)).map(\.delay) == [.zero])
+    }
+
+    @MainActor
+    private static func yieldUntil(timeout: Duration = .seconds(2), _ condition: @MainActor () -> Bool) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        #expect(condition())
+    }
 }
