@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
 GUARD_JOBS = (
     "static-preflight",
     "workflow-guard-tests",
@@ -997,12 +998,44 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert 'tests["result"] not in {"success", "skipped"}' in block
 
 
-def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
-    block = workflow_job_block("web-typecheck")
+def test_web_typecheck_retries_native_tsgo_abort() -> None:
+    script = workflow_job_step_script("web-typecheck", "Typecheck")
 
-    assert "grep -Fq '[WebServer] $ tsgo --noEmit' \"$log\"" in block
-    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in block
-    assert "retrying once" in block
+    assert "bun run typecheck 2>&1 | tee \"$log\"" in script
+    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in script
+    assert "retrying once" in script
+    assert "bun run test:instant" not in script
+
+
+def test_ci_instant_navigation_owns_typecheck_once() -> None:
+    config = (ROOT / "web/playwright.instant.config.ts").read_text()
+    workflow = workflow_job_block("web-typecheck")
+    web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
+    assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
+    package_json = (ROOT / "web/package.json").read_text()
+    assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
+    assert '"test:instant:checked"' not in package_json
+
+    ci_typecheck = workflow.index("      - name: Typecheck")
+    ci_instant = workflow.index("      - name: Instant navigation tests")
+    assert ci_typecheck < ci_instant
+    # The only second invocation is the bounded retry owned by the Typecheck
+    # step; the Instant navigation step must never own a typecheck.
+    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
+    ci_instant_step = workflow[ci_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
+    assert "        env:" in ci_instant_step
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
+    assert "        run: bun run test:instant" in ci_instant_step
+
+    validation_typecheck = web_validation.index("      - run: bun run typecheck")
+    validation_instant = web_validation.index("      - run: bun run test:instant")
+    assert validation_typecheck < validation_instant
+    assert web_validation[validation_typecheck:validation_instant].count("bun run typecheck") == 1
+    validation_instant_step = web_validation[validation_instant:]
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in validation_instant_step
+    assert '        env:\n          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in validation_instant_step
 
 
 def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
@@ -1323,6 +1356,105 @@ def test_admission_lookup_sends_reserved_branch_characters_literally() -> None:
         assert admitted_run(api, "manaflow-ai/cmux", branch, "abc", current_run_id=9) == "https://example/8", branch
 
 
+def admission_helper():
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        return importlib.import_module("find_admitted_build")
+    finally:
+        sys.path[:] = original_path
+
+
+def test_admission_api_limits_each_request_to_the_remaining_budget() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    for remaining, expected in ((30, 10), (3, 3)):
+        with patch.object(admission.time, "monotonic", return_value=100), \
+                patch.object(admission.subprocess, "check_output", return_value="{}") as request:
+            assert admission.gh_api("example", deadline=100 + remaining) == {}
+            assert request.call_args.kwargs["timeout"] == expected
+
+
+def test_admission_api_never_starts_after_the_overall_deadline() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    with patch.object(admission.time, "monotonic", return_value=100), \
+            patch.object(admission.subprocess, "check_output") as request:
+        try:
+            admission.gh_api("example", deadline=100)
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("an expired lookup must stop before starting gh")
+        request.assert_not_called()
+
+
+def test_admission_api_discards_a_response_arriving_after_the_deadline() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    with patch.object(admission.time, "monotonic", side_effect=[100, 130]), \
+            patch.object(admission.subprocess, "check_output", return_value="{}"):
+        try:
+            admission.gh_api("example", deadline=130)
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("a late response must not admit a compile")
+
+
+def test_admission_lookup_timeout_or_missing_cli_falls_back_to_compiling() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    for error in (subprocess.TimeoutExpired(["gh", "api"], 10), FileNotFoundError("gh")):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            with patch.object(admission.subprocess, "check_output", side_effect=error):
+                result = admission.main([
+                    "--repository", "manaflow-ai/cmux", "--branch", "feature",
+                    "--fingerprint", "abc", "--current-run-id", "9",
+                    "--github-output", str(output),
+                ])
+            assert result == 0
+            assert output.read_text() == "compile_admitted=false\n"
+
+
+def test_admission_lookup_shares_one_deadline_across_successive_requests() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    base_api = admission_api(
+        [admission_run(8)], {8: [admission.artifact_name("abc", 2)]},
+        {8: [admission_job("failure")] * 100 + [admission_job("success", run_attempt=2)]},
+    )
+    clock = [100.0]
+    budgets = []
+
+    def request(command, *, text, timeout):
+        budgets.append(timeout)
+        if timeout < 9:
+            clock[0] += timeout
+            raise subprocess.TimeoutExpired(command, timeout)
+        clock[0] += 9
+        return json.dumps(base_api(command[2]))
+
+    with tempfile.TemporaryDirectory() as temporary:
+        output = Path(temporary) / "output"
+        with patch.object(admission.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(admission.subprocess, "check_output", side_effect=request):
+            assert admission.main([
+                "--repository", "manaflow-ai/cmux", "--branch", "feature",
+                "--fingerprint", "abc", "--current-run-id", "9",
+                "--github-output", str(output),
+            ]) == 0
+        assert budgets == [10, 10, 10, 3], budgets
+        assert clock[0] == 130
+        assert output.read_text() == "compile_admitted=false\n"
+
+
 def workflow_step_block(job_name: str, step_name: str) -> str:
     lines = workflow_job_block(job_name).splitlines()
     start = lines.index(f"      - name: {step_name}")
@@ -1522,18 +1654,16 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "/Applications/Xcode_16.4.app" not in package_block
     assert "Select helper Xcode" in package_block
     assert "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15" in package_block
-    assert "Build universal Ghostty CLI helper" in package_block
-    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" in package_block
+    assert "Build Release Ghostty CLI helper" in package_block
     assert '[[ "$HELPER_SDK_VERSION" == 15.* ]]' in package_block
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in package_block
-    assert package_block.index("Select helper Xcode") < package_block.index("Build universal Ghostty CLI helper")
-    assert package_block.index("Build universal Ghostty CLI helper") < package_block.index("Select Xcode")
-    assert package_block.index("Upload universal Ghostty CLI helper") < package_block.index("Select Xcode")
+    assert package_block.index("Select helper Xcode") < package_block.index("Build Release Ghostty CLI helper")
+    assert package_block.index("Build Release Ghostty CLI helper") < package_block.index("Select Xcode")
+    assert package_block.index("Upload Release Ghostty CLI helper") < package_block.index("Select Xcode")
     assert "      - swift-package-tests" in release_block
-    assert "Download universal Ghostty CLI helper" in release_block
+    assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
-    assert "Install universal Ghostty CLI helper" in release_block
-    assert "./scripts/build-ghostty-cli-helper.sh --universal --output ghostty-cli-helper/ghostty" not in release_block
+    assert "Install Release helpers" in release_block
 
 
 def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:

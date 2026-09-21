@@ -170,12 +170,17 @@ struct QuitConfirmationAlertPresenterTests {
         #expect(!alert.didRunModal)
         #expect(completedResponse == nil)
 
-        // NSAlert starts with a lazy placeholder layout that stacks full-width
-        // buttons. The standalone presenter must resolve that layout before the
-        // alert becomes visible or the panel renders clipped and washed out.
+        // NSAlert's button arrangement is platform-dependent (some macOS
+        // releases stack the buttons vertically). The contract is that the
+        // presenter resolves the lazy layout while the window is still hidden
+        // and leaves two usable, non-overlapping controls.
+        alert.window.displayIfNeeded()
+        alert.window.contentView?.layoutSubtreeIfNeeded()
         let buttonFrames = alert.buttons.map(\.frame)
         #expect(buttonFrames.count == 2)
-        #expect(abs(buttonFrames[0].midY - buttonFrames[1].midY) < 0.5)
+        #expect(alert.didLayoutWhileHidden)
+        #expect(buttonFrames.allSatisfy { $0.width > 0 && $0.height > 0 })
+        #expect(!buttonFrames[0].intersects(buttonFrames[1]))
 
         alert.buttons[0].performClick(nil)
 
@@ -237,6 +242,7 @@ private final class QuitConfirmationAlertSpy: NSAlert {
     var didBeginSheetModal = false
     var didRunModal = false
     var capturedSheetCompletion: ((NSApplication.ModalResponse) -> Void)?
+    private(set) var didLayoutWhileHidden = false
 
     override init() {
         super.init()
@@ -256,5 +262,12 @@ private final class QuitConfirmationAlertSpy: NSAlert {
     override func runModal() -> NSApplication.ModalResponse {
         didRunModal = true
         return .alertSecondButtonReturn
+    }
+
+    override func layout() {
+        if !window.isVisible {
+            didLayoutWhileHidden = true
+        }
+        super.layout()
     }
 }

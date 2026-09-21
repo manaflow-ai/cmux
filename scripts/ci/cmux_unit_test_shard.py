@@ -78,6 +78,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/GlobalSearchShortcutBehaviorTests",
     "cmuxTests/HostSettingsShortcutNotificationTests",
     "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
+    "cmuxTests/MainWindowZoomPlacementTests",
     "cmuxTests/LiveAgentIndexRelevantChurnTests",
     "cmuxTests/NotificationRowSnapshotBoundaryTests",
     "cmuxTests/NotificationScrollRestoreLifecycleTests",

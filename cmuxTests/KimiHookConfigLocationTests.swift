@@ -54,7 +54,7 @@ struct KimiHookConfigLocationTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(!FileManager.default.fileExists(atPath: kimiCodeConfig.path), Comment(rawValue: result.output))
         let installed = try String(contentsOf: kimiCliConfig, encoding: .utf8)
-        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains("hooks enqueue kimi stop"), Comment(rawValue: result.output))
         #expect(installed.contains(#"command = "vibe-island""#), Comment(rawValue: result.output))
     }
 
@@ -101,7 +101,7 @@ struct KimiHookConfigLocationTests {
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(
-            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks enqueue kimi stop"),
             Comment(rawValue: result.output)
         )
         #expect(
@@ -156,7 +156,7 @@ struct KimiHookConfigLocationTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(!FileManager.default.fileExists(atPath: missingConfig.path), Comment(rawValue: result.output))
         #expect(
-            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks enqueue kimi stop"),
             Comment(rawValue: result.output)
         )
     }
@@ -213,7 +213,7 @@ struct KimiHookConfigLocationTests {
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(
-            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks kimi stop"),
+            try String(contentsOf: kimiCodeConfig, encoding: .utf8).contains("hooks enqueue kimi stop"),
             Comment(rawValue: result.output)
         )
         #expect(result.output.contains(kimiCliConfig.path), Comment(rawValue: result.output))
@@ -241,7 +241,7 @@ struct KimiHookConfigLocationTests {
         #expect(!result.timedOut, Comment(rawValue: result.output))
         #expect(result.status == 0, Comment(rawValue: result.output))
         let installed = try String(contentsOf: kimiCodeConfig, encoding: .utf8)
-        #expect(installed.contains("hooks kimi stop"), Comment(rawValue: result.output))
+        #expect(installed.contains("hooks enqueue kimi stop"), Comment(rawValue: result.output))
         #expect(
             installed.components(separatedBy: #"event = "Stop""#).count == 2,
             Comment(rawValue: installed)
@@ -465,7 +465,7 @@ struct KimiHookConfigLocationTests {
             events: [
                 KimiCodeHookConfig.Event(
                     name: "Stop",
-                    command: "cmux hooks kimi stop",
+                    command: "cmux hooks enqueue kimi stop",
                     timeout: 10
                 ),
             ],

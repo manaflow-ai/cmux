@@ -226,6 +226,10 @@ import Testing
             persistenceKey: "completed"
         )
         let rejectingManager = RejectingWorkspaceCreationTabManager()
+        // TabManager.init creates its initial workspace through the overridable
+        // addWorkspaceIfActive seam. Keep the rejection disabled until after
+        // construction so this fixture models a failed mobile create rather
+        // than a window manager that cannot be initialized.
         rejectingManager.rejectsWorkspaceCreation = true
         let retryManager = TabManager()
         let operationID = UUID()
@@ -268,9 +272,6 @@ import Testing
 
 @MainActor
 private final class RejectingWorkspaceCreationTabManager: TabManager {
-    /// `TabManager.init` creates its initial workspace through this same
-    /// overridable path and treats a nil result as a fatal precondition, so
-    /// rejection is armed only once the manager exists.
     var rejectsWorkspaceCreation = false
 
     override func addWorkspaceIfActive(

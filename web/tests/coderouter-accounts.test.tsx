@@ -126,6 +126,9 @@ describe("coderouter accounts section", () => {
     ]);
     expect(html).toContain("No accounts yet");
     expect(html).toContain('name="apiKey"');
+    expect(html).toContain("API keys");
+    expect(html).toContain("Create API key");
+    expect(html).toContain('name="apiKeyLabel"');
   });
 
   test("hides management controls for members without account rights", () => {
@@ -145,6 +148,7 @@ describe("coderouter accounts section", () => {
     // Provider account identifiers are for account managers only.
     expect(html).not.toContain("acct_9f3");
     expect(html).not.toContain("sk-ant-oat01-…a1b2");
+    expect(html).not.toContain('name="apiKeyLabel"');
     expect(html).toContain("Claude Code OAuth");
   });
 

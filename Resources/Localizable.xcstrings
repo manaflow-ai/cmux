@@ -259892,37 +259892,37 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die iOS-Kopplung ist auf diesem Mac deaktiviert. Öffne die Einstellungen und aktiviere die iOS-Kopplung, damit cmux auf deinem iPhone diesen Mac finden kann."
+            "value": "Die iOS-Kopplung ist auf diesem Mac deaktiviert. Öffne die Einstellungen und aktiviere die iOS-Kopplung, damit du diesen Mac in cmux auf deinem iPhone finden kannst."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le jumelage iOS est désactivé sur ce Mac. Ouvrez les réglages et activez le jumelage iOS pour que cmux sur votre iPhone puisse trouver ce Mac."
+            "value": "Le jumelage iOS est désactivé sur ce Mac. Ouvrez les réglages et activez le jumelage iOS pour détecter ce Mac depuis cmux sur votre iPhone."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاقتران مع iOS معطل على هذا الـ Mac. افتح الإعدادات وفعّل الاقتران مع iOS ليتمكن cmux على iPhone من العثور على هذا الـ Mac."
+            "value": "الاقتران مع iOS متوقف على هذا الـ Mac. افتح الإعدادات وفعّل الاقتران مع iOS لاكتشاف هذا الـ Mac من cmux على iPhone."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El enlace con iOS está desactivado en este Mac. Abre Ajustes y activa el enlace con iOS para que cmux en tu iPhone pueda encontrar este Mac."
+            "value": "El enlace con iOS está desactivado en este Mac. Abre Ajustes y activa el enlace con iOS para detectar este Mac desde cmux en tu iPhone."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 已關閉 iOS 配對。請開啟設定並啟用 iOS 配對，讓 iPhone 上的 cmux 能找到此 Mac。"
+            "value": "這部 Mac 已關閉 iOS 配對。請開啟設定並啟用 iOS 配對，即可從 iPhone 上的 cmux 尋找這部 Mac。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 已关闭 iOS 配对。请打开设置并启用 iOS 配对，让 iPhone 上的 cmux 能找到此 Mac。"
+            "value": "这台 Mac 已关闭 iOS 配对。请打开设置并启用 iOS 配对，即可从 iPhone 上的 cmux 发现这台 Mac。"
           }
         },
         "ko": {
