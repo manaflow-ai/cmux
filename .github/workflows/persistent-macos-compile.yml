@@ -224,7 +224,12 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/persistent-mac-compile.tar.gz"
           cp "$METRICS" "$DERIVED_DATA/persistent-mac-metrics.json"
-          tar -chzf "$archive" -C "$DERIVED_DATA"             Build/Products cmux-build.log persistent-mac-metrics.json
+          test -f "$DERIVED_DATA/cmux-workload-result.json"
+          tar -chzf "$archive" -C "$DERIVED_DATA" \
+            Build/Products \
+            cmux-build.log \
+            cmux-workload-result.json \
+            persistent-mac-metrics.json
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload persistent compile product
@@ -254,6 +259,9 @@ jobs:
           print(f"- source preparation: {data['source_preparation_seconds']:.3f}s")
           print(f"- package readiness: {data['package_readiness_seconds']:.3f}s")
           print(f"- compile: {data['compile_duration_seconds']:.3f}s")
+          print(f"- semantic validation: {data['semantic_validation_seconds']:.3f}s")
+          print(f"- semantic profile: `{data['semantic']['profile']['id']}@{data['semantic']['profile']['generation']}`")
+          print(f"- semantic key: `{data['semantic']['benchmark']['semantic_comparison_key']}`")
           print(f"- Glaeda generation: `{data['glaeda']['generation']}`")
           print(f"- Glaeda cache key: `{data['glaeda']['cache_key']}`")
           print(f"- artifact id: `{os.environ.get('ARTIFACT_ID', '')}`")
