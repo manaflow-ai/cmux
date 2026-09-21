@@ -1,0 +1,268 @@
+import CmuxAgentChat
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+@Suite(.serialized)
+struct ConversationSidebarRegressionTests {
+    private let projection = ConversationSidebarProjection()
+
+    @Test
+    func pendingClaudeAliasDeduplicatesAgainstHistoryIdentity() {
+        let surfaceID = UUID().uuidString
+        let pendingID = AgentChatSessionRegistry.pendingClaudeSessionID(surfaceID: surfaceID)
+        let realSessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
+        var record = AgentChatSessionRecord(
+            sessionID: pendingID,
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: surfaceID,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            title: "Live conversation",
+            pid: nil
+        )
+        record.rememberHookStoreSessionID(realSessionID)
+
+        #expect(
+            projection.liveSessionKey(for: record)
+                == VaultLiveSessionKeys.key(kind: "claude", sessionID: realSessionID)
+        )
+    }
+
+    @Test
+    func registeredAgentKeepsConfiguredPresentation() throws {
+        let registered = RegisteredSessionAgent(
+            id: "pi",
+            name: "Pi",
+            iconAssetName: "AgentIcons/Pi"
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "pi-session",
+            agentKind: .other("pi"),
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            title: nil,
+            pid: nil
+        )
+
+        let agentsByID = projection.presentationAgentsByID([.registered(registered)])
+        let resolved = try #require(
+            projection.presentationAgent(
+                for: record,
+                configuredAgentsByDirectory: ["": agentsByID],
+                fallbackAgentsByID: [:]
+            )
+        )
+        #expect(resolved == .registered(registered))
+        #expect(resolved.displayName == "Pi")
+        #expect(resolved.assetName == "AgentIcons/Pi")
+    }
+
+    @Test
+    func endedRecordsDoNotLoadPresentationConfigForOldDirectories() {
+        let live = AgentChatSessionRecord(
+            sessionID: "live", agentKind: .claude, workspaceID: nil, surfaceID: nil,
+            workingDirectory: "/repo/live", transcriptPath: nil, state: .idle,
+            lastActivityAt: Date.distantPast, title: nil, pid: nil
+        )
+        let ended = AgentChatSessionRecord(
+            sessionID: "ended", agentKind: .claude, workspaceID: nil, surfaceID: nil,
+            workingDirectory: "/repo/old", transcriptPath: nil, state: .ended,
+            lastActivityAt: Date.distantPast, title: nil, pid: nil
+        )
+
+        #expect(projection.livePresentationDirectoryKeys(for: [live, ended]) == ["", "/repo/live"])
+    }
+
+    @Test
+    func projectLocalAgentPresentationWinsForItsLiveDirectory() throws {
+        let global = RegisteredSessionAgent(id: "custom", name: "Global Custom")
+        let local = RegisteredSessionAgent(
+            id: "custom", name: "Project Custom", iconAssetName: "AgentIcons/Pi"
+        )
+        let record = AgentChatSessionRecord(
+            sessionID: "custom-session", agentKind: .other("custom"),
+            workspaceID: nil, surfaceID: nil, workingDirectory: "/repo/project",
+            transcriptPath: nil, state: .idle, lastActivityAt: Date.distantPast,
+            title: nil, pid: nil
+        )
+        let resolved = try #require(projection.presentationAgent(
+            for: record,
+            configuredAgentsByDirectory: [
+                "": projection.presentationAgentsByID([.registered(global)]),
+                "/repo/project": projection.presentationAgentsByID([.registered(local)]),
+            ],
+            fallbackAgentsByID: [:]
+        ))
+        #expect(resolved == .registered(local))
+        #expect(resolved.displayName == "Project Custom")
+        #expect(resolved.assetName == "AgentIcons/Pi")
+    }
+
+    @Test
+    func expandedHistoryKeepsNewerStoreEntries() {
+        let old = sessionEntry(id: "old", title: "old", modified: 10)
+        let refreshed = sessionEntry(id: "same", title: "new metadata", modified: 30)
+        let stale = sessionEntry(id: "same", title: "stale metadata", modified: 20)
+        let olderDuplicate = sessionEntry(id: "same", title: "older duplicate", modified: 5)
+
+        let merged = projection.recentHistory(
+            initial: [refreshed],
+            expanded: [stale, old, olderDuplicate]
+        )
+        let byID = Dictionary(uniqueKeysWithValues: merged.map { ($0.id, $0) })
+
+        #expect(merged.map(\.id) == ["same", "old"])
+        #expect(Set(byID.keys) == ["old", "same"])
+        #expect(byID["same"]?.title == "new metadata")
+    }
+
+    @Test
+    func visibleHistoryProjectionStopsAfterOneSentinel() {
+        let first = sessionEntry(id: "first", title: "first", modified: 30)
+        let open = sessionEntry(id: "open", title: "open", modified: 20)
+        let second = sessionEntry(id: "second", title: "second", modified: 10)
+        let result = projection.visibleHistoryEntries(
+            source: [first, open, second],
+            excludingOpenIDs: [VaultLiveSessionKeys.key(for: open)],
+            limit: 1
+        )
+
+        #expect(result.entries.map(\.id) == ["first"])
+        #expect(result.hasMore)
+        #expect(
+            projection.nextHistoryPerAgentLimit(
+                current: SessionIndexStore.perAgentLimit
+            ) == SessionIndexStore.perAgentLimit + projection.historyPagePerAgent
+        )
+    }
+
+    @Test
+    func historySectionRemainsReachableWhenInitialHistoryIsAllOpen() {
+        let open = sessionEntry(id: "open", title: "open", modified: 20)
+        let visible = projection.visibleHistoryEntries(
+            source: [open],
+            excludingOpenIDs: [VaultLiveSessionKeys.key(for: open)],
+            limit: 24
+        )
+
+        #expect(visible.entries.isEmpty)
+        #expect(!visible.hasMore)
+        #expect(projection.canShowMoreHistory(
+            hasMoreLoadedHistory: false, searchIsEmpty: true,
+            canLoadMoreHistory: true, hasLoadedHistorySource: true
+        ))
+        #expect(projection.shouldShowHistorySection(
+            hasVisibleHistory: false,
+            canShowMoreHistory: true
+        ))
+        #expect(!projection.shouldShowHistorySection(
+            hasVisibleHistory: false,
+            canShowMoreHistory: false
+        ))
+    }
+
+    @Test
+    func emptyVaultDoesNotOfferHistoryExpansion() {
+        #expect(!projection.canShowMoreHistory(
+            hasMoreLoadedHistory: false, searchIsEmpty: true,
+            canLoadMoreHistory: true, hasLoadedHistorySource: false
+        ))
+        #expect(!projection.shouldShowHistorySection(
+            hasVisibleHistory: false, canShowMoreHistory: false
+        ))
+    }
+
+    @Test
+    func endedSessionPublishesHistoryRefreshNotification() async {
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        let sessionID = "sidebar-ended-session"
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID, hookEventName: .sessionStart, source: "claude",
+            workspaceId: UUID().uuidString, surfaceId: UUID().uuidString,
+            cwd: "/Users/example/project", receivedAt: Date(timeIntervalSince1970: 10)
+        ))
+
+        await confirmation("ended session refreshes Vault history") { refreshed in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .agentChatSessionHistoryDidChange, object: service, queue: nil
+            ) { _ in refreshed() }
+            defer { NotificationCenter.default.removeObserver(observer) }
+            service.registry.update(sessionID: sessionID) { $0.state = .ended }
+        }
+    }
+
+    @Test
+    func recordChangesPublishSidebarRefreshNotification() async {
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in }
+        )
+        let sessionID = "sidebar-refresh-session"
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: "/Users/example/project",
+            receivedAt: Date(timeIntervalSince1970: 10)
+        ))
+
+        await confirmation("agent chat record update refreshes local projections") { refreshed in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .agentChatSessionRecordsDidChange,
+                object: service,
+                queue: nil
+            ) { _ in
+                refreshed()
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            service.registry.update(sessionID: sessionID) {
+                $0.title = "Updated title"
+                $0.lastActivityAt = Date(timeIntervalSince1970: 20)
+            }
+        }
+    }
+    private func sessionEntry(
+        id: String,
+        title: String,
+        modified: TimeInterval
+    ) -> SessionEntry {
+        SessionEntry(
+            id: id,
+            agent: .claude,
+            sessionId: id,
+            title: title,
+            cwd: "/Users/example/project",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: modified),
+            fileURL: nil,
+            specifics: .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: nil
+            )
+        )
+    }
+}

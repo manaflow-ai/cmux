@@ -622,8 +622,8 @@ final class AgentChatTranscriptService {
         }
         return completedAt
     }
-
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        NotificationCenter.default.post(name: .agentChatSessionRecordsDidChange, object: self)
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -634,6 +634,7 @@ final class AgentChatTranscriptService {
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
+        if record.state == .ended, stateChanged || transcriptBecameAvailable { NotificationCenter.default.post(name: .agentChatSessionHistoryDidChange, object: self) }
         if transcriptBecameAvailable {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             failedResolutions.remove(record.sessionID)
@@ -671,8 +672,8 @@ final class AgentChatTranscriptService {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
-
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        NotificationCenter.default.post(name: .agentChatSessionRecordsDidChange, object: self)
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
@@ -684,7 +685,6 @@ final class AgentChatTranscriptService {
         guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }
-
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)

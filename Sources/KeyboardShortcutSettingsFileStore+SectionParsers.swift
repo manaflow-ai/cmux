@@ -88,8 +88,20 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let betaKeys = BetaFeaturesCatalogSection()
+        if let rawConversations = beta["conversations"], let conversations = rawConversations as? [String: Any] {
+            if let enabled = jsonBool(conversations["enabled"]) {
+                snapshot.managedUserDefaults[
+                    betaKeys.conversationSidebar.userDefaultsKey
+                ] = .bool(enabled)
+            } else if conversations.keys.contains("enabled") {
+                logInvalid("sidebar.beta.conversations.enabled", sourcePath: sourcePath)
+            }
+        } else if beta.keys.contains("conversations") {
+            logInvalid("sidebar.beta.conversations", sourcePath: sourcePath)
+        }
+
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
-            let betaKeys = BetaFeaturesCatalogSection()
             if let controls = todos["controls"] as? [String: Any] {
                 if let enabled = jsonBool(controls["enabled"]) {
                     snapshot.managedUserDefaults[
