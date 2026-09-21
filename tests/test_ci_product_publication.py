@@ -101,6 +101,7 @@ class ProductPublicationTests(unittest.TestCase):
             "Download pre-built GhosttyKit.xcframework",
             "Install Rust",
             "Run Ghostty split-theme appearance regression",
+            "Run bundled Ghostty theme picker helper regression",
         ):
             self.assertNotIn(name, step_names)
         for producer_input in (
