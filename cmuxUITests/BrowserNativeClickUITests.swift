@@ -12,6 +12,7 @@ final class BrowserNativeClickUITests: XCTestCase {
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = Self.fixtureURL.absoluteString
         app.launch()
         addTeardownBlock { app.terminate() }
@@ -46,8 +47,23 @@ final class BrowserNativeClickUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 5))
         omnibar.typeText("example")
+        let suggestions = app.descendants(matching: .any)
+            .matching(identifier: "BrowserOmnibarSuggestions")
+            .firstMatch
+        XCTAssertTrue(suggestions.waitForExistence(timeout: 5), "Omnibar suggestions must appear before dismissal")
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(
+                    predicate: NSPredicate { _, _ in !suggestions.exists },
+                    object: nil
+                )],
+                timeout: 5
+            ),
+            .completed,
+            "Omnibar suggestions must disappear before testing page clicks"
+        )
         // Escape clears the address-bar query and releases focus; the chrome
         // header intentionally remains visible. The next native click is the
         // behavior-level proof that the dismissed overlay no longer captures
