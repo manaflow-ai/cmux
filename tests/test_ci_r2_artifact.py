@@ -304,7 +304,7 @@ class MeasurementTests(unittest.TestCase):
 
     def test_marker_parser_ignores_unrelated_and_malformed_lines(self):
         log = (
-            "prefix CMUX_TEST_PRODUCT_TRANSFER {\\\"transport\\\":\\\"r2\\\",\\\"cache\\\":\\\"fill\\\"}\\n"
+            'prefix CMUX_TEST_PRODUCT_TRANSFER {"transport":"r2","cache":"fill"}\\n'
             "CMUX_TEST_PRODUCT_TRANSFER garbage\\n"
             "other output\\n"
         )
