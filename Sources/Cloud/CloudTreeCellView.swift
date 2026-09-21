@@ -9,6 +9,8 @@ import SwiftUI
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
     var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
+    private var configuredNode: CloudTreeNode?
+    private var configuredStyle = CloudTreeStyleStore.current
 
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
@@ -27,6 +29,12 @@ final class CloudTreeCellView: NSTableCellView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.identifier
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(workspacePresenceDidChange(_:)),
+            name: .workspacePresenceDidChange,
+            object: nil
+        )
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
         // The outline owns the complete disclosure slot and gap. The hosted
@@ -50,6 +58,15 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func workspacePresenceDidChange(_ notification: Notification) {
+        guard let configuredNode, case .workspace = configuredNode.kind else { return }
+        configureDisplayHost(node: configuredNode, style: configuredStyle)
+        displayHost.invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
+
     /// Rehosts one immutable tree snapshot and its optional row actions.
     ///
     /// - Parameters:
@@ -63,17 +80,15 @@ final class CloudTreeCellView: NSTableCellView {
         nodeActions: CloudTreeNodeActions,
         style: CloudTreeStyle = CloudTreeStyleStore.current
     ) {
+        configuredNode = node
+        configuredStyle = style
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
         displayHost.isHidden = false
-        displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style)
-                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        )
+        configureDisplayHost(node: node, style: style)
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
@@ -117,6 +132,21 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
+    }
+
+    private func configureDisplayHost(node: CloudTreeNode, style: CloudTreeStyle) {
+        let presenceHeads: [WorkspacePresenceParticipant] = {
+            guard case .workspace(let machine, let workspace, _, _, _) = node.kind else { return [] }
+            return AppDelegate.shared?.workspacePresenceController.collaborators(
+                forCloudMachine: machine,
+                workspaceID: workspace.id
+            ) ?? []
+        }()
+        displayHost.rootView = AnyView(
+            CloudTreeRowContentView(kind: node.kind, presenceHeads: presenceHeads, style: style)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        )
     }
 
     private func makeButtonsHost(style: CloudTreeStyle) -> NSHostingView<AnyView> {

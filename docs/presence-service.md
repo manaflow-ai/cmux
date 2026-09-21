@@ -151,12 +151,12 @@ therefore remove a viewer without requiring a separate leave mutation.
 The shared `CmuxWorkspacePresence` package owns scope validation, the wire
 snapshot, WebSocket transport, reconnect/backoff model, and injected-clock
 tests. The Mac controller follows the active workspace in the main window and
-publishes snapshots to a compact right-sidebar avatar stack with an overflow
-count and a popover list. The iOS shell publishes the selected Mac or Cloud
-workspace through the same scope protocol. Signed-out or local-only workspaces
-show an explicit “Local only”/“Only you” state, so an empty list is not
-mistaken for a failed multiplayer connection. Device heartbeats and the device
-registry intentionally remain unchanged.
+publishes snapshots as compact collaborator heads directly on the matching
+Cloud workspace row in the Cloud tree. The iOS shell publishes the selected Mac
+or Cloud workspace through the same scope protocol. Signed-out or local-only
+workspaces show an explicit “Local only”/“Only you” state, so an empty list is
+not mistaken for a failed multiplayer connection. Device heartbeats and the
+device registry intentionally remain unchanged.
 
 The Worker adds only the append-only `WorkspacePresence` Durable Object class
 migration (`v3`); no Postgres columns or platform entitlements are involved.

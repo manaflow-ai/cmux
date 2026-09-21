@@ -265,7 +265,6 @@ struct RightSidebarPanelView: View {
                         )
                     )
                 }
-                if let presence = AppDelegate.shared?.workspacePresenceController { WorkspaceCollaboratorsView(presence: presence) }
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)

@@ -5,6 +5,10 @@ import CmuxWorkspacePresence
 import Foundation
 import Observation
 
+extension Notification.Name {
+    static let workspacePresenceDidChange = Notification.Name("cmux.workspacePresenceDidChange")
+}
+
 /// Owns one shared workspace-presence session for the Mac's active workspace.
 @MainActor @Observable
 final class WorkspacePresenceController {
@@ -54,6 +58,7 @@ final class WorkspacePresenceController {
         guard scope != activeScope else { session?.setViewing(scope != nil && NSApp.isActive); return }
         activeScope = scope
         task?.cancel(); snapshotTask?.cancel(); session?.stop(); task = nil; snapshotTask = nil; session = nil; participants = []
+        NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self)
         guard let scope, let auth, auth.isAuthenticated, let accountID = auth.currentUser?.id,
               let baseURL = PresenceSettings.resolvedURL() else { phase = .unavailable; return }
         let model = WorkspacePresenceSession(transport: WorkspacePresenceWebSocket(baseURL: baseURL))
@@ -62,14 +67,14 @@ final class WorkspacePresenceController {
         snapshotTask = Task { @MainActor [weak self, weak auth, model] in
             for await values in model.snapshots() {
                 guard let self, self.session === model else { return }
-                self.participants = values.map {
+                self.updateParticipants(values.map {
                     WorkspacePresenceParticipant(
                         id: $0.id,
                         displayName: $0.displayName,
                         avatarURL: $0.avatarURL,
                         lastSeenAt: Date()
                     )
-                }
+                })
                 self.phase = model.phase == .available ? .available : .unavailable
                 if model.phase == .connecting { self.phase = .connecting }
                 guard auth?.isAuthenticated == true, auth?.currentUser?.id == accountID else { return }
@@ -93,6 +98,20 @@ final class WorkspacePresenceController {
     }
 
     func collaborators() -> [WorkspacePresenceParticipant] { participants.filter { $0.id != auth?.currentUser?.id } }
+
+    func collaborators(forCloudMachine machine: SurfaceMachineID, workspaceID: String) -> [WorkspacePresenceParticipant] {
+        guard case .cloud(let ownerID) = machine,
+              activeScope?.kind == .cloud,
+              activeScope?.ownerID == ownerID,
+              activeScope?.workspaceID == workspaceID else { return [] }
+        return collaborators()
+    }
+
+    private func updateParticipants(_ next: [WorkspacePresenceParticipant]) {
+        guard participants != next else { return }
+        participants = next
+        NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self)
+    }
 
     private func restartForAuth() {
         let scope = activeScope
