@@ -115,6 +115,8 @@ const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 export const INVALID_CREDENTIAL_COOLDOWN_MS = 15 * 60_000;
 /** 5xx / 529 / transport failure: transient, give the account a short rest. */
 export const UPSTREAM_UNAVAILABLE_COOLDOWN_MS = 20_000;
+const CLAUDE_PREOUTPUT_PROBE_BYTES = 64 * 1024;
+const CLAUDE_PREOUTPUT_PROBE_IDLE_MS = 500;
 
 type ClaudeSurface = "messages" | "count_tokens" | "models";
 
@@ -513,6 +515,9 @@ async function routeWithFailover(
       if (request.signal.aborted) throw error;
       attempt = { kind: "transport", error };
     }
+    if (surface === "messages" && attempt.kind === "response") {
+      attempt = await probeClaudeStreamFailure(attempt.response, request.signal);
+    }
     const verdict = classifyAttempt(attempt);
     recordCoderouterSpan({
       name: "upstream_attempt",
@@ -589,6 +594,129 @@ function deadlineResult(
       "retry-after": "5",
     }),
   };
+}
+
+/**
+ * Anthropic can encode an overload as the first event of an otherwise-200
+ * SSE response. Buffer only the pre-output prefix so account failover remains
+ * safe, while normal streams are returned with every byte preserved.
+ */
+async function probeClaudeStreamFailure(response: Response, signal: AbortSignal): Promise<Attempt> {
+  if (!isStreamingResponse(response) || !response.body) return { kind: "response", response };
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
+  try {
+    for (;;) {
+      if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+      const next = await readClaudeProbe(reader, signal);
+      if ("timedOut" in next) {
+        pendingRead = next.pending;
+        break;
+      }
+      if (next.done) break;
+      chunks.push(next.value);
+      total += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+      const verdict = classifyClaudeStreamPrefix(text);
+      if (verdict === "overloaded") {
+        await reader.cancel();
+        return { kind: "response", response: new Response(concatClaudeProbeChunks(chunks), { status: 529, headers: response.headers }) };
+      }
+      if (verdict === "output" || total >= CLAUDE_PREOUTPUT_PROBE_BYTES) break;
+    }
+    text += decoder.decode();
+    if (classifyClaudeStreamPrefix(`${text}\n\n`) === "overloaded") {
+      await reader.cancel();
+      return { kind: "response", response: new Response(concatClaudeProbeChunks(chunks), { status: 529, headers: response.headers }) };
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+  let buffered = chunks.slice();
+  let upstreamDone = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const chunk = buffered.shift();
+      if (chunk) {
+        controller.enqueue(chunk);
+        return;
+      }
+      if (upstreamDone) {
+        controller.close();
+        return;
+      }
+      const next = await (pendingRead ?? reader.read());
+      pendingRead = undefined;
+      if (next.done) {
+        upstreamDone = true;
+        controller.close();
+      } else {
+        controller.enqueue(next.value);
+      }
+    },
+    async cancel(reason) {
+      upstreamDone = true;
+      await reader.cancel(reason);
+    },
+  });
+  return { kind: "response", response: new Response(stream, { status: response.status, headers: response.headers }) };
+}
+
+type ClaudeProbeRead =
+  | ReadableStreamReadResult<Uint8Array>
+  | { readonly timedOut: true; readonly pending: Promise<ReadableStreamReadResult<Uint8Array>> };
+
+function concatClaudeProbeChunks(chunks: readonly Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return joined;
+}
+
+async function readClaudeProbe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ClaudeProbeRead> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const pending = reader.read();
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("claude_probe_idle")), CLAUDE_PREOUTPUT_PROBE_IDLE_MS);
+  });
+  try {
+    return await Promise.race([pending, timeout]);
+  } catch (error) {
+    if (error instanceof Error && error.message === "claude_probe_idle") return { timedOut: true, pending };
+    if (signal.aborted) throw signal.reason ?? error;
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function classifyClaudeStreamPrefix(text: string): "waiting" | "output" | "overloaded" {
+  const blocks = text.split(/\r?\n\r?\n/);
+  for (const block of blocks.slice(0, -1)) {
+    const data = block.match(/^data:\s*(.*)$/m)?.[1]?.trim();
+    if (!data) continue;
+    try {
+      const event = JSON.parse(data) as { error?: { type?: unknown } };
+      const errorType = String(event.error?.type ?? "").toLowerCase();
+      if (errorType === "overloaded_error" || errorType === "rate_limit_error") return "overloaded";
+      return "output";
+    } catch {
+      // Wait for the rest of a split JSON event.
+    }
+  }
+  return "waiting";
 }
 
 function throwIfRequestAborted(request: Request): void {

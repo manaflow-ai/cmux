@@ -541,6 +541,24 @@ describe("claude proxy failover across accounts", () => {
     secret: { kind: "anthropic_api_key", apiKey: "sk-ant-api03-second-key-value-5678" },
   };
 
+  test("fails over an overloaded error embedded in a 200 SSE stream", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response(
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+      () => Response.json({ id: "msg-stream-2", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-stream-2");
+  });
+
   test("a 429 cools the account down for retry-after and replays the body on the next account", async () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
