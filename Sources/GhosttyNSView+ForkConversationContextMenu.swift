@@ -2,7 +2,7 @@ import AppKit
 import CmuxControlSocket
 import Foundation
 
-enum SurfaceResumeContextMenuState: Equatable {
+nonisolated enum SurfaceResumeContextMenuState: Equatable {
     case unavailable
     case unbound
     case agentManaged
