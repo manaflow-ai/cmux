@@ -23,6 +23,8 @@ from urllib.parse import urlencode
 ADMISSION_JOB = "macOS compile admission"
 ARTIFACT_PREFIX = "build-inputs-"
 RUNS_TO_CHECK = 6
+JOB_PAGES_TO_CHECK = 3
+JOBS_PER_PAGE = 100
 
 Api = Callable[[str], dict]
 
@@ -43,14 +45,20 @@ def admitted_run(api: Api, repository: str, branch: str, fingerprint: str, curre
         for run in runs:
             if run["id"] == current_run_id or run["head_repository"]["full_name"] != repository:
                 continue
-            jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=all&per_page=100").get("jobs", [])
-            admitted_attempts = {
-                job["run_attempt"] for job in jobs if job["name"] == ADMISSION_JOB and job["conclusion"] == "success"
-            }
-            for attempt in sorted(admitted_attempts):
-                artifact_query = urlencode({"name": artifact_name(fingerprint, attempt)})
-                if api(f"repos/{repository}/actions/runs/{run['id']}/artifacts?{artifact_query}").get("total_count"):
-                    return run["html_url"]
+            # filter=all includes reruns, whose jobs can fill more than one
+            # page. Bound this optional lookup; a miss just compiles again.
+            for page in range(1, JOB_PAGES_TO_CHECK + 1):
+                jobs_query = urlencode({"filter": "all", "per_page": JOBS_PER_PAGE, "page": page})
+                jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?{jobs_query}").get("jobs", [])
+                admitted_attempts = {
+                    job["run_attempt"] for job in jobs if job["name"] == ADMISSION_JOB and job["conclusion"] == "success"
+                }
+                for attempt in sorted(admitted_attempts):
+                    artifact_query = urlencode({"name": artifact_name(fingerprint, attempt)})
+                    if api(f"repos/{repository}/actions/runs/{run['id']}/artifacts?{artifact_query}").get("total_count"):
+                        return run["html_url"]
+                if len(jobs) < JOBS_PER_PAGE:
+                    break
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError, AttributeError) as error:
         print(f"lookup failed, compiling: {error}", file=sys.stderr)
     return None
