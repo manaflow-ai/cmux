@@ -49,6 +49,49 @@ def args(**overrides):
 
 
 class RoutingTests(unittest.TestCase):
+    def test_bounded_observation_handles_ready_timeout_and_cancel(self):
+        class FakeEvent:
+            def __init__(self, clock, *, cancel_on_wait=False):
+                self.clock = clock
+                self.cancel_on_wait = cancel_on_wait
+
+            def wait(self, seconds):
+                self.clock[0] += seconds
+                return self.cancel_on_wait
+
+        clock = [0.0]
+        attempts = []
+        ready = route.observe_until(
+            10.0,
+            2.0,
+            lambda: "ready" if len(attempts) >= 2 else attempts.append("try"),
+            cancel_event=FakeEvent(clock),
+            monotonic=lambda: clock[0],
+        )
+        self.assertEqual(ready, "ready")
+        self.assertEqual(len(attempts), 2)
+
+        clock = [0.0]
+        timed_out = route.observe_until(
+            5.0,
+            2.0,
+            lambda: None,
+            cancel_event=FakeEvent(clock),
+            monotonic=lambda: clock[0],
+        )
+        self.assertIsNone(timed_out)
+        self.assertEqual(clock[0], 5.0)
+
+        clock = [0.0]
+        with self.assertRaisesRegex(route.RoutingCanceled, "canceled"):
+            route.observe_until(
+                5.0,
+                1.0,
+                lambda: None,
+                cancel_event=FakeEvent(clock, cancel_on_wait=True),
+                monotonic=lambda: clock[0],
+            )
+
     def test_only_trusted_same_repository_members_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
         self.assertEqual(
