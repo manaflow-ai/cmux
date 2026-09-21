@@ -247,6 +247,46 @@ function capabilitiesMap(): Record<string, ProviderCapabilities> {
   return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
 }
 
+export interface HarnessRecommendation {
+  id: string;
+  label: string;
+  installed: boolean;
+  priority: number;
+  triggers: CommandTrigger[];
+  reason: string;
+  installCommand?: string;
+}
+
+/**
+ * Build the server-side harness choices consumed by the command palette and
+ * other clients. The resolver is injectable so this stays deterministic in
+ * tests and callers can provide a cached installation probe.
+ */
+export function harnessRecommendations(
+  providers: ProviderDef[] = PROVIDERS,
+  isInstalled: (provider: ProviderDef) => boolean = (provider) => Boolean(Bun.which(provider.cmd?.[0] ?? provider.id, { PATH: process.env.PATH })),
+  triggersFor: (provider: ProviderDef) => CommandTrigger[] = (provider) => capabilitiesFor(provider.id).triggers,
+): HarnessRecommendation[] {
+  return providers
+    .map((provider) => {
+      const installed = isInstalled(provider);
+      return {
+        id: provider.id,
+        label: provider.label,
+        installed,
+        priority: installed ? 0 : 1,
+        triggers: triggersFor(provider),
+        reason: installed
+          ? "Installed and ready"
+          : provider.installCommand
+            ? `Install with: ${provider.installCommand}`
+            : "Harness is not installed",
+        ...(provider.installCommand ? { installCommand: provider.installCommand } : {}),
+      };
+    })
+    .sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label));
+}
+
 function providerInfo(p: ProviderDef) {
   return {
     id: p.id,
@@ -1845,6 +1885,7 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map(providerInfo),
+        harnesses: harnessRecommendations(),
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
         keys: keyConfig,
