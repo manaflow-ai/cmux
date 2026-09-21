@@ -88,6 +88,7 @@ extension CMUXCLI {
         "comments",
         "config",
         "copy-mode",
+        "current",
         "current-window",
         "current-workspace",
         "debug-terminals",

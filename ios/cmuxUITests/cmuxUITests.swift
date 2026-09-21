@@ -11622,3 +11622,215 @@ private extension XCUIApplication {
         return frame.height > frame.width
     }
 }
+
+
+/// Focused screenshots and behavior checks for setup recovery.
+final class IOSSetupRecoveryUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    private func capture(_ name: String, in app: XCUIApplication) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func record(_ name: String, _ message: String) {
+        let receipt = XCTAttachment(string: message)
+        receipt.name = name
+        receipt.lifetime = .keepAlways
+        add(receipt)
+    }
+
+    @MainActor
+    func testOnboardingPrimaryButtonAlignment() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-dev.cmux.mobile.onboarding.redesign.progress.v1", "welcome",
+        ]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_ONBOARDING_PREVIEW": "1",
+        ]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        defer { app.terminate() }
+
+        let primary = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        let referenceFrame = primary.frame
+        var frames: [String] = []
+        for (index, scene) in ["Agents", "Notifications", "Push"].enumerated() {
+            let page = app.descendants(matching: .any)["MobileOnboarding\(scene)Scene"]
+            XCTAssertTrue(page.waitForExistence(timeout: 5))
+            let aligned = NSPredicate { _, _ in
+                abs(primary.frame.minY - referenceFrame.minY) < 0.5
+                    && abs(primary.frame.maxY - referenceFrame.maxY) < 0.5
+            }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: aligned, object: nil
+            )], timeout: 3), .completed)
+            frames.append("\(scene): \(primary.frame)")
+            capture("onboarding-\(index + 1)-\(scene.lowercased())", in: app)
+            if scene != "Push" { primary.tap() }
+        }
+        record("onboarding-button-frames", frames.joined(separator: "\n"))
+        XCTAssertEqual(primary.label, "Enable Notifications")
+        XCTAssertTrue(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
+        primary.tap()
+        let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
+        XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        capture("onboarding-4-enable-completed", in: app)
+        record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
+    }
+
+    @MainActor
+    func testOnboardingSettingsReplayAlignmentAndActions() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "connected",
+        ]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        defer { app.terminate() }
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 10))
+        settings.tap()
+        let replay = app.buttons["MobileSettingsHowPairingWorks"]
+        XCTAssertTrue(replay.waitForExistence(timeout: 5))
+        if !replay.isHittable { app.swipeUp() }
+        replay.tap()
+        let primary = app.buttons["MobileOnboardingPrimaryButton"]
+        XCTAssertTrue(primary.waitForExistence(timeout: 5))
+        let reference = primary.frame
+        var frames: [String] = []
+        for (index, scene) in ["Agents", "Notifications", "Push"].enumerated() {
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileOnboarding\(scene)Scene"
+            ].waitForExistence(timeout: 5))
+            XCTAssertEqual(primary.frame.minY, reference.minY, accuracy: 0.5)
+            XCTAssertEqual(primary.frame.maxY, reference.maxY, accuracy: 0.5)
+            frames.append("\(scene): \(primary.frame)")
+            capture("replay-\(index + 1)-\(scene.lowercased())", in: app)
+            if scene != "Push" { primary.tap() }
+        }
+        record("replay-button-frames", frames.joined(separator: "\n"))
+        app.buttons["MobileOnboardingSecondaryButton"].tap()
+        let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
+        XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        capture("replay-4-not-now-completed", in: app)
+        app.buttons["MobileOnboardingBackButton"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)[
+            "MobileOnboardingPushScene"
+        ].waitForExistence(timeout: 5))
+        primary.tap()
+        XCTAssertTrue(pairing.waitForExistence(timeout: 10))
+        capture("replay-5-enable-completed", in: app)
+        record("replay-action-result", "Opened Settings → View Introduction Again. Continue advanced through the first three scenes with equal primary-button frames. Not Now advanced to Pairing. Back returned to Push. Enable Notifications called the real push coordinator and advanced to Pairing after completion. Mock app authorization is denied; no OS permission grant or remote notification delivery is claimed.")
+    }
+
+    @MainActor
+    func testEmptyWorkspaceRetrySurvivesIntermediateUpdate() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "0",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "unavailable",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_HOLD_REFRESH": "1",
+        ]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        defer { app.terminate() }
+        let retry = app.buttons["MobileWorkspaceEmptyRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        for attempt in 1...2 {
+            retry.tap()
+            let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
+            XCTAssertTrue(finish.waitForExistence(timeout: 5))
+            XCTAssertFalse(retry.isEnabled)
+            // Emit an empty-list update before the pending refresh completes.
+            app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(attempt * 2 - 1)"
+            ].waitForExistence(timeout: 5))
+            XCTAssertFalse(retry.isEnabled)
+            XCTAssertTrue(finish.exists)
+            capture("retry-\(attempt)-pending-after-list-update", in: app)
+            finish.tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(attempt * 2)"
+            ].waitForExistence(timeout: 5))
+            let enabled = NSPredicate { _, _ in retry.isEnabled }
+            XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+                predicate: enabled, object: nil
+            )], timeout: 5), .completed)
+            capture("retry-\(attempt)-completed-after-list-update", in: app)
+        }
+        record("retry-lifecycle-result", "Retry stayed disabled across an intermediate empty-list update, completed after an explicit fixture signal, and accepted a second retry. No timing delay is used by this fixture.")
+    }
+
+    @MainActor
+    func testEmptyWorkspaceRetryAndSetupGuide() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "0",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "unavailable",
+        ]
+        XCUIDevice.shared.orientation = .portrait
+        app.launch()
+        defer { app.terminate() }
+        let retry = app.buttons["MobileWorkspaceEmptyRetry"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        let guide = app.descendants(matching: .any)["MobileWorkspaceEmptySetupGuide"]
+        XCTAssertTrue(guide.isHittable)
+        XCTAssertTrue(retry.isHittable)
+        capture("empty-workspaces-before-actions", in: app)
+        for generation in 1...2 {
+            retry.tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(generation)"
+            ].waitForExistence(timeout: 5))
+            XCTAssertTrue(retry.isEnabled)
+            XCTAssertTrue(guide.isHittable)
+            capture("empty-workspaces-after-retry-\(generation)", in: app)
+        }
+        record("retry-action-result", "Tapped Retry twice. The production empty-state button invoked the supplied async refresh action on each tap. Preview refresh generation advanced from 0 to 1 to 2, and Retry was enabled after each completion. This fixture does not connect to a real Mac.")
+
+        guide.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15))
+        // A fresh simulator can show Safari's first-launch introduction.
+        let continueButton = safari.buttons["Continue"]
+        if continueButton.waitForExistence(timeout: 3) { continueButton.tap() }
+        let startBrowsing = safari.buttons["Start Browsing"]
+        if startBrowsing.exists { startBrowsing.tap() }
+        let address = safari.textFields.firstMatch
+        XCTAssertTrue(address.waitForExistence(timeout: 15))
+        capture("setup-guide-opened-in-safari", in: safari)
+        address.tap()
+        let fullAddress = safari.textFields.firstMatch
+        let expectedURL = NSPredicate { _, _ in
+            let value = fullAddress.value as? String ?? ""
+            return value.contains("cmux.com/docs/ios") && value.contains("#setup")
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: expectedURL, object: nil
+        )], timeout: 10), .completed)
+        record("setup-guide-link-result", "Tapped Set Up cmux iOS. Safari opened: \(fullAddress.value as? String ?? "")")
+        capture("setup-guide-destination-url", in: safari)
+    }
+}

@@ -67,6 +67,10 @@ struct WindowKeyDownReplayGuardTests {
     private final class EditableUndoProbeTextView: NSTextView {
         private(set) var undoCallCount = 0
 
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(undo(_:)) || super.validateUserInterfaceItem(item)
+        }
+
         @objc func undo(_ sender: Any?) {
             undoCallCount += 1
         }
@@ -429,6 +433,9 @@ struct WindowKeyDownReplayGuardTests {
             window.orderOut(nil)
             window.close()
         }
+
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
 
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
             Issue.record("Failed to construct Undo key event")

@@ -7,6 +7,7 @@ actor CmxIrohDeferredByteTransport:
     CmxByteTransportClosureObserving,
     CmxByteTransportClosureObservationReadiness,
     CmxByteTransportContinuityIdentifying,
+    CmxByteTransportConnectionInspecting,
     CmxByteTransportLivenessObserving
 {
     private let request: CmxByteTransportRequest
@@ -94,6 +95,13 @@ actor CmxIrohDeferredByteTransport:
             return nil
         }
         return await identifying.transportContinuityID()
+    }
+
+    func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
+        guard !closed, let inspecting = transport as? any CmxByteTransportConnectionInspecting else {
+            return nil
+        }
+        return await inspecting.transportConnectionObservation()
     }
 
     func transportClosureObservation() async -> CmxTransportClosureObservation? {

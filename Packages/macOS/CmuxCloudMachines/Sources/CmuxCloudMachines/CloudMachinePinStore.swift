@@ -25,8 +25,7 @@ import Observation
 @Observable
 public final class CloudMachinePinStore {
     /// The `UserDefaults` key holding every scope's pins and remembered order.
-    /// Pins are independent of ``DefaultCloudMachineStore``: the Cmd+Y default
-    /// machine is a routing preference, a pin is a sidebar priority.
+    /// Pins are a sidebar priority and are independent of workspace selection.
     public static let defaultsKey = "cloudTree.machinePins.v1"
 
     private let defaults: UserDefaults
@@ -43,6 +42,8 @@ public final class CloudMachinePinStore {
     public init(defaults: UserDefaults, scopeProvider: @escaping @MainActor () -> String?) {
         self.defaults = defaults
         self.scopeProvider = scopeProvider
+        // Retire the old routing designation without promoting it to a pin.
+        defaults.removeObject(forKey: "cloud.defaultMachineID")
         scopes = defaults.data(forKey: Self.defaultsKey).flatMap {
             try? JSONDecoder().decode([String: CloudMachinePinStoreState].self, from: $0)
         } ?? [:]

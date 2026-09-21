@@ -5,7 +5,7 @@ import {
 } from "../../../../services/coderouter/accounts";
 import {
   resolveCoderouterUsageTeam,
-  resolveCodeRouterRequestContext,
+  resolveCoderouterControlContext,
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
 import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
@@ -75,12 +75,12 @@ async function handleGet(request: Request): Promise<Response> {
 }
 
 type AccountsPostDependencies = {
-  readonly resolveContext: typeof resolveCodeRouterRequestContext;
+  readonly resolveContext: typeof resolveCoderouterControlContext;
   readonly add: typeof addAccount;
 };
 
 const defaultAccountsPostDependencies: AccountsPostDependencies = {
-  resolveContext: resolveCodeRouterRequestContext,
+  resolveContext: resolveCoderouterControlContext,
   add: addAccount,
 };
 
@@ -107,15 +107,19 @@ export function makeCoderouterAccountsPostHandler(
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const visibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
-  if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  const requestedVisibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  // A VM mutation is scoped to its provisioned pool. Private visibility would
+  // create an account that the same machine could not subsequently read on an
+  // organization team, so machine writes are always team-visible.
+  const visibility = resolved.value.access?.kind === "vm" ? "team" : requestedVisibility;
   if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility });
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility, access: resolved.value.access });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,

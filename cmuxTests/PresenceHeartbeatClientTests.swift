@@ -14,6 +14,18 @@ import Testing
 /// the presence DO can push fresh port/IP routes to subscribed phones the
 /// moment they change.
 @Suite struct PresenceHeartbeatClientTests {
+    @MainActor
+    @Test func iPhonePairingPublishesPresenceWithoutMacIncomingAccess() {
+        let suiteName = "presence-iphone-only-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults))
+        #expect(PresenceSettings.isEnabled(defaults: defaults))
+        defaults.set(false, forKey: PresenceSettings.enabledKey)
+        #expect(!PresenceSettings.isEnabled(defaults: defaults))
+    }
+
     private func route(host: String, port: Int, id: String = "r") throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: id,

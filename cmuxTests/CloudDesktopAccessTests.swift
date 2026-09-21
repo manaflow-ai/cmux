@@ -74,6 +74,39 @@ struct CloudDesktopAccessTests {
         #expect(await connected.result == true)
     }
 
+    @Test("Every Cloud website retains its requested URL through bootstrap commits",
+          arguments: ["http://10.0.0.7:6901/vnc.html", "http://10.0.0.7:3000/", "https://10.0.0.7:8443/app"])
+    func desktopRetainsPendingServiceIdentity(rawURL: String) async throws {
+        let store = CloudPortAccessStore()
+        let catalog = SurfaceCatalog()
+        let readiness = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
+        let remote = try #require(URL(string: rawURL))
+        let target = CloudPortForwardTarget(host: "10.0.0.7", port: remote.port!)
+        let model = store.model(machineID: "test-desktop", target: target, scheme: remote.scheme!) {
+            CloudPortAccessModel(
+                target: target, coordinator: nil, wake: {},
+                startForward: { _ in Issue.record("Unexpected legacy route"); return 1 },
+                stopForward: {}, startBrowserProxy: {
+                    guard let endpoint = await readiness.result else { throw CancellationError() }
+                    return endpoint
+                }
+            )
+        }
+        let provider = provider(store: store, catalog: catalog)
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close(); readiness.resolve(nil) }
+        // A delayed bootstrap commit from the original WebView must not replace
+        // the Cloud identity while its authenticated replacement is being prepared.
+        browser.webView.loadHTMLString("<title>bootstrap</title>", baseURL: nil)
+        provider.configureBrowser(browser, url: remote)
+        browser.webView.loadHTMLString("<title>bootstrap</title>", baseURL: nil)
+        _ = try await firstTitle(browser, equals: "bootstrap")
+        #expect(!model.isReady)
+        #expect(browser.currentURL == remote)
+        #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+        await store.remove(machineID: "test-desktop")
+    }
+
     @Test("A saved Cloud browser URL never retains an ephemeral loopback port")
     func sessionSnapshotUsesPrivateServiceAddress() {
         let local = URL(string: "http://127.0.0.1:46901/vnc.html?path=websockify&resize=remote")!
@@ -89,6 +122,26 @@ struct CloudDesktopAccessTests {
         )
         browser.cloudAccess.configure(model: model, url: remote)
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+    }
+
+    @Test("Desktop bootstrap does not paint WebKit's default white background")
+    func desktopBackgroundUsesNativeBackingUntilCanvasPaints() async throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46_901 }, stopForward: {}, route: .loopback
+        )
+        let url = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.0.0.7")))
+        browser.cloudAccess.configure(model: model, url: url)
+        model.connect()
+        #expect(await wait { model.isReady })
+        browser.navigate(to: try #require(browser.cloudAccess.nextURL()))
+        #expect(browser.webView.value(forKey: "drawsBackground") as? Bool == false)
+        browser.navigate(to: URL(string: "https://example.com")!)
+        #expect(browser.webView.value(forKey: "drawsBackground") as? Bool == true,
+                "Ordinary websites still need WebKit's normal document background")
+        await model.retire()
     }
 
     @Test("Opening Desktop starts exactly one HTTP route without system VPN",
@@ -195,5 +248,16 @@ struct CloudDesktopAccessTests {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while !predicate(), ContinuousClock.now < deadline { await Task.yield() }
         return predicate()
+    }
+
+    private func firstTitle(_ browser: BrowserPanel, equals expected: String) async throws -> String? {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        var title: String?
+        while ContinuousClock.now < deadline {
+            title = try await browser.webView.evaluateJavaScript("document.title") as? String
+            if title == expected { return title }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return title
     }
 }

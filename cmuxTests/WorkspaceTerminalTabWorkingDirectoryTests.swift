@@ -171,6 +171,7 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         snapshot.panels[0].directoryIsTrustedRemoteReport = nil
         let restored = Workspace()
         let restoredPanelId = try #require(restored.restoreSessionSnapshot(snapshot)[remotePanelId])
+        restored.focusPanel(restoredPanelId)
         #expect(restored.panelDirectories[restoredPanelId] == remoteDirectory)
         #expect(restored.reportedPanelDirectory(panelId: restoredPanelId) == nil)
         #expect(restored.presentedCurrentDirectory == nil)
@@ -277,9 +278,13 @@ struct WorkspaceTerminalTabWorkingDirectoryTests {
         let remotePanelId = try #require(workspace.focusedPanelId)
         #expect(workspace.updatePanelDirectory(panelId: remotePanelId, directory: localDirectory))
         workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+        let delegate = try #require(AppDelegate.shared)
+        let previousDelegateManager = delegate.tabManager
+        delegate.tabManager = manager
         TerminalController.shared.setActiveTabManager(manager)
         defer {
             TerminalController.shared.setActiveTabManager(previousManager)
+            delegate.tabManager = previousDelegateManager
         }
         let preReportSnapshot = try #require(TerminalController.shared.controlSidebarStateSnapshot(tabArg: nil))
         #expect(preReportSnapshot.currentDirectory == "")

@@ -49,8 +49,6 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// created before private networking. v4 preferred for copy (pasteable
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
-    /// True when this is the machine used by the quick cloud-workspace shortcut.
-    var isDefault: Bool = false
     /// True when the user explicitly pinned this machine in the Cloud tree.
     var isPinned: Bool = false
 

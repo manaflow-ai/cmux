@@ -1332,8 +1332,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
               ) else {
             return false
         }
-        let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return true }
+        let title = AutomaticTerminalTitle(change.title)?.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let title, !title.isEmpty else { return true }
         guard shouldApplyRestoredPanelTitle(
             panelId: change.surfaceId,
             rawTitle: title

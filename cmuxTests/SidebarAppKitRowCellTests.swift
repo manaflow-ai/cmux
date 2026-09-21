@@ -746,6 +746,35 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func rowPaletteSemanticColorsRemainDynamicAcrossAppearances() throws {
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let semanticColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .white
+                : .black
+        }
+        let palette = SidebarRowPalette(model: Self.makeModel())
+        let colors = [
+            (palette.semantic(semanticColor), CGFloat(1)),
+            (palette.semantic(semanticColor, opacity: 0.6), CGFloat(0.6)),
+        ]
+
+        for (color, expectedAlpha) in colors {
+            let light = try Self.resolvedColor(color, in: lightAppearance)
+            let dark = try Self.resolvedColor(color, in: darkAppearance)
+
+            // SidebarRowPalette resolves semantic colors against the row's
+            // concrete cmux scheme before AppKit paints the detached cell.
+            // Ambient light/dark appearance must therefore not change the
+            // already-resolved color.
+            #expect(Self.distance(light, dark) < 0.001)
+            #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
+            #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
+        }
+    }
+
+    @Test
     func accessibilityLinkIdentitySurvivesSelectedRowReconfigurationWithoutResizing() throws {
         let workspaceID = UUID()
         let url = try #require(URL(string: "https://cmux.com"))
@@ -2076,7 +2105,7 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: false
+            colorSchemeIsDark: true
         ))
 
         let workspacePin = try #require(

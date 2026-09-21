@@ -143,7 +143,9 @@ struct RecoverableMainWindowLifecycleTests {
             )
             #expect(notificationStore.notifications.count == 3)
 
-            snapshot = try #require(app.sessionSnapshotForTesting())
+            // Lightweight snapshots preserve live orphan routes. The full
+            // persistence snapshot owns freezing and irreversible teardown.
+            snapshot = try #require(app.sessionSnapshotForTesting(includeScrollback: true))
 
             let frozenRoute = try #require(
                 app.recoverableMainWindowRoute(windowId: windowId)
@@ -237,7 +239,7 @@ struct RecoverableMainWindowLifecycleTests {
         ])
         let snapshot = try #require(
             app.debugBuildSessionSnapshotForTesting(
-                includeScrollback: false,
+                includeScrollback: true,
                 surfaceResumeBindingIndex: bindingIndex
             )
         )

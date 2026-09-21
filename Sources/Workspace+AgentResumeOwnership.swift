@@ -1,5 +1,7 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
+import CmuxFoundation
 
 extension Workspace {
     /// Whether `restoredAgent` is verifiably still running in `panelId`; see
@@ -25,7 +27,8 @@ extension Workspace {
             panelId: panelId,
             recordedProcess: recordedProcess,
             liveIndex: SharedLiveAgentIndex.shared.index,
-            foregroundProcessID: terminalPanel(for: panelId)?.surface.foregroundProcessID()
+            foregroundProcessID: terminalPanel(for: panelId)?.surface.foregroundProcessID(),
+            foregroundProcessIdentity: { AgentPIDProcessIdentity(pid: $0) }
         )
     }
 

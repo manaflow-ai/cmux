@@ -552,18 +552,6 @@ struct VMPublicationDomain: Equatable, Sendable {
 }
 
 
-/// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
-/// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
-/// (an unknown reflection path), so the CLI can print the paths that do exist.
-struct VMReflectionResult: Sendable {
-    let statusCode: Int
-    let body: Data
-
-    var object: [String: Any] {
-        ((try? JSONSerialization.jsonObject(with: body, options: [])) as? [String: Any]) ?? [:]
-    }
-}
-
 /// One row of `GET /api/vm/<id>/snapshots`: the provider snapshot id, its display name
 /// when one was given, and the creation time as the ISO-8601 string the server sent.
 struct VMSnapshotSummary: Sendable, Equatable {
@@ -792,7 +780,7 @@ actor VMClient {
             (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
         }
         return try await withOperation(.list, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/vm")
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let items = obj["vms"] as? [[String: Any]] else {
@@ -1678,8 +1666,7 @@ actor VMClient {
                     "POST",
                     path: "/api/vm/\(encodedID)/attach-endpoint",
                     jsonBody: body,
-                    timeoutSeconds: Self.attachTimeoutSeconds,
-                    retryTransientServiceUnavailable: true
+                    timeoutSeconds: 20
                 )
                 try ensureOK(http, data: data)
                 return try decodeJSONObject(data)
@@ -2201,7 +2188,9 @@ actor VMClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
@@ -2282,7 +2271,7 @@ actor VMClient {
                     statusCode: http.statusCode,
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
                 ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2290,7 +2279,7 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
                 continue
             }
             // The private gateway has not forwarded this request yet. Every
@@ -2301,7 +2290,7 @@ actor VMClient {
                 retriesLeft -= 1
                 onRetry()
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
-                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
                 }
                 continue
             }
@@ -2369,8 +2358,8 @@ actor VMClient {
     ) -> TimeInterval? {
         guard statusCode == 429 else { return nil }
         return TimeInterval(
-            CmxRetryAfterPolicy.seconds(from: retryAfterHeader)
-                ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         )
     }
 
@@ -2725,7 +2714,9 @@ actor MachineUsageClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw MachineUsageClientError.sessionRefreshFailed
         } catch {
             throw MachineUsageClientError.notSignedIn

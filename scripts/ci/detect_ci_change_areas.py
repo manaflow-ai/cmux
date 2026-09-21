@@ -18,16 +18,18 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
+    release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True)
+        return cls(macos=True, web=True, agent_session_web=True, release_build=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
+            f"release_build={bool_output(self.release_build)}",
         ]
 
 
@@ -43,11 +45,12 @@ def normalize_path(path: str) -> str:
 
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 
 
 def is_other_workflow_config(path: str) -> bool:
     # ci.yml's macOS and web jobs read no other workflow file. An edit to one is
-    # checked by workflow-guard-tests and by that workflow's own triggers.
+    # checked by the reusable guard workflow and by that workflow's own triggers.
     if path == CI_WORKFLOW_PATH:
         return False
     return path.startswith(".github/workflows/") or path == ".github/actionlint.yaml"
@@ -58,7 +61,7 @@ def forces_all_areas(path: str) -> bool:
     is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
     if is_direct_ci_python:
         is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
-    return path == CI_WORKFLOW_PATH or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+    return path in {CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH} or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
@@ -157,15 +160,24 @@ def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], f
 
 
 def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset[str]]]:
+    macos: set[str] = set()
+    everywhere: set[str] = set()
     try:
-        return macos_job_test_references(Path(CI_WORKFLOW_PATH).read_text(encoding="utf-8"))
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH):
+            references = macos_job_test_references(Path(workflow_path).read_text(encoding="utf-8"))
+            if references is None:
+                return None
+            workflow_macos, workflow_everywhere = references
+            macos.update(workflow_macos)
+            everywhere.update(workflow_everywhere)
     except OSError:
         return None
+    return frozenset(macos), frozenset(everywhere)
 
 
 def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
-    # A tests/ file is macOS-neutral only when ci.yml names it and every job
-    # that names it runs on Linux. An unnamed file may be imported by a test a
+    # A tests/ file is macOS-neutral only when a CI workflow names it and every
+    # job that names it runs on Linux. An unnamed file may be imported by a test a
     # macOS job runs, so it stays macOS-relevant.
     if references is None or not path.startswith("tests/"):
         return False
@@ -263,10 +275,20 @@ def is_macos_change(path: str) -> bool:
     return not is_macos_neutral(path)
 
 
+_PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
+
+
+def is_test_only_source(path: str) -> bool:
+    # The Release app builds only the cmux target, so test sources cannot reach
+    # it. A new test file also edits project.pbxproj, which is not matched here.
+    return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
+
+
 def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
+    release_build = False
     test_references = load_macos_job_test_references()
 
     for raw_path in paths:
@@ -279,6 +301,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             macos = True
             web = True
             agent_session_web = True
+            release_build = True
             continue
         # Web validation's own inputs still select its checks in CI, even when
         # the path is a workflow or guard that is neutral for macOS.
@@ -290,11 +313,14 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
         if is_macos_change(path):
             macos = True
+            if not is_test_only_source(path):
+                release_build = True
 
     return ChangeAreas(
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
+        release_build=release_build,
     )
 
 

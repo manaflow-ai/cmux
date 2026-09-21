@@ -791,7 +791,8 @@ import Testing
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: conflictingAgents, machine: Self.machine) == nil)
 
         // A repeated tab reference in one terminal is harmless to identity, but
-        // reverse tab edges still retain every distinct view.
+        // it must not produce duplicate rename targets or duplicate tree rows.
+        // The graph also contributes tab_4, even when the terminal omits it.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
             ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
@@ -2115,9 +2116,14 @@ import Testing
         #expect(decoded == group)
         #expect(decoded.placements.first?.remoteTabID == "tab_4")
 
+        let legacyResources = try JSONSerialization.jsonObject(with: JSONEncoder().encode([resource]))
         let legacy = try JSONDecoder().decode(
             SurfaceResourceGroup.self,
-            from: Data(#"{"title":"api","resources":[{"machine":{"cloud":{"_0":"vivid-newt"}},"kind":"terminal","key":"term_build"}],"remoteWorkspaceID":"ws_api"}"#.utf8)
+            from: JSONSerialization.data(withJSONObject: [
+                "title": "api",
+                "resources": legacyResources,
+                "remoteWorkspaceID": "ws_api",
+            ])
         )
         #expect(legacy.placements.first?.remoteTabID == nil)
         #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")

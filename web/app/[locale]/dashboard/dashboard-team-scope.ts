@@ -61,11 +61,19 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
     if (team.id === selected.id) return;
-    const response = await fetch("/api/subrouter/teams", {
-      method: "PATCH",
-      headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ teamId: team.id }),
-    });
+    const cancellation = new AbortController();
+    const timeout = setTimeout(() => cancellation.abort(new Error("Team switch timed out")), CATALOG_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch("/api/subrouter/teams", {
+        method: "PATCH",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ teamId: team.id }),
+        signal: cancellation.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!response.ok) throw new Error("Could not switch dashboard team");
     // Keep the legacy cookie in sync for older dashboard pages while the
     // Stack Auth selected team remains the authority.

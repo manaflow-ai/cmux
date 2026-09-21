@@ -768,8 +768,11 @@ struct SimulatorPanelIntegrationTests {
             )
             let event = try controlSimulatorPointerEvent(touch, geometry: geometry)
             #expect(event.phase == .moved)
-            #expect(event.primary == primary)
-            #expect(event.secondary == secondary)
+            #expect(abs(event.primary.x - primary.x) < 1e-12)
+            #expect(abs(event.primary.y - primary.y) < 1e-12)
+            let secondaryPoint = try #require(event.secondary)
+            #expect(abs(secondaryPoint.x - secondary.x) < 1e-12)
+            #expect(abs(secondaryPoint.y - secondary.y) < 1e-12)
             #expect(event.edge == edge)
         }
     }
