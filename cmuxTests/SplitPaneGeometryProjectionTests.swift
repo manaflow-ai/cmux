@@ -141,7 +141,7 @@ struct SplitPaneGeometryProjectionTests {
         #expect(Projection.project(
             Self.request(
                 orientation: .vertical, sourceIsFirst: true,
-                content: CGRect(x: .nan, y: 0, width: 100, height: 100)
+                content: CGRect(x: CGFloat.nan, y: 0, width: 100, height: 100)
             ),
             chrome: Self.chrome
         ) == nil)
