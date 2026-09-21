@@ -19,6 +19,7 @@ let package = Package(
 )
 SWIFT
 for name in CloudTuiPersistentResourceConnection CloudTuiPersistentRequestBuilder CloudTuiTerminalProjectionTarget \
+    CloudPresenceLink CloudPresenceStore \
     CloudTuiManualIOConnection CloudTuiManualIODescriptorLease CloudTuiManualIOCommand \
     CloudTuiManualIOFrame CloudTuiManualIOFrameDecoder CloudTuiRemoteColors; do
     cp "$ROOT/Sources/Cloud/$name.swift" "$DEST/Sources/CloudCommandFixture/"
@@ -32,7 +33,8 @@ for generated in "$ROOT"/cmux-tui/bindings/swift/generated/*.swift; do
     cp "$generated" "$DEST/Sources/CloudCommandFixture/"
 done
 cp "$ROOT/tests/fixtures/cloud-command-deadlines/StandaloneDependencies.swift" "$DEST/Sources/CloudCommandFixture/"
-for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
+for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests \
+    CloudManualMirrorSocketFixture CloudPresenceTests CloudTuiSwiftSDKTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 done
 swift test --package-path "$DEST" -Xswiftc -warnings-as-errors

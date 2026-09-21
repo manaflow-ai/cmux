@@ -1,6 +1,14 @@
 import Foundation
 import Testing
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#elseif canImport(CloudCommandFixture)
+@testable import CloudCommandFixture
+#endif
+
 struct CloudTuiSwiftSDKTests {
     @Test("typed presence command encodes the canonical wire shape")
     func typedPresenceCommandEncodesWireShape() throws {

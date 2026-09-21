@@ -5,6 +5,8 @@ import Testing
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+#elseif canImport(CloudCommandFixture)
+@testable import CloudCommandFixture
 #endif
 
 /// Behavioral coverage for the Mac side of cmux-tui collaboration presence:
@@ -43,7 +45,7 @@ struct CloudPresenceTests {
         }
         #expect(entry.client == 3)
         #expect(entry.name == "ada")
-        #expect(entry.color == 3, "palette slot wraps to 0..<8")
+        #expect(entry.color == 11, "The typed decoder preserves the wire value; the renderer chooses the palette slot")
         #expect(entry.surface == 7)
         #expect(entry.pointer == .cell(row: 3, col: 12, scrollOffset: 5))
         #expect(entry.highlight?.mode == .laser)
@@ -91,9 +93,9 @@ struct CloudPresenceTests {
             surfaceID: 7,
             pointer: .cell(row: 1, col: 2, scrollOffset: 3),
             highlight: CloudPresenceHighlight(
-                start: .cell(row: 1, col: 0, scrollOffset: 3),
                 end: .point(x: 4.5, y: 6),
-                mode: .pin
+                mode: .pin,
+                start: .cell(row: 1, col: 0, scrollOffset: 3)
             ),
             requestID: 4
         )
@@ -154,7 +156,8 @@ struct CloudPresenceTests {
             "col": 1,
             "scroll_offset": NSNumber(value: UInt64.max),
         ])
-        #expect(CloudPresenceAnchor(json: try JSONSerialization.jsonObject(with: malformed)) == nil)
+        let decoded = try #require(CloudPresenceAnchor(json: try JSONSerialization.jsonObject(with: malformed)))
+        #expect(decoded.viewerRow(viewerScrollOffset: 0, rows: 24) == nil)
         #expect(CloudPresenceAnchor.cell(row: 1, col: 1, scrollOffset: .max)
             .viewerRow(viewerScrollOffset: 0, rows: 24) == nil)
     }
@@ -233,7 +236,8 @@ struct CloudPresenceDeliveryTests {
         let subscribe = try await acceptHandshake(fixture)
         fixture.send(["id": subscribe, "ok": true, "data": [:]])
         fixture.send(["event": "presence-changed", "client": 42, "color": 2, "surface": 7,
-                      "name": "Bob", "pointer": ["kind": "cell", "row": 2, "col": 3],
+                      "name": "Bob", "kind": "mac", "highlight": NSNull(),
+                      "pointer": ["kind": "cell", "row": 2, "col": 3],
                       "generation": 1, "updated_at_ms": 1])
         let deadline = ContinuousClock.now + .seconds(1)
         while store.entries(forPane: firstPane).isEmpty, ContinuousClock.now < deadline {

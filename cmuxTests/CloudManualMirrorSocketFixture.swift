@@ -71,14 +71,13 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     func nextCommand(timeout: Duration) async -> CloudManualMirrorFixtureCommand? {
         let deadline = ContinuousClock.now + timeout
         while true {
-            lock.lock()
-            if cursor < received.count {
+            let command: CloudManualMirrorFixtureCommand? = lock.withLock {
+                guard cursor < received.count else { return nil }
                 let command = received[cursor]
                 cursor += 1
-                lock.unlock()
                 return command
             }
-            lock.unlock()
+            if let command { return command }
             if ContinuousClock.now >= deadline { return nil }
             try? await Task.sleep(for: .milliseconds(10))
         }
