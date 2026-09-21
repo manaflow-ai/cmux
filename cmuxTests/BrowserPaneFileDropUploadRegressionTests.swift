@@ -107,6 +107,30 @@ struct BrowserPaneFileDropUploadRegressionTests {
         }
     }
 
+    @Test(arguments: [NSEvent.EventType.leftMouseUp, .rightMouseUp, .otherMouseUp])
+    func finishedFileDragDoesNotClaimMouseRelease(eventType: NSEvent.EventType) {
+        #expect(!BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: fileURLPasteboardTypes(),
+            eventType: eventType
+        ))
+        #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: fileURLPasteboardTypes(),
+            eventType: eventType,
+            hasActiveDropDrag: true
+        ))
+    }
+
+    @Test(arguments: [NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel])
+    func fileDragNeverClaimsOrdinaryPressOrScroll(eventType: NSEvent.EventType) {
+        for active in [false, true] {
+            #expect(!BrowserPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: fileURLPasteboardTypes(),
+                eventType: eventType,
+                hasActiveDropDrag: active
+            ))
+        }
+    }
+
     @Test func hitTestClaimAndPrepareAgreeWhenWebViewUnavailable() throws {
         try withFileDropDefault(.text) {
             #expect(BrowserPaneDropTargetView.shouldCaptureHitTesting(
