@@ -18,4 +18,8 @@ final class CloudFilePreviewLease: Sendable {
         let url = url, cache = cache
         Task { await cache.release(url) }
     }
+
+    func refresh(using provider: any RemoteFileExplorerProvider) async throws {
+        try await cache.refresh(self, provider: provider)
+    }
 }

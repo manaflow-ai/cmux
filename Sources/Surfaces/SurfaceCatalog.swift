@@ -41,7 +41,7 @@ final class SurfaceCatalog {
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
     private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
-    var projectionVersions: [SurfaceMachineID: UInt64] = [:]; private(set) var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
+    var projectionVersions: [SurfaceMachineID: UInt64] = [:]; var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
     private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]

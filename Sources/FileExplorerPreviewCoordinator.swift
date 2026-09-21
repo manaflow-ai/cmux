@@ -27,7 +27,8 @@ struct FileExplorerPreviewCoordinator {
                     try target.validate(vmID: cloud.vmID)
                     if try await Self.refreshExistingRemotePreview(
                         path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane,
-                        cache: store.cloudPreviewCache, provider: cloud
+                        store: store, context: context, isCurrent: isCurrent,
+                        validate: { try target.validate(vmID: cloud.vmID) }, provider: cloud
                     ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: cloud)
                     guard isCurrent(), store.resourceContextID == context else { return }
@@ -42,7 +43,8 @@ struct FileExplorerPreviewCoordinator {
                 } else if let remote = provider as? any RemoteFileExplorerProvider {
                     if try await Self.refreshExistingRemotePreview(
                         path: path, providerIdentity: providerIdentity, workspace: workspace, pane: pane,
-                        cache: store.cloudPreviewCache, provider: remote
+                        store: store, context: context, isCurrent: isCurrent,
+                        validate: {}, provider: remote
                     ) { return }
                     let lease = try await store.cloudPreviewCache.materialize(path: path, provider: remote)
                     guard isCurrent(), store.resourceContextID == context else { return }
@@ -66,7 +68,10 @@ struct FileExplorerPreviewCoordinator {
         providerIdentity: String,
         workspace: Workspace,
         pane: PaneID,
-        cache: CloudFilePreviewCache,
+        store: FileExplorerStore,
+        context: UUID,
+        isCurrent: @escaping @MainActor () -> Bool,
+        validate: @escaping @MainActor () throws -> Void,
         provider: any RemoteFileExplorerProvider
     ) async throws -> Bool {
         guard let existing = workspace.panels.values
@@ -78,7 +83,12 @@ struct FileExplorerPreviewCoordinator {
                     FileManager.default.fileExists(atPath: $0.filePath)
             }) else { return false }
         guard let lease = existing.cloudPreviewLease else { return false }
-        try await cache.refresh(lease, provider: provider)
+        guard !existing.isClosed else { return true }
+        try validate()
+        try await lease.refresh(using: provider)
+        guard isCurrent(), store.resourceContextID == context, !existing.isClosed,
+              workspace.panels[existing.id] != nil else { return true }
+        try validate()
         _ = existing.reloadFromDisk()
         _ = workspace.openOrFocusFilePreviewSurface(inPane: pane, filePath: existing.filePath, focus: true)
         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: existing)
