@@ -1,12 +1,13 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
   | {
       kind: "routing";
-      phase: "started" | "rerouted" | "handoff" | "completed";
+      phase: RoutePhase;
       conversationId: string;
       requestId: string;
       attempt: number;
@@ -17,6 +18,8 @@ export type AgentEvent =
       reason?: string;
       handoffMode?: "native_fork" | "compact_replay";
       retryAfterMs?: number;
+      health?: RouteHealth;
+      at?: number;
     }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
@@ -166,7 +169,7 @@ export interface SessionState {
   ctrlJ: CtrlJMode;
   phase: "composer" | "chat";
   session: SessionSummary | null;
-  routing: Extract<AgentEvent, { kind: "routing" }> | null;
+  routing: RouteStatus | null;
   blocks: Block[];
   options: SessionOption[];
   actions: SessionActions;
@@ -243,7 +246,7 @@ export function useSession(): SessionState {
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
-  const [routing, setRouting] = useState<Extract<AgentEvent, { kind: "routing" }> | null>(null);
+  const [routing, setRouting] = useState<RouteStatus | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -351,13 +354,13 @@ export function useSession(): SessionState {
               clearPendingStartTimeout();
               pendingStartRef.current = null;
               setSession({ ...msg.session, status: "running" });
-              setRouting(msg.routing?.kind === "routing" ? msg.routing : null);
+              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               for (const queued of queuedReplies) {
                 sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
               setSession(msg.session);
-              setRouting(msg.routing?.kind === "routing" ? msg.routing : null);
+              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               setBlocks([]);
               optimisticUsersRef.current = [];
             }
@@ -372,7 +375,7 @@ export function useSession(): SessionState {
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             setSession(msg.session);
-            setRouting(latestRouting(msg.events as AgentEvent[]));
+            setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
@@ -403,7 +406,7 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
-              if (evt.kind === "routing") setRouting(evt);
+              if (evt.kind === "routing") setRouting(normalizeRouteStatus(evt));
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
                 break;
               }

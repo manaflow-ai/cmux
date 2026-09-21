@@ -4,6 +4,7 @@ Object.defineProperty(globalThis, "location", {
 });
 
 const { composerDraftKey, consumeOptimisticUserEcho, foldEvent, latestRouting, restoreComposerDraft } = await import("../src/session");
+const { latestRouteStatus, normalizeRouteStatus, routeHealthForPhase } = await import("../route-status");
 
 const writes: Record<string, string> = {};
 restoreComposerDraft({ setItem: (key: string, value: string) => { writes[key] = value; } }, "retry this exact prompt");
@@ -56,6 +57,25 @@ if (latestRouting([handoffRoute, { kind: "delta", text: "next" }]) !== handoffRo
 }
 if (latestRouting([{ kind: "delta", text: "legacy" }]) !== null) {
   throw new Error("legacy histories must have no routing metadata");
+}
+
+if (routeHealthForPhase("started") !== "unknown" || routeHealthForPhase("completed") !== "healthy" || routeHealthForPhase("rerouted") !== "degraded") {
+  throw new Error("routing lifecycle phases should map to stable provider-neutral health states");
+}
+const normalized = normalizeRouteStatus({ ...handoffRoute, health: "unavailable", at: 1234 });
+if (normalized.health !== "unavailable" || normalized.updatedAt !== 1234 || normalized.phase !== "handoff") {
+  throw new Error(`explicit route health metadata should survive normalization: ${JSON.stringify(normalized)}`);
+}
+const latest = latestRouteStatus([
+  { kind: "routing", ...startedRoute },
+  { kind: "status", text: "working" },
+  { kind: "routing", ...handoffRoute },
+]);
+if (latest?.health !== "degraded" || latest?.parentSessionId !== "session-1") {
+  throw new Error(`history should expose normalized latest route status: ${JSON.stringify(latest)}`);
+}
+if (latestRouteStatus([{ kind: "routing", phase: "invalid", conversationId: "c", requestId: "r", attempt: 1 }]) !== null) {
+  throw new Error("malformed routing events should not become route health state");
 }
 
 console.log("session store assertions passed");
