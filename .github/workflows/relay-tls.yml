@@ -1,0 +1,48 @@
+name: Relay TLS system trust
+
+on:
+  pull_request:
+    paths:
+      - tests/relay_tls/**
+      - Packages/Shared/CmuxIrohTransport/**
+      - Packages/Shared/CmuxIrxTransport/**
+      - .github/workflows/relay-tls.yml
+  workflow_dispatch:
+
+# A new push cancels the previous run for the same pull request. Other events
+# key on the run id, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic-presentation:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Select the app's pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Verify diagnostic presentation against the published framework
+        run: |
+          swift test --package-path Packages/Shared/CMUXMobileCore --filter CmxIrohConnectionCheckReportTests
+          swift test --package-path Packages/Shared/CmuxIrohTransport --filter CmxIrohRelayDiagnosticObserverTests
+          swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxEndpointDiagnosticTests
+
+  system-keychain:
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Select Swift 6
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+      - name: Verify the app's pinned native relay TLS verifier
+        run: python3 tests/relay_tls/system_keychain.py --allow-system-keychain --diagnostics --output relay-tls-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: relay-tls-results
+          path: relay-tls-results

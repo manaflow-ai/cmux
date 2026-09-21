@@ -25,9 +25,7 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
-
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -64,7 +62,6 @@ private struct RemotePTYSocketTarget {
     let workspaceRef: Any
     let workspaceTitle: String
 }
-
 nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
     let nsError = error as NSError
     guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
@@ -73,11 +70,9 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
     return error.localizedDescription
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
     v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "remote PTY operation failed" }
@@ -112,7 +107,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     return "remote PTY operation failed"
 }
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -239,7 +233,6 @@ class TerminalController {
         subsystem: "com.cmux.socket",
         category: .dynamicTracing
     )
-
     /// True while a tool (e.g. Instruments' os_signpost instrument) is
     /// recording the main-hop signposts. The single predicate consulted by
     /// both `withSocketCommandPolicy` (command-key stack bookkeeping) and
@@ -276,25 +269,21 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
-
     nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
-
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
-
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
@@ -332,7 +321,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
-        "debug.app.activate",
+        "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -1169,7 +1158,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1512,7 +1501,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1532,7 +1520,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1575,6 +1562,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -1731,9 +1720,22 @@ class TerminalController {
         case "system.capabilities":
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                let response = await self.v2SystemTopAsync(ControlRequest(
+                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                ))
+                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                }
+                switch typed {
+                case .ok(let value): return .ok(value.foundationObject)
+                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                }
+            }
         case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemMemory(params: request.params)
+            }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2VaultSessions(params: request.params)
@@ -1938,6 +1940,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "current.list":
+            return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
@@ -2078,6 +2082,8 @@ class TerminalController {
                 )
                 return
             }
+            // Recheck after admission so a policy refresh cannot cross into execution.
+            guard socketAuthorizationIsCurrent(authorizationGeneration, passwordAuthorization: &passwordAuthorization) else { _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8)); return }
             // Only a process in cmux's own descendant tree may attach the
             // internal automation envelope. Same-UID clients are authorized
             // for ordinary automation RPCs, but cannot forge a rule chain.
@@ -2966,6 +2972,10 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.spacing":
+            // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
+            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            return v2Ok(id: id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
@@ -3183,10 +3193,10 @@ class TerminalController {
             "auth.status",
             "auth.sign_in_url",
             "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.sign_out", "auth.team.list", "auth.team.use",
+            "auth.team.create",
             "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics",
+            "vm.list", "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -3241,7 +3251,7 @@ class TerminalController {
             "vm.tunnel_up",
             "vm.tunnel_down",
             "vm.tunnel_wait",
-            "surface.catalog",
+            "surface.catalog", "current.list",
             "surface.project",
             "surface.new_terminal",
             "aiAccounts.list",
@@ -3661,115 +3671,6 @@ class TerminalController {
 #if DEBUG
 #endif
 
-    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
-        let identifyPayload = v2Identify(params: [:])
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        var windowNodes: [[String: Any]] = []
-
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
-
-            for (windowIndex, summary) in summaries.enumerated() {
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                }
-                windowNodes.append(
-                    v2TopWindowNode(
-                        summary: summary,
-                        index: windowIndex,
-                        workspaceNodes: workspaceNodes
-                    )
-                )
-            }
-        }
-        v2AttachTopApplicationProcess(to: &windowNodes)
-
-        let processSnapshot = await withTaskGroup(
-            of: CmuxTopProcessSnapshot.self,
-            returning: CmuxTopProcessSnapshot.self
-        ) { group in
-            group.addTask(priority: .utility) {
-                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-            }
-            return await group.next()!
-        }
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
-            &annotatedWindows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: annotatedWindows
-        )
-
-        return [
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": NSNull(),
-            "sample": processSnapshot.samplePayload(),
-            "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "memory_diagnostic": memoryDiagnostic,
-            "program_totals": aggregates.programs,
-            "coding_agents": aggregates.codingAgents,
-            "windows": annotatedWindows
-        ]
-    }
-
-    nonisolated func processAggregates(
-        from processSnapshot: CmuxTopProcessSnapshot,
-        totalPIDs: Set<Int>
-    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
-        (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
-    }
-
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: params)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-        }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes
-        )
-
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
-        payload["memory_diagnostic"] = memoryDiagnostic
-        payload["program_totals"] = aggregates.programs
-        payload["coding_agents"] = aggregates.codingAgents
-        payload["windows"] = windowNodes
-        return .ok(payload)
-    }
-
     func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
@@ -3865,7 +3766,7 @@ class TerminalController {
         ])
     }
 
-    private func v2TopWindowNode(
+    func v2TopWindowNode(
         summary: AppDelegate.MainWindowSummary,
         index: Int,
         workspaceNodes: [[String: Any]]
@@ -3884,7 +3785,7 @@ class TerminalController {
         ]
     }
 
-    private func v2TopWorkspaceNode(
+    func v2TopWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
@@ -4169,9 +4070,7 @@ class TerminalController {
         guard let id else { return .null }
         return JSONValue(foundationObject: id)
     }
-    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
-    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
+    /// Bridges async work into a socket response while parking its worker on a semaphore.
     nonisolated func v2VmCall(
         id: Any?,
         timeoutSeconds: TimeInterval = 17 * 60,
@@ -4292,23 +4191,10 @@ class TerminalController {
                     data: Self.cloudVMBackendErrorData(error)
                 )
             }
-            let message: String
-            if let vmError = error as? VMClientError {
-                // Preserve the typed backend code, action, and support
-                // reference. `VMClientError` formats HTTP bodies through the
-                // redacted Cloud error formatter, so this does not expose a
-                // raw provider response.
-                message = vmError.description
-            } else {
-                message = String(
-                    localized: "socket.cloudVM.requestFailed",
-                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
-                )
-            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: message,
+                message: Self.cloudVMSafeErrorMessage(error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4331,6 +4217,9 @@ class TerminalController {
         if let code = object?["error"] as? String, !code.isEmpty {
             payload["backend_code"] = code
         }
+        if let retryable = object?["retryable"] as? Bool {
+            payload["retryable"] = retryable
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
         if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
@@ -4338,6 +4227,60 @@ class TerminalController {
         }
         return payload
     }
+
+    /// Surface only the server's public copy, never a raw response body or
+    /// provider diagnostics. Keep the support reference after sanitization.
+    private nonisolated static func cloudVMSafeErrorMessage(_ error: Error) -> String {
+        let fallback = String(
+            localized: "socket.cloudVM.requestFailed",
+            defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+        )
+        if let catalogError = error as? SurfaceCatalogError {
+            switch catalogError {
+            case .unknownResource, .noProvider, .ambiguousRemotePlacement:
+                // These messages are app-owned copy with routing identifiers,
+                // not provider-supplied failure diagnostics.
+                let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(catalogError.localizedDescription)
+                return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+            default:
+                break
+            }
+        }
+        guard case let VMClientError.httpStatus(status, body) = error else {
+            guard let vmError = error as? VMClientError else { return fallback }
+            let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
+            return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return formattedCloudVMHTTPError(status: status, body: "")
+        }
+        // Reuse the formatter's HTTP code and action copy, but pass only public
+        // fields. Provider details and unvalidated support references stay out.
+        var publicObject: [String: Any] = [:]
+        for key in ["error", "message", "reason", "action", "retryAfterSeconds"] {
+            publicObject[key] = object[key]
+        }
+        if let ui = object["ui"] as? [String: Any] {
+            var publicUI: [String: Any] = [:]
+            for key in ["title", "message", "retryAfterSeconds"] {
+                publicUI[key] = ui[key]
+            }
+            publicObject["ui"] = publicUI
+        }
+        let ui = object["ui"] as? [String: Any]
+        if let trace = (object["traceId"] as? String) ?? (ui?["traceId"] as? String),
+           trace.count == 32, trace.allSatisfy(\.isHexDigit) {
+            publicObject["traceId"] = trace
+        }
+        guard let publicData = try? JSONSerialization.data(withJSONObject: publicObject),
+              let publicBody = String(data: publicData, encoding: .utf8) else { return fallback }
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(
+            formattedCloudVMHTTPError(status: status, body: publicBody)
+        )
+        return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+    }
+
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
         switch error {
         case .notSignedIn:
@@ -15546,6 +15489,24 @@ class TerminalController {
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        let traceID = v2String(params, "trace_id")
+            .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
+        let traceStartedAt = DispatchTime.now().uptimeNanoseconds
+        func recordTrace(_ event: String) {
+            guard let traceID else { return }
+            let elapsed = (DispatchTime.now().uptimeNanoseconds - traceStartedAt) / 1_000_000
+            MobileHostIrxRuntime.journal.record(
+                "terminal-trace",
+                event,
+                [
+                    "trace_id": traceID.stringValue,
+                    "operation": "replay",
+                    "elapsed_ms": String(elapsed),
+                ]
+            )
+        }
+        recordTrace("host_received")
+        defer { recordTrace("host_response_ready") }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -15702,6 +15663,7 @@ class TerminalController {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }
+        recordTrace("host_capture_finished")
         return .ok(payload)
     }
 
@@ -15851,7 +15813,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
+        let sendResult = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceId,
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
+        ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
             // PTY output is already observed by MobileTerminalByteTee, which

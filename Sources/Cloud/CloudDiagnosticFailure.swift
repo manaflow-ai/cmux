@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import Foundation
 
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
@@ -8,7 +9,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
 
     var label: String {
         switch self {
-        case .authentication, .sessionRefresh:
+        case .authentication:
             return String(localized: "cloud.operation.failure.auth", defaultValue: "Cloud could not verify your session. Sign in again.")
         case .permission:
             return String(localized: "cloud.operation.failure.permission", defaultValue: "Cloud access was denied. Check your permissions.")
@@ -16,7 +17,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.plan", defaultValue: "Your plan does not allow this Cloud operation.")
         case .rateLimit:
             return String(localized: "cloud.operation.failure.rateLimit", defaultValue: "Cloud received too many requests. Wait before you retry.")
-        case .network, .timeout:
+        case .network, .timeout, .sessionRefresh:
             return String(localized: "cloud.operation.failure.network", defaultValue: "The Cloud connection did not complete. Check your connection and try again.")
         case .conflict:
             return String(localized: "cloud.operation.failure.conflict", defaultValue: "Another operation changed this machine. Refresh its state.")
@@ -36,6 +37,14 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     static func classify(_ error: Error) -> Self {
         if let failure = error as? Self { return failure }
         if error is CancellationError { return .cancelled }
+        if let error = error as? AuthError {
+            switch error {
+            case .cancelled: return .cancelled
+            case .timedOut: return .timeout
+            case .offline, .networkError, .serverError: return .sessionRefresh
+            default: return .authentication
+            }
+        }
         if let error = error as? URLError {
             if error.code == .cancelled { return .cancelled }
             return error.code == .timedOut ? .timeout : .network
@@ -48,6 +57,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .malformedResponse: return .response
             case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
+            case .httpStatus(let status, _): return classify(status: status)
+            }
+        }
+        if let error = error as? MachineUsageClientError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .sessionRefreshFailed: return .sessionRefresh
+            case .backendUnreachable: return .network
+            case .malformedResponse: return .response
             case .httpStatus(let status, _): return classify(status: status)
             }
         }
@@ -71,6 +89,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
+        if let error = error as? SurfaceCatalogError {
+            switch error {
+            case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
+            case .noProvider, .unavailable: return .network
+            case .ambiguousRemotePlacement: return .conflict
+            case .unsupported: return .unsupported
+            case .partialOperation: return .response
+            }
+        }
         if error is DecodingError { return .response }
         return .unknown
     }

@@ -12,9 +12,10 @@ on:
         default: ""
 
 concurrency:
-  # Serialize with the production App Review workflow.
+  # Serialize with the production App Review workflow. GitHub keeps one run
+  # active and one pending run for a concurrency group; a newer scheduled run
+  # replaces an older pending run, so the decide job must make retries safe.
   group: ios-app-store-production
-  queue: max
   cancel-in-progress: false
 
 permissions:
@@ -167,6 +168,7 @@ jobs:
       - name: Install App Store provisioning profile
         env:
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
@@ -223,6 +225,8 @@ jobs:
             ${{ runner.temp }}/cmux-final-build-number.txt
             ${{ runner.temp }}/cmux-app-upload.log
             ${{ runner.temp }}/cmux-ios-upload/*.log
+            ${{ runner.temp }}/cmux-ios-upload/export/*.ipa
+            ${{ runner.temp }}/cmux-ios-upload/export/*.xcarchive/dSYMs
             ${{ runner.temp }}/cmux-ios-upload/*.xcarchive/dSYMs
 
       - name: Summary
