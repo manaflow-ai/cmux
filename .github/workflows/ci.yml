@@ -351,185 +351,14 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
-  web-typecheck:
+  web:
     needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Validate managed relay catalog
-        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
-
-      - name: Typecheck
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/web-typecheck.log"
-          set +e
-          bun run typecheck 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          # The native TypeScript preview compiler can abort on a healthy
-          # runner. Retry that transient compiler crash once, while keeping
-          # real type errors as immediate failures.
-          if [ "$status" -ne 0 ] \
-            && grep -Fq 'Aborted (core dumped)' "$log"; then
-            echo "::warning::native tsgo aborted during web typecheck; retrying once"
-            bun run typecheck
-            exit $?
-          fi
-
-          exit "$status"
-
-      - name: Web tests
-        run: bun run test
-
-      - name: Install browser for instant navigation tests
-        run: bunx playwright install --with-deps chromium
-
-      - name: Instant navigation tests
-        env:
-          # The preceding Typecheck step owns the repository-wide tsgo gate;
-          # avoid launching a second tsgo process inside Playwright's server
-          # command on constrained Linux runners.
-          CMUX_INSTANT_SKIP_TYPECHECK: "1"
-        run: bun run test:instant
-
-  # Checks for in-app React webviews (currently the diff viewer; more cmux React
-  # surfaces will live alongside it).
-  react-apps-check:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Verify generated webviews assets
-        run: ./scripts/build-webviews-app.sh --check
-
-      - name: Verify React Compiler for webviews
-        run: ./scripts/check-webviews-react-compiler.mjs
-
-      - name: Typecheck webviews
-        working-directory: webviews
-        run: bun run typecheck
-
-      - name: Test webviews
-        working-directory: webviews
-        run: bun run test
-
-      - name: Oxlint webviews
-        working-directory: webviews
-        run: bun run lint:ci
-
-      - name: React Doctor
-        working-directory: webviews
-        run: bun run react-doctor:ci
-
-  diff-sidecar-check:
-    needs: [changes, static-preflight]
-    # Generated protocol and streaming benchmarks also cover webview-only diffs.
-    if: ${{ needs.changes.outputs.macos == 'true' || needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install Rust
-        run: ./scripts/install-rust-ci.sh
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install webview dependencies
-        working-directory: webviews
-        run: bun install --frozen-lockfile
-
-      - name: Check Rust sidecar
-        run: |
-          ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
-          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
-          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
-          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
-
-      - name: Verify generated protocol types
-        run: ./scripts/generate-diff-sidecar-types.sh --check
-
-      - name: Enforce diff-viewer performance budgets
-        env:
-          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
-        run: ./scripts/benchmark-diff-viewer.sh
-
-  web-db-migrations:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    defaults:
-      run:
-        working-directory: web
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: cmux_test
-          POSTGRES_PASSWORD: cmux
-          POSTGRES_USER: cmux
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cmux -d cmux_test"
-          --health-interval 1s
-          --health-timeout 5s
-          --health-retries 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Re-apply migrations
-        env:
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bunx drizzle-kit migrate --config drizzle.config.ts
-
-      - name: Database behavior tests
-        env:
-          CMUX_DB_TEST: "1"
-          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
-        run: bun run test:db:behavior
+    if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.macos != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
+    uses: ./.github/workflows/ci-web.yml
+    with:
+      web: ${{ needs.changes.outputs.web }}
+      macos: ${{ needs.changes.outputs.macos }}
+      agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
   app-host-unit-tests:
     permissions:
@@ -1852,7 +1681,7 @@ jobs:
       - macos-compile-admission
       - app-host-unit-tests
       - swift-package-tests
-      - agent-session-web-resources
+      - web
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -1918,7 +1747,7 @@ jobs:
           # opts out via its own path filter reports "skipped", which is fine; a
           # job that actually ran and failed must block the merge.
           allowed = {"success", "skipped"}
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-package-tests", "web"):
               result = needs[name]["result"]
               if result not in allowed:
                   print(f"{name} did not pass: {result}", file=sys.stderr)
@@ -1929,7 +1758,7 @@ jobs:
           print(f"linux-preflight={preflight['result']}")
           print(f"macos-compile-admission={admission['result']}")
           print(f"app-host unit tests={tests['result']}")
-          for name in ("swift-package-tests", "agent-session-web-resources"):
+          for name in ("swift-package-tests", "web"):
               print(f"{name}={needs[name]['result']}")
           PY
 
@@ -2285,26 +2114,6 @@ jobs:
             echo "::endgroup::"
           done
 
-  agent-session-web-resources:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-
-      - name: Build and test Agent Session web resources
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run agent-session-web:build
-          bun run agent-session-web:test
-          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
-
   linux-preflight:
     name: linux-preflight
     needs:
@@ -2312,11 +2121,7 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
-      - web-typecheck
-      - react-apps-check
-      - diff-sidecar-check
-      - web-db-migrations
-      - agent-session-web-resources
+      - web
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -2337,11 +2142,6 @@ jobs:
           )
           allowed_routed = {
               "ghosttykit-release-check",
-              "web-typecheck",
-              "react-apps-check",
-              "diff-sidecar-check",
-              "web-db-migrations",
-              "agent-session-web-resources",
           }
 
           bad = {}
@@ -2372,13 +2172,24 @@ jobs:
           elif not invalid_guard_routes and guard_result not in {"success", "skipped"}:
               bad["guards"] = guard_result
 
+          web_routes = ("web", "macos", "agent_session_web")
+          invalid_web_routes = {
+              route: outputs.get(route)
+              for route in web_routes
+              if outputs.get(route) not in {"true", "false"}
+          }
+          for route, value in sorted(invalid_web_routes.items()):
+              bad[f"web.{route}"] = f"invalid route {route}={value!r}"
+
+          web_result = needs["web"]["result"]
+          if any(outputs.get(route) == "true" for route in web_routes):
+              if web_result != "success":
+                  bad["web"] = f"{web_result} (one or more web routes=true)"
+          elif not invalid_web_routes and web_result not in {"success", "skipped"}:
+              bad["web"] = web_result
+
           routed_outputs = {
               "ghosttykit-release-check": "ghosttykit_release",
-              "web-typecheck": "web",
-              "react-apps-check": "web",
-              "diff-sidecar-check": "macos",
-              "web-db-migrations": "web",
-              "agent-session-web-resources": "agent_session_web",
           }
           for name in sorted(allowed_routed):
               result = needs[name]["result"]
@@ -3117,16 +2928,12 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
-      - web-typecheck
-      - react-apps-check
-      - diff-sidecar-check
-      - web-db-migrations
+      - web
       - linux-preflight
       - macos-compile-admission
       - app-host-unit-tests
       - tests
       - swift-package-tests
-      - agent-session-web-resources
       - tests-build-and-lag
       - release-build
     if: ${{ always() }}
