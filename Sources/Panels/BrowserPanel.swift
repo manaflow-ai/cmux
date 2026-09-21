@@ -4324,11 +4324,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassesRemoteWorkspaceProxy
         // Keyed on `usesRemoteWorkspaceProxy`, not `isRemoteWorkspace` — see
-        // the matching comment in `init`. A panel reattached into an
-        // ssh-tmux mirror (`routesThroughRemoteProxy: true`,
-        // `isRemoteWorkspace: false`) must land on a dedicated store here
-        // too, or it keeps sharing the default store while this proxy's
-        // config gets applied to it below.
+        // the matching comment in `init`.
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
             : usesRemoteWorkspaceProxy

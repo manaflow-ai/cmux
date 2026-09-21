@@ -208,10 +208,7 @@ final class RemoteTmuxBrowserProxyRegistry {
                     // a later reacquire may have already replaced or removed
                     // this host's entry.
                     guard self.entriesByConnectionHash[hash]?.startupID == startupID else { return }
-                    // Not `releaseHost`: a listener dying after startup must
-                    // not silently drop every OTHER mirror workspace's
-                    // retention on this host, or strand their already-open
-                    // browser panels with no path back to a working proxy.
+                    // Not `releaseHost` — see `invalidateAndRebuild`'s doc.
                     self.invalidateAndRebuild(connectionHash: hash)
                 }
             }
@@ -256,10 +253,7 @@ final class RemoteTmuxBrowserProxyRegistry {
             }
             entriesByConnectionHash[hash]?.listener = listener
             entriesByConnectionHash[hash]?.forwardPort = forwardPort
-            // The advertised endpoint speaks both SOCKS5 and HTTP CONNECT,
-            // like the daemon-backed proxy — it's `RemoteTmuxBrowserProxyListener`'s
-            // own port, never the `-D` forward's port, which has no HTTP
-            // awareness at all.
+            // The listener's port, never the `-D` port — see `RemoteTmuxBrowserProxyListener`.
             return BrowserProxyEndpoint(host: "127.0.0.1", port: listenerPort)
         }
         throw lastError

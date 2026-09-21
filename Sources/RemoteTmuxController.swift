@@ -41,9 +41,6 @@ final class RemoteTmuxController {
     init() {
         browserProxyRegistry = RemoteTmuxBrowserProxyRegistry()
         browserProxyRegistry.transportProvider = { [weak self] host in
-            // Falls back to a fresh transport (rather than force-unwrapping)
-            // only if the controller has already been deallocated, which
-            // can't happen in practice since it owns the registry.
             self?.transport(for: host) ?? RemoteTmuxSSHTransport(host: host)
         }
         browserProxyRegistry.existingTransport = { [weak self] host in
@@ -786,10 +783,7 @@ final class RemoteTmuxController {
             sessionName: sessionName
         )
         sessionMirrors.removeValue(forKey: entry.key)
-        // See `detachMirrorWorkspaceKeptOpenLocally` — same reasoning applies
-        // to a user-initiated close: without this, a sibling mirror still on
-        // this host keeps its browser proxy retained by this now-gone
-        // workspace's id forever.
+        // Release retention as in `detachMirrorWorkspaceKeptOpenLocally`.
         browserProxyRegistry.release(workspaceID: workspaceId)
         mirror.detachObserver()
         detach(host: host, sessionName: sessionName)

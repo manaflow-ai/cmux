@@ -163,15 +163,13 @@ extension RemoteTmuxSocksProxyStreamClient {
     /// against `deadline`. `fd` stays nonblocking throughout; each read/write
     /// is preceded by a `poll(2)`.
     ///
-    /// The CONNECT request itself is NOT built with `SocksV5Client.connectRequest`
-    /// — that one is IP-literal-only by design for its original caller (the
-    /// cmux-tui WireGuard hub, which never resolves names). This dials
-    /// through ssh's own `-D` dynamic forward instead, a real OpenSSH SOCKS5
-    /// implementation that resolves a DOMAINNAME request on the remote host —
-    /// the whole point of a SOCKS dynamic forward, and the only way to reach
-    /// a hostname that only exists on that side. `connectRequest(host:port:)`
-    /// below adds that address type locally rather than widening the shared
-    /// type's documented IP-only contract for its other caller.
+    /// Not `SocksV5Client.connectRequest`: it's IP-literal-only by design
+    /// (see its type doc). ssh's `-D` forward is a real OpenSSH SOCKS5
+    /// implementation that resolves a DOMAINNAME request on the remote host
+    /// — the only way to reach a hostname that only exists on that side —
+    /// so `connectRequest(host:port:)` below builds that address type
+    /// locally rather than widening the shared type's contract for its
+    /// other caller.
     fileprivate static func performSocksHandshake(
         fd: Int32,
         targetHost: String,
