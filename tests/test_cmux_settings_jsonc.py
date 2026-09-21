@@ -33,11 +33,17 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
         *args: str,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        env = dict(os.environ)
+        # This suite owns JSONC editing and publication behavior. Semantic
+        # validation is covered by the config-validator/doctor suites; the
+        # skill-contract runner intentionally has no built cmux CLI.
+        env["CMUX_CLI_BIN"] = "/usr/bin/true"
         result = subprocess.run(
             [sys.executable, str(HELPER), "--file", str(config), *args],
             text=True,
             capture_output=True,
             check=False,
+            env=env,
         )
         if check and result.returncode != 0:
             self.fail(
