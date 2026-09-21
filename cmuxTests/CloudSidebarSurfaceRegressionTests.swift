@@ -195,6 +195,7 @@ struct CloudSidebarSurfaceRegressionTests {
     @Test("Ports project distinct discovery and route reasons with actionable copy")
     func portStatusMatrix() {
         let cases: [(CloudPortDiscoveryState, CloudPortsStatusAction, String)] = [
+            (.notRequested, .setupVPN, "not checked"),
             (.loading, .none, "Discovering ports"),
             (.empty(.noListeningService), .refresh, "service is listening"),
             (.empty(.otherInterfaceOnly), .refresh, "interface"),

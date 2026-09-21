@@ -4,6 +4,7 @@ import Foundation
 enum CloudPortsStatusAction: Equatable {
     case none
     case refresh
+    case setupVPN
     case openMachine
     case openShell
 }

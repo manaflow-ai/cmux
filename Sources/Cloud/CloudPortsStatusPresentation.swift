@@ -48,7 +48,7 @@ struct CloudPortsStatusPresentation: Equatable {
     var message: String {
         switch state {
         case .notRequested:
-            return String(localized: "cloudTree.ports.notRequested", defaultValue: "Expand Ports or refresh to check this machine’s listening services.")
+            return String(localized: "cloud.vpn.setup.howItWorks.body", defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it.")
         case .loading:
             return String(localized: "cloudTree.ports.loading.detail", defaultValue: "Checking services through cmux’s authenticated Cloud link. No system VPN is needed.")
         case .available:
@@ -85,6 +85,7 @@ struct CloudPortsStatusPresentation: Equatable {
         case .unavailable(.machineAsleep): return .openMachine
         case .unsupported: return .openShell
         case .loading, .available, .loopbackOnly: return .none
+        case .notRequested: return .setupVPN
         default: return .refresh
         }
     }
@@ -93,6 +94,7 @@ struct CloudPortsStatusPresentation: Equatable {
         switch action {
         case .none: return nil
         case .refresh: return String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
+        case .setupVPN: return String(localized: "cloudTree.ports.setupVPN", defaultValue: "Set Up VPN…")
         case .openMachine: return String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
         case .openShell: return String(localized: "machines.menu.openShell", defaultValue: "Open Shell")
         }
