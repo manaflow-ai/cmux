@@ -43,6 +43,11 @@ extension GhosttyTerminalView {
         let enclosingTransition = diagnostics.context(workspaceID: terminalSurface.tabId, transition: .unknown).transition
         let fallbackTransition = transition == .unknown ? diagnostics.resizeTransition(in: host.window) : transition
         let capturedTransition = enclosingTransition == .unknown ? fallbackTransition : enclosingTransition
+        // Which provisional pane projections this update postdates. A frame
+        // projected before this SwiftUI update, but not since, is released
+        // when the update leaves the anchor in place (see
+        // WindowTerminalPortal.releaseProvisionalPaneGeometry).
+        let observedProvisionalEpoch = TerminalWindowPortalRegistry.provisionalGeometryEpoch
         coordinator.portalReconciliationScheduler.stage(reasons: reasons, transition: capturedTransition) {
             [weak host, weak hostedView, weak coordinator, weak terminalSurface] request in
             let reasons = request.reasons
@@ -108,9 +113,18 @@ extension GhosttyTerminalView {
                     )
                     coordinator.lastBoundHostId = hostId
                     coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
-                } else if coordinator.lastSynchronizedHostGeometryRevision != host.geometryRevision {
-                    TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
-                    coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                } else {
+                    // SwiftUI re-evaluated this pane after the projection and
+                    // kept its anchor: the anchor's geometry is the truth again.
+                    TerminalWindowPortalRegistry.releaseProvisionalPaneGeometry(
+                        for: hostedView,
+                        boundTo: host,
+                        observedEpoch: observedProvisionalEpoch
+                    )
+                    if coordinator.lastSynchronizedHostGeometryRevision != host.geometryRevision {
+                        TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
+                        coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+                    }
                 }
             } else if hostOwnsPortal,
                       TerminalWindowPortalRegistry.hasEntry(for: hostedView, boundTo: host) {
