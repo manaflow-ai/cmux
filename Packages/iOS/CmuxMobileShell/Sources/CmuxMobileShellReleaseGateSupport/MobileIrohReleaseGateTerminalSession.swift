@@ -17,7 +17,10 @@ public final class MobileIrohReleaseGateTerminalSession {
     private struct Pending {
         let id: UUID
         var probe: MobileIrohReleaseGateTerminalProbe
-        let completion: AsyncThrowingStream<Void, any Error>.Continuation
+        let completion: AsyncStream<Void>.Continuation
+    }
+    private struct ClientBox: @unchecked Sendable {
+        let value: any MobileIrohReleaseGateTerminalClient
     }
     private let client: any MobileIrohReleaseGateTerminalClient
     private var state = State.idle
@@ -34,7 +37,7 @@ public final class MobileIrohReleaseGateTerminalSession {
     public func reset() {
         let previous = state
         state = .idle
-        pending?.completion.finish(throwing: CancellationError())
+        pending?.completion.finish()
         pending = nil
         if case let .reading(surface, owner, task) = previous {
             client.clearTerminalOutputConsumerOwner(surfaceID: surface, ownerID: owner)
@@ -49,7 +52,7 @@ public final class MobileIrohReleaseGateTerminalSession {
         try ensureReader(surfaceID: surfaceID)
         let id = UUID()
         let probe = MobileIrohReleaseGateTerminalProbe(marker: marker)
-        let (proof, completion) = AsyncThrowingStream<Void, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        let (proof, completion) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingOldest(1))
         pending = Pending(id: id, probe: probe, completion: completion)
         defer {
             if Task.isCancelled { reset() }
@@ -58,8 +61,10 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
+                let client = ClientBox(value: self.client)
+                let command = probe.command
                 group.addTask { @MainActor in
-                    await self.client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+                    await client.value.submitTerminalRawInput(command, surfaceID: surfaceID)
                     try Task.checkCancellation()
                     for try await _ in proof {
                         try Task.checkCancellation()
@@ -130,7 +135,7 @@ public final class MobileIrohReleaseGateTerminalSession {
               surface == surfaceID, currentOwner == owner else { return }
         state = .ended(surface: surfaceID)
         client.clearTerminalOutputConsumerOwner(surfaceID: surfaceID, ownerID: owner)
-        pending?.completion.finish(throwing: MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed)
+        pending?.completion.finish()
         pending = nil
     }
 }

@@ -157,10 +157,7 @@ final class CMUXOpenHTMLFocusTests {
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {

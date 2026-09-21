@@ -24,13 +24,13 @@ const json = async (request: RequestInfo, init?: RequestInit) => {
   return { response, body: await response.json() as any };
 };
 
-const setupFor = async (requestId: string, input: unknown) => {
-  const plainSetup = { schemaId: "session.open.v1", requestId, device: descriptor };
+const setupFor = async (requestId: string, input: unknown, device = descriptor) => {
+  const plainSetup = { schemaId: "session.open.v1", requestId, device };
   const nonce = encodeBase64URL(crypto.getRandomValues(new Uint8Array(16)));
   const issuedAt = Math.floor(Date.now() / 1000);
   const body = input === undefined ? plainSetup : { setup: plainSetup, request: input };
   const value = await crypto.subtle.sign("Ed25519", signingKey, new TextEncoder().encode(
-    requestSigningInput(descriptor, requestId, issuedAt, body, nonce),
+    requestSigningInput(device, requestId, issuedAt, body, nonce),
   ));
   return {
     ...plainSetup,
@@ -281,4 +281,18 @@ test("forged scope is rejected before the TeamControl binding", async () => {
     body: JSON.stringify({ schemaId: "session.open.v1", requestId, device: forged }),
   });
   expect(response.status).toBe(403);
+});
+
+
+test("a discovery-only Mac can open control without publishing a host", async () => {
+  for (const discovery of [false, true]) {
+    const device = { ...descriptor, metadata: { ...descriptor.metadata,
+      pairingEnabled: false, capabilities: discovery ? ["cmux.mac-devices.v1"] : [] } };
+    const setup = await setupFor(`discovery-only-${discovery}`, undefined, device);
+    const result = await json("https://iroh.test/v2/control/session", {
+      method: "POST", headers: { "content-type": "application/json", authorization: `IrohTicket ${ticket}` },
+      body: JSON.stringify(setup),
+    });
+    expect(result.response.status).toBe(discovery ? 200 : 403);
+  }
 });

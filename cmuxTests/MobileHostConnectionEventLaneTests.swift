@@ -461,6 +461,21 @@ extension MobileHostAuthorizationTests {
 
     // MARK: - Bounded event queue admission policy
 
+    @Test func deviceLayoutSnapshotsSurviveQueueCongestion() {
+        let topic = DeviceWorkspaceLayoutHost.eventTopic
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 16)
+        queue.updateSubscribedTopics([topic, "workspace.updated"])
+        let frame = Data(repeating: 1, count: 16)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-a",
+            isFullRenderGridFrame: false, stateSeq: 1, frame: frame).admitted)
+        _ = queue.enqueue(topic: "workspace.updated", coalesceKey: nil,
+            isFullRenderGridFrame: false, frame: frame)
+        #expect(queue.enqueue(topic: topic, coalesceKey: "workspace-b",
+            isFullRenderGridFrame: false, stateSeq: 2, frame: frame).admitted)
+        #expect(queue.dequeue()?.coalesceKey == "workspace-a")
+        #expect(queue.dequeue()?.coalesceKey == "workspace-b")
+    }
+
     @Test func testEventQueueShedsRenderGridDeltasAndPoisonsUntilFullFrame() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 2,
