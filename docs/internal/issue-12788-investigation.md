@@ -52,9 +52,11 @@ the issue or describe a fix as verified.
 
 ## Evidence needed to validate a fix
 
-1. Use a leased fleet Mac and an isolated app identity. Match macOS 26.6.2
-   where available and record OS/hardware differences explicitly. Keep
-   native and translated launch results separate.
+1. Use a GUI-ready Mac through the supported controller job system and an
+   isolated app identity. Match macOS 26.6.2 where available and record
+   OS/hardware differences explicitly. Keep native and translated launch
+   results separate. If the controller lacks a validated GUI verification
+   recipe, record that gap rather than allocating through retired tooling.
 2. Exercise the affected release with a fresh account/profile, then a
    controlled persisted session and an update/relaunch. Do not add launch
    arguments that bypass the restoration path under investigation.
@@ -76,13 +78,22 @@ the issue or describe a fix as verified.
 This internal investigation note changes no product UI, CLI help, localized
 documentation site, or message catalog.
 
+Any future developer build must use `cmux-ci`, an exact pushed commit, and
+the tag `issue-12788-workspace-update-stuck`. Retain the submission and
+terminal receipts and wait on the same job ID after a timeout. A successful
+app-build receipt does not establish GUI-test readiness or reproduce this
+hang. Do not use local app builds, `reload-cloud`, or `maclease`. The lease
+below records the completed September 16 attempt, before the fleet
+allocation transition; it is not an instruction to allocate a new lease.
+
 ## Controlled fleet attempt, 2026-09-16
 
 Result: the reported hang was **not reproduced**. No product fix was applied.
 
 The shared lease `20260916182151-26496-27252` reserved a GUI-ready M4 Pro
-(`Mac16,11`) running macOS 26.5 (`25F71`). No reachable fleet host had the
-reported macOS 26.6.2. Other running apps were left alone.
+(`Mac16,11`) running macOS 26.5 (`25F71`). None of the reachable hosts probed
+for this attempt had the reported macOS 26.6.2. Other running apps were
+left alone.
 
 Release 0.64.23 (103) and 0.64.24 (104) were downloaded from their tagged
 GitHub release assets. The 0.64.24 DMG matched the SHA-256 above, and its
