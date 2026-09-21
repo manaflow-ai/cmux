@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../db/client";
-import { cloudRuntimes, cloudVms } from "../../db/schema";
+import { cloudRuntimeAgentBindings, cloudRuntimes, cloudVms } from "../../db/schema";
 import { VmDatabaseError } from "./errors";
 
 export type CloudRuntimeRow = typeof cloudRuntimes.$inferSelect;
+export type HiveRuntimeAgentBinding = typeof cloudRuntimeAgentBindings.$inferSelect;
 
 /** Exact incarnation carried across asynchronous work; never a journal cursor. */
 export type HiveRuntimePlacement = {
@@ -169,6 +170,77 @@ export function resolveHiveRuntimeByProviderVmId(input: {
     ),
     "resolveHiveRuntimeByProviderVmId",
   );
+}
+
+function normalizedBindingText(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+/**
+ * Lists Codex root/child identity bindings for an account-visible runtime.
+ * These are identity links only; Codex remains authoritative for transcripts
+ * and resume references, while cmux owns the runtime journal and resources.
+ */
+export function listHiveRuntimeAgentBindings(ownerTeamId: string, runtimeId: string) {
+  return Effect.tryPromise({
+    try: async (): Promise<readonly HiveRuntimeAgentBinding[]> =>
+      await cloudDb().select({ binding: cloudRuntimeAgentBindings })
+        .from(cloudRuntimeAgentBindings)
+        .innerJoin(cloudRuntimes, eq(cloudRuntimes.id, cloudRuntimeAgentBindings.runtimeId))
+        .where(and(
+          eq(cloudRuntimes.ownerTeamId, ownerTeamId),
+          eq(cloudRuntimeAgentBindings.runtimeId, runtimeId),
+        ))
+        .orderBy(asc(cloudRuntimeAgentBindings.codexThreadId))
+        .then((rows) => rows.map(({ binding }) => binding)),
+    catch: (cause) => new VmDatabaseError({ operation: "listHiveRuntimeAgentBindings", cause }),
+  });
+}
+
+/**
+ * Adds one immutable Codex identity link to a runtime. Repeating the exact
+ * binding is idempotent; attempting to reuse a thread ID with another root or
+ * parent returns null. No placement or machine lookup is required.
+ */
+export function bindHiveRuntimeAgent(input: {
+  readonly ownerTeamId: string;
+  readonly runtimeId: string;
+  readonly codexThreadId: string;
+  readonly rootChatId: string;
+  readonly parentChatId?: string | null;
+}) {
+  return Effect.tryPromise({
+    try: async (): Promise<HiveRuntimeAgentBinding | null> => {
+      const codexThreadId = normalizedBindingText(input.codexThreadId);
+      const rootChatId = normalizedBindingText(input.rootChatId);
+      const parentChatId = normalizedBindingText(input.parentChatId);
+      if (!codexThreadId || !rootChatId) return null;
+      const [runtime] = await cloudDb().select({ id: cloudRuntimes.id })
+        .from(cloudRuntimes)
+        .where(and(eq(cloudRuntimes.id, input.runtimeId), eq(cloudRuntimes.ownerTeamId, input.ownerTeamId)))
+        .limit(1);
+      if (!runtime) return null;
+      const [inserted] = await cloudDb().insert(cloudRuntimeAgentBindings).values({
+        runtimeId: input.runtimeId,
+        codexThreadId,
+        rootChatId,
+        parentChatId,
+      }).onConflictDoNothing().returning();
+      if (inserted) return inserted;
+      const [existing] = await cloudDb().select()
+        .from(cloudRuntimeAgentBindings)
+        .where(and(
+          eq(cloudRuntimeAgentBindings.runtimeId, input.runtimeId),
+          eq(cloudRuntimeAgentBindings.codexThreadId, codexThreadId),
+        ))
+        .limit(1);
+      return existing && existing.rootChatId === rootChatId && existing.parentChatId === parentChatId
+        ? existing
+        : null;
+    },
+    catch: (cause) => new VmDatabaseError({ operation: "bindHiveRuntimeAgent", cause }),
+  });
 }
 
 /** Reads account-visible identity even when its compute row has disappeared. */

@@ -4,7 +4,9 @@ import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
+  bindHiveRuntimeAgent,
   bindHiveRuntimeJournal,
+  listHiveRuntimeAgentBindings,
   readHiveRuntime,
   resolveHiveRuntimeByMachineId,
   resolveHiveRuntimeByProviderVmId,
@@ -128,6 +130,39 @@ dbTest("runtime placement resolver fences owner and generation without waking", 
   }))).toBeNull();
   await db`delete from cloud_vms where id = ${placement.machineId}`;
   expect((await resolve({ ownerTeamId: owner, runtimeId: placement.runtimeId }))?.state).toBe("unplaced");
+});
+
+dbTest("runtime agent bindings preserve root and child identity under owner scope", async () => {
+  const placement = await fixture();
+  const root = `root-${randomUUID()}`;
+  const child = `thread-${randomUUID()}`;
+  const childBinding = await Effect.runPromise(bindHiveRuntimeAgent({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    codexThreadId: child,
+    rootChatId: root,
+  }));
+  expect(childBinding).toMatchObject({ runtimeId: placement.runtimeId, codexThreadId: child, rootChatId: root, parentChatId: null });
+  expect(await Effect.runPromise(bindHiveRuntimeAgent({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    codexThreadId: child,
+    rootChatId: root,
+  }))).toEqual(childBinding);
+  expect(await Effect.runPromise(bindHiveRuntimeAgent({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    codexThreadId: child,
+    rootChatId: `other-${randomUUID()}`,
+  }))).toBeNull();
+  expect(await Effect.runPromise(bindHiveRuntimeAgent({
+    ownerTeamId: "foreign",
+    runtimeId: placement.runtimeId,
+    codexThreadId: `foreign-${randomUUID()}`,
+    rootChatId: root,
+  }))).toBeNull();
+  expect(await Effect.runPromise(listHiveRuntimeAgentBindings(owner, placement.runtimeId))).toEqual([childBinding]);
+  expect(await Effect.runPromise(listHiveRuntimeAgentBindings("foreign", placement.runtimeId))).toEqual([]);
 });
 
 dbTest("schema enforces one runtime per VM and positive placement generations", async () => {
