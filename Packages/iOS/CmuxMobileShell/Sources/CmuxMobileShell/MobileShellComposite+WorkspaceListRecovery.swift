@@ -161,6 +161,29 @@ extension MobileShellComposite {
     /// Cancellation passes this token back so a stale row cannot cancel a
     /// later retry for another Mac.
     public func prepareWorkspaceListRecovery() -> UUID {
+        if workspaceListRecoveryActive {
+            let recoveryGeneration = workspaceListRecoveryGeneration
+            workspaceListRecoveryPreparedGeneration = recoveryGeneration
+            if pullToRefreshTask != nil,
+               pullToRefreshRecoveryGeneration == nil {
+                pullToRefreshRecoveryGeneration = recoveryGeneration
+            }
+            return recoveryGeneration
+        }
+        if pullToRefreshTask != nil {
+            let recoveryGeneration = pullToRefreshRecoveryGeneration
+                ?? pullToRefreshGeneration
+            pullToRefreshRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryPreparedGeneration = recoveryGeneration
+            workspaceListRecoveryActive = true
+            workspaceListRecoveryGeneration = recoveryGeneration
+            workspaceListRecoveryOwnerID = pullToRefreshOwnerID
+            workspaceListRecoveryOwnerInstanceTag = pullToRefreshOwnerInstanceTag
+            workspaceListRecoveryConnectionGeneration = connectionGeneration
+            workspaceListRecoveryConnectionAttemptID = nil
+            workspaceListRecoveryWaitingForConnectionAttempt = false
+            return recoveryGeneration
+        }
         let recoveryGeneration = UUID()
         workspaceListRecoveryPreparedGeneration = recoveryGeneration
         workspaceListRecoveryActive = true
