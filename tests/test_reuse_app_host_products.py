@@ -156,11 +156,39 @@ class ReuseProducts(TestProductHandoff):
             f"100644 blob {'6' * 40}\t.github/workflows/ci.yml",
         ]
         base_identity = identity.identity_from_tree_lines(base, workflow)
+        orchestration_workflow = workflow.replace(
+            "name: CI\n",
+            "name: CI orchestration-only\n",
+            1,
+        ).replace(
+            "      - name: Record compiled-product reuse metrics\n",
+            "      - name: Record compiled-product reuse metrics\n        # metrics-only edit\n",
+            1,
+        )
         orchestration_identity = identity.identity_from_tree_lines(
             admission_only,
-            workflow.replace("name: CI\n", "name: CI orchestration-only\n", 1),
+            orchestration_workflow,
         )
         self.assertEqual(base_identity, orchestration_identity)
+
+        unknown_product_step = workflow.replace(
+            "      - name: Validate Swift warning budget\n",
+            "      - name: Future product mutation\n        run: touch product\n\n"
+            "      - name: Validate Swift warning budget\n",
+            1,
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, unknown_product_step),
+        )
+
+        duplicate_step = workflow.replace(
+            "      - name: Validate Swift warning budget\n",
+            "      - name: Compile app-host test product\n",
+            1,
+        )
+        with self.assertRaisesRegex(ValueError, "not unique"):
+            identity.identity_from_tree_lines(base, duplicate_step)
 
         changed_source = list(base)
         changed_source[0] = f"100644 blob {'7' * 40}\tSources/App.swift"
