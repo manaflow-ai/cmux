@@ -57,12 +57,27 @@ def is_other_workflow_config(path: str) -> bool:
     return path.startswith(".github/workflows/") or path == ".github/actionlint.yaml"
 
 
+CI_CONTROL_PLANE_ONLY = frozenset({
+    "scripts/ci/persistent_mac_route.py",
+    "scripts/ci/web_validation.py",
+})
+
+
 def forces_all_areas(path: str) -> bool:
-    ci_script_prefix = "scripts/ci/"
-    is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
-    if is_direct_ci_python:
-        is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
-    return path in {CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH} or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+    # Unknown direct CI implementation files remain fail-open. Narrow only
+    # explicitly-owned control-plane helpers whose product-area semantics are
+    # covered by a dedicated lane.
+    direct_ci_python = (
+        path.startswith("scripts/ci/")
+        and path.endswith(".py")
+        and "/" not in path[len("scripts/ci/") :]
+    )
+    if direct_ci_python and path not in CI_CONTROL_PLANE_ONLY:
+        return True
+    return path in {
+        CI_WORKFLOW_PATH,
+        "tests/test_ci_change_areas.py",
+    }
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
@@ -212,6 +227,7 @@ def is_web_change(path: str) -> bool:
         "bunfig.toml",
         ".npmrc",
         ".github/workflows/web-validation.yml",
+        "scripts/ci/web_validation.py",
         "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
@@ -239,6 +255,8 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
+    if path in CI_CONTROL_PLANE_ONLY:
+        return True
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
     # workflow. Packages/iOS stays macOS-relevant because the desktop app
     # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.

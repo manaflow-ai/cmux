@@ -140,10 +140,22 @@ jobs:
                 tests/test_ci_change_areas.py)
                   ci_router_changed=true
                   ;;
+                scripts/ci/detect_ci_change_areas.py)
+                  ci_router_changed=true
+                  ghosttykit_guard_only=false
+                  ;;
+                scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py)
+                  # These have explicit owning lanes and names that cannot
+                  # shadow Python stdlib imports used by the router.
+                  ghosttykit_guard_only=false
+                  ;;
                 .github/workflows/ci.yml)
                   ci_workflow_changed=true
                   ;;
                 scripts/ci/*)
+                  # Unknown scripts/ci files fail open before invoking the
+                  # PR-controlled Python detector. A new file here could
+                  # otherwise shadow a stdlib import (for example subprocess.py).
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
@@ -230,7 +242,7 @@ jobs:
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/ci.yml|scripts/ci/*|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
+                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
                   for route in linux_guard_tests linux_guard_history linux_guard_cli linux_guard_source ghosttykit_release; do
                     echo "$route=true" >> "$GITHUB_OUTPUT"
                   done

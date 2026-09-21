@@ -101,7 +101,7 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
     assert module.classify_files(["docs/ci.md"]).release_build is False
     assert module.classify_files([".github/workflows/ci.yml"]).release_build is True
-    assert module.classify_files([".github/workflows/ci-guards.yml"]) == module.ChangeAreas.all()
+    assert module.classify_files([".github/workflows/ci-guards.yml"]).release_build is False
     assert module.ChangeAreas.all().release_build is True
 
 
@@ -161,6 +161,7 @@ def test_cmux_tui_only_skips_macos() -> None:
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
+    assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True, agent_session_web=False)
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
@@ -238,6 +239,16 @@ def test_workflow_changes_run_everything() -> None:
         web=True,
         agent_session_web=True,
     )
+
+
+def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
+    for path in (
+        ".github/workflows/ci-guards.yml",
+        "scripts/ci/persistent_mac_route.py",
+        "tests/test_ci_persistent_mac_compile.py",
+        "tests/test_ci_self_hosted_guard.sh",
+    ):
+        assert_areas([path], macos=False, web=False)
 
 
 def test_reusable_web_workflow_edit_runs_every_owned_web_job() -> None:
@@ -751,6 +762,13 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
 
     assert "CI router changed; running all CI areas." in result.stdout
     assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+
+
+def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
+    result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
+
+    assert "CI router changed; running all CI areas." not in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
