@@ -19,9 +19,10 @@ final class WorkspacePresenceController {
     private var authTask: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
 
-    deinit {
-        task?.cancel(); snapshotTask?.cancel(); authTask?.cancel(); observers.forEach(NotificationCenter.default.removeObserver)
-    }
+    // The controller is app-lifetime state. Its task closures capture the
+    // controller weakly, and the workspace socket is bounded by the Worker
+    // authentication lease if the app tears down without a final scope clear.
+    deinit {}
 
     func configure(auth: AuthCoordinator) {
         guard self.auth !== auth else { return }
