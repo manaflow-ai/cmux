@@ -114,6 +114,7 @@ The new enrollment starts in `enrolling`. It records the role's exact CMUX profi
 Candidate eligibility requires a Glaeda-owned local attempt, because the CMUX semantic result is intentionally machine-neutral. `accept-local` resolves the exact local CMUX commit/tree, launches the enrolled CMUX profile inside a private attempt directory, captures the canonical `cmux-workload-result/v1`, then reruns Glaeda's read-only bootstrap on this same node.
 
 ```bash
+set -euo pipefail
 cd "$GLAEDA_ROOT"
 
 case "$(uname -s)" in
