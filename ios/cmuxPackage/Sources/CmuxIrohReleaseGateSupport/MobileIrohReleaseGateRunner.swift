@@ -219,7 +219,9 @@ final class MobileIrohReleaseGateRunner {
                     // transport work, rather than relying on a stale selection
                     // or a compact-navigation side effect.
                     store.selectedWorkspaceID = store.workspaces.first { $0.id.rawValue == identity.workspace }?.id
-                    store.selectedTerminalID = identity.surface
+                    store.selectedTerminalID = store.workspaces
+                        .first(where: { $0.id.rawValue == identity.workspace })?.terminals
+                        .first(where: { $0.id.rawValue == identity.surface })?.id
                     await Task.yield()
                     let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
                     defer { terminalSession.reset() }
