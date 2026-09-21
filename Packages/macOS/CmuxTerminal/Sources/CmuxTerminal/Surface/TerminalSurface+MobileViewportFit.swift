@@ -50,6 +50,16 @@ struct MobileViewportFitResult {
 }
 
 extension TerminalSurface {
+    static func mobileViewportLimitMatches(
+        current: (columns: Int, rows: Int)?,
+        requestedColumns: Int,
+        requestedRows: Int
+    ) -> Bool {
+        guard let current else { return false }
+        return current.columns == max(1, requestedColumns) &&
+            current.rows == max(1, requestedRows)
+    }
+
     /// Caps the surface grid to a paired iPhone's viewport.
     ///
     /// - Returns: The actual cell grid applied after capping to the Mac pane, or
@@ -71,9 +81,11 @@ extension TerminalSurface {
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
         let requestedLimit = (columns: max(1, columns), rows: max(1, rows))
-        if let currentLimit = mobileViewportCellLimit,
-           currentLimit.columns == requestedLimit.columns,
-           currentLimit.rows == requestedLimit.rows {
+        if Self.mobileViewportLimitMatches(
+            current: mobileViewportCellLimit,
+            requestedColumns: requestedLimit.columns,
+            requestedRows: requestedLimit.rows
+        ) {
             // Replaying the same logical viewport must never run the pixel/font
             // fitter again. Under relay delay the phone can repeat a report
             // after the first apply already landed; re-fitting the same cell
