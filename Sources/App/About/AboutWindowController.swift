@@ -23,6 +23,8 @@ final class AboutWindowController: ReleasingWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {}
+
     override func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 520),
@@ -45,4 +47,3 @@ final class AboutWindowController: ReleasingWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 }
-

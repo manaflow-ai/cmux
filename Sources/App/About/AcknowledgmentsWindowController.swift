@@ -26,8 +26,9 @@ final class AcknowledgmentsWindowController: ReleasingWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit {}
+
     func show() {
         showManagedWindow(centerWhenHidden: false)
     }
 }
-
