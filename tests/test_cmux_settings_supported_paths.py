@@ -34,6 +34,10 @@ class SupportedPathsTests(unittest.TestCase):
         script = skill / "scripts" / "cmux-settings"
         script.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SKILL_ROOT / "scripts" / "cmux-settings", script)
+        shutil.copyfile(
+            SKILL_ROOT / "scripts" / "cmux_jsonc_edit.py",
+            script.parent / "cmux_jsonc_edit.py",
+        )
         shutil.copyfile(SKILL_ROOT / "SKILL.md", skill / "SKILL.md")
         if reference:
             (skill / "references").mkdir(exist_ok=True)
