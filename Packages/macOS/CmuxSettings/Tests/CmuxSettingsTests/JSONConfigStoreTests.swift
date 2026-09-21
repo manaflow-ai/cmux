@@ -69,7 +69,7 @@ struct JSONConfigStoreTests {
         #expect(try String(contentsOf: fileURL, encoding: .utf8).contains("keep documentation"))
     }
 
-    @Test func refusesWriteWhileAnotherProcessOwnsWriterLock() async throws {
+    @Test func waitsWhileAnotherProcessOwnsWriterLockThenAppliesMutation() async throws {
         let (store, fileURL, _) = makeStore()
         let directory = fileURL.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -77,13 +77,16 @@ struct JSONConfigStoreTests {
 
         let readyURL = directory.appendingPathComponent("writer-lock-ready")
         let script = """
-        import fcntl, os, pathlib, sys, time
+        import fcntl, os, pathlib, sys
         fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o600)
         fcntl.flock(fd, fcntl.LOCK_EX)
         pathlib.Path(sys.argv[2]).write_text("ready")
-        time.sleep(30)
+        sys.stdin.buffer.read(1)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
         """
         let process = Process()
+        let releasePipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
         process.arguments = [
             "-c",
@@ -91,6 +94,7 @@ struct JSONConfigStoreTests {
             fileURL.path + ".cmux-write.lock",
             readyURL.path,
         ]
+        process.standardInput = releasePipe
         try process.run()
         defer {
             if process.isRunning {
@@ -106,15 +110,18 @@ struct JSONConfigStoreTests {
         #expect(FileManager.default.fileExists(atPath: readyURL.path))
 
         let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
-        do {
+        let writeTask = Task {
             try await store.set("light", for: key)
-            Issue.record("store write entered while another process held the writer lock")
-        } catch JSONConfigWriteConflict.busy {
-            // Expected: no stale read-edit-replace can begin outside the lock.
-        } catch {
-            Issue.record("unexpected writer-lock error: \(error)")
         }
+        await Task.yield()
         #expect(try String(contentsOf: fileURL, encoding: .utf8).contains(#""dark""#))
+
+        releasePipe.fileHandleForWriting.write(Data([0]))
+        releasePipe.fileHandleForWriting.closeFile()
+        try await writeTask.value
+
+        #expect(await store.value(for: key) == "light")
+        #expect(try String(contentsOf: fileURL, encoding: .utf8).contains(#""light""#))
     }
 
     @Test func waitsForBriefConcurrentWriterThenAppliesMutation() async throws {
