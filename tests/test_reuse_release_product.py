@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -178,6 +179,17 @@ class ReleaseProductReuseTests(unittest.TestCase):
         self.assertFalse(result["hit"])
         self.assertEqual(result["outcome"], "fallback_rebuild")
         self.assertFalse((self.consumer / Path(reuse.APP_REL)).exists())
+
+    def test_post_move_failure_cleans_restored_product_and_metadata(self):
+        with mock.patch.object(reuse.shutil, "copy2", side_effect=OSError("copy failed")):
+            result = self.restore()
+
+        self.assertFalse(result["hit"])
+        self.assertEqual(result["outcome"], "fallback_rebuild")
+        products = self.consumer / "Build/Products"
+        self.assertFalse((self.consumer / Path(reuse.APP_REL)).exists())
+        self.assertFalse((products / reuse.RECEIPT).exists())
+        self.assertFalse((products / reuse.PROVENANCE).exists())
 
     def test_bad_receipt_falls_back(self):
         shutil.rmtree(self.producer)
