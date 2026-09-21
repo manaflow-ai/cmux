@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -47,6 +48,31 @@ private final class BrowserDiscardRestoreRefusedEndpoint {
     }
 
     deinit { Darwin.close(descriptor) }
+}
+
+/// Reports a refused connection for `url` through the panel's real navigation
+/// delegate, the way `BrowserFailedNavigationReloadTests` does. The app-host CI
+/// never delivers WebKit's own failure for the reserved loopback port (the
+/// provisional load neither fails nor commits inside the 30 s budget), so the
+/// in-flight load is stopped first and the refusal is then reported for the
+/// attempted URL. The panel's restore bookkeeping, error page, and retry policy
+/// still run unchanged.
+@MainActor
+private func refuseConnection(to url: URL, in panel: BrowserPanel) async throws {
+    panel.webView.stopLoading()
+    try #require(
+        await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) { !panel.webView.isLoading },
+        "The in-flight load for \(url) must stop before the refusal is reported"
+    )
+    panel.navigationDelegate?.webView(
+        panel.webView,
+        didFailProvisionalNavigation: nil,
+        withError: NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorCannotConnectToHost,
+            userInfo: [NSURLErrorFailingURLStringErrorKey: url.absoluteString]
+        )
+    )
 }
 
 @MainActor
@@ -127,8 +153,9 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         )
         defer { panel.close() }
 
-        // This case exercises real WebKit failure callbacks. Give both the
-        // original and replacement views a sized native host before loading.
+        // This case exercises the real delegate failure path and error-page
+        // loads. Give both the original and replacement views a sized native
+        // host before loading.
         let window = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 640, height: 480),
             styleMask: [.borderless],
@@ -143,6 +170,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
             window.close()
         }
         try #require(panel.navigate(to: url) != nil)
+        try await refuseConnection(to: url, in: panel)
 
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
             panel.navigationDelegate?.activeErrorPageDisplayURL == url
@@ -157,6 +185,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         window.contentView = panel.webView
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
+        try await refuseConnection(to: url, in: panel)
         try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
             let restorePending = panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool ?? false
             return panel.navigationDelegate?.activeErrorPageDisplayURL == url
