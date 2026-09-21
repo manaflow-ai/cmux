@@ -97,6 +97,44 @@ describe("coderouter accounts section", () => {
     expect(html).not.toContain("<svg");
   });
 
+  test.each([true, false])("numbers all account families consecutively (canManage=%s)", (canManage) => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage={canManage}
+        claude={{ kind: "ok", accounts: [claudeAccount] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        shared={{ kind: "ok", accounts: [codexAccount] }}
+      />,
+    );
+
+    expect(html).toContain("<div>#</div>");
+    const rows = [...html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g)].map((match) => match[1]);
+    expect(rows).toHaveLength(3);
+    for (const [index, row] of rows.entries()) {
+      expect(row).toContain(`<span class="md:hidden">#</span>${index + 1}</div>`);
+    }
+    expect(rows[0]).toContain("Claude Code OAuth");
+    expect(rows[1]).toContain("lawrence@example.com");
+    expect(rows[2]).toContain("shared codex");
+  });
+
+  test("numbers loaded accounts from one when earlier families are unavailable", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage={false}
+        claude={{ kind: "error" }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "ok", accounts: [codexAccount, { ...codexAccount, id: "codex-2" }] }}
+      />,
+    );
+
+    const numbers = [...html.matchAll(/<span class="md:hidden">#<\/span>(\d+)<\/div>/g)]
+      .map((match) => Number(match[1]));
+    expect(numbers).toEqual([1, 2]);
+  });
+
   test("offers every account kind in one add panel, OAuth token included", () => {
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
