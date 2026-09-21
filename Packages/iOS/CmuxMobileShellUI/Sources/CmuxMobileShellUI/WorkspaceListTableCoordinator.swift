@@ -1444,7 +1444,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             return previous.filter != next.filter
         case .emptyWorkspaceList:
-            return (previous.refresh != nil) != (next.refresh != nil)
+            // The refresh closure captures the selected Mac/session. Rebuild
+            // the row whenever the empty state is updated so it cannot retain
+            // an action for the previous connection context.
+            return true
         }
     }
 
