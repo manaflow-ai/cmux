@@ -384,10 +384,10 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             "workspace_id": fixture.workspace.id.uuidString,
             "terminal_id": fixture.panelID.uuidString,
         ])
-        let admitted = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        let admitted = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
         try #require(admitted.errorResponse == nil)
         fixture.workspace.activeRemoteSessionControllerID = UUID()
-        let retired = await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
+        let retired = try await TerminalController.shared.authorizeRemoteRelayRequestAsync(request)
         #expect(retired.errorResponse?.contains("remote_relay_authentication_failed") == true)
     }
 
