@@ -69,8 +69,7 @@ struct CloudPortsVPNAffordanceTests {
     func discoveryDoesNotBecomeVPNSetup() {
         let status = CloudPortsStatusPresentation(state: .notRequested)
         #expect(status.action == .refresh)
-        #expect(status.message == String(localized: "cloudTree.ports.notRequested",
-            defaultValue: "Expand Ports or refresh to check this machine’s listening services."))
+        #expect(status.message == CloudPortsStatusPresentation.routeNote)
     }
 
     @Test("Status actions hit-test in AppKit coordinates and fit narrow rows", arguments: [140.0, 260.0])
