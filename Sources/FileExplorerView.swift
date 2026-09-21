@@ -907,7 +907,7 @@ final class FileExplorerContainerView: NSView {
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
     private var currentSearchScope: FileSearchScope = .unsupported
-    private var currentResourceContextID: UUID?
+    var currentResourceContextID: UUID?
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()

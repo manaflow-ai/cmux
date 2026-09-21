@@ -179,7 +179,7 @@ struct CloudFileExplorerBehaviorTests {
         }
 
         let runner = LiveCloudFileExplorerCommandRunner(target: nil)
-        #expect(throws: FileExplorerError.self) {
+        await #expect(throws: FileExplorerError.self) {
             try await runner.run(vmID: "vivid-newt", command: "printf ok", timeoutMs: 100)
         }
     }
