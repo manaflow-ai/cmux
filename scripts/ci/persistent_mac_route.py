@@ -218,10 +218,21 @@ def cancel_owned_producer(
     request_id: str,
     run_id: int | None,
     dispatched: bool,
+    waiter: RetryWait,
+    deadline: float,
 ) -> int | None:
     if run_id is None and dispatched:
-        try:
+        def observe():
             observed = matching_run(api, request_id)
+            return (observed is not None, observed)
+
+        try:
+            observed = waiter.until(
+                deadline,
+                observe,
+                initial_delay=0.25,
+                max_delay=1.0,
+            )
             if observed is not None:
                 run_id = int(observed["id"])
         except (RuntimeError, KeyError, TypeError, ValueError) as error:
@@ -420,19 +431,30 @@ def main() -> int:
             allocated_seconds=allocated_seconds,
         )
     except RetryCancelled:
+        cancel_signal = waiter.cancel_signal or signal.SIGTERM
         if not args.observe_only:
-            producer_run_id = cancel_owned_producer(
-                api,
-                request_id,
-                producer_run_id,
-                dispatched,
-            )
+            cleanup_waiter = RetryWait()
+            install_cancel_handlers(cleanup_waiter)
+            try:
+                producer_run_id = cancel_owned_producer(
+                    api,
+                    request_id,
+                    producer_run_id,
+                    dispatched,
+                    cleanup_waiter,
+                    now() + 10,
+                )
+            except RetryCancelled:
+                print(
+                    "warning: producer rediscovery cancelled by a second signal",
+                    file=sys.stderr,
+                )
         fallback(
             args.github_output,
             "routing_cancelled",
             producer_run_id=producer_run_id or "",
         )
-        return 128 + (waiter.cancel_signal or signal.SIGTERM)
+        return 128 + cancel_signal
     except (RuntimeError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
         print(f"persistent Mac routing fell back to hosted: {error}", file=sys.stderr)
         return fallback(args.github_output, "routing_error")
