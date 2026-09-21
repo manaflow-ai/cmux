@@ -41,11 +41,15 @@ struct TerminalGeometryDiagnostics {
             ? .resize : .unknown
     }
 
-    func refresh(_ view: GhosttySurfaceScrollView, reason: String) {
+    func refresh(
+        _ view: GhosttySurfaceScrollView,
+        reason: String,
+        transition: TerminalWorkContext.Transition
+    ) {
         let work = begin(
             .rendererRefresh,
             workspaceID: view.surfaceView.terminalSurface?.tabId,
-            transition: reason.contains("reveal") ? .reveal : .unknown
+            transition: transition
         )
         defer { work.end() }
         // Retain the existing realization boundary while measuring its cost.

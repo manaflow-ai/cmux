@@ -5,6 +5,15 @@ on:
     paths:
       - Packages/Shared/CMUXMobileCore/**
       - Packages/Shared/CmuxSentryTelemetry/**
+      - Packages/iOS/CmuxMobileShellUI/**
+      - Packages/iOS/CmuxMobileTerminal/**
+      - Packages/macOS/CmuxTerminal/**
+      - Sources/GhosttyTerminalView*.swift
+      - Sources/TerminalWindowPortal*.swift
+      - Sources/TerminalGeometryDiagnostics.swift
+      - Sources/Workspace+GeometryDiagnostics.swift
+      - Sources/Workspace.swift
+      - cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
       - scripts/terminal-hang-release-gate.py
       - tests/test_terminal_hang_release_gate.py
       - Sources/TerminalPortalReconciliation*.swift

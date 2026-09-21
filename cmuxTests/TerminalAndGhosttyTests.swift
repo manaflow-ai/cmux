@@ -5570,14 +5570,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         return portal
     }
 
-    func realizeWindowLayout(_ window: NSWindow) {
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        window.contentView?.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        window.contentView?.layoutSubtreeIfNeeded()
-    }
-
     func drainMainQueue() {
         let expectation = XCTestExpectation(description: "drain main queue")
         DispatchQueue.main.async {

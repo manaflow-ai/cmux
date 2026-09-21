@@ -9,6 +9,17 @@ import XCTest
 #endif
 
 extension TerminalWindowPortalLifecycleTests {
+    func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(waitUntil(timeout: 10.0) {
+            window.displayIfNeeded()
+            guard let content = window.contentView else { return false }
+            content.layoutSubtreeIfNeeded()
+            return window.isVisible && content.window === window && content.superview != nil
+                && content.bounds.width > 0 && content.bounds.height > 0 && !content.needsLayout
+        }, "Expected an attached, visible, laid-out content hierarchy before portal setup")
+    }
+
     // The shared app host may have unrelated queued work. Observe publication
     // itself instead of assuming the scheduled pass finishes within 50 ms.
     func testScheduledExternalGeometrySyncRefreshesAncestorLayoutShift() {

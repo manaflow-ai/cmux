@@ -49,6 +49,9 @@ extension GhosttyTerminalView {
             guard let host, let hostedView, let coordinator, let terminalSurface else { return }
             guard coordinator.attachGeneration == snapshot.attachGeneration else { return }
             guard coordinator.hostedView === hostedView else { return }
+            let previousTransition = hostedView.terminalWorkTransition
+            hostedView.terminalWorkTransition = request.transition
+            defer { hostedView.terminalWorkTransition = previousTransition }
             let work = TerminalGeometryDiagnostics().begin(
                 .geometryPublication, workspaceID: terminalSurface.tabId,
                 transition: request.transition
