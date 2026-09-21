@@ -201,7 +201,6 @@ final class NewCloudWorkspaceShortcutTests {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(!store.newWorkspaceContextMenuIsConfigured)
         let appDelegate = AppDelegate()
-        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { CloudMachinesFeature.isEnabled })
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(
             tabManager: tabManager,
@@ -209,7 +208,7 @@ final class NewCloudWorkspaceShortcutTests {
         )
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store, isAuthenticated: true))
         return try body(menu)
     }
 
@@ -289,15 +288,15 @@ final class NewCloudWorkspaceShortcutTests {
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(store.configurationIssues.isEmpty)
         let appDelegate = AppDelegate()
-        appDelegate.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { CloudMachinesFeature.isEnabled })
         let tabManager = TabManager()
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: store)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
         let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
-        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
+        let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store, isAuthenticated: true))
         let rows = builtInMenuRows(menu)
         #expect(rows.prefix(2).map(\.action) == [.newTerminal, .newCloudWorkspace])
-        #expect(rows[1].item.keyEquivalent == "y")
+        let cloudRow = try #require(rows.dropFirst().first)
+        #expect(cloudRow.item.keyEquivalent == "y")
     }
 
     // MARK: Shared action path

@@ -138,12 +138,18 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
 
     override func responds(to selector: Selector) -> Bool {
         super.responds(to: selector)
-            || previousTableDelegate?.responds(to: selector) == true
+            || forwardedDelegate?.responds(to: selector) == true
     }
 
     override func forwardingTarget(for selector: Selector) -> Any? {
-        previousTableDelegate
+        forwardedDelegate
             ?? super.forwardingTarget(for: selector)
+    }
+
+    /// The previous delegate, unless it is this writer itself.
+    private var forwardedDelegate: NSTableViewDelegate? {
+        guard let previousTableDelegate, previousTableDelegate !== self else { return nil }
+        return previousTableDelegate
     }
 
     func tableView(

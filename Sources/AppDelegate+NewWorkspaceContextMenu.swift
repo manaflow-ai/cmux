@@ -108,16 +108,8 @@ extension AppDelegate {
     ) -> Bool {
         switch action {
         case .newCloudWorkspace, .newCloudMachine, .cloudVM:
-            guard CloudMachinesFeature.isEnabled else { return false }
-            if let isAuthenticated { return isAuthenticated }
-            // Once composition is installed, the coordinator is the shared Cloud
-            // availability authority. Its production closure includes the live
-            // authenticated account and feature policy; the auth fallback keeps
-            // the menu fail-closed during the brief pre-composition window.
-            let appDelegate = AppDelegate.shared
-            return appDelegate?.cloudWorkspaceCoordinator?.isAvailable
-                ?? appDelegate?.cloudWorkspaceOperationController?.isCurrentlyAvailable
-                ?? (appDelegate?.auth?.accountFlow.isAuthenticated == true)
+            return CloudMachinesFeature.isEnabled
+                && (isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true))
         case .newBrowser, .newAgentChat:
             return BrowserAvailabilitySettings.isEnabled()
         case .newSimulator:
