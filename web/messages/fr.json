@@ -398,7 +398,16 @@
       "revoked": "Révoqué",
       "relaySettings": "Paramètres du relais",
       "relaySettingsDescription": "Choisissez les serveurs relais utilisés par cette équipe. Saisissez une URL par ligne.",
-      "saveRelaySettings": "Enregistrer les paramètres du relais"
+      "saveRelaySettings": "Enregistrer les paramètres du relais",
+      "eyebrow": "cloud / appareils",
+      "scopeActive": "Affichage de cette équipe",
+      "emptyTitle": "Aucun appareil connecté pour le moment",
+      "emptyDescription": "Lorsqu’un appareil cmux est associé à cette équipe, il apparaît ici avec sa plateforme, sa version et ses contrôles d’accès.",
+      "revoking": "Révocation…",
+      "registeredDevices": "Appareils enregistrés",
+      "activeDevices": "Appareils actifs",
+      "directoryRevision": "Révision du répertoire",
+      "savingRelaySettings": "Enregistrement…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Partager avec l’équipe",

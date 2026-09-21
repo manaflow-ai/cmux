@@ -398,7 +398,16 @@
       "revoked": "Tilbakekalt",
       "relaySettings": "Relay-innstillinger",
       "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
-      "saveRelaySettings": "Lagre relay-innstillinger"
+      "saveRelaySettings": "Lagre relay-innstillinger",
+      "eyebrow": "sky / enheter",
+      "scopeActive": "Viser dette teamet",
+      "emptyTitle": "Ingen tilkoblede enheter ennå",
+      "emptyDescription": "Når en cmux-enhet pares med dette teamet, vises den her med plattform, versjon og tilgangskontroller.",
+      "revoking": "Tilbakekaller…",
+      "registeredDevices": "Registrerte enheter",
+      "activeDevices": "Aktive enheter",
+      "directoryRevision": "Katalogrevisjon",
+      "savingRelaySettings": "Lagrer…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Del med teamet",

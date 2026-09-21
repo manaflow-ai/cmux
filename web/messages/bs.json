@@ -398,7 +398,16 @@
       "revoked": "Opozvan",
       "relaySettings": "Postavke releja",
       "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
-      "saveRelaySettings": "Sačuvaj postavke releja"
+      "saveRelaySettings": "Sačuvaj postavke releja",
+      "eyebrow": "oblak / uređaji",
+      "scopeActive": "Prikazan je ovaj tim",
+      "emptyTitle": "Još nema povezanih uređaja",
+      "emptyDescription": "Kada se cmux uređaj upari s ovim timom, ovdje će se prikazati njegova platforma, verzija i kontrole pristupa.",
+      "revoking": "Opozivanje pristupa…",
+      "registeredDevices": "Registrirani uređaji",
+      "activeDevices": "Aktivni uređaji",
+      "directoryRevision": "Revizija direktorija",
+      "savingRelaySettings": "Spremanje…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Podijeli s timom",

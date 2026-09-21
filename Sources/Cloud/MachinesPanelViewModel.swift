@@ -480,6 +480,7 @@ final class MachinesPanelViewModel: ObservableObject {
         let generation = refreshGeneration
         let scope = machinePinStore?.scopeIdentifier
         refreshTask = Task { [weak self] in
+            defer { self?.isLoading = false }
             let result: Result<VMListPage, Error>
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
@@ -574,7 +575,6 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
-        isLoading = false
         hasLoadedOnce = true
     }
 }

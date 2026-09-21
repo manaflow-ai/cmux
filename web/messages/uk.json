@@ -398,7 +398,16 @@
       "revoked": "Відкликано",
       "relaySettings": "Налаштування ретрансляції",
       "relaySettingsDescription": "Виберіть сервери ретрансляції для цієї команди. Вводьте по одному URL у рядку.",
-      "saveRelaySettings": "Зберегти налаштування ретрансляції"
+      "saveRelaySettings": "Зберегти налаштування ретрансляції",
+      "eyebrow": "хмара / пристрої",
+      "scopeActive": "Показано цю команду",
+      "emptyTitle": "Підключених пристроїв ще немає",
+      "emptyDescription": "Після сполучення пристрою cmux із цією командою тут з’являться його платформа, версія та налаштування доступу.",
+      "revoking": "Відкликання доступу…",
+      "registeredDevices": "Зареєстровані пристрої",
+      "activeDevices": "Активні пристрої",
+      "directoryRevision": "Ревізія каталогу",
+      "savingRelaySettings": "Збереження…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Поділитися з командою",

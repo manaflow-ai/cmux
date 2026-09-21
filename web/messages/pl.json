@@ -398,7 +398,16 @@
       "revoked": "Unieważnione",
       "relaySettings": "Ustawienia przekaźnika",
       "relaySettingsDescription": "Wybierz serwery przekaźnikowe używane przez ten zespół. Wpisz jeden URL w wierszu.",
-      "saveRelaySettings": "Zapisz ustawienia przekaźnika"
+      "saveRelaySettings": "Zapisz ustawienia przekaźnika",
+      "eyebrow": "chmura / urządzenia",
+      "scopeActive": "Wyświetlanie tego zespołu",
+      "emptyTitle": "Brak połączonych urządzeń",
+      "emptyDescription": "Gdy urządzenie cmux zostanie sparowane z tym zespołem, pojawi się tutaj wraz z platformą, wersją i ustawieniami dostępu.",
+      "revoking": "Cofanie dostępu…",
+      "registeredDevices": "Zarejestrowane urządzenia",
+      "activeDevices": "Aktywne urządzenia",
+      "directoryRevision": "Rewizja katalogu",
+      "savingRelaySettings": "Zapisywanie…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Udostępnij zespołowi",

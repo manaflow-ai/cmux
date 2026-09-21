@@ -398,7 +398,16 @@
       "revoked": "취소됨",
       "relaySettings": "릴레이 설정",
       "relaySettingsDescription": "이 팀에서 사용할 릴레이 서버를 선택하세요. 한 줄에 URL 하나를 입력하세요.",
-      "saveRelaySettings": "릴레이 설정 저장"
+      "saveRelaySettings": "릴레이 설정 저장",
+      "eyebrow": "클라우드 / 기기",
+      "scopeActive": "이 팀을 표시 중",
+      "emptyTitle": "아직 연결된 기기가 없습니다",
+      "emptyDescription": "cmux 기기를 이 팀과 페어링하면 플랫폼, 버전 및 접근 제어가 여기에 표시됩니다.",
+      "revoking": "접근 권한 취소 중…",
+      "registeredDevices": "등록된 기기",
+      "activeDevices": "활성 기기",
+      "directoryRevision": "목록 리비전",
+      "savingRelaySettings": "저장 중…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "팀과 공유",
