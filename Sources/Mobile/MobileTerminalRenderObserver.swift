@@ -433,6 +433,10 @@ final class MobileTerminalRenderObserver {
             switch emission {
             case .emit(let frame, let state):
                 renderGridStatesBySurfaceID[surfaceID, default: [:]][anchor] = state
+                var frame = frame
+                frame.appliedInputSequence = MobileTerminalByteTee.shared.currentInputSequence(
+                    surfaceID: surfaceID
+                )
                 return frame
             case .needsScrollback(let rows):
                 // Re-export once with the requested history rows; the retry

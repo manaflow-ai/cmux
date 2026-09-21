@@ -201,6 +201,9 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
@@ -841,6 +844,11 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             workspacesStackIsOnScreen = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            }
+            #endif
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
         }
@@ -893,6 +901,16 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = {
+                    withAnimation {
+                        store.selectedWorkspaceID = nil
+                        splitColumnVisibility = .all
+                    }
+                }
+            }
+            #endif
         }
     }
     #else
@@ -1358,7 +1376,10 @@ struct WorkspaceShellView: View {
             names = names.mapValues(buildScope.computerDisplayName)
         }
 
-        let buildLabelsByID = store.pairedMacBuildLabelsByEntryID()
+        let buildLabelsByID = WorkspaceMacBuildLabelResolver().labels(
+            workspaces: store.workspaces,
+            existing: store.pairedMacBuildLabelsByEntryID()
+        )
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },

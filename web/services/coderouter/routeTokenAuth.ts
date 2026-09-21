@@ -38,6 +38,7 @@ export type RouteTokenIdentity = {
   readonly token: string;
   /** Opaque database id for a long-lived API key, or null for route tokens. */
   readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
 };
 
 export type RouteTokenAuthFailure =
@@ -72,6 +73,7 @@ type Authenticate = (
   readonly stackUserId: string;
   readonly vmId?: string | null;
   readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
 } | null>;
 
 export async function authenticateRequestRouteToken(
@@ -102,6 +104,7 @@ async function authenticateUnobserved(
   const identity = await authenticate(token);
   if (!identity) return { ok: false, reason: "invalid_route_token" };
   const vmId = identity.vmId ?? null;
+  if (vmId === null && request.headers.has(VM_ID_HEADER)) return { ok: false, reason: "vm_mismatch" };
   if (vmId !== null) {
     const claimed = request.headers.get(VM_ID_HEADER)?.trim() ?? "";
     if (claimed !== vmId) return { ok: false, reason: "vm_mismatch" };
@@ -113,6 +116,7 @@ async function authenticateUnobserved(
       stackUserId: identity.stackUserId,
       vmId,
       token,
+      ...(identity.poolId ? { poolId: identity.poolId } : {}),
       ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
     },
   };

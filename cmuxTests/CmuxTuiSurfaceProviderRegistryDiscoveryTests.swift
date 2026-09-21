@@ -1,15 +1,209 @@
 import Foundation
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
+    @Test("Create receipts publish friendly names without registering an unroutable provider")
+    func createdMachineNameIsAvailableWithoutDiscovery() async {
+        let catalog = SurfaceCatalog()
+        var summary = machine("vm-internal-id")
+        summary.slug = "bright-teal-otter"
+        var discovered = summary
+        discovered.addressIPv4 = "10.16.0.7"
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { lists += 1; return VMListPage(vms: [discovered], limits: nil) }
+        )
+        registry.start(catalog: catalog)
+        let scope = registry.creationScope
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
+        #expect(registry.provider(machineID: summary.id) == nil)
+        #expect(lists == 0)
+        #expect(await registry.privateRoute(machineID: summary.id) == "ws://10.16.0.7:1337/v1/link")
+        #expect(lists == 1)
+        let provider = registry.provider(machineID: summary.id)
+        var renamed = discovered
+        renamed.displayName = "My renamed machine"
+        provider?.update(summary: renamed)
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.first?.name == "My renamed machine")
+        #expect(registry.provider(machineID: summary.id) === provider)
+        #expect(catalog.snapshot.machines.count == 1)
+        await registry.accessDidEnd()
+        registry.start(catalog: catalog)
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.isEmpty)
+        registry.recordCreatedMachine(summary, scope: registry.creationScope)
+        #expect(catalog.snapshot.machines.count == 1)
+        await registry.accessDidEnd()
+        #expect(catalog.snapshot.machines.isEmpty, "Account teardown also removes receipts that have no provider yet")
+    }
+
+    @Test("A stale fleet page cannot prune a machine create receipt before discovery observes it")
+    func stalePageRetainsCreatedMachineReceipt() async {
+        let catalog = SurfaceCatalog()
+        let created = machine("vm-created")
+        var page = VMListPage(vms: [], limits: nil)
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return page
+            },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+        registry.recordCreatedMachine(created, scope: registry.creationScope)
+
+        #expect(await registry.refresh(force: true))
+        #expect(lists == 1)
+        #expect(catalog.machines[.cloud(created.id)] != nil,
+                "A stale list must leave the friendly create receipt visible")
+
+        page = VMListPage(vms: [created], limits: nil)
+        #expect(await registry.refresh(force: true))
+        #expect(lists == 2)
+        #expect(registry.provider(machineID: created.id) != nil,
+                "The receipt should converge once discovery positively observes the machine")
+        page = VMListPage(vms: [], limits: nil)
+        #expect(await registry.refresh(force: true))
+        #expect(catalog.machines[.cloud(created.id)] == nil,
+                "After positive discovery, authoritative deletion owns this machine")
+        await registry.accessDidEnd()
+    }
+
+    @Test("Admitting one machine receipt does not invalidate another machine discovery")
+    func machineReceiptDoesNotCancelConcurrentDiscovery() async throws {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("vm-a")], limits: nil)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+        let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-a") }
+        #expect(await boundedResult(requested))
+        registry.recordCreatedMachine(machine("vm-b"), scope: registry.creationScope)
+        release.resolve(true)
+        #expect(await discovery.value != nil)
+        #expect(lists == 1)
+        await registry.accessDidEnd()
+    }
+
+    @Test("Pending machine receipts retire on deletion and team changes without affecting another create")
+    func pendingMachineReceiptsRespectScopeAndDeletion() async {
+        let catalog = SurfaceCatalog()
+        let notifications = NotificationCenter()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            notificationCenter: notifications
+        )
+        registry.start(catalog: catalog)
+        let oldScope = registry.creationScope
+        registry.recordCreatedMachine(machine("VM-First"), scope: oldScope)
+        registry.recordCreatedMachine(machine("VM-Second"), scope: oldScope)
+        registry.machineWasDeleted("vm-first")
+        #expect(catalog.machines[.cloud("VM-First")] == nil)
+        #expect(await registry.refresh(force: true))
+        #expect(catalog.machines[.cloud("VM-Second")] != nil)
+
+        notifications.post(name: .cmuxCloudVMAccessDidEnd, object: nil, userInfo: ["cmux.teamSwitch": true])
+        #expect(catalog.machines.isEmpty)
+        registry.recordCreatedMachine(machine("late-old-team"), scope: oldScope)
+        #expect(catalog.machines.isEmpty)
+        #expect(registry.creationScope == nil)
+        #expect(await registry.refresh(force: true) == false)
+        await registry.accessDidEnd()
+        registry.start(catalog: catalog)
+        registry.recordCreatedMachine(machine("new-team"), scope: registry.creationScope)
+        #expect(await registry.refresh(force: true))
+        #expect(Set(catalog.machines.keys) == [.cloud("new-team")])
+        await registry.accessDidEnd()
+    }
+
+    @Test("Team switch fences an in-flight discovery before its old page can publish")
+    func teamSwitchFencesInFlightDiscovery() async throws {
+        let catalog = SurfaceCatalog()
+        let requested = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let notifications = NotificationCenter()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                if lists == 1 { return VMListPage(vms: [machine("known-old-team-vm")], limits: nil) }
+                requested.resolve(true)
+                _ = await release.result
+                return VMListPage(vms: [machine("old-team-vm")], limits: nil)
+            },
+            notificationCenter: notifications
+        )
+        registry.start(catalog: catalog)
+        let provider = try #require(await registry.providerRefreshingIfMissing(machineID: "known-old-team-vm"))
+        let generation = provider.currentLifecycleGeneration
+        let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "old-team-vm") }
+        #expect(await boundedResult(requested))
+        notifications.post(name: .cmuxCloudVMAccessDidEnd, object: nil, userInfo: ["cmux.teamSwitch": true])
+        #expect(!provider.isCurrentLifecycleGeneration(generation))
+        #expect(!provider.isRegisteredInCatalog())
+        release.resolve(true)
+        #expect(await discovery.value == nil)
+        #expect(catalog.machines.isEmpty)
+        await registry.accessDidEnd()
+    }
+
+    @Test("A saved machine can resolve its private route before the first background list")
+    func privateRouteDiscoversBeforeFirstPoll() async {
+        let catalog = SurfaceCatalog()
+        var summary = machine("vm-saved")
+        summary.addressIPv4 = "10.16.0.7"
+        var lists = 0
+        var refreshes = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [summary], limits: nil)
+            },
+            refreshProvider: { _, _ in refreshes += 1; return true }
+        )
+        registry.start(catalog: catalog)
+
+        #expect(registry.provider(machineID: "vm-saved") == nil)
+        #expect(await registry.privateRoute(machineID: "vm-saved") == "ws://10.16.0.7:1337/v1/link")
+        #expect(await registry.privateRoute(machineID: "vm-saved") == "ws://10.16.0.7:1337/v1/link")
+        #expect(lists == 1, "Later opens reuse the discovered route")
+        #expect(refreshes == 0, "Route discovery must not wait for machine links or stats")
+
+        await registry.accessDidEnd()
+        #expect(await registry.privateRoute(machineID: "vm-saved") == nil)
+        #expect(lists == 1, "A signed-out registry must not start discovery")
+    }
+
     @Test("Discovering a new VM does not wait for another VM's blocked refresh")
     func missingProviderDiscoveryDoesNotWaitForUnrelatedLinks() async {
         let catalog = SurfaceCatalog()
@@ -33,10 +227,11 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                     olderRefreshStarted.resolve(true)
                     _ = await releaseOlderRefresh.result
                 }
+                return true
             }
         )
         registry.start(catalog: catalog)
-        let background = Task { await registry.refresh(force: false) }
+        let background = Task { await registry.refresh(force: true) }
         let started = await boundedResult(olderRefreshStarted)
         page = VMListPage(vms: [machine("vm-older"), machine("vm-new")], limits: nil)
         let discovery = Task {
@@ -74,7 +269,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-known")], limits: nil)
             },
-            refreshProvider: { _, _ in refreshes += 1 }
+            refreshProvider: { _, _ in refreshes += 1; return true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -97,7 +292,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             wireGuardHub: nil,
             allowsBackgroundWork: { false },
             listPage: { page },
-            refreshProvider: { _, _ in refreshes += 1 }
+            refreshProvider: { _, _ in refreshes += 1; return true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -129,7 +324,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-known")], limits: nil)
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -172,7 +367,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 }
                 return VMListPage(vms: [machine("vm-new")], limits: nil)
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         let background = Task { await registry.refresh(force: false) }
@@ -206,7 +401,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-next-account")], limits: nil)
             },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {
                 closing.resolve(true)
                 _ = await release.result
@@ -248,7 +443,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 _ = await release.result
                 return VMListPage(vms: [machine("vm-late")], limits: nil)
             },
-            refreshProvider: { _, _ in Issue.record("Retired discovery must not refresh a provider") }
+            refreshProvider: { _, _ in Issue.record("Retired discovery must not refresh a provider"); return true }
         )
         registry.start(catalog: catalog)
         let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-late") }
@@ -280,7 +475,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 _ = await release.result
                 return VMListPage(vms: [machine("vm-retired")], limits: nil)
             },
-            refreshProvider: { _, _ in Issue.record("Sign-out must retire waiting refreshes") }
+            refreshProvider: { _, _ in Issue.record("Sign-out must retire waiting refreshes"); return true }
         )
         registry.start(catalog: catalog)
         let first = Task { await registry.refresh(force: false) }
@@ -320,6 +515,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             refreshProvider: { _, _ in
                 started.resolve(true)
                 _ = await release.result
+                return true
             }
         )
         registry.start(catalog: catalog)

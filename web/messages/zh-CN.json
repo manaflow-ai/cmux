@@ -23,6 +23,11 @@
       "message": "云端虚拟机需要 cmux Pro 套餐。",
       "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
     },
+    "displayName": {
+      "title": "机器名称无效",
+      "message": "机器名称必须是不超过 {maxLength} 个字符的可打印文本。",
+      "action": "请使用不含控制字符的更短名称，或留空以清除名称。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的机器需要 cmux {plan}。当前套餐最多支持 {max} GiB。",
@@ -35,8 +40,7 @@
     "memoryUnavailable": {
       "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +50,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
   },
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "验证邮箱后继续",
     "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"
@@ -318,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "移动设备"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,23 +369,41 @@
         "loading": "加载中…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "移动设备",
+      "description": "管理对已连接电脑、手机和平板电脑的访问。",
+      "team": "团队",
+      "teamSwitchError": "无法切换团队。请重试。",
+      "loading": "正在加载设备…",
+      "empty": "此团队没有注册设备。",
+      "unavailable": "无法加载你的设备。刷新页面后重试。",
+      "retry": "重试",
+      "mutationError": "无法完成设备更改。",
+      "revoke": "撤销访问权限",
+      "deviceId": "设备",
+      "revision": "版本",
+      "status": "状态",
+      "active": "活动",
+      "revoked": "已撤销",
+      "relaySettings": "中继设置",
+      "relaySettingsDescription": "选择此团队使用的中继服务器。每行输入一个 URL。",
+      "saveRelaySettings": "保存中继设置",
+      "eyebrow": "云端 / 设备",
+      "scopeActive": "正在显示此团队",
+      "emptyTitle": "尚无已连接的设备",
+      "emptyDescription": "cmux 设备与此团队配对后，其平台、版本和访问控制将显示在这里。",
+      "revoking": "正在撤销…",
+      "registeredDevices": "已注册设备",
+      "activeDevices": "有效设备",
+      "directoryRevision": "设备列表修订号",
+      "savingRelaySettings": "正在保存…"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "与团队共享",
+      "makePrivate": "设为私有",
+      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {
@@ -1003,10 +1027,10 @@
       "targetTitle": "选错窗口或点击被阻止",
       "targetBody": "重新查看应用，从当前状态中选择新的元素。如果其他窗口遮挡了目标，请先显示目标窗口再重新查看。不要复用过期坐标或元素索引。",
       "productLink": "cmux Computer Use 概览",
-    "copyTitle": "复制 Computer Use 提示词",
-    "copyPrompt": "复制提示词",
-    "copiedPrompt": "已复制",
-    "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
+      "copyTitle": "复制 Computer Use 提示词",
+      "copyPrompt": "复制提示词",
+      "copiedPrompt": "已复制",
+      "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
     },
     "remoteTmux": {
       "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
@@ -1213,6 +1237,7 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题或终端颜色，否则 cmux 会提供随外观变化的默认配色。字体和其他设置会保留。为 false 时，Ghostty 使用固定的内置配色。显式主题和颜色始终优先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "终端和内置代理聊天内容的可选最大宽度，单位为点。设为 false 可使用整个窗格宽度。",
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
@@ -1327,7 +1352,7 @@
       "plusButtonScreenshotAlt": "cmux 加号按钮右键菜单显示 Worktree Agents、New Terminal 和 New Browser",
       "plusButtonScreenshotCaption": "右键菜单遵循 ui.newWorkspace.contextMenu 中的顺序。",
       "newWorkspaceButton": "加号按钮的自定义动作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。 New Cloud Workspace 使用最近选中的 Cloud 工作区所属机器，然后使用右侧边栏中的第一台机器；New Cloud Machine 会主动配置一台机器。",
       "newWorkspaceWorktreeNote": "此示例让普通加号点击运行 <action>worktree-agents</action> 操作。来自 <commands>commands</commands> 的工作区命令会先使用可见的设置终端创建 Git <worktree>worktree</worktree>。Codex 和 Claude 同时启动，等待该工作区专用的状态文件，然后在 exec 前进入创建的目录。",
       "simpleCommands": "简单命令",
       "simpleCommandsDesc": "简单命令在当前聚焦的终端中运行 shell 命令：",
