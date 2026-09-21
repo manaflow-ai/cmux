@@ -48,3 +48,6 @@ next-env.d.ts
 
 # Playwright output
 test-results/
+
+# rendered guest cmux tools for the container recipe (bun run devbox:guest-tools:render)
+/services/vms/images/devbox/guest-tools/

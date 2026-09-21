@@ -106,7 +106,10 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCode
 
 describe("devbox image template", () => {
   test("template directory contains exactly the expected files", () => {
-    expect(readdirSync(templateDir).sort()).toEqual([
+    // guest-tools/ is the rendered, gitignored input of the container
+    // recipe's guest cmux tools (vm-devbox-guest-tools.test.ts), never a
+    // template file.
+    expect(readdirSync(templateDir).filter((name) => name !== "guest-tools").sort()).toEqual([
       "Dockerfile",
       "README.md",
       "agent-config.sh",
@@ -475,6 +478,24 @@ describe("devbox image template", () => {
     }
   });
 
+  test("the supervisor polls at 100 ms while parked or until its daemon is bound, then once a second", () => {
+    // Provider floor (docs/cloud-startup-latency.md, 4.3): a clone resumed
+    // from a parked snapshot sat in the remainder of a 1 s tick before its
+    // daemon was even started, 0.33 s of the 1.21 s to a bound listener. The
+    // parked builder and a machine whose daemon is not yet bound to its own
+    // instance id poll ten times a second; a bound, running daemon keeps the
+    // 1 s steady state so an idle machine costs nothing extra.
+    expect(devboxBoot).toContain("\n  tick=1\n");
+    expect(devboxBoot).toContain("stop_daemon # the machine being snapshotted: parked until the snapshot is taken\n      tick=0.1\n");
+    expect(devboxBoot).toContain('if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null || [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then tick=0.1; fi');
+    expect(devboxBoot.endsWith('  sleep "$tick"\ndone\n')).toBe(true);
+    expect(devboxBoot).not.toContain("\n  sleep 1\n");
+    // Never before the binary exists: a container waiting for a driver
+    // install would otherwise run the layout probe (sudo included) at 10 Hz.
+    expect(devboxBoot.indexOf("tick=0.1")).toBeGreaterThan(devboxBoot.indexOf('if [ -x "$BIN" ]; then'));
+    expect(devboxBoot.lastIndexOf("tick=0.1")).toBeLessThan(devboxBoot.indexOf('  sleep "$tick"'));
+  });
+
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
@@ -561,8 +582,8 @@ describe("devbox image template", () => {
     const desktop = devboxSourceManifest("desktop", dockerfile);
     // Pins, epoch and the verbatim files: a pin bump, an epoch bump, or a
     // template edit each changes the digest; Dockerfile prose does not.
-    expect(DEVBOX_SOURCE_SCHEMA).toBe(2);
-    expect(base).toMatchObject({ schema: 2, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
+    expect(DEVBOX_SOURCE_SCHEMA).toBe(3);
+    expect(base).toMatchObject({ schema: 3, layers: "base", agentPins: Object.fromEntries(devboxAgentPins(dockerfile).map((pin) => [pin.pkg, pin.version])) });
     expect(typeof base.dockerfileInstructions).toBe("string");
     expect(typeof base.bakeScript).toBe("string");
     expect(Object.keys(base.files as Record<string, string>).sort()).toEqual([...DEVBOX_TEMPLATE_FILES].filter((name) => name !== "Dockerfile").sort());
@@ -596,7 +617,8 @@ describe("devbox image template", () => {
     // A comment edit to the bake script moves it too (stated trade-off: no lexer).
     expect(devboxSourceDigest("base", dockerfile, 2, () => `${bake}\n// one more comment\n`)).not.toBe(devboxSourceDigest("base", dockerfile, 2, () => bake));
     expect(devboxSourceDigest("base", dockerfile, 1, withCode)).toBe(devboxSourceDigest("base", dockerfile, 1, () => bake));
-    expect(() => devboxSourceDigest("base", dockerfile, 3)).toThrow(/unknown devbox source schema/);
+    // Schema 3 adds the generated guest cmux tools (vm-devbox-guest-tools.test.ts).
+    expect(() => devboxSourceDigest("base", dockerfile, 4)).toThrow(/unknown devbox source schema/);
     // The normalizers themselves: Dockerfile comments gone by the grammar
     // (a parser directive before the first instruction is kept, a `#` line
     // inside a continued RUN is a comment), bake-script lines kept verbatim
