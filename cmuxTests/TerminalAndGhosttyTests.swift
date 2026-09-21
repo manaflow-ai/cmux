@@ -3300,7 +3300,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+        // Runtime creation is asynchronous in the app host; wait for it instead of
+        // assuming the fixed run-loop spin above finished it.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before simulating the detach race"
+        )
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3439,7 +3444,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
+        // Runtime creation is asynchronous in the app host; wait for it instead of
+        // assuming the fixed run-loop spin above finished it.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before simulating close lifecycle teardown"
+        )
 
         surface.beginPortalCloseLifecycle(reason: "test.close")
         surface.teardownSurface()
@@ -3494,7 +3504,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat key input")
+        // Runtime creation is asynchronous in the app host; wait for it instead of
+        // assuming the fixed run-loop spin above finished it.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before sending repeat key input"
+        )
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
         let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
@@ -3581,7 +3596,12 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before sending repeat IME input")
+        // Runtime creation is asynchronous in the app host; wait for it instead of
+        // assuming the fixed run-loop spin above finished it.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before sending repeat IME input"
+        )
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
 
         let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
