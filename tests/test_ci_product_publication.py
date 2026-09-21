@@ -122,6 +122,28 @@ class ProductPublicationTests(unittest.TestCase):
             self.assertIn("-xctestrun", run, step["name"])
             self.assertIn("test-without-building", run, step["name"])
 
+    def test_terminal_core_full_suite_lives_in_package_lane(self):
+        app_job = self.workflow["jobs"]["app-host-unit-tests"]
+        app_text = str(app_job)
+        app_names = [step["name"] for step in app_job["steps"]]
+
+        self.assertNotIn("CmuxTerminalCore-Package", app_text)
+        self.assertNotIn("GhosttyKit.xcframework", app_text)
+        self.assertNotIn("Install Rust", app_names)
+        self.assertNotIn("test_bundled_ghostty_theme_picker_helper.sh", app_text)
+
+        package_job = self.workflow["jobs"]["swift-package-tests"]
+        package_step = next(
+            step for step in package_job["steps"]
+            if step["name"] == "Run Swift package unit tests"
+        )
+        package_run = package_step["run"]
+        self.assertIn("CmuxTerminalCore", package_run)
+        self.assertIn(
+            'grep -qxF CmuxTerminalCore "$selected" || echo CmuxTerminalCore >> "$selected"',
+            package_run,
+        )
+
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
         for name in ("Compile app-host test product", "Validate Swift warning budget",
