@@ -42,6 +42,23 @@ final class CloudBrowserAccessState {
         observeRoute()
     }
 
+    /// Rebinds ownership to a committed same-VM service without restarting the
+    /// current WebKit navigation (for example, a POST redirect to another port).
+    func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
+        observationGeneration &+= 1
+        unavailable = nil
+        self.resourceID = resourceID
+        self.model = model
+        remoteURL = url
+        navigationURL = nil
+        error = nil
+        desktopFailure = nil
+        dismissedFailure = nil
+        activeNavigationID = nil
+        connectionDeadline.cancel()
+        trace("route_adopted")
+    }
+
     func routeDidConfigure() { observeRoute() }
     func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }
 

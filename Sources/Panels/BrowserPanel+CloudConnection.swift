@@ -97,7 +97,7 @@ extension BrowserPanel {
         }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }) else {
             return false
         }
-        return provider.configureBrowser(self, url: url)
+        return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)
     }
 
     /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.

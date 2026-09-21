@@ -46,7 +46,8 @@ extension CmuxTuiSurfaceProvider {
 
     /// Bind the page to its machine proxy without activating a system VPN.
     @discardableResult
-    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil) -> Bool {
+    func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
+                          preserveCurrentNavigation: Bool = false) -> Bool {
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
@@ -107,14 +108,18 @@ extension CmuxTuiSurfaceProvider {
             catalog.restore([SurfaceProjectionRecord(panelID: browser.id, resource: resourceID)], workspaceID: browser.workspaceId)
         }
         let port = privateURL.port ?? (privateURL.scheme?.lowercased() == "https" ? 443 : 80)
-        browser.webView.stopLoading()
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.retainTransferredSurfaceMachine(machine)
-        browser.cloudAccess.configure(model: model, url: privateURL, resourceID: resourceID)
+        if preserveCurrentNavigation {
+            browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
+        } else {
+            browser.webView.stopLoading()
+            browser.cloudAccess.configure(model: model, url: privateURL, resourceID: resourceID)
+        }
         browser.prepareCloudBrowserStore(machineID: machineID)
-        browser.showCloudAddress(privateURL)
+        if !preserveCurrentNavigation { browser.showCloudAddress(privateURL) }
         model.connect()
-        browser.cloudAccess.routeDidConfigure()
+        if !preserveCurrentNavigation { browser.cloudAccess.routeDidConfigure() }
         materializedPanels.insert(browser.id)
         return true
     }

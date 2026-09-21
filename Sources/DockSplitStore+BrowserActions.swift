@@ -48,7 +48,14 @@ extension DockSplitStore {
             duplicatedPanel.retainTransferredSurfaceMachine(resource.machine)
             catalog.restore([SurfaceProjectionRecord(panelID: duplicatedPanel.id, resource: resource,
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
-            duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
+            if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
+                duplicatedPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
+                duplicatedPanel.cloudAccess.configure(model: model, url: url, resourceID: resource)
+                duplicatedPanel.showCloudAddress(url)
+                model.connect()
+            } else {
+                duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
+            }
         }
         if focus {
             noteKeyboardFocusIntent(window: focusWindow)
