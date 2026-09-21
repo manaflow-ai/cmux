@@ -35,6 +35,9 @@ GUARD_ROUTE_JOBS = {
 }
 WEB_JOBS = (
     "web-typecheck",
+    "web-production-build",
+    "web-tests",
+    "web-instant-navigation",
     "react-apps-check",
     "diff-sidecar-check",
     "web-db-migrations",
@@ -98,7 +101,7 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
     assert module.classify_files(["docs/ci.md"]).release_build is False
     assert module.classify_files([".github/workflows/ci.yml"]).release_build is True
-    assert module.classify_files([".github/workflows/ci-guards.yml"]) == module.ChangeAreas.all()
+    assert module.classify_files([".github/workflows/ci-guards.yml"]).release_build is False
     assert module.ChangeAreas.all().release_build is True
 
 
@@ -158,6 +161,7 @@ def test_cmux_tui_only_skips_macos() -> None:
 
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
+    assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True, agent_session_web=False)
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
@@ -235,6 +239,16 @@ def test_workflow_changes_run_everything() -> None:
         web=True,
         agent_session_web=True,
     )
+
+
+def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
+    for path in (
+        ".github/workflows/ci-guards.yml",
+        "scripts/ci/persistent_mac_route.py",
+        "tests/test_ci_persistent_mac_compile.py",
+        "tests/test_ci_self_hosted_guard.sh",
+    ):
+        assert_areas([path], macos=False, web=False)
 
 
 def test_reusable_web_workflow_edit_runs_every_owned_web_job() -> None:
@@ -419,6 +433,26 @@ def test_workflow_routes_macos_job_edit_to_every_area() -> None:
         CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: compile", "- run: compile --faster")
     )
     assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+
+
+def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
+    indirect = frozenset({"tests/test_guard_profile_owned.py"})
+
+    linux_workflow = (
+        "name: Guards\njobs:\n  guard:\n"
+        "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+        "    steps:\n"
+        "      - run: python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard\n"
+    )
+    references = module.macos_job_test_references(linux_workflow, indirect)
+    assert module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
+
+    macos_workflow = linux_workflow.replace(
+        "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
+        "${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}",
+    )
+    references = module.macos_job_test_references(macos_workflow, indirect)
+    assert not module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
 
 
 def test_macos_test_references_fail_open_without_ci_workflow() -> None:
@@ -748,6 +782,13 @@ def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
 
     assert "CI router changed; running all CI areas." in result.stdout
     assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+
+
+def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
+    result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
+
+    assert "CI router changed; running all CI areas." not in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_workflow_diff_failure_runs_all_areas() -> None:
@@ -1092,7 +1133,8 @@ def test_web_typecheck_retries_native_tsgo_abort() -> None:
 
 def test_ci_instant_navigation_owns_typecheck_once() -> None:
     config = (ROOT / "web/playwright.instant.config.ts").read_text()
-    workflow = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
     web_validation = workflow_job_block("tests", WEB_VALIDATION_WORKFLOW)
     assert "CMUX_INSTANT_SKIP_TYPECHECK" in config
     assert "process.env.CMUX_INSTANT_SKIP_TYPECHECK === \"1\"" in config
@@ -1100,17 +1142,13 @@ def test_ci_instant_navigation_owns_typecheck_once() -> None:
     assert '"test:instant": "playwright test -c playwright.instant.config.ts"' in package_json
     assert '"test:instant:checked"' not in package_json
 
-    ci_typecheck = workflow.index("      - name: Typecheck")
-    ci_instant = workflow.index("      - name: Instant navigation tests")
-    assert ci_typecheck < ci_instant
-    # The only second invocation is the bounded retry owned by the Typecheck
-    # step; the Instant navigation step must never own a typecheck.
-    assert workflow[ci_typecheck:ci_instant].count("bun run typecheck") == 2
-    ci_instant_step = workflow[ci_instant:]
-    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in ci_instant_step
-    assert "        env:" in ci_instant_step
-    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in ci_instant_step
-    assert "        run: bun run test:instant" in ci_instant_step
+    # The only second invocation is the bounded retry owned by the independent
+    # Typecheck job. The browser job must never own a typecheck.
+    assert typecheck.count("bun run typecheck") == 2
+    assert "bun run typecheck" not in instant
+    assert "CMUX_INSTANT_CHECK_TYPECHECK" not in instant
+    assert '          CMUX_INSTANT_SKIP_TYPECHECK: "1"' in instant
+    assert "        run: bun run test:instant" in instant
 
     validation_typecheck = web_validation.index("      - run: bun run typecheck")
     validation_instant = web_validation.index("      - run: bun run test:instant")
@@ -1664,6 +1702,22 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 
+def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
+    app_host = workflow_job_block("app-host-unit-tests")
+    console_runner = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(encoding="utf-8")
+
+    assert 'CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"' in app_host
+    assert "CMUX_APP_HOST_CAPTURE_XCRESULTS" in console_runner
+    assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
+    assert "- name: Collect app-host failure diagnostics" in app_host
+    assert "- name: Upload app-host failure diagnostics" in app_host
+    assert "cmux-app-host-xcodebuild-*.meta" in app_host
+    assert "cmux-app-host-xcresults" in app_host
+    assert ".local/state/cmux/crash" in app_host
+    assert "Library/Logs/DiagnosticReports" in app_host
+    assert "if: ${{ failure() || cancelled() }}" in app_host
+
+
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
@@ -1710,22 +1764,6 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
-def test_guard_matrix_parallelizes_the_mixed_suite() -> None:
-    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
-
-    assert "group: [preflight, ci, app-host, release, quality]" in block
-    assert "name: workflow-guard-tests / ${{ matrix.group }}" in block
-    for step, group in (
-        ("Validate control-plane generated types", "preflight"),
-        ("Validate CI change area filter", "ci"),
-        ("Validate app-host xcodebuild retry guard", "app-host"),
-        ("Validate iOS App Store lane identity", "release"),
-        ("Validate test determinism gate", "quality"),
-    ):
-        marker = f"- name: {step}\n        if: ${{{{ matrix.group == '{group}' }}}}"
-        assert marker in block, (step, group)
-
-
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
@@ -1740,6 +1778,25 @@ def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
     for route in ("web", "macos", "agent_session_web"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
         assert f"needs.changes.outputs.{route} != 'false'" in block
+
+
+def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
+    typecheck = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    production = workflow_job_block("web-production-build", WEB_WORKFLOW)
+    tests = workflow_job_block("web-tests", WEB_WORKFLOW)
+    instant = workflow_job_block("web-instant-navigation", WEB_WORKFLOW)
+
+    assert "bun run typecheck" in typecheck
+    assert "bun run test" not in typecheck
+    assert "playwright" not in typecheck
+    assert "bun run vercel-build" in production
+
+    assert 'shard: ["1/4", "2/4", "3/4", "4/4"]' in tests
+    assert './scripts/run-tests.sh --shard "${{ matrix.shard }}"' in tests
+
+    assert "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae" in instant
+    assert "bunx playwright install --with-deps chromium" in instant
+    assert "CMUX_INSTANT_SKIP_TYPECHECK" in instant
 
 
 def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
@@ -1898,6 +1955,10 @@ def run_focused_app_host_step(
             ROOT / "scripts/ci/require_selected_test_execution.sh",
             ci_scripts / "require_selected_test_execution.sh",
         )
+        shutil.copy2(
+            ROOT / "scripts/ci/run-and-capture.sh",
+            ci_scripts / "run-and-capture.sh",
+        )
         outcomes_file = root / "outcomes"
         outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
         counter = root / "invocations"
@@ -1964,20 +2025,15 @@ esac
         return result, invocations
 
 
-def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
-    # The close suite crashes once and passes on its rerun; the isolated focus
-    # and placement suites then pass, for four invocations in total.
-    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
+def test_remote_tmux_mirror_gate_keeps_a_crash_red_without_rerunning() -> None:
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass"])
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert invocations == 4, result.stdout
-    assert "rerunning the suite once" in result.stdout
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
-    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
-    assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
+    assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
+def test_remote_tmux_mirror_gate_keeps_an_assertion_failure_red() -> None:
     result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
 
     assert result.returncode == 65, result.stdout + result.stderr
@@ -1985,11 +2041,14 @@ def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
     assert "rerunning the suite once" not in result.stdout
 
 
-def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
-    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
+def test_remote_tmux_mirror_gate_runs_each_suite_once_on_success() -> None:
+    result, invocations = run_focused_app_host_step(["pass", "pass", "pass"])
 
-    assert result.returncode == 65, result.stdout + result.stderr
-    assert invocations == 2, result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 3, result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests") == 1
 
 
 def test_devices_gate_propagates_assertion_failures_and_crashes() -> None:

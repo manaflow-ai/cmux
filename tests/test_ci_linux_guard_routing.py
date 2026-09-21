@@ -126,6 +126,18 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "true",
         })
 
+    def test_persistent_mac_control_plane_runs_only_its_own_guard_lane(self):
+        expected = {
+            name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
+        }
+        for path in (
+            "scripts/ci/persistent_mac_route.py",
+            "tests/test_ci_persistent_mac_compile.py",
+            "tests/test_ci_self_hosted_guard.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(route([path]), expected)
+
     def test_web_edit_skips_native_history_cli_and_binary_download(self):
         outputs = route(["web/app/page.tsx"])
         self.assertEqual(outputs, {
