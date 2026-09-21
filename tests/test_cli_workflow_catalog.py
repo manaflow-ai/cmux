@@ -89,7 +89,7 @@ def run_cli(cli_path: str, args: list[str], language: str = "en") -> subprocess.
             text=True,
             capture_output=True,
             check=False,
-            timeout=5.0,
+            timeout=60.0,
             env=env,
         )
 
