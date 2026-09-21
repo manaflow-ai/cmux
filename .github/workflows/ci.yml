@@ -1085,12 +1085,18 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
+          resolve_log="$RUNNER_TEMP/cmux-swiftpm-resolve-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}.log"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            set +e
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
+              -resolvePackageDependencies 2>&1 | tee "$resolve_log"
+            resolve_status="${PIPESTATUS[0]}"
+            set -e
+
+            if [ "$resolve_status" -eq 0 ]; then
               # Guard against a stale/poisoned Swift-package cache: a restored
               # .ci-source-packages can make resolve report success without the
               # binary artifacts (Sparkle/Sentry) actually present, which then
@@ -1101,6 +1107,21 @@ jobs:
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
               rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
+
+            # SwiftPM stores binary download destinations under the runner's
+            # global cache even when clonedSourcePackagesDirPath is isolated.
+            # A reused runner can leave the Iroh archive destination behind;
+            # SwiftPM then reports "already exists in file system" on every
+            # retry. Clear both resolver layers only for that cache collision,
+            # while preserving other failures for diagnosis.
+            if [ "$resolve_status" -ne 0 ] && grep -Fq "already exists in file system" "$resolve_log"; then
+              echo "SwiftPM artifact cache collision detected; clearing resolver caches before retry" >&2
+              rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
+              mkdir -p "$HOME/Library/Caches/org.swift.swiftpm"
+              rm -rf "$SOURCE_PACKAGES_DIR"
+              mkdir -p "$SOURCE_PACKAGES_DIR"
+            fi
+
             # Keep the existing three-attempt policy, but record resolver
             # state when a package attempt fails so provider incidents are
             # distinguishable from SwiftPM or cache defects.
