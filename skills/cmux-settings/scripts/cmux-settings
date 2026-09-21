@@ -382,17 +382,19 @@ def find_cmux_cli() -> str | None:
     return shutil.which("cmux")
 
 
-def discovered_project_config() -> Path | None:
-    current = Path.cwd().resolve()
+def discovered_project_config(start: Path | None = None) -> Path | None:
+    """Find the nearest project config relative to a path, not process CWD."""
+    current = (start or Path.cwd()).expanduser().resolve()
+    if current.is_file():
+        current = current.parent
     home = Path.home().resolve()
-    while current != home:
+    while True:
         for candidate in (current / ".cmux" / "cmux.json", current / "cmux.json"):
             if candidate.is_file():
                 return candidate.resolve()
-        parent = current.parent
-        if parent == current:
+        if current == home or current.parent == current:
             break
-        current = parent
+        current = current.parent
     return None
 
 
@@ -409,7 +411,7 @@ def semantic_scope_for(path: Path, explicit_scope: str | None = None) -> str:
         return "global"
     if resolved.parent.name == ".cmux":
         return "project"
-    if discovered_project_config() == resolved:
+    if discovered_project_config(resolved.parent) == resolved:
         return "project"
     return "global"
 
