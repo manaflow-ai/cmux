@@ -15,6 +15,29 @@ import GhosttyKit
 /// (`Workspace+CloudTerminalReservation`).
 @MainActor
 extension Workspace {
+    /// A saved device terminal stays process-free until its provider reconnects:
+    /// the pane is built on the same manual-mirror path as a live attachment.
+    func restoreDeviceDisplayPanel(_ snapshot: SessionPanelSnapshot, in pane: PaneID) -> UUID? {
+        guard let panel = makeRemoteTmuxPanePanel(onInput: { _ in }, keyNameResolver: nil) else { return nil }
+        Self.bindCloudManualMirrorCallbacks(
+            panel: panel, onResize: { _ in }, onRuntimeReady: {}, onFocus: {}, attachment: nil
+        )
+        guard let panelID = try? insertCloudManualMirrorTab(panel, in: pane, focus: false, isLoading: false, iconAssetName: nil) else {
+            return nil
+        }
+        let status = DeviceTerminalAttachmentStatus()
+        panel.deviceAttachment = status
+        status.onChange = { [weak self] in self?.postRemoteConnectionPresentationDidChange() }
+        status.onRetry = { [weak self] in
+            guard self != nil, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
+                  let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) else { return }
+            Task { await provider.refresh(force: true) }
+        }
+        status.update(connected: false, connecting: false)
+        applySessionPanelMetadata(snapshot, toPanelId: panelID)
+        return panelID
+    }
+
     private static var cloudManualMirrorTabTitle: String {
         String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
     }
