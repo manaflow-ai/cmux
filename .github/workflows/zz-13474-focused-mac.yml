@@ -1,0 +1,30 @@
+name: 13474 focused Mac package test
+
+on:
+  push:
+    branches:
+      - fix/13474-viewport-rearm-storm
+
+permissions:
+  contents: read
+
+jobs:
+  terminal:
+    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 25
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - uses: actions/checkout@de0fac2e4506b59d4b5328d21239e5007b1c1e19 # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Download GhosttyKit
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+      - name: Run focused CmuxTerminal tests
+        run: |
+          set -euo pipefail
+          swift test --package-path Packages/macOS/CmuxTerminal --filter MobileViewportFitGeometryTests
