@@ -15,6 +15,8 @@ final class DispatchSourceCancellationBarrier: @unchecked Sendable {
     internal private(set) var registrations = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    deinit {}
+
     /// Registers one source before it is activated.
     func register() {
         lock.lock()

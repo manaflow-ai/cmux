@@ -6,6 +6,8 @@ final class SocketWriterTestExecutor: TaskExecutor {
     private let queue = DispatchQueue(label: "cmux.tests.socket-writer-executor")
     private let didRunJob: @Sendable () -> Void
 
+    deinit {}
+
     init(didRunJob: @escaping @Sendable () -> Void) {
         self.didRunJob = didRunJob
     }

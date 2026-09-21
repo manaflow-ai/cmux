@@ -9,12 +9,16 @@ internal import Darwin
 public final class ControlClientAsyncWriter: @unchecked Sendable {
     private final class SourceBox: @unchecked Sendable {
         var source: (any DispatchSourceWrite)?
+
+        deinit {}
     }
 
     private let socket: Int32
     /// One-shot writable sources must finish cancellation before the owner
     /// closes the shared socket descriptor.
     let sourceCancellationBarrier = DispatchSourceCancellationBarrier()
+
+    deinit {}
 
     /// Creates a writer over a non-blocking descriptor.
     ///
