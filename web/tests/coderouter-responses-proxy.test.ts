@@ -149,6 +149,44 @@ describe("codex responses proxy session routing", () => {
     expect(cooldowns).toEqual(["acct-capacity"]);
   });
 
+  test("fails over the Codex server_overloaded error code", async () => {
+    const bodies = [
+      `data: ${JSON.stringify({
+        type: "error",
+        message: "Try again later.",
+        codex_error_info: "server_overloaded",
+      })}\n\n`,
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("fails over a usage_limit_exceeded response before exposing it", async () => {
+    const bodies = [
+      JSON.stringify({
+        error: {
+          code: "usage_limit_exceeded",
+          message: "You've hit your usage limit.",
+        },
+      }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [400, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
   test("fails over a capacity response returned as a non-2xx JSON body", async () => {
     const bodies = [
       JSON.stringify({ error: { code: "model_capacity", message: "Selected model is at capacity" } }),

@@ -769,7 +769,11 @@ function isCodexCapacityPayload(value: unknown): boolean {
 function isCodexCapacityText(value: string): boolean {
   const text = value.toLowerCase();
   return text.includes("usage_limit_reached") ||
+    text.includes("usage_limit_exceeded") ||
     text.includes("rate_limit_exceeded") ||
+    text.includes("server_overloaded") ||
+    text.includes("server_is_overloaded") ||
+    text.includes("overloaded_error") ||
     text.includes("selected model is at capacity") ||
     text.includes("model is at capacity") ||
     text.includes("model_capacity") ||
