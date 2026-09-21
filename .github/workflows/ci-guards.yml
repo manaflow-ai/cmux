@@ -575,7 +575,13 @@ jobs:
 
   workflow-guard-source-lints:
     if: ${{ inputs.linux_guard_source == 'true' }}
-    # Slow guards run beside workflow-guard-tests so they do not extend it.
+    name: workflow-guard-source-lints / ${{ matrix.group }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [sidebar-layout, dispatch-ownership]
+    # These source-policy scans are independent and each dominates wall time;
+    # run them concurrently and aggregate through the reusable-workflow job.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -594,13 +600,20 @@ jobs:
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
+      - name: Validate source-lint guard structure
+        if: ${{ matrix.group == 'sidebar-layout' }}
+        run: python3 tests/test_ci_source_lint_guard_structure.py
+
       - name: Validate sidebar lazy-layout guard
+        if: ${{ matrix.group == 'sidebar-layout' }}
         run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
 
       - name: Initialize Bonsplit for deferred-work ownership guard
+        if: ${{ matrix.group == 'dispatch-ownership' }}
         run: git submodule update --init --depth 1 vendor/bonsplit
 
       - name: Validate stored DispatchWorkItem ownership
+        if: ${{ matrix.group == 'dispatch-ownership' }}
         run: |
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
