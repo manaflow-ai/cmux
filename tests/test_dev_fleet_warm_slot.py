@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import importlib.util
 import json
 import os
@@ -123,6 +124,63 @@ class WarmSlotTest(unittest.TestCase):
             argv += ["--warm-generation-id", warm_generation_id]
         argv += ["--", *(command or native_command())]
         return self.call(*argv)
+
+    def test_filesystem_identifiers_are_closed_before_path_use(self):
+        self.assertEqual(warm_slot.slot_id("slot-01"), "slot-01")
+        self.assertEqual(warm_slot.task_id("agent:task_01"), "agent:task_01")
+        for value in ("../escape", "slot/child", ".", "..", "é"):
+            with self.subTest(slot=value):
+                with self.assertRaises((ValueError, argparse.ArgumentTypeError)):
+                    warm_slot.Layout(self.state, value)
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    warm_slot.slot_id(value)
+        for value in ("../escape", "task/child", ".", "..", "é"):
+            with self.subTest(task_id=value):
+                with self.assertRaises(argparse.ArgumentTypeError):
+                    warm_slot.task_id(value)
+
+    def test_cli_rejects_traversal_identifiers_before_state_creation(self):
+        cases = [
+            [
+                "plan",
+                "--machine-state", str(self.state),
+                "--slot", "../escape",
+                "--checkout", str(self.repo),
+                "--target", self.base,
+            ],
+            [
+                "task-run",
+                "--machine-state", str(self.state),
+                "--slot", "slot",
+                "--checkout", str(self.repo),
+                "--target", self.base,
+                "--task-id", "../escape",
+                "--", *native_command(),
+            ],
+        ]
+        for argv in cases:
+            with self.subTest(argv=argv):
+                result = subprocess.run(
+                    [sys.executable, str(HELPER), *argv],
+                    cwd=ROOT,
+                    env=fake_env(),
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("closed ASCII identifier", result.stderr)
+        self.assertFalse((self.state / "escape").exists())
+        self.assertFalse((self.state / "slots").exists())
+
+    def test_log_tokens_never_embed_untrusted_path_syntax(self):
+        token = warm_slot.log_token("refs/heads/feature/task")
+        self.assertRegex(token, r"^[0-9a-f]{12}$")
+        self.assertNotIn("/", token)
+        self.assertEqual(
+            warm_slot.log_token("a" * 40),
+            "a" * 12,
+        )
 
     def test_classifier_fails_toward_rebuild(self):
         neutral = warm_slot.classify(self.repo, self.base, self.neutral)
