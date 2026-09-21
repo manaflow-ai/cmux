@@ -855,8 +855,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
-        // The initial session may publish its own binding. After /clear, only
-        // the replacement session may publish, including during late old hooks.
         let resumeBindingRequests = context.state.snapshot().dropFirst(clearCommandStart).compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else {

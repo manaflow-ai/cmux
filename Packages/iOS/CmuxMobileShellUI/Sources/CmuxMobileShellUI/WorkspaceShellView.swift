@@ -1276,6 +1276,7 @@ struct WorkspaceShellView: View {
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
+            cancelRefresh: cancelRefreshWorkspaces,
             signOut: signOut,
             reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1661,7 +1662,12 @@ struct WorkspaceShellView: View {
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
         // no-opping, so the offline list can recover itself.
-        return { await store.reconnectOrRefresh() }
+        return { await store.runPreparedWorkspaceListRecovery() }
+    }
+
+    private var cancelRefreshWorkspaces: () -> Void {
+        let store = store
+        return { store.cancelWorkspaceListRecovery() }
     }
 
     /// Manual reconnect for the offline status row's Reconnect button.

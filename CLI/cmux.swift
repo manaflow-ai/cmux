@@ -4882,6 +4882,7 @@ struct CMUXCLI {
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
         if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
+        if command == "glaeda" { try runGlaedaCommand(commandArgs: commandArgs); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
@@ -5288,8 +5289,6 @@ struct CMUXCLI {
         }
         defer { client.close() }
         if defersSocketConnection {
-            // send/sendV2 connects and authenticates immediately before the
-            // first request; local validation and dry runs never open a socket.
             client.configureAuthentication(password: SocketPasswordResolver.resolve(
                 explicit: socketPasswordArg,
                 socketPath: resolvedSocketPath
@@ -8124,8 +8123,8 @@ struct CMUXCLI {
         return FileManager.default.fileExists(atPath: resolvePath(arg))
     }
 
-    /// These VM handlers finish local planning and validation before their
-    /// first request. SocketClient owns connection and authentication at send.
+    /// These VM handlers finish local planning and validation before their first
+    /// request. SocketClient owns connection and authentication at send.
     private static func commandDefersSocketConnectionUntilRequest(
         command: String,
         commandArgs: [String]
@@ -19249,6 +19248,8 @@ struct CMUXCLI {
               cmux list-pane-surfaces
               cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
             """
+        case "glaeda":
+            return Self.glaedaUsage
         case "current":
             return CurrentCommand.usage
         case "tree":
@@ -36108,10 +36109,6 @@ export default CMUXSessionRestore;
 
             if def.name == "codex", codexLifecycle?.usesLegacyIdentity == true,
                !suppressCompletionNotification {
-                // Legacy depth repair already proved these prior turns terminal.
-                // Publish the same evidence before the current Stop so the
-                // journal does not keep an obsolete Running turn. An idle
-                // observation has no success claim or notification candidate.
                 for priorTurnId in activePromptTurnIdsForStop
                     where terminalActivePromptTurnIdsForStop.contains(priorTurnId) {
                     emitAgentJournalEvent(
