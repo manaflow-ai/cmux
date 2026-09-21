@@ -2708,6 +2708,73 @@ jobs:
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Capture Ghostty revision
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: ghostty-revision
+        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache GhosttyKit.xcframework
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: cache-ghosttykit-admission
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Cache Swift packages
+        if: steps.reuse-products.outputs.hit != 'true'
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      - name: Resolve Swift packages
+        id: hosted-package-readiness
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: |
+          set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
+          rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          scripts/ci/compile-app-host-test-product.sh resolve \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
+      # only writer. A cache saved here would be scoped to this pull request and
+      # would spend the cache budget that keeps the main seed alive.
+      - name: Restore test compilation cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      # The default-branch router starts from the request artifact while this
+      # hosted runner performs checkout, dependency and cache preparation. Only
+      # adopt a persistent result that has already won that race (or becomes
+      # observable within five seconds); otherwise compile hosted immediately.
       - name: Observe persistent Mac compile candidate
         id: persistent-route
         if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && needs.changes.outputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
@@ -2747,7 +2814,7 @@ jobs:
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --queue-seconds "$queue_seconds" \
             --execution-seconds "$execution_seconds" \
-            --observe-seconds 60 \
+            --observe-seconds 5 \
             --github-output "$GITHUB_OUTPUT"
           route_finished="$(python3 -c 'import time; print(time.monotonic())')"
           route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
@@ -2912,68 +2979,6 @@ jobs:
             echo "metrics=$metrics"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Capture Ghostty revision
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: ghostty-revision
-        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: cache-ghosttykit-admission
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
-
-      - name: Download pre-built GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
-        run: ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Cache Swift packages
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
-
-      - name: Resolve Swift packages
-        id: hosted-package-readiness
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        run: |
-          set -euo pipefail
-          started="$(python3 -c 'import time; print(time.monotonic())')"
-          rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          scripts/ci/compile-app-host-test-product.sh resolve \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
-          finished="$(python3 -c 'import time; print(time.monotonic())')"
-          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
-          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
-
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
-
-      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
-      # only writer. A cache saved here would be scoped to this pull request and
-      # would spend the cache budget that keeps the main seed alive.
-      - name: Restore test compilation cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
-          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
-          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
-          restore-keys: |
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Compile app-host test product
         id: hosted-compile
