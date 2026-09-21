@@ -187,6 +187,12 @@ extension MobileShellComposite {
     /// or starts a fresh token for pull-to-refresh and other callers.
     public func reconnectOrRefresh(recoveryGeneration requestedGeneration: UUID? = nil) async {
         guard !Task.isCancelled else { return }
+        if requestedGeneration == nil, workspaceListRecoveryActive {
+            // Pull-to-refresh and other unprepared entry points coalesce onto
+            // the retry already owning the shell. A second unscoped recovery
+            // must not replace its token while the first operation is live.
+            return
+        }
         let recoveryGeneration = requestedGeneration ?? UUID()
         if let requestedGeneration,
            workspaceListRecoveryActive,
