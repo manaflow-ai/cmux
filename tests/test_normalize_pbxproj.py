@@ -21,6 +21,7 @@ STRING_SPELLINGS = [
     ("'echo { FILE1 = {}; }; // + not a comment'", True),
     ("<dead beef>", True),
     ("AppDelegate+Cloud.swift", False),
+    ('App"Delegate".swift', False),
     ("mail@example.test", False),
     ("Cloud*.swift", False),
     ("日本語.swift", False),

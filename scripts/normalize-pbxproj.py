@@ -86,6 +86,7 @@ def validate_object_ids(text: str) -> None:
     duplicates: list[str] = []
     line = 1
     end = 0
+    previous_group: str | None = None
     for match in OPENSTEP_TOKEN_RE.finditer(text):
         gap = text[end:match.start()]
         validate_token_gap(gap, line)
@@ -96,6 +97,11 @@ def validate_object_ids(text: str) -> None:
         end = match.end()
         if match.lastgroup == "comment":
             continue
+        if not gap and previous_group in {"unquoted", "string"} and match.lastgroup in {"unquoted", "string"}:
+            raise ValueError(
+                f"adjacent scalar tokens at line {token_line}; "
+                "separate quoted and unquoted strings with whitespace or punctuation"
+            )
         if match.lastgroup == "unquoted" and not OPENSTEP_UNQUOTED_RE.fullmatch(token):
             raise ValueError(
                 f"invalid unquoted string at line {token_line}; "
@@ -116,6 +122,7 @@ def validate_object_ids(text: str) -> None:
         elif token == "}" and dictionaries:
             dictionaries.pop()
         previous = (previous + [token])[-2:]
+        previous_group = match.lastgroup
     validate_token_gap(text[end:], line)
     if duplicates:
         raise ValueError("; ".join(duplicates))
