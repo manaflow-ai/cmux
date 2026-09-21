@@ -203,6 +203,17 @@ extension MobileShellComposite {
         _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
     }
 
+    /// Cancels the user-visible workspace-list recovery operation. The UI owns
+    /// the waiting task, while the shell owns the reconnect and pull-to-refresh
+    /// tasks that can outlive that waiter.
+    public func cancelWorkspaceListRecovery() {
+        pullToRefreshTask?.cancel()
+        pullToRefreshTask = nil
+        connectionRecoveryOwner.cancel()
+        connectionRecoveryAttemptDeadlineTask?.cancel()
+        connectionRecoveryAttemptDeadlineTask = nil
+    }
+
     private func refreshConnectedWorkspaceContent() async {
         guard let client = remoteClient else { return }
         let generation = connectionGeneration

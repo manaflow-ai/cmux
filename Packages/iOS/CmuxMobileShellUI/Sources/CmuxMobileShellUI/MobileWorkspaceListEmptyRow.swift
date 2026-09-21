@@ -7,6 +7,7 @@ struct MobileWorkspaceListEmptyRow: View {
     private static let retryTimeout: Duration = .seconds(30)
 
     let retry: (@Sendable () async -> Void)?
+    let cancelRetry: (() -> Void)?
     @State private var isRetrying = false
     @State private var retryTask: Task<Void, Never>?
     @State private var retryTimeoutTask: Task<Void, Never>?
@@ -66,6 +67,7 @@ struct MobileWorkspaceListEmptyRow: View {
                         }
                         guard retryAttemptID == attemptID else { return }
                         retryTask?.cancel()
+                        cancelRetry?()
                         retryTask = nil
                         retryTimeoutTask = nil
                         isRetrying = false
@@ -90,6 +92,7 @@ struct MobileWorkspaceListEmptyRow: View {
                 if isRetrying || retryTask != nil {
                     Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
                         retryTask?.cancel()
+                        cancelRetry?()
                         retryTimeoutTask?.cancel()
                         retryAttemptID = nil
                         retryTask = nil
@@ -122,6 +125,7 @@ struct MobileWorkspaceListEmptyRow: View {
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
         .onDisappear {
             retryTask?.cancel()
+            cancelRetry?()
             retryTimeoutTask?.cancel()
             retryTask = nil
             retryAttemptID = nil
