@@ -23,8 +23,9 @@ tries to wake the receiving session. A live session receives it through its
 native adapter or ACP; an offline session keeps it queued. Replies retain the
 same thread and can be inspected alongside the participating panes.
 
-The message layer owns routing, threading, delivery receipts, retries, and
-deduplication. Provider adapters own model turns, tools, permissions,
+The message layer owns routing, threading, delivery receipts, and
+deduplication. Persistence and adapter schedulers will own retry and replay
+once a durable store exists. Provider adapters own model turns, tools, permissions,
 worktrees, and provider-specific session IDs. A message never grants authority
 to perform an external effect.
 
@@ -64,9 +65,12 @@ calls. It establishes the contract that those adapters can consume.
 
 ## Delivery model
 
-Delivery is at-least-once. A transport acknowledgement means that the target
-adapter accepted the message, not that a model understood it or completed the
-requested work. Clients must be safe to retry the same message ID.
+The in-memory core records delivery states and notifies currently subscribed
+listeners; it does not itself redeliver after a process exit. A future durable
+store plus adapter scheduler will provide at-least-once delivery. A transport
+acknowledgement means that the target adapter accepted the message, not that a
+model understood it or completed the requested work. Clients must be safe to
+retry the same message ID.
 
 When a provider session is running, the broker may queue a message until the
 adapter reports that another prompt can be accepted. Steering an active turn
@@ -79,8 +83,10 @@ its last cursor and reconcile delivery receipts.
 
 ## Trust and authority
 
-Message metadata asserted by cmux is distinct from model-controlled subject,
-body, and attachments. Incoming content is untrusted input. An agent message
+The current `MailEnvelope.metadata` field is caller-supplied JSON and is
+untrusted, just like model-controlled subject, body, and attachments. It is
+not a cmux assertion and cannot be used as an authority grant. Future broker
+owned provenance will be a separate field. Incoming content is untrusted input. An agent message
 cannot approve a merge, deployment, credential change, spending action, or
 other consequential effect.
 
@@ -91,8 +97,9 @@ does not grant that authority.
 
 ## Later adapters
 
-- **ACP adapter:** translate a queued local message into `session/prompt` and
-  map `session/update` output back to the thread.
+- **ACP adapter:** prompt rendering into `session/prompt` is implemented. The
+  future delivery adapter will correlate `session/update` output and receipts
+  back to the thread.
 - **MCP surface:** expose `send`, `inbox`, `reply`, `acknowledge`, and
   `list_threads` as tools with explicit scopes.
 - **A2A gateway:** expose selected cmux identities as Agent Cards and map A2A
@@ -104,7 +111,8 @@ does not grant that authority.
 ## Acceptance conditions for the first implementation
 
 - Two fake sessions can exchange a message and a reply through the broker.
-- Repeating an append with the same message ID creates no duplicate.
+- Repeating an append with the same message ID and identical payload creates
+  no duplicate; divergent payloads are rejected.
 - Each recipient has an independent delivery receipt.
 - A queued message survives a broker restart once the persistence adapter is
   added.

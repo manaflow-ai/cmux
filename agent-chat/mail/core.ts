@@ -9,6 +9,8 @@
 export type MailId = string;
 export type ThreadId = string;
 export type AgentAddress = string;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
 export type MailKind = "message" | "request" | "reply" | "event";
 
@@ -40,7 +42,8 @@ export interface MailEnvelope {
   readonly inReplyTo?: MailId;
   readonly references: readonly MailId[];
   readonly attachments: readonly MailAttachment[];
-  readonly metadata: Readonly<Record<string, unknown>>;
+  /** Caller-supplied, untrusted JSON metadata. It is never an authority grant. */
+  readonly metadata: Readonly<Record<string, JsonValue>>;
 }
 
 export interface MailInput {
@@ -56,7 +59,8 @@ export interface MailInput {
   readonly inReplyTo?: MailId;
   readonly references?: readonly MailId[];
   readonly attachments?: readonly MailAttachment[];
-  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** Caller-supplied, untrusted JSON metadata. It is never an authority grant. */
+  readonly metadata?: Readonly<Record<string, JsonValue>>;
 }
 
 export interface DeliveryReceipt {
@@ -92,6 +96,12 @@ export type MailEvent =
   | { readonly kind: "delivery"; readonly envelope: MailEnvelope; readonly delivery: DeliveryReceipt };
 
 export type MailListener = (event: MailEvent) => void;
+export interface MailListenerError {
+  readonly error: unknown;
+  readonly event: MailEvent;
+  readonly recipient: AgentAddress;
+}
+export type MailErrorListener = (failure: MailListenerError) => void;
 
 export class MailConflictError extends Error {
   readonly code = "MAIL_ID_CONFLICT" as const;
@@ -130,6 +140,7 @@ export class InMemoryMailBroker {
   private readonly fingerprintsById = new Map<MailId, string>();
   private readonly deliveriesByMessage = new Map<MailId, Map<AgentAddress, DeliveryReceipt>>();
   private readonly listenersByRecipient = new Map<AgentAddress, Set<MailListener>>();
+  private readonly errorListeners = new Set<MailErrorListener>();
   private readonly appendOrder: MailId[] = [];
 
   constructor(options: InMemoryMailBrokerOptions = {}) {
@@ -144,9 +155,10 @@ export class InMemoryMailBroker {
     const replyParent = input.inReplyTo ? this.messagesById.get(input.inReplyTo) : undefined;
     const envelope = normalizeEnvelope(input, (input as MailInput).threadId ?? replyParent?.threadId);
     if (envelope.recipients.length > this.maxRecipients) throw new MailFanoutError(envelope.recipients.length, this.maxRecipients);
+    const envelopeFingerprint = fingerprint(envelope);
     const existing = this.messagesById.get(envelope.id);
     if (existing) {
-      const exact = this.fingerprintsById.get(envelope.id) === fingerprint(envelope);
+      const exact = this.fingerprintsById.get(envelope.id) === envelopeFingerprint;
       // A caller can safely retry an input which omitted `createdAt`; the
       // broker generated that value on the first attempt.
       const generatedTimestampMatches = input.createdAt === undefined && fingerprint({ ...envelope, createdAt: existing.createdAt }) === fingerprint(existing);
@@ -160,7 +172,7 @@ export class InMemoryMailBroker {
     }
 
     this.messagesById.set(envelope.id, envelope);
-    this.fingerprintsById.set(envelope.id, fingerprint(envelope));
+    this.fingerprintsById.set(envelope.id, envelopeFingerprint);
     this.appendOrder.push(envelope.id);
     const byRecipient = new Map<AgentAddress, DeliveryReceipt>();
     const deliveries: DeliveryReceipt[] = [];
@@ -289,6 +301,12 @@ export class InMemoryMailBroker {
     };
   }
 
+  /** Observe subscriber failures without changing the committed broker result. */
+  onError(listener: MailErrorListener): () => void {
+    this.errorListeners.add(listener);
+    return () => this.errorListeners.delete(listener);
+  }
+
   private deliveryList(messageId: MailId): DeliveryReceipt[] {
     return [...(this.deliveriesByMessage.get(messageId)?.values() ?? [])];
   }
@@ -296,7 +314,20 @@ export class InMemoryMailBroker {
   private emit(event: MailEvent): void {
     const recipients = event.kind === "appended" ? event.envelope.recipients : [event.delivery.recipient];
     for (const recipient of recipients) {
-      for (const listener of this.listenersByRecipient.get(recipient) ?? []) listener(event);
+      for (const listener of this.listenersByRecipient.get(recipient) ?? []) {
+        try {
+          listener(event);
+        } catch (error) {
+          const failure = { error, event, recipient };
+          for (const errorListener of this.errorListeners) {
+            try {
+              errorListener(failure);
+            } catch {
+              // Error reporting must not turn a committed append into a retry.
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -333,29 +364,47 @@ function normalizeEnvelope(input: MailInput | MailEnvelope, fallbackThreadId?: T
 }
 
 function freezeEnvelope(envelope: MailEnvelope): MailEnvelope {
-  Object.freeze(envelope.recipients);
-  Object.freeze(envelope.references);
-  Object.freeze(envelope.attachments);
-  Object.freeze(envelope.metadata);
-  return Object.freeze(envelope);
+  return deepFreeze(envelope);
 }
 
 function fingerprint(envelope: MailEnvelope): string {
   return JSON.stringify(canonicalize(envelope));
 }
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, canonicalize(child)]));
+function canonicalize(value: unknown, ancestors = new Set<object>()): JsonValue {
+  if (value === null) return null;
+  if (typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("mail values must contain finite JSON numbers");
+    return value;
+  }
+  if (typeof value !== "object") throw new Error("mail values must be JSON-compatible");
+  if (ancestors.has(value)) throw new Error("mail values must not contain circular references");
+  ancestors.add(value);
+  let result: JsonValue;
+  if (Array.isArray(value)) {
+    result = value.map((child) => canonicalize(child, ancestors));
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new Error("mail values must be plain JSON objects");
+    result = Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, child]) => [key, canonicalize(child, ancestors)]));
+  }
+  ancestors.delete(value);
+  return result;
 }
 
-function cloneRecord(record: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
-  try {
-    return structuredClone(record);
-  } catch {
-    return Object.fromEntries(Object.entries(record).map(([key, value]) => [key, canonicalize(value)]));
-  }
+function cloneRecord(record: Readonly<Record<string, JsonValue>>): Readonly<Record<string, JsonValue>> {
+  const clone = canonicalize(record);
+  if (!clone || Array.isArray(clone) || typeof clone !== "object") throw new Error("mail metadata must be a JSON object");
+  return clone as Readonly<Record<string, JsonValue>>;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 function newMailId(): MailId {

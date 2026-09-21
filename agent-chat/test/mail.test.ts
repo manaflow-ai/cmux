@@ -62,6 +62,17 @@ if (broker.thread("m-root").length !== 2) throw new Error("thread should contain
 
 const plain = createMail({ sender: "a", recipients: ["b"], body: "hello", metadata: { z: 1 } });
 if (!plain.id || plain.threadId !== plain.id || plain.contentType !== "text/plain") throw new Error("createMail defaults failed");
+const immutable = broker.append({
+  id: "immutable",
+  sender: "a",
+  recipients: ["b"],
+  body: "hello",
+  attachments: [{ uri: "artifact://one" }],
+  metadata: { nested: { value: 1 }, list: [{ ok: true }] },
+});
+if (!Object.isFrozen(immutable.envelope.attachments[0]) || !Object.isFrozen(immutable.envelope.metadata.nested)) {
+  throw new Error("nested envelope data should be immutable");
+}
 unsubscribe();
 
 const capped = new InMemoryMailBroker({ maxRecipients: 2 });
@@ -74,6 +85,28 @@ try {
 const deadLetter = capped.append({ id: "failed", sender: "a", recipients: ["b"], body: "hello" });
 const dead = capped.updateDelivery(deadLetter.envelope.id, "b", { state: "dead-lettered", error: "transport stopped" });
 if (dead.state !== "dead-lettered" || dead.error !== "transport stopped") throw new Error("dead-letter delivery state should be retained");
+
+const listenerBroker = new InMemoryMailBroker();
+let listenerCount = 0;
+let listenerFailures = 0;
+listenerBroker.onError(() => { listenerFailures += 1; });
+listenerBroker.subscribe("b", () => { throw new Error("listener failed"); });
+listenerBroker.subscribe("b", () => { listenerCount += 1; });
+const listenerAppend = listenerBroker.append({ id: "listener", sender: "a", recipients: ["b"], body: "hello" });
+if (!listenerAppend.created || listenerCount !== 1 || listenerFailures !== 1 || !listenerBroker.get("listener")) {
+  throw new Error("listener failures should not mask committed appends");
+}
+
+const invalidBroker = new InMemoryMailBroker();
+const circular: Record<string, unknown> = {};
+circular.self = circular;
+try {
+  invalidBroker.append({ id: "invalid", sender: "a", recipients: ["b"], body: "hello", metadata: circular as never });
+  throw new Error("circular metadata should be rejected");
+} catch (error) {
+  if (!(error instanceof Error) || !error.message.includes("circular")) throw error;
+}
+if (invalidBroker.get("invalid") || invalidBroker.list().length !== 0) throw new Error("invalid metadata must not partially commit");
 console.log("mail broker assertions passed");
 });
 

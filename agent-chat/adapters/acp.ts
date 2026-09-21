@@ -30,8 +30,9 @@ export interface AcpMailMessage {
 /**
  * Render a durable message as ordinary ACP prompt text. The existing ACP
  * `session/prompt` request remains unchanged; callers pass this result to
- * `adapter.send` just like any other prompt. Header values are single-line so
- * message metadata cannot accidentally create a second header.
+ * `adapter.send` just like any other prompt. Header values are single-line and
+ * the body is base64 encoded, so untrusted content cannot forge the closing
+ * envelope marker.
  */
 export function acpPromptFromMail(message: AcpMailMessage): string {
   const header = (value: string) => value.replace(/[\r\n]+/g, " ");
@@ -44,7 +45,7 @@ export function acpPromptFromMail(message: AcpMailMessage): string {
   ];
   if (message.subject) lines.push(`subject: ${header(message.subject)}`);
   if (message.inReplyTo) lines.push(`in-reply-to: ${header(message.inReplyTo)}`);
-  lines.push("body:", message.body, "[/cmux-agent-message]");
+  lines.push(`body-base64: ${Buffer.from(message.body, "utf8").toString("base64")}`, "[/cmux-agent-message]");
   return lines.join("\n");
 }
 
