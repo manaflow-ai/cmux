@@ -55,6 +55,8 @@ jobs:
       ghosttykit_release: ${{ steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
+      source_tree: ${{ steps.source-identity.outputs.tree }}
+      source_parent1: ${{ steps.source-identity.outputs.parent1 }}
     permissions:
       actions: read
       contents: read
@@ -64,6 +66,18 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+
+      - name: Record GitHub-selected source identity
+        id: source-identity
+        run: |
+          set -euo pipefail
+          read -r commit parent1 parent2 extra <<EOF
+          $(git rev-list --parents -n1 HEAD)
+          EOF
+          [ "$commit" = "$GITHUB_SHA" ]
+          [ -z "${extra:-}" ]
+          echo "tree=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          echo "parent1=${parent1:-}" >> "$GITHUB_OUTPUT"
 
       - name: Detect CI change areas
         id: detect
@@ -272,6 +286,56 @@ jobs:
           set -euo pipefail
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
+
+
+      # The PR workflow only publishes immutable request evidence. Dispatch and
+      # cancellation authority live in persistent-macos-router.yml on main.
+      - name: Publish persistent Mac route request
+        id: persistent-route-request
+        if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_TREE: ${{ steps.source-identity.outputs.tree }}
+          SOURCE_PARENT1: ${{ steps.source-identity.outputs.parent1 }}
+        run: |
+          set -euo pipefail
+          request="$RUNNER_TEMP/persistent-mac-route-request.json"
+          REQUEST="$request" python3 - <<'PY'
+          import json
+          import os
+
+          payload = {
+              "schema_version": 1,
+              "request_id": f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}",
+              "pr_number": os.environ["PR_NUMBER"],
+              "source_sha": os.environ["GITHUB_SHA"],
+              "source_tree": os.environ["SOURCE_TREE"],
+              "source_parent1": os.environ["SOURCE_PARENT1"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "head_ref": os.environ["HEAD_REF"],
+              "head_repository": os.environ["HEAD_REPOSITORY"],
+              "author_association": os.environ["AUTHOR_ASSOCIATION"],
+          }
+          with open(os.environ["REQUEST"], "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, sort_keys=True)
+              stream.write("\n")
+          PY
+          echo "path=$request" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload persistent Mac route request
+        if: ${{ steps.persistent-route-request.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: persistent-mac-route-request-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.persistent-route-request.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
   static-preflight:
     name: Fast static checks
@@ -2444,11 +2508,96 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+  persistent-mac-compile-route:
+    name: Persistent Mac compile route
+    needs:
+      - changes
+      - linux-preflight
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.compile_admitted != 'true' && github.event_name == 'pull_request' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 12
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    outputs:
+      use_persistent: ${{ steps.route.outputs.use_persistent }}
+      fallback_reason: ${{ steps.route.outputs.fallback_reason }}
+      producer_run_id: ${{ steps.route.outputs.producer_run_id }}
+      artifact_id: ${{ steps.route.outputs.artifact_id }}
+      queue_to_start_seconds: ${{ steps.route.outputs.queue_to_start_seconds }}
+      producer_allocated_seconds: ${{ steps.route.outputs.producer_allocated_seconds }}
+      route_wall_seconds: ${{ steps.route.outputs.route_wall_seconds }}
+      source_tree: ${{ steps.source.outputs.tree }}
+    steps:
+      - name: Checkout route observer
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Bind the GitHub-selected source
+        id: source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_TREE: ${{ needs.changes.outputs.source_tree }}
+          SOURCE_PARENT1: ${{ needs.changes.outputs.source_parent1 }}
+        run: |
+          set -euo pipefail
+          [ -n "$SOURCE_SHA" ] && [ -n "$SOURCE_TREE" ] && [ -n "$SOURCE_PARENT1" ]
+          {
+            echo "tree=$SOURCE_TREE"
+            echo "parent1=$SOURCE_PARENT1"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Observe persistent compile or use hosted fallback
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
+          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
+          CI_PERSISTENT_MAC_QUEUE_SECONDS: ${{ vars.CI_PERSISTENT_MAC_QUEUE_SECONDS }}
+          CI_PERSISTENT_MAC_EXECUTION_SECONDS: ${{ vars.CI_PERSISTENT_MAC_EXECUTION_SECONDS }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SOURCE_TREE: ${{ steps.source.outputs.tree }}
+          SOURCE_PARENT1: ${{ steps.source.outputs.parent1 }}
+        run: |
+          set -euo pipefail
+          route_started="$(python3 -c 'import time; print(time.monotonic())')"
+          queue_seconds="${CI_PERSISTENT_MAC_QUEUE_SECONDS:-90}"
+          execution_seconds="${CI_PERSISTENT_MAC_EXECUTION_SECONDS:-480}"
+          python3 scripts/ci/persistent_mac_route.py \
+            --observe-only \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --selector "$CI_PERSISTENT_MAC_COMPILE" \
+            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
+            --repository "$GITHUB_REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --head-repository "$HEAD_REPOSITORY" \
+            --head-ref "$HEAD_REF" \
+            --author-association "$AUTHOR_ASSOCIATION" \
+            --head-sha "$HEAD_SHA" \
+            --source-sha "$GITHUB_SHA" \
+            --source-tree "$SOURCE_TREE" \
+            --source-parent1 "$SOURCE_PARENT1" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --queue-seconds "$queue_seconds" \
+            --execution-seconds "$execution_seconds" \
+            --github-output "$GITHUB_OUTPUT"
+          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
+          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
+          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
+
   macos-compile-admission:
     name: macOS compile admission
     needs:
       - changes
       - linux-preflight
+      - persistent-mac-compile-route
     # Spend one macOS slot proving that the app-host test product compiles
     # before starting the six test shards. The shards download this run's
     # build products and run test-without-building, so a compiler failure
@@ -2476,6 +2625,14 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
+      - name: Start compile admission timers
+        run: |
+          now="$(python3 -c 'import time; print(time.monotonic())')"
+          {
+            echo "CMUX_MACOS_ADMISSION_STARTED=$now"
+            echo "CMUX_HOSTED_SOURCE_PREP_STARTED=$now"
+          } >> "$GITHUB_ENV"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2532,6 +2689,43 @@ jobs:
           fi
           echo "== end network diagnostics ==" >&2
           exit 1
+
+      - name: Record hosted source preparation
+        id: hosted-source-prep
+        run: |
+          now="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$CMUX_HOSTED_SOURCE_PREP_STARTED" "$now")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+
+      - name: Measure hosted queue-to-start
+        id: hosted-queue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime
+          import json
+          import os
+          import subprocess
+
+          result = subprocess.run(
+              ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/jobs?filter=latest&per_page=100"],
+              check=True, text=True, capture_output=True,
+          )
+          jobs = json.loads(result.stdout).get("jobs", [])
+          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one admission job, found {len(matches)}")
+          job = matches[0]
+          created = datetime.datetime.fromisoformat(job["created_at"].replace("Z", "+00:00"))
+          started = datetime.datetime.fromisoformat(job["started_at"].replace("Z", "+00:00"))
+          seconds = max(0.0, (started - created).total_seconds())
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"seconds={seconds:.3f}\n")
+          print(f"hosted admission queue-to-start: {seconds:.3f}s")
+          PY
 
       - name: Prepare isolated admission DerivedData
         run: |
@@ -2613,19 +2807,24 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
-        if: steps.reuse-products.outputs.hit != 'true'
+        id: hosted-package-readiness
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
           set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
       - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
@@ -2635,7 +2834,7 @@ jobs:
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
@@ -2695,6 +2894,9 @@ jobs:
       # Compile-only forks have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
       # Keep unknown metadata, every full suite, and in-org reuse producers.
+      - name: Start product publication timer
+        run: echo "CMUX_PRODUCT_PUBLICATION_STARTED=$(python3 -c 'import time; print(time.monotonic())')" >> "$GITHUB_ENV"
+
       - name: Choose product artifact publication
         id: publish-products
         env:
