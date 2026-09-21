@@ -7,7 +7,7 @@ extension CLICallerWorkspaceDefaultTests {
 
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
-    @Test(arguments: ["number", "url", "fork-upstream", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
+    @Test(arguments: ["number", "url", "fork-upstream", "fork-number", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
     func pullRequestHandoff(scenario: String) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pr-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -58,7 +58,12 @@ extension CLICallerWorkspaceDefaultTests {
             fi
             ;;
           'pr view')
-            [ "$3" = 123 ] && [ "$4" = --repo ] && [ "$5" = "$expected_repo" ] || exit 8
+            [ "$3" = 123 ] || exit 8
+            if [ "$4" = --repo ]; then
+              [ "$5" = "$expected_repo" ] || exit 8
+            else
+              [ "$4" = --json ] || exit 8
+            fi
             echo '{"number":123,"url":"'"$expected_url"'","state":"OPEN","headRefName":"handoff"}' ;;
           *) exit 9 ;;
         esac
@@ -101,6 +106,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "fork-upstream":
             args[1] = "https://github.com/upstream/repo/pull/123"
             environment["GH_FORK"] = "1"
+        case "fork-number": environment["GH_FORK"] = "1"
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")

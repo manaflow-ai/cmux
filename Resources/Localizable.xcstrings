@@ -540776,6 +540776,65 @@
           }
         }
       }
+    },
+    "cli.help.command.pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [flags] | pr clear [flags]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [Optionen] | pr clear [Optionen]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [options] | pr clear [options]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [الخيارات] | pr clear [الخيارات]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [opciones] | pr clear [opciones]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [旗標] | pr clear [旗標]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [标志] | pr clear [标志]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [옵션] | pr clear [옵션]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pr <url|number> [オプション] | pr clear [オプション]"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

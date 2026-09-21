@@ -170,13 +170,16 @@ extension CMUXCLI {
         guard let requestedNumber = inputURL?.number ?? Int(numberToken) else {
             throw pullRequestMalformedMetadataError()
         }
-        let object = try pullRequestGH([
-            "pr", "view", String(requestedNumber), "--repo", requestedRepository,
-            "--json", "number,url,state,headRefName"
-        ], directory: root)
+        var ghArguments = ["pr", "view", String(requestedNumber)]
+        if inputURL != nil {
+            ghArguments += ["--repo", requestedRepository]
+        }
+        ghArguments += ["--json", "number,url,state,headRefName"]
+        let object = try pullRequestGH(ghArguments, directory: root)
         guard let number = object["number"] as? Int, number == requestedNumber,
               let url = object["url"] as? String, let canonical = pullRequestURL(url),
-              canonical.number == number, canonical.repository.caseInsensitiveCompare(requestedRepository) == .orderedSame,
+              canonical.number == number,
+              allowedRepositories.contains(canonical.repository.lowercased()),
               let state = object["state"] as? String, ["OPEN", "MERGED", "CLOSED"].contains(state),
               let branch = object["headRefName"] as? String else { throw pullRequestMalformedMetadataError() }
         return (number, canonical.url, state.lowercased(), branch)
