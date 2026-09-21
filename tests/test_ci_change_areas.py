@@ -1842,6 +1842,15 @@ def test_guard_python_39_setup_runs_only_for_release_group() -> None:
     assert block.count("actions/setup-python@") == 1
 
 
+def test_pipe_safe_capture_guard_runs_once_in_app_host_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    start = block.index("      - name: Validate pipe-safe CI capture")
+    end = block.index("      - name: Validate focused test launcher", start)
+    step = block[start:end]
+    assert "if: ${{ matrix.group == 'app-host' }}" in step
+    assert block.count("Validate pipe-safe CI capture") == 1
+
+
 def test_only_the_history_guard_job_fetches_full_history() -> None:
     for guard_job in GUARD_JOBS:
         fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job, GUARD_WORKFLOW)
