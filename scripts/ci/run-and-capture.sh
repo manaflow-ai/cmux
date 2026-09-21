@@ -41,21 +41,10 @@ forward_signal() {
   local exit_status="$2"
   trap - HUP INT TERM
   if [ -n "$command_pid" ] && kill -0 "$command_pid" 2>/dev/null; then
-    # The command runs as a new session/process-group leader. Forward
-    # cancellation to the whole owned group so xcodebuild/test descendants do
-    # not keep running after the capture wrapper is cancelled.
-    kill -s "$signal_name" -- "-$command_pid" 2>/dev/null \
-      || kill -s "$signal_name" "$command_pid" 2>/dev/null \
-      || true
-    for _ in 1 2 3 4 5; do
-      kill -0 "$command_pid" 2>/dev/null || break
-      sleep 1
-    done
-    if kill -0 "$command_pid" 2>/dev/null; then
-      kill -KILL -- "-$command_pid" 2>/dev/null \
-        || kill -KILL "$command_pid" 2>/dev/null \
-        || true
-    fi
+    # The Python supervisor owns the command process group. Forward one signal
+    # to that owner, then wait on its real completion signal; the supervisor
+    # performs bounded escalation without shell liveness polling.
+    kill -s "$signal_name" "$command_pid" 2>/dev/null || true
     wait "$command_pid" 2>/dev/null || true
   fi
   command_pid=""
@@ -71,9 +60,45 @@ trap 'forward_signal TERM 143' TERM
 set +e
 CMUX_CI_FILE_CAPTURE_ACTIVE=1 python3 -c '
 import os
+import signal
+import subprocess
 import sys
-os.setsid()
-os.execvp(sys.argv[1], sys.argv[1:])
+
+class ForwardedSignal(Exception):
+    def __init__(self, signum):
+        super().__init__(signum)
+        self.signum = signum
+
+proc = subprocess.Popen(sys.argv[1:], start_new_session=True)
+
+def forward(signum, _frame):
+    try:
+        os.killpg(proc.pid, signum)
+    except ProcessLookupError:
+        pass
+    raise ForwardedSignal(signum)
+
+watched = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+for signum in watched:
+    signal.signal(signum, forward)
+
+try:
+    status = proc.wait()
+except ForwardedSignal as forwarded:
+    # A second cancellation should not interrupt the bounded cleanup path.
+    for signum in watched:
+        signal.signal(signum, signal.SIG_IGN)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+    raise SystemExit(128 + forwarded.signum)
+
+raise SystemExit(status if status >= 0 else 128 - status)
 ' "$@" >>"$output_path" 2>&1 &
 command_pid=$!
 wait "$command_pid"
