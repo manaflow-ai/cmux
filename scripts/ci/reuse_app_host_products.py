@@ -18,7 +18,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import app_host_test_products as products
@@ -32,6 +34,14 @@ MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
 MAX_TAR_BYTES = 20 * 1024**3
 MAX_MEMBERS = 200_000
+
+# Producer events permitted for each consumer event. Pull-request consumers are
+# further restricted to the same pull request; merge groups may adopt an exact
+# product from either an in-repository PR or an earlier merge-group run.
+PERMITTED_PRODUCERS = {
+    "pull_request": {"pull_request"},
+    "merge_group": {"pull_request", "merge_group"},
+}
 
 
 def read(*args):
@@ -77,55 +87,181 @@ class GitHub:
                            stdout=out, check=True, timeout=120)
 
 
-def select(api, value, current_run):
+def record_reason(reasons, reason):
+    """Record a bounded, non-sensitive cache miss reason once."""
+    if reason not in reasons:
+        reasons.append(reason)
+        print(f"Compiled-product reuse miss: {reason}.")
+
+
+def pull_request_numbers(run):
+    """Return the PR numbers GitHub associates with a workflow run."""
+    pulls = run.get("pull_requests")
+    if not isinstance(pulls, list):
+        return set()
+    return {item["number"] for item in pulls
+            if isinstance(item, dict) and isinstance(item.get("number"), int)}
+
+
+def trusted_ci_run(run, repository):
+    """Require the repository CI workflow and an in-repository event source."""
+    head_repository = run.get("head_repository")
+    return (
+        run.get("path") == ".github/workflows/ci.yml"
+        and run.get("event") in PERMITTED_PRODUCERS
+        and isinstance(head_repository, dict)
+        and str(head_repository.get("full_name", "")).casefold() == repository.casefold()
+    )
+
+
+def permitted_pair(producer, consumer, repository):
+    """Apply the explicit trusted producer/consumer matrix."""
+    if not trusted_ci_run(producer, repository) or not trusted_ci_run(consumer, repository):
+        return False
+    consumer_event = consumer["event"]
+    if producer["event"] not in PERMITTED_PRODUCERS[consumer_event]:
+        return False
+    if consumer_event == "pull_request":
+        producer_prs = pull_request_numbers(producer)
+        consumer_prs = pull_request_numbers(consumer)
+        return len(consumer_prs) == 1 and producer_prs == consumer_prs
+    return True
+
+
+def elapsed_seconds(started_at, completed_at):
+    """Measure an Actions step interval when both timestamps are available."""
+    if not started_at or not completed_at:
+        return None
+    try:
+        started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, (completed - started).total_seconds())
+
+
+def compile_step_seconds(job):
+    """Return the producer's actual compile-step duration when it compiled."""
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return None
+    for step in steps:
+        if (step.get("name") == "Compile app-host test product"
+                and step.get("status") == "completed"
+                and step.get("conclusion") == "success"):
+            return elapsed_seconds(step.get("started_at"), step.get("completed_at"))
+    return None
+
+
+def load_consumer(api, value, current_run, current_attempt, reasons):
+    """Verify the running consumer and its checkout tree against GitHub."""
+    try:
+        run = api.get(f"actions/runs/{current_run}")
+        if str(run.get("run_attempt")) != str(current_attempt):
+            record_reason(reasons, "consumer_attempt_mismatch")
+            return None
+        if not trusted_ci_run(run, api.repository):
+            record_reason(reasons, "consumer_untrusted")
+            return None
+        head = run.get("head_sha", "")
+        if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+            record_reason(reasons, "consumer_revision_invalid")
+            return None
+        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
+            record_reason(reasons, "consumer_tree_mismatch")
+            return None
+        return run
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+        record_reason(reasons, "consumer_provenance_unavailable")
+        return None
+
+
+def select(api, value, current_run, current_attempt, consumer, reasons):
     """Inspect at most 300 recent artifacts and six matching producers."""
     prefix = PREFIX + key(value) + "-"
     candidates = []
     for page in range(1, 4):
         batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
+        if not isinstance(batch, list):
+            raise ValueError("invalid artifact listing")
         candidates.extend(a for a in batch if a.get("name", "").startswith(prefix))
         if len(candidates) >= 6 or len(batch) < 100:
             break
+    if not candidates:
+        record_reason(reasons, "no_matching_contract_artifact")
     for artifact in candidates[:6]:
-        suffix = artifact["name"][len(prefix):]
-        if artifact.get("expired") or not suffix.isdecimal():
+        try:
+            suffix = artifact["name"][len(prefix):]
+            if artifact.get("expired"):
+                record_reason(reasons, "artifact_expired")
+                continue
+            if not suffix.isdecimal():
+                record_reason(reasons, "artifact_attempt_invalid")
+                continue
+            producer_attempt = int(suffix)
+            if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
+                record_reason(reasons, "artifact_oversize")
+                continue
+            workflow_run = artifact.get("workflow_run")
+            run_id = workflow_run.get("id") if isinstance(workflow_run, dict) else None
+            if not run_id:
+                record_reason(reasons, "artifact_run_missing")
+                continue
+            if str(run_id) == str(current_run) and producer_attempt >= int(current_attempt):
+                record_reason(reasons, "artifact_not_from_earlier_attempt")
+                continue
+            # Query the exact producer attempt. The top-level run endpoint points
+            # at the latest attempt and would otherwise make prior rerun artifacts
+            # look stale even though their attempt-scoped receipt is still valid.
+            run = api.get(f"actions/runs/{run_id}/attempts/{producer_attempt}")
+            if str(run.get("run_attempt")) != suffix:
+                record_reason(reasons, "producer_attempt_mismatch")
+                continue
+            if not permitted_pair(run, consumer, api.repository):
+                record_reason(reasons, "producer_consumer_pair_disallowed")
+                continue
+            # GitHub's run head, not a candidate-authored receipt, establishes the
+            # source identity before downloading. The whole tree includes the CI
+            # workflow and every build/packaging script; different producer code
+            # cannot vouch for this checkout.
+            head = run.get("head_sha", "")
+            if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+                record_reason(reasons, "producer_revision_invalid")
+                continue
+            if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
+                record_reason(reasons, "producer_tree_mismatch")
+                continue
+            jobs = []
+            for page in range(1, 4):
+                batch = api.get(
+                    f"actions/runs/{run_id}/attempts/{producer_attempt}/jobs?per_page=100&page={page}"
+                )["jobs"]
+                if not isinstance(batch, list):
+                    raise ValueError("invalid jobs listing")
+                jobs.extend(batch)
+                if len(batch) < 100:
+                    break
+            # The compile job must finish successfully; unrelated producer tests
+            # may still be running because no test result is reused here.
+            compile_job = next((job for job in jobs
+                                if job.get("name") == "macOS compile admission"
+                                and job.get("status") == "completed"
+                                and job.get("conclusion") == "success"), None)
+            if compile_job is None:
+                record_reason(reasons, "producer_compile_unsuccessful")
+                continue
+            if not artifact.get("digest", "").startswith("sha256:"):
+                record_reason(reasons, "artifact_digest_missing")
+                continue
+            run = dict(run)
+            run["_compile_seconds"] = compile_step_seconds(compile_job)
+            run["_producer_attempt"] = producer_attempt
+            yield artifact, run
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+            # A stale candidate can disappear between the bounded artifact list
+            # and its attempt/job/tree lookup. Treat only that candidate as a miss.
+            record_reason(reasons, "producer_provenance_unavailable")
             continue
-        if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
-            continue
-        run_id = artifact.get("workflow_run", {}).get("id")
-        if not run_id or str(run_id) == str(current_run):
-            continue
-        run = api.get(f"actions/runs/{run_id}")
-        if (run.get("path") != ".github/workflows/ci.yml"
-                or run.get("event") not in {"pull_request", "merge_group"}
-                or run.get("head_repository", {}).get("full_name") != api.repository
-                or suffix != str(run["run_attempt"])):
-            continue
-        # GitHub's run head, not a candidate-authored receipt, establishes the
-        # source identity before downloading. The whole tree includes the CI
-        # workflow and every build/packaging script; different producer code
-        # cannot vouch for this checkout. This inherits CI's existing trust in
-        # the candidate workflow, not an independent base-controlled attestation.
-        head = run.get("head_sha", "")
-        if not re.fullmatch(r"[0-9a-f]{6,40}", head):
-            continue
-        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-            continue
-        attempt = run["run_attempt"]
-        jobs = []
-        for page in range(1, 4):
-            batch = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")["jobs"]
-            jobs.extend(batch)
-            if len(batch) < 100:
-                break
-        # The compile job must finish; unrelated tests in the producer run may
-        # still be running. No test result is being reused here.
-        if not any(j.get("name") == "macOS compile admission" and j.get("status") == "completed"
-                   and j.get("conclusion") == "success" for j in jobs):
-            continue
-        if not artifact.get("digest", "").startswith("sha256:"):
-            continue
-        yield artifact, run
 
 
 def bounded_copy(source, output, limit):
@@ -230,22 +366,90 @@ def unpack(archive, staging, digest):
 
 
 
-def restore(api, value, derived, current_run, current_identity):
+def producer_record(run, receipt, artifact):
+    """Describe the immediate artifact producer without changing product identity."""
+    return {
+        "run_id": str(run["id"]),
+        "run_attempt": str(run["run_attempt"]),
+        "run_url": run.get("html_url", ""),
+        "revision": receipt["revision"],
+        "artifact_id": artifact["id"],
+        "artifact_digest": artifact["digest"],
+    }
+
+
+def original_producer(upstream, immediate):
+    """Preserve the oldest known producer across republished reuse hops."""
+    if not isinstance(upstream, dict):
+        return immediate
+    recorded = upstream.get("original_producer")
+    if isinstance(recorded, dict):
+        return recorded
+    node = upstream
+    oldest = None
+    while isinstance(node, dict):
+        if node.get("revision"):
+            oldest = {
+                "run_id": str(node.get("run_id", "")),
+                "run_attempt": str(node.get("run_attempt", "")),
+                "run_url": node.get("run_url", ""),
+                "revision": node.get("revision", ""),
+                "artifact_id": node.get("artifact_id"),
+                "artifact_digest": node.get("artifact_digest", ""),
+            }
+        node = node.get("upstream")
+    return oldest or immediate
+
+
+def upstream_compile_seconds(upstream):
+    """Carry the original measured compile duration through multi-hop reuse."""
+    if not isinstance(upstream, dict):
+        return None
+    metrics = upstream.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    value = metrics.get("compile_seconds_avoided")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
+def restore(api, value, derived, current_run, current_identity, current_attempt="1", report=None):
     """Restore in staging; a miss never leaves partial products in DerivedData."""
-    for artifact, run in select(api, value, current_run):
+    reuse_started = time.monotonic()
+    reasons = []
+    consumer = load_consumer(api, value, current_run, current_attempt, reasons)
+    if consumer is None:
+        if report is not None:
+            report.update(reason="miss", miss_reasons=",".join(reasons))
+        return False
+
+    for artifact, run in select(api, value, current_run, current_attempt, consumer, reasons):
+        lookup_seconds = time.monotonic() - reuse_started
         with tempfile.TemporaryDirectory(prefix="cmux-reuse-") as tmp:
             staging = Path(tmp)
             archive = staging / "artifact.zip"
+            transfer_started = time.monotonic()
             try:
                 api.download(artifact["id"], archive)
+            except (OSError, subprocess.SubprocessError):
+                record_reason(reasons, "artifact_download_error")
+                continue
+            transfer_seconds = time.monotonic() - transfer_started
+            restore_started = time.monotonic()
+            try:
                 unpack(archive, staging, artifact["digest"])
-                root = staging / "Build/Products"
+            except (ValueError, OSError, tarfile.TarError, zipfile.BadZipFile):
+                record_reason(reasons, "archive_invalid")
+                continue
+
+            root = staging / "Build/Products"
+            try:
                 receipt = json.loads((root / RECEIPT).read_text())
-                if receipt["contract"] != value or receipt["run_id"] != str(run["id"]) or receipt["run_attempt"] != str(run["run_attempt"]):
+                if (receipt["contract"] != value
+                        or receipt["run_id"] != str(run["id"])
+                        or receipt["run_attempt"] != str(run["run_attempt"])):
                     raise ValueError("artifact producer contract mismatch")
                 # Verify the actual checkout commit against GitHub, independent of
-                # the artifact name. Internal PR head trees must also match; when a
-                # PR merge includes additional base changes, conservatively rebuild.
+                # the artifact name and the earlier pre-download selection check.
                 for revision in (receipt["revision"], run["head_sha"]):
                     if not re.fullmatch(r"[0-9a-f]{6,40}", revision):
                         raise ValueError("invalid producer revision")
@@ -254,13 +458,17 @@ def restore(api, value, derived, current_run, current_identity):
                 original = json.loads((root / products.RECEIPT).read_text())
                 if original["revision"] != receipt["revision"]:
                     raise ValueError("producer revision mismatch")
+                provenance_path = root / "cmux-original-producer.json"
+                upstream = json.loads(provenance_path.read_text()) if provenance_path.exists() else None
+                if upstream is not None and not isinstance(upstream, dict):
+                    raise ValueError("invalid upstream provenance")
                 products.restore(staging, {**current_identity, "revision": original["revision"]})
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
-            except (ValueError, KeyError, OSError, subprocess.SubprocessError,
-                    tarfile.TarError, zipfile.BadZipFile) as error:
-                print(f"Skipping build artifact {artifact['id']} ({type(error).__name__}).")
+            except (ValueError, KeyError, OSError, subprocess.SubprocessError):
+                record_reason(reasons, "product_provenance_invalid")
                 continue
+
             # After relocation starts, any failure must abort to main's cleanup.
             destination = derived / "Build/Products"
             if destination.exists():
@@ -268,15 +476,59 @@ def restore(api, value, derived, current_run, current_identity):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(root), destination)
             products.restore(derived, current_identity)
+
+            restore_seconds = time.monotonic() - restore_started
+            total_reuse_seconds = time.monotonic() - reuse_started
+            compile_seconds = upstream_compile_seconds(upstream)
+            if compile_seconds is None:
+                compile_seconds = run.get("_compile_seconds")
+            saved_minutes = None
+            if isinstance(compile_seconds, (int, float)):
+                saved_minutes = max(0.0, compile_seconds - total_reuse_seconds) / 60.0
+            metrics = {
+                "compile_seconds_avoided": round(compile_seconds, 3) if isinstance(compile_seconds, (int, float)) else None,
+                "lookup_seconds": round(lookup_seconds, 3),
+                "transfer_seconds": round(transfer_seconds, 3),
+                "restore_seconds": round(restore_seconds, 3),
+                "total_reuse_seconds": round(total_reuse_seconds, 3),
+                "macos_runner_minutes_saved": round(saved_minutes, 3) if saved_minutes is not None else None,
+            }
+            immediate = producer_record(run, receipt, artifact)
             provenance = destination / "cmux-original-producer.json"
-            upstream = json.loads(provenance.read_text()) if provenance.exists() else None
             provenance.write_text(json.dumps({
-                "run_url": run["html_url"], "revision": receipt["revision"],
-                "artifact_id": artifact["id"], "consumer_revision": current_identity["revision"],
+                "schema": 2,
+                "original_producer": original_producer(upstream, immediate),
+                "immediate_producer": immediate,
+                "consumer": {
+                    "run_id": str(current_run),
+                    "run_attempt": str(current_attempt),
+                    "revision": current_identity["revision"],
+                },
+                "restore_route": "github_artifact",
+                "metrics": metrics,
+                "candidate_misses": reasons,
+                # Legacy fields retained for downstream readers of the v1 receipt.
+                "run_url": run.get("html_url", ""),
+                "revision": receipt["revision"],
+                "artifact_id": artifact["id"],
+                "artifact_digest": artifact["digest"],
+                "consumer_revision": current_identity["revision"],
                 "upstream": upstream,
             }, indent=2))
-            print(f"Reused compiled products from {run['html_url']} (producer {receipt['revision']}); tests still run here.")
+            if report is not None:
+                report.update(
+                    reason="hit",
+                    miss_reasons=",".join(reasons),
+                    producer_run_id=str(run["id"]),
+                    producer_run_attempt=str(run["run_attempt"]),
+                    artifact_id=str(artifact["id"]),
+                    **metrics,
+                )
+            print("Reused exact compiled products; tests still run in this workflow.")
             return True
+
+    if report is not None:
+        report.update(reason="miss", miss_reasons=",".join(reasons))
     return False
 
 
@@ -301,15 +553,45 @@ def main():
             "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"]}))
     elif mode == "restore":
         hit = False
+        report = {
+            "reason": "miss",
+            "miss_reasons": "",
+            "producer_run_id": "",
+            "producer_run_attempt": "",
+            "artifact_id": "",
+            "compile_seconds_avoided": None,
+            "lookup_seconds": None,
+            "transfer_seconds": None,
+            "restore_seconds": None,
+            "total_reuse_seconds": None,
+            "macos_runner_minutes_saved": None,
+        }
         try:
-            if value is not None and os.environ.get("GITHUB_EVENT_NAME") == "merge_group":
-                hit = restore(GitHub(os.environ["GITHUB_REPOSITORY"]), value, derived,
-                              os.environ["GITHUB_RUN_ID"], products.identity())
-        except (ValueError, KeyError, OSError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile) as error:
-            print(f"Build product reuse unavailable ({type(error).__name__}); compiling normally.")
+            if value is None:
+                report["miss_reasons"] = "fingerprint_unavailable"
+            elif os.environ.get("GITHUB_EVENT_NAME") in PERMITTED_PRODUCERS:
+                hit = restore(
+                    GitHub(os.environ["GITHUB_REPOSITORY"]),
+                    value,
+                    derived,
+                    os.environ["GITHUB_RUN_ID"],
+                    products.identity(),
+                    os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                    report,
+                )
+            else:
+                report["miss_reasons"] = "consumer_event_disallowed"
+        except (ValueError, KeyError, OSError, subprocess.SubprocessError,
+                tarfile.TarError, zipfile.BadZipFile):
+            print("Compiled-product reuse unavailable; compiling normally.")
+            report["reason"] = "fallback"
+            report["miss_reasons"] = "reuse_api_or_validation_error"
             shutil.rmtree(derived, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:
             out.write(f"hit={'true' if hit else 'false'}\n")
+            for name, item in report.items():
+                value_out = "" if item is None else str(item)
+                out.write(f"{name}={value_out}\n")
     else:
         raise ValueError("expected key, seal or restore")
 
