@@ -1091,17 +1091,6 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Cache Swift packages
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
-
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
@@ -1129,78 +1118,14 @@ jobs:
       - name: Restore compiled app-host test product
         env:
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+        # This validates the producer revision/toolchain, relocates each xctestrun,
+        # and stages its compiled PackageFrameworks. Consumers execute this exact
+        # product; package/project resolution belongs to compile admission.
         run: scripts/ci/restore-app-host-test-product.sh
 
       - name: Prepare isolated app-host home
         id: prepare-app-host-home
         run: scripts/ci/prepare-app-host-home.sh
-
-      - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-          resolve_log="$RUNNER_TEMP/cmux-swiftpm-resolve-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}.log"
-
-          for attempt in 1 2 3; do
-            set +e
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies 2>&1 | tee "$resolve_log"
-            resolve_status="${PIPESTATUS[0]}"
-            set -e
-
-            if [ "$resolve_status" -eq 0 ]; then
-              # Guard against a stale/poisoned Swift-package cache: a restored
-              # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
-              # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
-            fi
-
-            # SwiftPM stores binary download destinations under the runner's
-            # global cache even when clonedSourcePackagesDirPath is isolated.
-            # A reused runner can leave the Iroh archive destination behind;
-            # SwiftPM then reports "already exists in file system" on every
-            # retry. Clear both resolver layers only for that cache collision,
-            # while preserving other failures for diagnosis.
-            if [ "$resolve_status" -ne 0 ] && grep -Fq "already exists in file system" "$resolve_log"; then
-              echo "SwiftPM artifact cache collision detected; clearing resolver caches before retry" >&2
-              rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
-              mkdir -p "$HOME/Library/Caches/org.swift.swiftpm"
-              rm -rf "$SOURCE_PACKAGES_DIR"
-              mkdir -p "$SOURCE_PACKAGES_DIR"
-            fi
-
-            # Keep the existing three-attempt policy, but record resolver
-            # state when a package attempt fails so provider incidents are
-            # distinguishable from SwiftPM or cache defects.
-            scripts/ci/capture-network-diagnostics.sh || true
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Restage package frameworks after resolution
-        run: |
-          set -euo pipefail
-          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
-          if [ -L "$products/PackageFrameworks" ]; then
-            rm "$products/PackageFrameworks"
-          fi
-          mkdir -p "$products/PackageFrameworks"
-          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
-          rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
-          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1943,9 +1868,8 @@ jobs:
             # the whole batch to CMUX_UNIT_TEST_TIMEOUT_SECONDS: XCTest's
             # per-test execution allowance fails that one test (with a
             # spindump) and keeps the batch moving.
-            # Reset this batch's capture before every invocation. The outer
-            # SwiftPM-resolution retry reuses the path, and a failed retry
-            # must not inherit an earlier attempt's expected-failure summary.
+            # Reset this batch's capture before every invocation so a failed
+            # batch cannot inherit an earlier attempt's expected-failure summary.
             : > "$batch_output"
             {
               # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
@@ -2031,26 +1955,6 @@ jobs:
           OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing the SwiftPM cache to recover from transient corruption.
-          # Keep the admission-produced DerivedData intact: this job is
-          # intentionally forbidden from compiling again after admission.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-              -resolvePackageDependencies
-            set +e
-            run_unit_tests | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
-            set -e
-          fi
-
           if [ "$EXIT_CODE" -ne 0 ]; then
             # Expected failures are normalized inside run_unit_test_batch. Any
             # remaining non-zero status is a real batch failure or an incomplete
@@ -2063,8 +1967,7 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
-          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+          ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Set up Bun for Pi extension dispatch regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
