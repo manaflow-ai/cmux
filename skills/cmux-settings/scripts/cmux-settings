@@ -27,11 +27,14 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -131,10 +134,43 @@ def load_settings(path: Path) -> dict[str, Any]:
 
 
 def resolved_write_path(path: Path) -> Path:
-    """Resolve a cmux.json symlink once so atomic replace keeps the link."""
-    if path.is_symlink():
-        return path.resolve(strict=False)
-    return path
+    """Canonical lock/write target, including symlinked parent directories."""
+    return path.resolve(strict=False)
+
+
+@contextlib.contextmanager
+def mutation_lock(configured: Path):
+    """Serialize participating cmux writers on one stable sidecar inode."""
+    target = resolved_write_path(configured)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(
+        str(target) + ".cmux-write.lock",
+        os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise SystemExit("error: refusing unsafe cmux config writer lock")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("error: another cmux config write is in progress; retry")
+        if resolved_write_path(configured) != target:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        yield target
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def current_revision(path: Path) -> tuple[bytes, int, int] | None:
+    try:
+        with path.open("rb") as source:
+            info = os.fstat(source.fileno())
+            return (source.read(), info.st_dev, info.st_ino)
+    except FileNotFoundError:
+        return None
 
 
 def source_for_edit(path: Path, data: dict[str, Any]) -> str:
@@ -326,44 +362,50 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 def cmd_set(args: argparse.Namespace) -> int:
     configured_path = Path(args.file)
-    path = resolved_write_path(configured_path)
-    data = load_settings(path)
-    source = source_for_edit(path, data)
     parts = split_path(args.key)
     value = parse_value(args.value)
-    changed = set_at(data, parts, value)
-    if not changed:
-        print(f"unchanged: {args.key} = {json.dumps(value)}")
-        return 0
+    with mutation_lock(configured_path) as path:
+        original = current_revision(path)
+        data = load_settings(path)
+        source = source_for_edit(path, data)
+        changed = set_at(data, parts, value)
+        if not changed:
+            print(f"unchanged: {args.key} = {json.dumps(value)}")
+            return 0
 
-    try:
-        updated = set_jsonc_path(source, parts, value)
-        json.loads(strip_jsonc(updated))
-    except (JSONCEditError, json.JSONDecodeError) as error:
-        raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+        try:
+            updated = set_jsonc_path(source, parts, value)
+            json.loads(strip_jsonc(updated))
+        except (JSONCEditError, json.JSONDecodeError) as error:
+            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
 
-    atomic_write_text(path, updated)
+        if resolved_write_path(configured_path) != path or current_revision(path) != original:
+            raise SystemExit("error: cmux config changed while preparing the edit; retry")
+        atomic_write_text(path, updated)
     print(f"set: {args.key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
     configured_path = Path(args.file)
-    path = resolved_write_path(configured_path)
-    data = load_settings(path)
-    source = source_for_edit(path, data)
     parts = split_path(args.key)
-    if not unset_at(data, parts):
-        print(f"unchanged: {args.key} (not present)")
-        return 0
+    with mutation_lock(configured_path) as path:
+        original = current_revision(path)
+        data = load_settings(path)
+        source = source_for_edit(path, data)
+        if not unset_at(data, parts):
+            print(f"unchanged: {args.key} (not present)")
+            return 0
 
-    try:
-        updated = remove_jsonc_path(source, parts)
-        json.loads(strip_jsonc(updated))
-    except (JSONCEditError, json.JSONDecodeError) as error:
-        raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+        try:
+            updated = remove_jsonc_path(source, parts)
+            json.loads(strip_jsonc(updated))
+        except (JSONCEditError, json.JSONDecodeError) as error:
+            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
 
-    atomic_write_text(path, updated)
+        if resolved_write_path(configured_path) != path or current_revision(path) != original:
+            raise SystemExit("error: cmux config changed while preparing the edit; retry")
+        atomic_write_text(path, updated)
     print(f"unset: {args.key}")
     return 0
 
