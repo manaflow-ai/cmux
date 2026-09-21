@@ -368,6 +368,9 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate shallow complexity comparison fetching
+        run: python3 tests/test_ci_fetch_complexity_base.py
+
       - name: Validate Ghostty helper cache failure handling
         run: bash tests/test_ghostty_cli_helper_cache.sh
 
