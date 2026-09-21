@@ -738,7 +738,25 @@ jobs:
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
-        run: bun run typecheck
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-typecheck.log"
+          set +e
+          bun run typecheck 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # The native TypeScript preview compiler can abort on a healthy
+          # runner. Retry that transient compiler crash once, while keeping
+          # real type errors as immediate failures.
+          if [ "$status" -ne 0 ] \
+            && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during web typecheck; retrying once"
+            bun run typecheck
+            exit $?
+          fi
+
+          exit "$status"
 
       - name: Web tests
         run: bun run test
@@ -747,26 +765,12 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
-        run: |
-          set -o pipefail
-          log="$RUNNER_TEMP/web-test-instant.log"
-          set +e
-          bun run test:instant 2>&1 | tee "$log"
-          status=${PIPESTATUS[0]}
-          set -e
-
-          # The native TypeScript preview compiler can abort while Playwright
-          # starts its web server. Retry that transient compiler crash once,
-          # while preserving immediate failures for real type or test errors.
-          if [ "$status" -ne 0 ] \
-            && grep -Fq '[WebServer] $ tsgo --noEmit' "$log" \
-            && grep -Fq 'Aborted (core dumped)' "$log"; then
-            echo "::warning::native tsgo aborted during instant navigation tests; retrying once"
-            bun run test:instant
-            exit $?
-          fi
-
-          exit "$status"
+        env:
+          # The preceding Typecheck step owns the repository-wide tsgo gate;
+          # avoid launching a second tsgo process inside Playwright's server
+          # command on constrained Linux runners.
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
+        run: bun run test:instant
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
