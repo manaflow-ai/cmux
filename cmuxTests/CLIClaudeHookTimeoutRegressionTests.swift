@@ -1002,7 +1002,12 @@ struct CLIClaudeHookTimeoutRegressionTests {
             listenerFD: listenerFD,
             commands: capturedCommands,
             surfaceId: "22222222-2222-2222-2222-222222222222",
-            connectionLimit: 16
+            connectionLimit: 16,
+            processBinding: CodexHookMockProcessBinding(
+                processID: 8535,
+                workspaceID: "11111111-1111-1111-1111-111111111111",
+                surfaceID: "22222222-2222-2222-2222-222222222222"
+            )
         )
         let environment = [
             "HOME": root.path,
@@ -1013,6 +1018,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
             "CMUX_CLI_TTY_NAME": "ttys-local-collision",
             "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
+            "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT": "1",
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             pidKey: "8535",
             "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -1318,8 +1324,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(environment["CMUX_CODEX_PID"] as? String == "8535")
     }
 
-    @Test("Custom agent installers emit bounded queue admission")
-    func customAgentInstallersEmitBoundedQueueAdmission() throws {
+    @Test("Custom agent installers emit bounded lifecycle delivery")
+    func customAgentInstallersEmitBoundedLifecycleDelivery() throws {
         struct Producer {
             let agent: String
             let environment: [String: String]
@@ -1383,6 +1389,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
             #expect(!result.timedOut, Comment(rawValue: result.stderr))
             #expect(result.status == 0, Comment(rawValue: result.stderr))
             let source = try String(contentsOf: producer.artifact, encoding: .utf8)
+            if producer.agent == "pi" {
+                // Pi consumes the synchronous response to keep its resolved
+                // pane target across relaunch; its dispatcher owns ordering.
+                #expect(source.contains("[\"hooks\", \"pi\", subcommand, ...target]"))
+                #expect(source.contains("CMUX_PI_HOOK_TIMEOUT_MS"))
+                #expect(source.contains("maximumPiHookTimeoutMilliseconds"))
+                continue
+            }
             #expect(
                 source.contains("[\"hooks\", \"enqueue\", \"\(producer.agent)\", subcommand]"),
                 "\(producer.agent) lifecycle hooks must use the shared app queue"

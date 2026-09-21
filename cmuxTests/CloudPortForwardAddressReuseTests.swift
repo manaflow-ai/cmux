@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@Suite(.timeLimit(.minutes(1)))
 struct CloudPortForwardAddressReuseTests {
     @Test("Successive browser connections reuse the working family and recover if it fails")
     func browserConnectionsReuseWorkingFamily() async throws {
@@ -20,12 +20,24 @@ struct CloudPortForwardAddressReuseTests {
         hub.refusedHosts = [ipv4]
         let dialer = CloudLoopbackPortForwardTests.FakeHubDialer(endpoint: hub.endpoint)
         let target = CloudPortForwardTarget(host: ipv4, port: 6901, fallbackHosts: [ipv6])
-        let forward = try CloudLoopbackPortForward(target: target, dialer: dialer)
+        let clock = SidebarTestManualClock()
+        var relay = CloudPortForwardRelay(dialer: dialer)
+        relay.clock = clock
+        let forward = try CloudLoopbackPortForward(target: target, dialer: dialer, relay: relay)
         let localPort = try await forward.start()
 
-        for _ in 0..<3 {
+        for index in 0..<3 {
             let client = try await CloudLoopbackPortForwardTests.client(port: localPort)
+            defer { client.cancel() }
             try await client.sendAll(Data("ping".utf8))
+            if index == 0 {
+                try #require(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.contains { $0.host == ipv4 } })
+                await clock.waitUntilSleeping(for: .milliseconds(250))
+                clock.advance(by: .milliseconds(250))
+            }
+            // Leave the fallback clock parked for subsequent connections.
+            // A loaded CI runner may take over 250ms for a successful local
+            // handshake; that must not be mistaken for forgetting the family.
             #expect(try await client.receiveExactly(4) == Array("ping".utf8))
             client.cancel()
         }
@@ -36,7 +48,11 @@ struct CloudPortForwardAddressReuseTests {
 
         hub.refusedHosts = [ipv6]
         let recovered = try await CloudLoopbackPortForwardTests.client(port: localPort)
+        defer { recovered.cancel() }
         try await recovered.sendAll(Data("back".utf8))
+        try #require(await CloudLoopbackPortForwardTests.waitUntil { hub.connectTargets.filter { $0.host == ipv6 }.count == 4 })
+        await clock.waitUntilSleeping(for: .milliseconds(250))
+        clock.advance(by: .milliseconds(250))
         #expect(try await recovered.receiveExactly(4) == Array("back".utf8),
                 "Remembering a family must preserve fallback when reachability changes")
         recovered.cancel()

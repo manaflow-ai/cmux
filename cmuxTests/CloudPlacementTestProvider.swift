@@ -7,7 +7,7 @@ import Testing
 #endif
 
 @MainActor
-final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing {
+final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing, SurfaceAgentNaming {
     let machine: SurfaceMachineID
     var info: SurfaceMachineInfo
     var moved: [(tab: String, workspace: String)] = []
@@ -47,6 +47,9 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
         try await beforeMutation?()
         tabRenames.append(name)
         renamedTabs.append((id, name))
+    }
+    func renameAgentTab(context: CloudAgentNameContext, name: String) async throws {
+        try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {

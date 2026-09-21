@@ -218,6 +218,7 @@ struct AgentHookDeliveryProcess: Sendable {
         environment["CMUX_AGENT_HOOK_DELIVERY_PROCESS_GROUP"] = "1"
         if event.relayBacked {
             environment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] = "1"
+            environment["CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"] = "1"
             environment["CMUX_AGENT_HOOK_STATE_DIR"] = relayStateDirectory(
                 event: event,
                 ambientEnvironment: ambientEnvironment

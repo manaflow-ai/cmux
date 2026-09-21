@@ -16,6 +16,7 @@ import CmuxUpdater
 // so a blanket `import CmuxSettings` here makes those names ambiguous. Import only
 // the settings symbols this file needs.
 import struct CmuxSettings.AppCatalogSection
+import struct CmuxSettings.BetaFeaturesCatalogSection
 import struct CmuxSettings.QuitConfirmationStore
 import struct CmuxSettings.CommandPaletteSettingsStore
 import enum CmuxSettings.ConfirmQuitMode
@@ -880,8 +881,21 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 }
 
 final class CommandPaletteCloudCommandTests: XCTestCase {
+    @MainActor
     func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
-        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
+        let key = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let originalOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        defaults.set(true, forKey: key)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer {
+            if let original { defaults.set(original, forKey: key) }
+            else { defaults.removeObject(forKey: key) }
+            CmuxFeatureFlags.shared.setOverride(originalOverride, for: flag)
+        }
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).map(\.commandId))
 
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
@@ -891,6 +905,13 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
+
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: false).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(false, for: flag)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defaults.set(false, forKey: key)
+        XCTAssertTrue(ContentView.commandPaletteCloudCommandContributions(isAuthenticated: true).isEmpty)
     }
 
     func testCloudVMIdentityIsExplicitMetadata() {
@@ -1183,6 +1204,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
+@MainActor
 final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
@@ -1276,6 +1298,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     }
 
     func testModeShortcutsUsePrivateControlDigitDefaults() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18)),
             .files
@@ -1306,6 +1329,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
     /// tab, so ctrl+4 must select it (the old static table pinned Cloud to
     /// ctrl+6 while ctrl+4 fell on the invisible Feed and did nothing).
     func testModeShortcutDigitsFollowVisibleTabPositions() {
+        CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         UserDefaults.standard.set(false, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
@@ -2062,10 +2086,10 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 
     func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
-        let resolved = UpdateFeedResolver().resolve(
+        let resolved = UpdateFeedResolver(hostArchitecture: .arm64).resolve(
             infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
-        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
+        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast-arm64.xml")
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
