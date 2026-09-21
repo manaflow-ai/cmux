@@ -10,6 +10,7 @@ import {
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
+  cloudRuntimes,
   cloudVmBillingGrants,
   cloudVmLeases,
   cloudVmNotificationDeliveries,
@@ -1584,6 +1585,7 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     );
     await deleteVmPublicationRowsForAccountDeletion(tx, userId);
     if (personalVmRows.length > 0) {
+      await tx.delete(cloudRuntimes).where(inArray(cloudRuntimes.machineId, personalVmIds));
       await tx.delete(cloudVms).where(inArray(cloudVms.id, personalVmRows.map((vm) => vm.id)));
     }
     if (sharedTeamVmRows.length > 0) {

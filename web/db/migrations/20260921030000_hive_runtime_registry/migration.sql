@@ -17,7 +17,9 @@ CREATE TABLE "cloud_runtime_agent_bindings" (
   "codex_thread_id" text NOT NULL,
   "root_chat_id" text NOT NULL,
   "parent_chat_id" text,
-  PRIMARY KEY ("runtime_id", "codex_thread_id")
+  PRIMARY KEY ("runtime_id", "codex_thread_id"),
+  CONSTRAINT "cloud_runtime_agent_bindings_thread_nonempty" CHECK (length(trim("codex_thread_id")) > 0),
+  CONSTRAINT "cloud_runtime_agent_bindings_root_nonempty" CHECK (length(trim("root_chat_id")) > 0)
 );--> statement-breakpoint
 -- Every live VM gets a fresh runtime identity. Base reset/recovery does not
 -- restore a journal, so its VM is an ordinary M0 placement. Do not reuse Base

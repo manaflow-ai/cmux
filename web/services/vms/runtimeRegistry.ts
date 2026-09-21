@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import * as Effect from "effect/Effect";
 import { cloudDb } from "../../db/client";
 import { cloudRuntimes, cloudVms } from "../../db/schema";
@@ -38,7 +38,7 @@ export function readHiveRuntime(ownerTeamId: string, runtimeId: string) {
         .leftJoin(cloudVms, and(
           eq(cloudVms.id, cloudRuntimes.machineId),
           eq(cloudVms.ownerTeamId, cloudRuntimes.ownerTeamId),
-          ne(cloudVms.status, "destroyed"),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
         ))
         .where(and(eq(cloudRuntimes.id, runtimeId), eq(cloudRuntimes.ownerTeamId, ownerTeamId)))
         .limit(1);

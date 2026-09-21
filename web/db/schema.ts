@@ -142,6 +142,8 @@ export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings",
   parentChatId: text("parent_chat_id"),
 }, (table) => [
   primaryKey({ columns: [table.runtimeId, table.codexThreadId] }),
+  check("cloud_runtime_agent_bindings_thread_nonempty", sql`length(trim(${table.codexThreadId})) > 0`),
+  check("cloud_runtime_agent_bindings_root_nonempty", sql`length(trim(${table.rootChatId})) > 0`),
 ]);
 
 export const accountDeletionTombstones = pgTable(
