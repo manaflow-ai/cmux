@@ -3,7 +3,34 @@ import Foundation
 
 /// Passed through tasks and explicit process/socket boundaries for one user operation.
 struct CloudOperationContext: Sendable {
-    @TaskLocal static var current: CloudOperationContext?
+    /// Keep the task-local payload reference-sized for macOS 14's back-deployed
+    /// `TaskLocal.withValue` implementation. Passing this larger value directly
+    /// can violate the task allocator's LIFO invariant in optimized callers.
+    private final class TaskLocalValue: Sendable {
+        let context: CloudOperationContext?
+
+        init(_ context: CloudOperationContext?) {
+            self.context = context
+        }
+    }
+
+    @TaskLocal private static var taskLocalValue: TaskLocalValue?
+
+    static var current: CloudOperationContext? {
+        taskLocalValue?.context
+    }
+
+    static func withCurrent<T>(
+        _ context: CloudOperationContext?,
+        isolation: isolated (any Actor)? = #isolation,
+        _ operation: () async throws -> T
+    ) async rethrows -> T {
+        try await $taskLocalValue.withValue(
+            TaskLocalValue(context),
+            operation: operation,
+            isolation: isolation
+        )
+    }
 
     let recorder: CloudOperationRecorder
     let identity: AuthenticatedSessionIdentity?
@@ -31,7 +58,7 @@ struct CloudOperationContext: Sendable {
         _ work: () async throws -> T
     ) async rethrows -> T {
         let child = await recorder.beginChild(of: self, phase: phase, attempt: attempt, file: file, line: line)
-        return try await Self.$current.withValue(child) {
+        return try await Self.withCurrent(child) {
             do {
                 let value = try await work()
                 await recorder.finish(child)
