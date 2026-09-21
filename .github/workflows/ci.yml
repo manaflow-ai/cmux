@@ -1463,6 +1463,7 @@ jobs:
             local execution_attempt="$2"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
+            local batch_tag="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}"
             local reserve_args=()
             local reservation
             for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
@@ -1493,7 +1494,7 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
             : >"$batch_output"
-            CMUX_TAG="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}" \
+            CMUX_TAG="$batch_tag" \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
@@ -1571,13 +1572,24 @@ jobs:
             # new test identifier stay red.
             if [ "$batch_status" -eq 65 ]; then
               local ratchet_message ratchet_status
-              set +e
-              ratchet_message="$(python3 scripts/ci/app_host_failure_ratchet.py \
-                "$batch_output" \
-                --catalog scripts/ci/app-host-known-failures.json \
-                --exit-code "$batch_status" 2>&1)"
-              ratchet_status=$?
-              set -e
+              local result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
+              local typed_tests=()
+              shopt -s nullglob
+              typed_tests=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*-attempt-*.tests.json)
+              shopt -u nullglob
+              if [ "${#typed_tests[@]}" -eq 0 ]; then
+                ratchet_message="typed xcresult test evidence is missing for $batch_tag"
+                ratchet_status=1
+              else
+                set +e
+                ratchet_message="$(python3 scripts/ci/app_host_failure_ratchet.py \
+                  "$batch_output" \
+                  --catalog scripts/ci/app-host-known-failures.json \
+                  --exit-code "$batch_status" \
+                  --tests-json "${typed_tests[@]}" 2>&1)"
+                ratchet_status=$?
+                set -e
+              fi
               printf '%s\n' "$ratchet_message"
               printf '%s\n' "$ratchet_message" >>"$batch_output"
               if [ "$ratchet_status" -eq 0 ]; then
