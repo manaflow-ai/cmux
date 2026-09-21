@@ -3,6 +3,8 @@ import Foundation
 import Testing
 
 extension CLICallerWorkspaceDefaultTests {
+    private static let hexWindowId = "ABCDEFAB-CDEF-ABCD-EFAB-CDEFABCDEFAB"
+
     /// Exercises the shipped executable, real Git worktree discovery, and
     /// line-framed socket writes. Only the GitHub network boundary is stubbed.
     @Test(arguments: ["number", "url", "fork-upstream", "explicit", "tty", "window", "window-mismatch", "worktree", "ambiguous", "mismatch", "invalid", "gh-failure", "gh-malformed", "clear", "blank", "option"])
@@ -79,7 +81,7 @@ extension CLICallerWorkspaceDefaultTests {
                 return Self.v2Response(id: id, ok: true, result: [
                     "caller": [
                         "workspace_id": Self.otherWorkspaceId,
-                        "window_id": scenario == "window" ? Self.focusedWorkspaceId : Self.otherWorkspaceId
+                        "window_id": scenario == "window" ? Self.hexWindowId : Self.otherWorkspaceId
                     ],
                     "focused": ["workspace_id": Self.focusedWorkspaceId]
                 ])
@@ -102,7 +104,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "explicit": args += ["--workspace", Self.otherWorkspaceId]
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
-        case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.focusedWorkspaceId]
+        case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.hexWindowId.lowercased()]
         case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.otherWorkspaceId]
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
         case "invalid": args[1] = "https://example.com/pull/123"

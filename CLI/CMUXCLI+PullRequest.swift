@@ -58,7 +58,7 @@ extension CMUXCLI {
             if let windowID {
                 let response = try client.sendV2(method: "system.identify", params: ["caller": ["workspace_id": id]])
                 let caller = response["caller"] as? [String: Any]
-                guard caller?["window_id"] as? String == windowID else {
+                guard Self.pullRequestWindowIDsEqual(caller?["window_id"] as? String, windowID) else {
                     throw CLIError(message: CMUXDiffViewerLocalization.string(
                         "cli.pr.error.workspaceMissing",
                         defaultValue: "Workspace not found; run cmux list-workspaces and retry with --workspace."
@@ -72,7 +72,7 @@ extension CMUXCLI {
             let response = try client.sendV2(method: "system.identify", params: ["caller_tty": tty])
             if let caller = response["caller"] as? [String: Any],
                let id = caller["workspace_id"] as? String, isUUID(id),
-               windowID == nil || caller["window_id"] as? String == windowID {
+               windowID == nil || Self.pullRequestWindowIDsEqual(caller["window_id"] as? String, windowID) {
                 ttyWorkspace = id
             }
         }
@@ -85,7 +85,8 @@ extension CMUXCLI {
         let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
         var candidates = Set<String>()
         for window in windows {
-            guard let id = window["id"] as? String, windowID == nil || windowID == id else { continue }
+            guard let id = window["id"] as? String,
+                  windowID == nil || Self.pullRequestWindowIDsEqual(id, windowID) else { continue }
             let workspaces = try client.sendV2(method: "workspace.list", params: ["window_id": id])["workspaces"] as? [[String: Any]] ?? []
             for workspace in workspaces {
                 guard let workspaceID = workspace["id"] as? String,
@@ -112,6 +113,14 @@ extension CMUXCLI {
             ))
         }
         return workspaceID
+    }
+
+    private static func pullRequestWindowIDsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        if let lhsUUID = UUID(uuidString: lhs), let rhsUUID = UUID(uuidString: rhs) {
+            return lhsUUID == rhsUUID
+        }
+        return lhs.caseInsensitiveCompare(rhs) == .orderedSame
     }
 
     private func pullRequestRepositoryRoot() throws -> String {
