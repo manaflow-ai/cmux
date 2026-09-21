@@ -336,6 +336,8 @@ function CoderouterApiKeysSection({
                 ? t("apiKeyUsageDetail", {
                   completions: compactNumber.format(key.usage.completions),
                   tokens: compactNumber.format(key.usage.totalTokens),
+                  input: compactNumber.format(key.usage.inputTokens),
+                  output: compactNumber.format(key.usage.outputTokens),
                   value: currency.format(key.usage.apiEquivalentUsd),
                 })
                 : t("apiKeyUsageUnavailable");

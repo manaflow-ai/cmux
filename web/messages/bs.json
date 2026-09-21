@@ -419,7 +419,7 @@
       "revokingApiKeyAction": "Revoking",
       "apiKeyRevokeError": "API key could not be revoked.",
       "revokeApiKeyConfirmTitle": "Revoke this API key?",
-      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens · {value} API equivalent",
+      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
       "apiKeyUsageUnavailable": "Usage unavailable"
     }
   },

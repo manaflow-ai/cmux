@@ -491,7 +491,7 @@
       "apiKeyRevokeError": "APIキーを失効できませんでした。",
       "revokeApiKeyConfirmTitle": "このAPIキーを失効させますか？",
       "revokeApiKeyConfirmBody": "このキーを使うクライアントは直ちに認証できなくなります。",
-      "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン · API換算 {value}",
+      "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
       "apiKeyUsageUnavailable": "使用状況を取得できません"
     },
     "accountMenu": {
