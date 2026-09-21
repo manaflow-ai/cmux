@@ -15776,8 +15776,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // promotion/demotion can leave a live connection without one.
         backfillMissingCaffeineStatuses()
         guard connectionState == .connected, remoteClient != nil else { return }
-        if let inFlight = pullToRefreshTask {
+        while let inFlight = pullToRefreshTask {
             await inFlight.value
+            if Task.isCancelled { return }
             if !inFlight.isCancelled { return }
         }
         await reloadWorkspaceListFromMac()
@@ -15786,8 +15787,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
     public func refreshWorkspaces() async {
         guard connectionState == .connected, remoteClient != nil else { return }
-        if let inFlight = pullToRefreshTask {
+        while let inFlight = pullToRefreshTask {
             await inFlight.value
+            if Task.isCancelled { return }
             if !inFlight.isCancelled { return }
         }
         let task = Task { @MainActor [weak self] in

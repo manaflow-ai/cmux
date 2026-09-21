@@ -138,6 +138,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
         previousConfiguration = nil
         appliedItems = []
+        configuration.emptyStateLayoutChanged = { [weak self, weak tableView] in
+            self?.invalidateEmptyStateLayout(in: tableView)
+        }
         apply(configuration: configuration, in: tableView)
     }
 
@@ -154,6 +157,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
+        var next = next
+        next.emptyStateLayoutChanged = configuration.emptyStateLayoutChanged
         guard !isDragSessionActive else {
             // UIKit owns the lifted source cell until its drop animator
             // completes. Reloading or structurally updating the table during
@@ -1123,6 +1128,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.contentConfiguration = hosting
     }
 
+    private func invalidateEmptyStateLayout(in tableView: UITableView?) {
+        guard let tableView,
+              dataSource?.indexPath(for: .emptyWorkspaceList) != nil else { return }
+        heightCache.removeAll(keepingCapacity: true)
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
+    }
+
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
         switch item {
         case .workspace(let workspaceID, _):
@@ -1271,7 +1286,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             return AnyView(
                 MobileWorkspaceListEmptyRow(
                     retry: configuration.refresh,
-                    cancelRetry: configuration.cancelRefresh
+                    cancelRetry: configuration.cancelRefresh,
+                    onLayoutChange: configuration.emptyStateLayoutChanged
                 )
             )
         }
