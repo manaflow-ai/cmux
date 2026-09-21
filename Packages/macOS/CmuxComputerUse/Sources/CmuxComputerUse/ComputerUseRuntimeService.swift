@@ -39,7 +39,7 @@ public final class ComputerUseRuntimeService {
     public let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
-    private let transport: SocketTransport
+    let transport: SocketTransport
     public let daemonAdmission: ComputerUseDaemonAdmissionService
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
