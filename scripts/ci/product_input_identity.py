@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-CI_WORKFLOW = ".github/workflows/ci.yml"
+CI_WORKFLOW = ".github/workflows/ci-macos.yml"
 IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v1"
 MACOS_ADMISSION_JOB = "macos-compile-admission"
 
