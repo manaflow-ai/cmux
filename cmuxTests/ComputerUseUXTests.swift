@@ -2628,8 +2628,11 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        // The watcher ignores a state that names this process, so the host
+        // itself can never be the target.
         let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
+                && !$0.isTerminated
                 && $0.bundleIdentifier?.isEmpty == false
                 && $0.localizedName?.isEmpty == false
                 && $0.launchDate != nil
@@ -2698,14 +2701,30 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("watcher.json"),
                 options: .atomic
             )
-            for await processIdentifier in activationEvents.stream {
-                guard processIdentifier == target.processIdentifier else {
-                    continue
+            // A callback that never arrives must fail this expectation, not
+            // hold the app host until the suite's time limit restarts it.
+            let targetProcessIdentifier = target.processIdentifier
+            let stream = activationEvents.stream
+            let didActivate = await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
+                    for await processIdentifier in stream
+                    where processIdentifier == targetProcessIdentifier {
+                        return true
+                    }
+                    return false
                 }
-                activated()
-                activationEvents.continuation.finish()
-                break
+                group.addTask {
+                    try? await Task.sleep(for: .seconds(15))
+                    return false
+                }
+                let first = await group.next() ?? false
+                group.cancelAll()
+                return first
             }
+            if didActivate {
+                activated()
+            }
+            activationEvents.continuation.finish()
         }
     }
 
