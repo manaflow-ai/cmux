@@ -11,10 +11,10 @@ private let sessionTodoPersistenceLogger = Logger(
 /// at most one session-file write in flight.
 @MainActor
 final class SessionTodoStatePersistenceCoordinator {
-    private struct PendingUpdate {
-        let workspaceID: UUID
-        let capture: @MainActor () -> SessionTodoStateSnapshot?
-    }
+    private typealias PendingUpdate = (
+        workspaceID: UUID,
+        capture: @MainActor () -> SessionTodoStateSnapshot?
+    )
 
     private let queue: DispatchQueue
     private let snapshotStore: any SessionSnapshotStoring<AppSessionSnapshot>
@@ -41,7 +41,7 @@ final class SessionTodoStatePersistenceCoordinator {
 
     func enqueue(workspace: Workspace) {
         let workspaceID = workspace.id
-        pending[workspaceID] = PendingUpdate(
+        pending[workspaceID] = (
             workspaceID: workspaceID,
             capture: { [weak workspace] in
                 guard let workspace else { return nil }
