@@ -11127,6 +11127,29 @@ extension SidebarDragState {
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
+@MainActor
+func createWorkspaceAtEndFromSidebar(
+    appDelegate: AppDelegate?,
+    windowId: UUID,
+    tabManager: TabManager
+) {
+    if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+        _ = appDelegate?.performNewWorkspaceAction(
+            tabManager: tabManager,
+            debugSource: "sidebar.emptyArea.remoteTmux"
+        )
+    } else if appDelegate?.addWorkspace(
+        windowId: windowId,
+        bringToFront: false,
+        select: true,
+        placementOverride: .end
+    ) == nil {
+        // Keep previews and transitional windows usable while the
+        // per-window context is being registered.
+        tabManager.addWorkspaceIfActive(placementOverride: .end)
+    }
+}
+
 struct VerticalTabsSidebar: View, Equatable {
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
@@ -12306,21 +12329,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabManager.closeWorkspaceWithConfirmation(workspace)
             },
             createWorkspaceAtEnd: {
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
-                } else if AppDelegate.shared?.addWorkspace(
+                createWorkspaceAtEndFromSidebar(
+                    appDelegate: AppDelegate.shared,
                     windowId: windowId,
-                    bringToFront: false,
-                    select: true,
-                    placementOverride: .end
-                ) == nil {
-                    // Keep previews and transitional windows usable while the
-                    // per-window context is being registered.
-                    tabManager.addWorkspaceIfActive(placementOverride: .end)
-                }
+                    tabManager: tabManager
+                )
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
