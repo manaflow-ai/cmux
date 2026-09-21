@@ -36,21 +36,23 @@ extension Workspace {
     /// A dropped-and-recovered ssh-tmux control connection reconnects with a
     /// fresh SSH session; the previously acquired `-D` dynamic forward and
     /// its SOCKS listener belonged to the old one and are now dead, but
-    /// nothing in `RemoteTmuxTransportRegistry`/`RemoteTmuxBrowserProxyRegistry`
+    /// nothing in ``RemoteTmuxTransportRegistry``/``RemoteTmuxBrowserProxyRegistry``
     /// treats a reconnect (as opposed to the host being removed outright) as
     /// invalidating them — so without this, every browser tab on this host
     /// would keep being handed the same stale, now-unreachable endpoint.
-    /// `invalidateAndRebuild` preserves the host's existing retainers
-    /// (unlike `releaseHost`, which would drop every OTHER mirror workspace's
-    /// retention on this same host), and no-ops when nothing on this host has
-    /// ever opened a browser, so calling this from every mirror workspace
-    /// sharing the host that just reconnected is safe — merely redundant.
+    /// ``RemoteTmuxBrowserProxyRegistry/invalidateAndRebuild(connectionHash:)``
+    /// preserves the host's existing retainers (unlike `releaseHost`, which
+    /// would drop every OTHER mirror workspace's retention on this same
+    /// host), and no-ops when nothing on this host has ever opened a
+    /// browser, so calling this from every mirror workspace sharing the host
+    /// that just reconnected is safe — merely redundant.
     func remoteTmuxBrowserProxyDidReconnect() {
         guard isRemoteTmuxMirror, let host = remoteTmuxBrowserProxyHost else { return }
         AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.invalidateAndRebuild(connectionHash: host.connectionHash)
     }
 
-    /// The registry's per-host `acquire()` is single-flighted across every
+    /// The registry's per-host ``RemoteTmuxBrowserProxyRegistry/acquire(host:workspaceID:)``
+    /// is single-flighted across every
     /// mirror workspace on that host, so this workspace detaching (or
     /// re-mirroring onto a different host) while another mirror keeps the
     /// same acquisition alive must not let this now-stale continuation

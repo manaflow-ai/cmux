@@ -2,17 +2,19 @@ internal import Darwin
 
 /// Finds a free `127.0.0.1` TCP port to bind a local proxy/forward listener to.
 ///
-/// Static members only: a pure, stateless system-call wrapper (one-line
-/// justification per the no-namespace-enum convention). Infrastructure, not a
-/// value/protocol seam, so it lives here rather than in `CmuxCore`. Single
-/// source of truth for loopback port discovery; `RemoteProxyBroker`'s copy
-/// forwards here instead of keeping its own.
-public enum LoopbackPortAllocator {
+/// Infrastructure, not a value/protocol seam, so it lives here rather than in
+/// `CmuxCore`. Single source of truth for loopback port discovery —
+/// ``RemoteProxyBroker`` and the app target's `RemoteTmuxBrowserProxyRegistry`
+/// each hold their own instance (constructor-injected, default-constructed
+/// in production) instead of keeping separate allocation logic.
+public struct LoopbackPortAllocator: Sendable {
+    public init() {}
+
     /// Binds an ephemeral loopback TCP socket to discover a free port, then
     /// closes it. Inherently TOCTOU (the port can be taken before the caller
     /// binds it); callers should retry on bind failure rather than treat this
     /// as a reservation.
-    public static func allocate(attempts: Int = 8) -> Int? {
+    public func allocate(attempts: Int = 8) -> Int? {
         for _ in 0..<attempts {
             let fd = socket(AF_INET, SOCK_STREAM, 0)
             guard fd >= 0 else { return nil }
