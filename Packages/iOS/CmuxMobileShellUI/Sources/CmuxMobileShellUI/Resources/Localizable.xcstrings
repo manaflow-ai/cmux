@@ -1,6 +1,79 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.workspaces.empty.retryTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The connection is taking longer than expected. Try again or check the setup guide."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続に時間がかかっています。もう一度試すか、設定ガイドを確認してください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Verbindung dauert länger als erwartet. Versuchen Sie es erneut oder prüfen Sie die Einrichtungsanleitung."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La connexion prend plus de temps que prévu. Réessayez ou consultez le guide de configuration."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يستغرق الاتصال وقتًا أطول من المتوقع. حاول مرة أخرى أو راجع دليل الإعداد."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La conexión está tardando más de lo esperado. Inténtalo de nuevo o consulta la guía de configuración."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線時間比預期長。請再試一次，或查看設定指南。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接时间比预期长。请重试，或查看设置指南。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결에 예상보다 오래 걸리고 있습니다. 다시 시도하거나 설정 가이드를 확인하세요."}}
+      }
+    },
+    "mobile.workspaces.empty.setupGuide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up cmux iOS"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux iOS einrichten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurer cmux iOS"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد cmux على iOS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurar cmux iOS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 cmux iOS"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置 cmux iOS"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux iOS 설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux iOS を設定"
+          }
+        }
+      }
+    },
     "mobile.signIn.billingRecovery": {
       "extractionState": "manual",
       "localizations": {
