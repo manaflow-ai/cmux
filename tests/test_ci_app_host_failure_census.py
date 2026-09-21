@@ -16,6 +16,31 @@ def test_parses_xctest_swift_and_restart():
     assert record["restarts"][0]["test"] == "swift bad"
 
 
+def test_swift_run_summary_is_not_counted_as_a_failed_test():
+    record = census.parse_log(
+        "◇ Test parameterizedThing(value: 3) started.\n"
+        "✘ Test parameterizedThing(value: 3) recorded an issue at Foo.swift:4: Expectation failed\n"
+        "✘ Test parameterizedThing(value: 3) failed after 0.1 seconds with 1 issue.\n"
+        "✘ Test run with 9 tests failed after 1.0 seconds with 1 issue.\n",
+        "r",
+    )
+    assert record["tests_failed"] == {"parameterizedThing(value: 3)"}
+
+
+def test_census_records_per_test_and_batch_timeouts():
+    record = census.parse_log(
+        "◇ Test wedgedThing() started.\n"
+        "✘ Test wedgedThing() recorded an issue at Foo.swift:4:6: Time limit was exceeded: 300.000 seconds\n"
+        "xcodebuild unit-test batch 5/12 timeout after 900s; terminating\n",
+        "r",
+        "job",
+    )
+    assert record["timeouts"][0]["test"] == "wedgedThing()"
+    assert record["timeouts"][0]["seconds"] == 300.0
+    assert record["batch_timeouts"][0]["batch"] == "5/12"
+    assert record["batch_timeouts"][0]["seconds"] == 900
+
+
 def test_known_issue_is_excluded_and_runs_are_deduplicated():
     a = census.parse_log('◇ Test "known" started.\n✘ Test "known" recorded an issue (known issue).\n', "r")
     b = census.parse_log("Test Case '-[cmuxTests.Foo testBad]' started.\nTest Case '-[cmuxTests.Foo testBad]' failed\n", "r")
