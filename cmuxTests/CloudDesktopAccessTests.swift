@@ -30,20 +30,21 @@ struct CloudDesktopAccessTests {
         let local = try #require(state.nextURL())
         state.didCommit(url: local)
         state.didFinish(url: local)
-        state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, isConnected: false)
+        state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, state: .failed)
         #expect(!state.showsFailureAlert, "A stale listener cannot fail the new page")
-        state.desktopConnectionDidChange(url: local, isConnected: false)
-        #expect(state.showsFailureAlert && state.showsPage)
+        state.desktopConnectionDidChange(url: local, state: .failed)
+        #expect(state.showsFailureAlert)
+        #expect(!state.showsPage, "A desktop that cannot take input is not presented as a working page")
         state.dismissFailure()
-        state.desktopConnectionDidChange(url: local, isConnected: false)
+        state.desktopConnectionDidChange(url: local, state: .failed)
         #expect(!state.showsFailureAlert, "The same failure cannot reopen a dismissed modal")
         _ = browser.reload()
         #expect(await wait { model.isReady && starts == 2 })
         #expect(state.desktopFailure == nil && state.nextURL() == local)
         state.didCommit(url: local)
-        state.desktopConnectionDidChange(url: local, isConnected: false)
+        state.desktopConnectionDidChange(url: local, state: .failed)
         #expect(state.showsFailureAlert, "A failed explicit retry is a new attempt")
-        state.desktopConnectionDidChange(url: local, isConnected: true)
+        state.desktopConnectionDidChange(url: local, state: .connected)
         #expect(!state.showsFailureAlert)
         browser.hardReload()
         #expect(await wait { model.isReady && starts == 3 })
@@ -59,9 +60,9 @@ struct CloudDesktopAccessTests {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         defer { webView.stopLoading() }
         let url = URL(string: "http://127.0.0.1:46901/vnc.html")!
-        CloudDesktopConnectionObserver.install(on: webView) { reportedURL, isConnected in
+        CloudDesktopConnectionObserver.install(on: webView) { reportedURL, state in
             #expect(reportedURL == url)
-            if isConnected { connected.resolve(true) } else { failed.resolve(true) }
+            if state.isConnected { connected.resolve(true) } else { failed.resolve(true) }
         }
         webView.loadHTMLString("""
             <!doctype html><html><body>
@@ -279,6 +280,7 @@ struct CloudDesktopAccessTests {
         model.retry()
         #expect(await wait { model.browserProxy == replacement })
         // What the Cloud browser view re-runs on every route phase change.
+        browser.cloudDesktopRouteDidChange()
         if let next = browser.cloudAccess.nextURL() { browser.navigate(to: next) }
 
         #expect(
@@ -296,6 +298,116 @@ struct CloudDesktopAccessTests {
         browser.webView.configuration.userContentController.userScripts.contains {
             $0.source.contains("__cmuxCloudWebSocketBridgeInstalled") && $0.source.contains("String(\(port))")
         }
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/12290
+    @Test("A viewer that lost its session is never presented as a connected desktop")
+    func desktopReconnectingIsNotPresentedAsConnected() async throws {
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 6901), coordinator: nil, wake: {},
+            startForward: { _ in 46_901 }, stopForward: {}, route: .loopback
+        )
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let state = browser.cloudAccess
+        state.configure(model: model, url: try #require(URL(string: "http://10.0.0.7:6901/vnc.html?path=websockify")))
+        model.connect()
+        #expect(await wait { model.isReady })
+        let local = try #require(state.nextURL())
+        state.didCommit(url: local)
+        state.didFinish(url: local)
+        #expect(state.showsPage)
+
+        state.desktopConnectionDidChange(url: local, state: .reconnecting)
+        #expect(!state.showsPage, "noVNC drops every pointer event while it is not connected")
+        #expect(state.desktopStatusMessage != nil, "The pane says the desktop is reconnecting")
+        #expect(state.desktopFailure == nil, "A first retry is not yet a failure")
+        #expect(!state.showsFailureAlert, "A transient reconnect does not raise a modal")
+
+        state.desktopConnectionDidChange(url: local, state: .disconnected)
+        #expect(!state.showsPage)
+
+        state.desktopConnectionDidChange(url: local, state: .connected)
+        #expect(state.showsPage && state.desktopStatusMessage == nil)
+        await model.retire()
+    }
+
+    /// The viewer retries on its own, so recovery is driven by an observed
+    /// endpoint change rather than by a timer: one re-resolve per episode, and
+    /// a reload only when the carrier the document carries is actually gone.
+    @Test("Desktop recovery rebinds on a replaced carrier and stops on an unchanged one")
+    func desktopRecoveryPolicyRebindsOnlyOnEndpointChange() {
+        let first = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 47_101, username: "c", password: "a")
+        let replacement = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 47_202, username: "c", password: "b")
+        var policy = CloudDesktopRecoveryPolicy()
+
+        var action = policy.viewerDidReport(.disconnected)
+        #expect(action == .idle, "An unbound document has no carrier to compare against")
+
+        policy.documentDidBind(to: first)
+        action = policy.viewerDidReport(.reconnecting)
+        #expect(action == .resolveEndpoint)
+        action = policy.viewerDidReport(.disconnected)
+        #expect(action == .idle, "One endpoint re-resolve per disconnected episode")
+
+        action = policy.routeDidChange(currentEndpoint: first)
+        #expect(action == .idle, "A live carrier is not a reason to reload the document")
+        action = policy.routeDidChange(currentEndpoint: replacement)
+        #expect(action == .rebind)
+        #expect(policy.boundEndpoint == replacement)
+
+        // A late callback cannot reintroduce the carrier the rebind replaced.
+        action = policy.routeDidChange(currentEndpoint: replacement)
+        #expect(action == .idle)
+        action = policy.viewerDidReport(.connected)
+        #expect(action == .idle)
+        #expect(policy.rebindsWithoutConnection == 0, "A working session clears the rebind budget")
+    }
+
+    @Test("Rebinding stops once fresh carriers keep failing, and reports the failure")
+    func desktopRecoveryStopsAfterRepeatedRebinds() {
+        var policy = CloudDesktopRecoveryPolicy()
+        policy.documentDidBind(to: CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 47_000, username: "c", password: "p"))
+        for index in 1...CloudDesktopRecoveryPolicy.rebindLimit {
+            let resolve = policy.viewerDidReport(.disconnected)
+            #expect(resolve == .resolveEndpoint)
+            let next = CloudBrowserProxyEndpoint(
+                host: "127.0.0.1", port: UInt16(47_000 + index), username: "c", password: "p"
+            )
+            let rebind = policy.routeDidChange(currentEndpoint: next)
+            #expect(rebind == .rebind)
+        }
+        #expect(policy.hasExhaustedRebinds)
+        let exhausted = policy.viewerDidReport(.disconnected)
+        #expect(exhausted == .idle, "The endpoint is demonstrably not what is broken")
+    }
+
+    @Test("The noVNC bridge reports a lost session, not only connect and failure")
+    func desktopBridgeReportsLostSession() async throws {
+        let recorder = DesktopConnectionRecorder()
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        defer { webView.stopLoading() }
+        let url = try #require(URL(string: "http://127.0.0.1:46901/vnc.html"))
+        CloudDesktopConnectionObserver.install(on: webView) { _, state in recorder.record(state) }
+        webView.loadHTMLString("""
+            <!doctype html><html><body>
+            <div id="noVNC_status"></div>
+            <div id="noVNC_container"></div>
+            </body></html>
+            """, baseURL: url)
+
+        _ = try await webView.evaluateJavaScript("document.documentElement.classList.add('noVNC_connected')")
+        #expect(await wait { recorder.states.last == .connected })
+        _ = try await webView.evaluateJavaScript(
+            "document.documentElement.classList.remove('noVNC_connected');" +
+            "document.documentElement.classList.add('noVNC_reconnecting')"
+        )
+        #expect(await wait { recorder.states.last == .reconnecting },
+                "A silently retrying viewer must not still read as connected")
+        _ = try await webView.evaluateJavaScript("document.documentElement.classList.remove('noVNC_reconnecting')")
+        #expect(await wait { recorder.states.last == .disconnected })
     }
 
     private func provider(
@@ -330,4 +442,12 @@ struct CloudDesktopAccessTests {
         }
         return title
     }
+}
+
+/// Collects every state the noVNC bridge reports, so a test can assert on the
+/// transitions rather than only on the first value.
+@MainActor
+private final class DesktopConnectionRecorder {
+    private(set) var states: [CloudDesktopConnectionState] = []
+    func record(_ state: CloudDesktopConnectionState) { states.append(state) }
 }
