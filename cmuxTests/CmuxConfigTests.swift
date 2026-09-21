@@ -1789,6 +1789,41 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testPackLoadingBoundsMissingReferenceFanout() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-missing-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let packNames = (0..<33).map { "missing-\($0).json" }
+        let configData = try JSONSerialization.data(
+            withJSONObject: ["packs": packNames],
+            options: [.prettyPrinted]
+        )
+        try configData.write(to: configURL)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.contains { issue in
+            issue.kind == .schemaError
+                && issue.message?.contains("packs exceed the maximum of 32 files") == true
+        })
+        let missingIssues = store.configurationIssues.filter { issue in
+            issue.kind == .schemaError
+                && issue.message?.contains("pack file does not exist") == true
+        }
+        XCTAssertLessThanOrEqual(missingIssues.count, 32)
+    }
+
+    @MainActor
     func testGlobalPackUsesGlobalTrustSourceAndPackIconSource() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-pack-\(UUID().uuidString)",
