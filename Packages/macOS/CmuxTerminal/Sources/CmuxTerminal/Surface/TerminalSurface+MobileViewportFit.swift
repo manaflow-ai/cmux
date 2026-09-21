@@ -70,7 +70,30 @@ extension TerminalSurface {
             // authoritative and font fitting is intentionally out of v1 scope.
             return legacyApplyMobileViewportLimit(surface: surface, columns: columns, rows: rows, reason: reason)
         }
-        mobileViewportCellLimit = (columns: max(1, columns), rows: max(1, rows))
+        let requestedLimit = (columns: max(1, columns), rows: max(1, rows))
+        if let currentLimit = mobileViewportCellLimit,
+           currentLimit.columns == requestedLimit.columns,
+           currentLimit.rows == requestedLimit.rows {
+            // Replaying the same logical viewport must never run the pixel/font
+            // fitter again. Under relay delay the phone can repeat a report
+            // after the first apply already landed; re-fitting the same cell
+            // grid can round to alternating pixel boxes and every set_size
+            // produces SIGWINCH + a full-screen TUI repaint.
+            let currentSize = ghostty_surface_size(surface)
+            #if DEBUG
+            Self.sizeLog(
+                "mobileViewportLimit.coalesced surface=\(id.uuidString.prefix(8)) " +
+                "cells=\(requestedLimit.columns)x\(requestedLimit.rows) " +
+                "live=\(max(Int(currentSize.columns), 1))x\(max(Int(currentSize.rows), 1)) " +
+                "reason=\(reason)"
+            )
+            #endif
+            return (
+                columns: max(Int(currentSize.columns), 1),
+                rows: max(Int(currentSize.rows), 1)
+            )
+        }
+        mobileViewportCellLimit = requestedLimit
         let baseWidth = lastUncappedPixelWidth
         let baseHeight = lastUncappedPixelHeight
         let currentSize = ghostty_surface_size(surface)
