@@ -41,6 +41,7 @@ CONTENT_GROUP = (
 
 
 def validate_metadata_routing(document: dict) -> None:
+    """Validate that metadata edits cannot replace required content checks."""
     job = document["jobs"]["complexity"]
     assert job["if"] == "${{ !(" + METADATA_ONLY + ") }}", "metadata edits must not allocate content runners"
     assert job["name"] == (
@@ -90,6 +91,7 @@ EXPECTED_CHECKS = [
 
 
 def main() -> int:
+    """Validate the trusted web-complexity workflow security contract."""
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     validate_metadata_routing(document)
     job = document["jobs"]["complexity"]
