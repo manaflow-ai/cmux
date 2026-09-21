@@ -504,7 +504,7 @@ private struct WorkspaceTodoPaneContent: View {
 private struct WorkspaceTodoPaneItemRowActions {
     let toggleCompletion: () -> Void
     let beginEdit: () -> Void
-    let editText: (UUID, String) -> Void = { _, _ in }
+    let editText: (UUID, String) -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
     let focusEditor: () -> Void
