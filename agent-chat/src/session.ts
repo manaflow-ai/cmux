@@ -15,6 +15,7 @@ export type AgentEvent =
       provider?: string;
       model?: string;
       reason?: string;
+      handoffMode?: "native_fork" | "compact_replay";
       retryAfterMs?: number;
     }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
@@ -55,7 +56,7 @@ export interface SessionOption {
 export interface CommandEntry { name: string; description?: string; source?: string; }
 export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[]; }
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
-export interface SessionActions { fork?: boolean; }
+export interface SessionActions { fork?: boolean; handoff?: boolean; }
 export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
 
 const diffKeySeparator = "\0";
@@ -177,12 +178,14 @@ export interface SessionState {
   fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
+  handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
   reply(text: string): void;
   stop(): void;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
+  handoff(): void;
   requestProviderOptions(provider: string, cwd: string): void;
   requestProviderCommands(provider: string, cwd: string): void;
   requestFiles(cwd: string, query?: string): void;
@@ -252,6 +255,7 @@ export function useSession(): SessionState {
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
+  const [handoffPending, setHandoffPending] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
@@ -414,6 +418,10 @@ export function useSession(): SessionState {
             setForkPending(false);
             window.open(appPath("/s/" + msg.session.id), "_blank");
             break;
+          case "session-handoff":
+            setHandoffPending(false);
+            window.open(appPath("/s/" + msg.session.id), "_blank");
+            break;
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
             break;
@@ -454,6 +462,7 @@ export function useSession(): SessionState {
               }
             }
             if (msg.op === "fork") setForkPending(false);
+            if (msg.op === "handoff") setHandoffPending(false);
             if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
               const path = String(msg.path);
               const queue = pendingFileDiffKeysRef.current[path];
@@ -548,6 +557,11 @@ export function useSession(): SessionState {
       if (sendRaw({ op: "fork", sessionId: sessionIdRef.current })) setForkPending(true);
     }
   }, [sendRaw]);
+  const handoff = useCallback(() => {
+    if (sessionIdRef.current) {
+      if (sendRaw({ op: "handoff", sessionId: sessionIdRef.current })) setHandoffPending(true);
+    }
+  }, [sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
@@ -589,12 +603,14 @@ export function useSession(): SessionState {
     fileDiffs,
     lastError,
     forkPending,
+    handoffPending,
     start,
     compose,
     reply,
     stop,
     setOption,
     fork,
+    handoff,
     requestProviderOptions,
     requestProviderCommands,
     requestFiles,

@@ -14,6 +14,7 @@ export type AgentEvent =
       provider?: string;
       model?: string;
       reason?: string;
+      handoffMode?: "native_fork" | "compact_replay";
       retryAfterMs?: number;
     }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
@@ -68,6 +69,8 @@ export interface ProviderCapabilities {
 
 export interface SessionActions {
   fork?: boolean;
+  /** User-facing continuation that creates a linked child task. */
+  handoff?: boolean;
 }
 
 export interface ChangedFile {

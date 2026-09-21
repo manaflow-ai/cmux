@@ -578,7 +578,7 @@ function refreshSession(sess: Session) {
   });
 }
 
-async function forkSession(source: Session): Promise<Session> {
+async function forkSession(source: Session, reason = "fork"): Promise<Session> {
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
   await assertCwd(source.cwd);
   const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions }, {
@@ -596,7 +596,8 @@ async function forkSession(source: Session): Promise<Session> {
       parentSessionId: source.id,
       parentConversationId: source.conversationId,
       provider: fork.provider,
-      reason: "fork",
+      reason,
+      handoffMode: "native_fork",
     });
     refreshSession(fork);
     return fork;
@@ -606,6 +607,15 @@ async function forkSession(source: Session): Promise<Session> {
     broadcastSessions();
     throw err;
   }
+}
+
+/**
+ * User-facing continuation. This is deliberately separate from the legacy
+ * `fork` operation: callers can distinguish an intentional handoff from a
+ * branching experiment while both use the provider-native context transfer.
+ */
+async function handoffSession(source: Session): Promise<Session> {
+  return forkSession(source, "user_handoff");
 }
 
 async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
@@ -2085,6 +2095,20 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
+        });
+      break;
+    }
+    case "handoff": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess) {
+        sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
+        return;
+      }
+      Promise.resolve(handoffSession(sess))
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+        .catch((err) => {
+          sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
+          sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
         });
       break;
     }
