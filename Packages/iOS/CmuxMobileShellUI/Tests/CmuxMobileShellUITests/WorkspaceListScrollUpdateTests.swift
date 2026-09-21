@@ -372,7 +372,7 @@ import UIKit
         next.lastActivityAt = nil
         #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
 
-        // Any non-timestamp field still decides by full equality.
+        // A displayed row field still decides by render-state equality.
         next = previous
         next.hasUnread = true
         #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))

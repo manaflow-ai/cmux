@@ -1512,6 +1512,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if Self.sameRenderedMinute(normalizedPrevious.lastActivityAt, next.lastActivityAt) {
             normalizedPrevious.lastActivityAt = next.lastActivityAt
         }
+        if Self.sameRenderedMinute(normalizedPrevious.previewAt, next.previewAt) {
+            normalizedPrevious.previewAt = next.previewAt
+        }
         return WorkspaceRowRenderState(workspace: normalizedPrevious)
             == WorkspaceRowRenderState(workspace: next)
     }
