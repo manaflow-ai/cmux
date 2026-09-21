@@ -48,6 +48,10 @@ struct MobileWorkspaceListEmptyRow: View {
                             return
                         }
                         guard retryAttemptID == attemptID else { return }
+                        retryTask?.cancel()
+                        Task {
+                            await retryCoordinator.cancelActive()
+                        }
                         retryTask = nil
                         retryDeadlineTask = nil
                         isRetrying = false
@@ -106,6 +110,9 @@ struct MobileWorkspaceListEmptyRow: View {
             retryDeadlineTask = nil
             retryAttemptID = nil
             isRetrying = false
+            Task {
+                await retryCoordinator.cancelActive()
+            }
         }
     }
 }
