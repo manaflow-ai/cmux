@@ -8,7 +8,7 @@ import YAML from "yaml";
 import { Parser, Lexer, Evaluator, data } from "@actions/expressions";
 
 const root = new URL("../../../", import.meta.url).pathname;
-const workflow = YAML.parse(fs.readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8");
+const workflow = YAML.parse(fs.readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8"));
 
 function context(value) {
   if (typeof value === "string") return new data.StringData(value);
