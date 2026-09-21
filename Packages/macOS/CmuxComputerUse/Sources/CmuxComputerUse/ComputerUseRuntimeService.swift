@@ -52,7 +52,7 @@ public final class ComputerUseRuntimeService {
     private var permissionRefreshGeneration = 0
     /// Durable setup evidence shared by Settings, onboarding, and daemon admission.
     public let onboarding: ComputerUseOnboardingStore
-    private(set) var permissionPhase =
+    public private(set) var permissionPhase =
         ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
     private var readinessPublicationTask: Task<Void, Never>?
     private var readinessPublicationGeneration = 0
@@ -1807,7 +1807,7 @@ public final class ComputerUseRuntimeService {
         )?["ok"] as? Bool == true
     }
 
-    nonisolated private static func queryPermissionStatus(
+    public nonisolated static func queryPermissionStatus(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,

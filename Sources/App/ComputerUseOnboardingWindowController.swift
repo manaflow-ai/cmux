@@ -99,7 +99,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
     static let directCaptureReadyDefaultsKey = ComputerUseOnboardingStore.legacyCompletionKey
-    static let completionDismissDelay: Duration = .seconds(2.4)
+    nonisolated static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
     nonisolated private static let permissionCompanionWindowSize =
