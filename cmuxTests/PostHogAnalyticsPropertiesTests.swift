@@ -360,7 +360,7 @@ struct PostHogAnalyticsPropertiesTests {
 
     @MainActor
     @Test("conversation sidebar rollout flag honors default, local override, and remote precedence")
-    func conversationSidebarRolloutFlagPrecedence() throws {
+    func conversationSidebarRolloutFlagPrecedence() async throws {
         let flag = CmuxFeatureFlags.conversationSidebarFlag
         #expect(flag.key == "conversation-sidebar-release")
         #expect(!flag.defaultWhenUnavailable)
@@ -370,9 +370,12 @@ struct PostHogAnalyticsPropertiesTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         var remoteValues: [String: Any] = [:]
-        let flags = CmuxFeatureFlags(defaults: defaults) { key in
-            remoteValues[key]
-        }
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { remoteValues[$0] },
+            remoteFlagLoader: { await probe.load() }
+        )
 
         #expect(!flags.isConversationSidebarAvailable)
         flags.setOverride(true, for: flag)
@@ -386,6 +389,15 @@ struct PostHogAnalyticsPropertiesTests {
 
         remoteValues.removeValue(forKey: flag.key)
         flags.applyLoadedFlags()
+        // An unavailable legacy read preserves the kill switch. Only a
+        // successful control-plane response establishes that it was removed.
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.isConversationSidebarAvailable)
+        flags.start()
+        await probe.waitUntilCalled()
+        for _ in 0..<1_000 where flags.remoteValue(for: flag) != nil {
+            await Task.yield()
+        }
         #expect(flags.remoteValue(for: flag) == nil)
         #expect(flags.isConversationSidebarAvailable)
     }

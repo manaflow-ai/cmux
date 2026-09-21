@@ -730,7 +730,7 @@ final class CmuxFeatureFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
                 remoteValuesByKey[definition.key] = value
                 defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
-            } else if remoteValuesByKey[definition.key] != nil {
+            } else if remoteValuesByKey[definition.key] == true {
                 remoteValuesByKey.removeValue(forKey: definition.key)
                 defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }

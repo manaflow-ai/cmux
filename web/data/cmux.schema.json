@@ -1086,6 +1086,7 @@
                 "enabled": {
                   "type": "boolean",
                   "default": false,
+                  "descriptionKey": "schemaDescriptions.sidebar.beta.conversations.enabled",
                   "description": "Show the unified Conversations view in the sidebar picker."
                 }
               }

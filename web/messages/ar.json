@@ -1296,6 +1296,11 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "conversations": {
+              "enabled": "عرض طريقة العرض الموحّدة للمحادثات في قائمة اختيار الشريط الجانبي."
+            }
+          },
           "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },
