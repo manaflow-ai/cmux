@@ -44,7 +44,10 @@ extension WindowTerminalPortal {
         guard var entry = entriesByHostedId[hostedId],
               let hostedView = entry.hostedView,
               isPresented(hostedView, hostedId: hostedId) else { return false }
-        let snapped = Self.pixelSnappedRect(hostView.convert(frameInWindow, from: nil), in: hostView)
+        // Snap the edges, not origin and size: a projection puts the divider
+        // on a half point while the pane's other edges stay where AppKit laid
+        // them out, and those edges must not move by a pixel in the interim.
+        let snapped = Self.edgeSnappedRect(hostView.convert(frameInWindow, from: nil), in: hostView)
         guard Self.isFiniteRect(snapped) else { return false }
         var frameInHost = snapped
         let clamped = snapped.intersection(hostView.bounds)
@@ -171,6 +174,20 @@ extension WindowTerminalPortal {
 
     private static func isFiniteRect(_ rect: NSRect) -> Bool {
         rect.origin.x.isFinite && rect.origin.y.isFinite && rect.size.width.isFinite && rect.size.height.isFinite
+    }
+
+    /// Rounds each edge to the device pixel grid independently, so an edge
+    /// that already sits on the grid is unchanged whatever the opposite
+    /// edge does.
+    private static func edgeSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
+        guard isFiniteRect(rect) else { return rect }
+        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
+        func snap(_ value: CGFloat) -> CGFloat {
+            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
+        }
+        let minX = snap(rect.minX)
+        let minY = snap(rect.minY)
+        return NSRect(x: minX, y: minY, width: max(0, snap(rect.maxX) - minX), height: max(0, snap(rect.maxY) - minY))
     }
 }
 

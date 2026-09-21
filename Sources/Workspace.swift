@@ -13908,6 +13908,10 @@ extension Workspace: BonsplitDelegate {
         return true
     }
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // bonsplit collapses a pane that lost its last tab inside closeTab
+        // without a didClosePane call; release projections of a split that
+        // just left the model (#13387).
+        releaseProvisionalSplitPaneGeometryForRemovedSplits()
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
