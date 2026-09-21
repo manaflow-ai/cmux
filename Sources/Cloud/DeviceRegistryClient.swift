@@ -25,6 +25,8 @@ final class DeviceRegistryClient {
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
+    private var latestRoutes: [CmxAttachRoute] = []
     /// The scope (team + tag + routes) most recently registered, used to skip
     /// redundant POSTs. Keyed on the full scope rather than routes alone so an
     /// account/team switch with unchanged routes still re-registers in the newly
@@ -52,6 +54,20 @@ final class DeviceRegistryClient {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.evaluate()
+                }
+            }
+        }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.lastRegistration = nil
+                    let routes = self.latestRoutes
+                    Task { await self.registerIfRoutesChanged(routes: routes) }
                 }
             }
         }
@@ -84,14 +100,10 @@ final class DeviceRegistryClient {
 
     private func startObserving() {
         guard observeTask == nil else { return }
-        // Registration is currently driven only by host-route changes. The dedup
-        // key includes the team, so a team switch *does* re-register once the
-        // next status tick arrives, but a mid-session team switch with otherwise
-        // unchanged routes is not registered in the new team until then. Known
-        // limitation; an explicit auth/team-change trigger is a follow-up.
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 if Task.isCancelled { break }
+                self?.latestRoutes = status.routes
                 await self?.registerIfRoutesChanged(routes: status.routes)
             }
         }
@@ -185,10 +197,10 @@ final class DeviceRegistryClient {
                     lastRegistration = registration
                 } else {
                     if http.statusCode == 429 {
-                        let seconds = CmxRetryAfterPolicy.seconds(
+                        let seconds = CmxRetryAfterPolicy().seconds(
                             from: http,
-                            defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                        ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                         await retryAfterGate.extend(by: seconds)
                     }
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)

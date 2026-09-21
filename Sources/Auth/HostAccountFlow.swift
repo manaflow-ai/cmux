@@ -17,13 +17,18 @@ import Observation
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
-    private let coordinator: AuthCoordinator
+    let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    var teamObservationRevision: UInt64 = 0
+    /// Pending selection is shared by Settings, the menu and socket actions.
+    /// Cloud requests keep using the confirmed coordinator scope until success.
+    var pendingTeamSelection: (requestID: UUID, teamID: String?)?
+    var isSelectingTeam: Bool { pendingTeamSelection != nil }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -38,6 +43,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
             }
         }
+        startCoordinatorObservation()
     }
 
     deinit {
@@ -47,26 +53,38 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var currentIdentity: AccountIdentity? {
-        Self.identity(from: coordinator.currentUser)
+        _ = teamObservationRevision
+        return Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
-        coordinator.availableTeams.map { team in
+        _ = teamObservationRevision
+        return coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
 
     var selectedTeamID: String? {
-        get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        get {
+            if let pendingTeamSelection { return pendingTeamSelection.teamID }
+            return confirmedTeamID
+        }
+    }
+
+    /// Cloud scope and persisted machine preferences follow confirmed authority.
+    var confirmedTeamID: String? {
+        _ = teamObservationRevision
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var isAuthenticated: Bool {
-        coordinator.isAuthenticated
+        _ = teamObservationRevision
+        return coordinator.isAuthenticated
     }
 
     var isPresentingSignIn: Bool {
@@ -78,7 +96,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var isCompletingSignIn: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession
     }
 
     var lastSignInFailure: AccountSignInModel.Failure? {

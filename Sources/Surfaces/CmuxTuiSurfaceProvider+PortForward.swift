@@ -27,7 +27,7 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
+        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
@@ -72,10 +72,9 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    // Freestyle openPort only returns a private address and a
-                    // ledger token; it never publishes a port. For Desktop it
-                    // starts/heals noVNC even when cached status says running.
-                    if !self.isAwake || (self.providerID == "freestyle" && port == CmuxTuiSnapshotParser.desktopPort) {
+                    // Sleeping machines need the control plane to wake. An awake
+                    // desktop is checked through the existing browser carrier below.
+                    if !self.isAwake {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
                         _ = try await client.openPort(id: self.machineID, port: target.port)
                     }
@@ -101,7 +100,30 @@ extension CmuxTuiSurfaceProvider {
                 startBrowserProxy: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
                     let generation = self.currentLifecycleGeneration
+#if DEBUG
+                    let desktopStartedAt = Date()
+                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
                     let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                       try await !CloudBrowserRouting.desktopIsReachable(endpoint: endpoint, address: address, port: port) {
+                        try Task.checkCancellation()
+                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
+                        _ = try await client.openPort(id: self.machineID, port: port)
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
+                    }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                     return endpoint
                 }
