@@ -25,7 +25,7 @@ struct CloudSidebarNotificationTests {
             deliver: { notification, resolved in
                 deliveries.append(resolved)
                 owner.raiseNotification(resource: SurfaceResourceID(machine: fixture.machine, kind: .terminal, key: notification.terminalID!), nodes: fixture.nodes())
-                return true
+                return .delivered
             }, send: { _ in }
         )
         defer { sync.retire() }
@@ -48,7 +48,7 @@ struct CloudSidebarNotificationTests {
         #expect(!read.contains { $0.hasUnreadDescendant })
         sync.retire()
         let restarted = CloudNotificationSync(machineID: fixture.machine.rawValue, clientID: "fixture-client", store: persistence,
-            resolveTarget: { _ in target }, deliver: { _, _ in Issue.record("Replay delivered twice"); return true }, send: { _ in })
+            resolveTarget: { _ in target }, deliver: { _, _ in Issue.record("Replay delivered twice"); return .delivered }, send: { _ in })
         defer { restarted.retire() }
         restarted.apply(rows: [row])
         #expect(restarted.unreadTerminalIDs.isEmpty)
@@ -66,7 +66,7 @@ struct CloudSidebarNotificationTests {
         var delivered = 0
         let sync = CloudNotificationSync(machineID: "retired", clientID: "fixture-client", store: persistence,
             resolveTarget: { _ in CloudNotificationDeliveryTarget(workspaceID: UUID(), panelID: nil) },
-            deliver: { _, _ in delivered += 1; return true }, send: { _ in })
+            deliver: { _, _ in delivered += 1; return .delivered }, send: { _ in })
         sync.retire()
         sync.apply(rows: [notification("late", terminal: "term_ws_1")])
         sync.noteRead(notificationIDs: ["late"])

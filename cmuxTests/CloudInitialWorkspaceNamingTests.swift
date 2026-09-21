@@ -11,6 +11,20 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudInitialWorkspaceNamingTests {
+    @Test("Plain attachment keeps the original loading surface without running a placeholder shell")
+    func deferredAttachmentNeverRunsATemporaryLocalCommand() throws {
+        let workspace = Workspace(title: "New Machine", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let loadingID = try #require(workspace.focusedPanelId)
+        let original = try #require(workspace.panels[loadingID])
+        let returned = workspace.prepareCloudTerminalAttachment(command: "sleep 60", deferTerminal: true, focus: false)
+        #expect(returned == loadingID)
+        #expect(workspace.panels.count == 1)
+        #expect(workspace.panels[loadingID] === original)
+        #expect(workspace.terminalPanel(for: loadingID) == nil)
+        #expect(workspace.title == "New Machine")
+    }
+
     @Test("Binding after discovery immediately gives both sidebars the daemon workspace name")
     func bindingReconcilesAlreadyDiscoveredName() async throws {
         try await withUnboundFixture { fixture in
@@ -151,10 +165,15 @@ struct CloudInitialWorkspaceNamingTests {
             let request = MachineCreateRequest(
                 mode: .newMachine, kind: .desktop, name: nil,
                 arguments: ["vm", "new", "--focus", "false"],
-                selectionWindowID: firstWindowID
+                selectionWindowID: firstWindowID,
+                selectsCreatedWorkspace: true
             )
             let coordinator = MachineCreateCoordinator(
-                notifier: { _ in }, notificationCenter: NotificationCenter()
+                notifier: { _ in },
+                selectWorkspace: { workspaceID, request in
+                    MachineCreateCoordinator.selectCreatedWorkspace(workspaceID, for: request)
+                },
+                notificationCenter: NotificationCenter()
             )
             var completion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
             #expect(coordinator.start(request, cancellableLaunch: { _, _, handler in
@@ -208,11 +227,21 @@ struct CloudInitialWorkspaceNamingTests {
             #expect(fixture.workspace.effectiveCustomTitleSource == .user)
 
             // The remote graph still has its older default name. Binding must
-            // submit the local intent before that snapshot can overwrite it.
+            // submit the local intent before that snapshot can overwrite it:
+            // the title is protected by the unacknowledged intent, not by its
+            // user provenance (#12986).
+            let key = CloudRenameCoordinator.Key.workspace(machine: fixture.provider.machine, id: "a")
+            #expect(fixture.catalog.pendingCloudRenameName(for: key) == "Chosen during creation")
+            fixture.renameService.reconcileRemoteState(
+                machine: fixture.provider.machine, state: fixture.provider.graph,
+                catalog: fixture.catalog, observation: .current
+            )
+            #expect(fixture.workspace.title == "Chosen during creation")
             try await fixture.settle()
+            #expect(fixture.catalog.pendingCloudRenameName(for: key) == nil)
             #expect(fixture.provider.writes.map { $0.0 } == ["a"])
             #expect(fixture.provider.writes.map { $0.1 } == ["Chosen during creation"])
-            #expect(fixture.workspace.title == "Chosen during creation")
+            try fixture.expectParity("terminal", workspaceName: "Chosen during creation")
         } catch {
             fixture.catalog.installCloudWorkspaceRenameService(originalService)
             await fixture.close()

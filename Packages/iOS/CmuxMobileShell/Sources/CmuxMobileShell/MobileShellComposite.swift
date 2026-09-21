@@ -35,6 +35,8 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 @MainActor
 @Observable
 public final class MobileShellComposite: MobileTerminalOutputSinking {
+    public let macListAuthState: MobileMacListAuthState
+
     /// Bound the peer fleet to five live sessions: one initial focus plus four
     /// warm peers. After the first focus handoff, the focused peer may also keep
     /// its control capability without consuming another transport session.
@@ -1745,7 +1747,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MacPairingKey(macDeviceID: macID, instanceTag: row.macInstanceTag)
             ]?.status
         }
-        return WorkspaceAbsenceAuthority.absenceIsAuthoritative(
+        return WorkspaceAbsenceAuthority().absenceIsAuthoritative(
             hasLastKnownRow: row != nil,
             rowIsForegroundServed: row.map(workspaceRowIsForegroundServed) ?? false,
             foregroundIsHealthy: foregroundIsHealthy,
@@ -1819,6 +1821,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Parameter browserStreamEvents: App-lifetime browser stream state kept outside workspace previews.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
+        macListAuthState: MobileMacListAuthState? = nil,
         isSignedIn: Bool = false,
         connectionState: MobileConnectionState = .disconnected,
         connectedHostName: String = "",
@@ -1869,6 +1872,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
+        self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.lastTabStore = lastTabStore
@@ -2091,6 +2095,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
+        macListAuthState: MobileMacListAuthState? = nil,
         // In-memory so previews and package tests never share persisted
         // last-tab state through `.standard` (the app injects a persistent
         // store through the composite initializer instead).
@@ -5256,7 +5261,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``hideMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
     /// not whether a stored paired Mac is known.
-    func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+    package func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
@@ -11798,7 +11803,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let requiredNightlyMacVersion = requirement?.nightly.map {
             "\($0.minBaseVersion)-nightly.\($0.minBuild)"
         }
-        MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersions(
+        macListAuthState.applyPolicyMinimumSupportedMacVersions(
             stable: requiredStableMacVersion,
             nightly: requiredNightlyMacVersion
         )
@@ -12649,18 +12654,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let requestedRow = workspaces.first { $0.id == rowWorkspaceID }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
-        let requestedMacDeviceID = normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID)
-            ?? normalizedCreatedTerminalIdentity(foregroundMacDeviceID)
+        let requestedMacDeviceID = CreatedTerminalSelection.normalizedIdentity(requestedRow?.macDeviceID)
+            ?? CreatedTerminalSelection.normalizedIdentity(foregroundMacDeviceID)
         // A known workspace owner may legitimately have no instance tag in a
         // legacy snapshot. Keep that absence instead of borrowing the global
         // foreground tag, which may belong to a different Mac instance.
         let requestedInstanceTag: String? = {
-            guard let requestedRow else { return normalizedCreatedTerminalIdentity(activeMacInstanceTag) }
-            if normalizedCreatedTerminalIdentity(requestedRow.macDeviceID) != nil {
-                return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
+            guard let requestedRow else { return CreatedTerminalSelection.normalizedIdentity(activeMacInstanceTag) }
+            if CreatedTerminalSelection.normalizedIdentity(requestedRow.macDeviceID) != nil {
+                return CreatedTerminalSelection.normalizedIdentity(requestedRow.macInstanceTag)
             }
-            return normalizedCreatedTerminalIdentity(requestedRow.macInstanceTag)
-                ?? normalizedCreatedTerminalIdentity(activeMacInstanceTag)
+            return CreatedTerminalSelection.normalizedIdentity(requestedRow.macInstanceTag)
+                ?? CreatedTerminalSelection.normalizedIdentity(activeMacInstanceTag)
         }()
         let generation = connectionGeneration
         do {
@@ -12684,11 +12689,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
             let selectedRow = explicitlySelectedWorkspace
             let selectedRowMatchesAnonymousRequest: Bool
-            if normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
+            if CreatedTerminalSelection.normalizedIdentity(requestedRow?.macDeviceID) == nil,
                let foregroundMacDeviceID,
                let selectedRow,
                selectedRow.rpcWorkspaceID == requestedWorkspaceID,
-               createdTerminalDeviceIDsMatch(
+               CreatedTerminalSelection.deviceIDsMatch(
                    selectedRow.macDeviceID,
                    foregroundMacDeviceID
                ),
@@ -12701,19 +12706,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 selectedRowMatchesAnonymousRequest = false
             }
             let selectedRowMatchesUnidentifiedRequest: Bool = {
-                guard normalizedCreatedTerminalIdentity(requestedRow?.macDeviceID) == nil,
-                      normalizedCreatedTerminalIdentity(foregroundMacDeviceID) == nil,
-                      normalizedCreatedTerminalIdentity(requestedInstanceTag) == nil,
+                guard CreatedTerminalSelection.normalizedIdentity(requestedRow?.macDeviceID) == nil,
+                      CreatedTerminalSelection.normalizedIdentity(foregroundMacDeviceID) == nil,
+                      CreatedTerminalSelection.normalizedIdentity(requestedInstanceTag) == nil,
                       let selectedRow,
                       selectedRow.rpcWorkspaceID == requestedWorkspaceID,
-                      normalizedCreatedTerminalIdentity(selectedRow.macDeviceID) == nil,
-                      normalizedCreatedTerminalIdentity(selectedRow.macInstanceTag) == nil else {
+                      CreatedTerminalSelection.normalizedIdentity(selectedRow.macDeviceID) == nil,
+                      CreatedTerminalSelection.normalizedIdentity(selectedRow.macInstanceTag) == nil else {
                     return false
                 }
                 return workspaces.filter {
                     $0.rpcWorkspaceID == requestedWorkspaceID
-                        && normalizedCreatedTerminalIdentity($0.macDeviceID) == nil
-                        && normalizedCreatedTerminalIdentity($0.macInstanceTag) == nil
+                        && CreatedTerminalSelection.normalizedIdentity($0.macDeviceID) == nil
+                        && CreatedTerminalSelection.normalizedIdentity($0.macInstanceTag) == nil
                 }.count == 1
             }()
             let selectedRowMatchesKnownOwnerRequest: Bool = {
@@ -12721,7 +12726,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       selectedRow.rpcWorkspaceID == requestedWorkspaceID,
                       let selectedMacDeviceID = selectedRow.macDeviceID,
                       let requestedMacDeviceID,
-                      createdTerminalDeviceIDsMatch(selectedMacDeviceID, requestedMacDeviceID) else {
+                      CreatedTerminalSelection.deviceIDsMatch(selectedMacDeviceID, requestedMacDeviceID) else {
                     return false
                 }
                 let selectedTag = macInstanceTagAuthority.normalize(selectedRow.macInstanceTag)
@@ -15791,9 +15796,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.connectionState == .connected,
                self?.remoteClient != nil {
-                await self?.refreshSecondaryMacWorkspaces(
-                    discoverLivePeers: true
-                )
+                // Reconnection/discovery has its own coalesced, cancellable
+                // owner. An offline saved Mac must not hold the foreground
+                // refresh spinner (or terminal navigation) until a dial timeout.
+                self?.scheduleSecondaryAggregation(discoverLivePeers: true)
             }
         }
         pullToRefreshTask = task

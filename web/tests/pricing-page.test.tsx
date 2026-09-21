@@ -130,7 +130,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 64 GB RAM per machine")).toBe(true);
+      expect(first.includes("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -287,7 +287,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 64 GB RAM per machine");
+    expect(html).toContain("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");

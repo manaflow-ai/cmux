@@ -138,12 +138,12 @@ extension CMUXCLI {
                 && error.v2Retryable
         }
 
-        /// `AgentRestoreAdmissionRetry.response` with the CLI's error classifier.
+        /// `AgentRestoreAdmissionRetry().response` with the CLI's error classifier.
         static func response(
             onRetry: (Int) -> Void = { _ in },
             sending send: () throws -> [String: Any]
         ) throws -> [String: Any] {
-            try AgentRestoreAdmissionRetry.response(
+            try AgentRestoreAdmissionRetry().response(
                 onRetry: onRetry,
                 isRetryable: isRetryable,
                 sending: send

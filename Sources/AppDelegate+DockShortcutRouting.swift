@@ -70,7 +70,7 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerNextFile, .diffViewerPreviousFile:
             .focusResolved
 
-        case .openSettings, .reloadConfiguration,
+        case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
              .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
