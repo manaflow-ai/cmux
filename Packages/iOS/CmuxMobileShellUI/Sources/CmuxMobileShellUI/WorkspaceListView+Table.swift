@@ -121,7 +121,10 @@ extension WorkspaceListView {
         }
         let beginRefreshForEmptyState: (() -> UUID?)? = store.map { store in
             {
-                store.prepareWorkspaceListRecovery()
+                store.prepareWorkspaceListRecovery(
+                    forMacDeviceID: emptyStateMacDeviceID,
+                    instanceTag: emptyStateMacInstanceTag
+                )
             }
         }
         let cancelRefreshAttemptForEmptyState: ((UUID?) -> Void)? = store.map { store in

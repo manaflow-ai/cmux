@@ -160,7 +160,10 @@ extension MobileShellComposite {
     /// Reserves the recovery token used by the empty-state Retry action.
     /// Cancellation passes this token back so a stale row cannot cancel a
     /// later retry for another Mac.
-    public func prepareWorkspaceListRecovery() -> UUID {
+    public func prepareWorkspaceListRecovery(
+        forMacDeviceID macDeviceID: String? = nil,
+        instanceTag: String? = nil
+    ) -> UUID {
         if workspaceListRecoveryActive {
             let recoveryGeneration = workspaceListRecoveryGeneration
             workspaceListRecoveryPreparedGeneration = recoveryGeneration
@@ -188,7 +191,9 @@ extension MobileShellComposite {
         workspaceListRecoveryPreparedGeneration = recoveryGeneration
         workspaceListRecoveryActive = true
         workspaceListRecoveryGeneration = recoveryGeneration
-        let recoveryScope = workspaceListRecoveryTarget
+        let recoveryScope = macDeviceID.map {
+            (macDeviceID: $0, instanceTag: instanceTag)
+        } ?? workspaceListRecoveryTarget
         workspaceListRecoveryOwnerID = recoveryScope?.macDeviceID
         workspaceListRecoveryOwnerInstanceTag = recoveryScope?.instanceTag
         workspaceListRecoveryConnectionGeneration = connectionGeneration
@@ -349,6 +354,10 @@ extension MobileShellComposite {
             workspaceListRecoveryPreparedGeneration = nil
             if !ownerScoped || recoveryOwnerAttemptMatches {
                 connectionRecoveryOwner.cancel()
+                if isReconnectingStoredMac {
+                    invalidateStoredMacReconnectAttempt()
+                }
+                applyConnectionRecoveryOwnerState()
                 connectionRecoveryAttemptDeadlineTask?.cancel()
                 connectionRecoveryAttemptDeadlineTask = nil
             }
