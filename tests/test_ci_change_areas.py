@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
+AREA_TABLE = ROOT / ".github" / "ci-areas.yml"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
@@ -345,163 +346,63 @@ def test_guard_only_change_with_app_source_runs_macos() -> None:
     )
 
 
-def test_only_a_plainly_linux_job_makes_a_test_guard_only() -> None:
-    def workflow(runs_on: str) -> str:
-        return (
-            "name: CI\njobs:\n  guard:\n"
-            "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
-            "    steps:\n      - run: python3 tests/test_guard.py\n"
-            f"  other:\n    runs-on:{runs_on}\n"
-            "    steps:\n      - run: python3 tests/test_other.py\n"
-        )
+def test_area_table_defaults_unknown_paths_to_macos_and_release() -> None:
+    table = module.load_area_table()
+    assert table["macos"].default is True
+    assert table["web"].default is False
+    assert table["agent_session_web"].default is False
 
-    for runs_on in (
-        " ${{ matrix.runner }}",
-        " ${{ needs.pick.outputs.runner }}",
-        "\n      - self-hosted\n      - arm64",
-        "\n      group: big-macs",
-        " ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}",
-        " ${{ vars.LINUX_RUNNER || vars.MACOS_RUNNER_15 }}",
+    actual = module.classify_files(["some-new-top-level-dir/file.txt"])
+    assert actual.macos is True
+    assert actual.release_build is True
+    assert actual.web is False
+    assert actual.agent_session_web is False
+
+
+def test_area_table_is_the_only_path_ownership_source() -> None:
+    source = HELPER.read_text(encoding="utf-8")
+    for deleted_name in (
+        "split_workflow_jobs",
+        "job_is_plainly_linux",
+        "ci_workflow_change_is_linux_only",
+        "macos_job_test_references",
+        "is_guard_only_test",
+        "--ci-workflow-base",
     ):
-        references = module.macos_job_test_references(workflow(runs_on))
-        assert module.is_guard_only_test("tests/test_guard.py", references), runs_on
-        assert not module.is_guard_only_test("tests/test_other.py", references), runs_on
-
-    references = module.macos_job_test_references(workflow(" ubuntu-24.04"))
-    assert module.is_guard_only_test("tests/test_other.py", references)
+        assert deleted_name not in source
+    assert AREA_TABLE.is_file()
+    assert module.AREA_TABLE_PATH == AREA_TABLE
 
 
-CI_DIFF_BASE = """name: CI
-on:
-  pull_request:
-env:
-  FOO: "1"
-jobs:
-  changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - run: route
-  workflow-guard-tests:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - run: guard
-  macos-compile-admission:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
-    steps:
-      - run: compile
-  ci-status:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    steps:
-      - run: gate
-"""
+def test_area_table_preserves_current_control_plane_ownership() -> None:
+    table = module.load_area_table()
+    for path in ("scripts/ci/persistent_mac_route.py", "scripts/ci/web_validation.py"):
+        assert module._force_all(table, path) is False
 
-
-def test_ci_workflow_change_is_linux_only_for_linux_job_edits() -> None:
-    linux_only = module.ci_workflow_change_is_linux_only
-    assert linux_only(CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: guard", "- run: guard\n      - run: more"))
-    added_linux_job = CI_DIFF_BASE.replace(
-        "  ci-status:",
-        "  new-linux:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: x\n  ci-status:",
+    persistent = module.classify_files(["scripts/ci/persistent_mac_route.py"])
+    assert persistent == module.ChangeAreas(
+        macos=False, web=False, agent_session_web=False, release_build=False
     )
-    assert linux_only(CI_DIFF_BASE, added_linux_job)
 
+    web_control = module.classify_files(["scripts/ci/web_validation.py"])
+    assert web_control == module.ChangeAreas(
+        macos=False, web=True, agent_session_web=False, release_build=False
+    )
 
-def test_ci_workflow_change_runs_macos_when_it_could_matter() -> None:
-    linux_only = module.ci_workflow_change_is_linux_only
-    for head in (
-        CI_DIFF_BASE.replace("- run: compile", "- run: compile --faster"),
-        CI_DIFF_BASE.replace("blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26"),
-        CI_DIFF_BASE.replace('FOO: "1"', 'FOO: "2"'),
-        CI_DIFF_BASE.replace("- run: route", "- run: route --differently"),
-        CI_DIFF_BASE.replace("- run: gate", "- run: gate || true"),
-        # A Linux job that becomes a macOS job, and a removed macOS job.
-        CI_DIFF_BASE.replace(
-            "  workflow-guard-tests:\n    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
-            "  workflow-guard-tests:\n    runs-on: ${{ matrix.runner }}",
-        ),
-        CI_DIFF_BASE.replace(
-            "  macos-compile-admission:\n    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}\n    steps:\n      - run: compile\n",
-            "",
-        ),
-        "not a workflow",
+    for path in (
+        "scripts/ci/app_host_test_products.py",
+        "scripts/ci/compile-app-host-test-product.sh",
+        "scripts/ci/product_input_identity.py",
+        "scripts/ci/restore-app-host-test-product.sh",
+        "scripts/ci/reuse_app_host_products.py",
+        "scripts/ci/sanitize-xcode-source-packages-cache.py",
     ):
-        assert not linux_only(CI_DIFF_BASE, head), head
-    assert not linux_only("not a workflow", CI_DIFF_BASE)
-    assert not linux_only(CI_DIFF_BASE, CI_DIFF_BASE)
+        actual = module.classify_files([path])
+        assert actual == module.ChangeAreas(
+            macos=True, web=False, agent_session_web=False, release_build=False
+        ), path
 
-
-def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
-    script = detect_step_script()
-    with tempfile.TemporaryDirectory() as temp_dir:
-        repo = Path(temp_dir)
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
-        helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
-        helper_copy.parent.mkdir(parents=True, exist_ok=True)
-        helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
-        workflow = repo / ".github" / "workflows" / "ci.yml"
-        workflow.parent.mkdir(parents=True, exist_ok=True)
-        workflow.write_text(base, encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
-        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-        workflow.write_text(head, encoding="utf-8")
-        subprocess.run(["git", "commit", "-q", "-am", "head"], cwd=repo, check=True)
-        head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-        output_path = repo / "github-output.txt"
-        env = {
-            **os.environ,
-            "EVENT_NAME": "pull_request",
-            "BASE_SHA": base_sha,
-            "HEAD_SHA": head_sha,
-            "MERGE_SHA": head_sha,
-            "GITHUB_OUTPUT": str(output_path),
-        }
-        result = subprocess.run(
-            ["bash", "-c", script], cwd=repo, env=env, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
-        )
-        return result, output_path.read_text(encoding="utf-8").splitlines()
-
-
-def test_workflow_routes_linux_only_ci_workflow_edit_away_from_macos() -> None:
-    _, outputs = run_detect_step_for_ci_workflow_edit(
-        CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: guard", "- run: guard\n      - run: more")
-    )
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
-
-
-def test_workflow_routes_macos_job_edit_to_every_area() -> None:
-    _, outputs = run_detect_step_for_ci_workflow_edit(
-        CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: compile", "- run: compile --faster")
-    )
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
-
-
-def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
-    indirect = frozenset({"tests/test_guard_profile_owned.py"})
-
-    linux_workflow = (
-        "name: Guards\njobs:\n  guard:\n"
-        "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
-        "    steps:\n"
-        "      - run: python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard\n"
-    )
-    references = module.macos_job_test_references(linux_workflow, indirect)
-    assert module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
-
-    macos_workflow = linux_workflow.replace(
-        "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
-        "${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}",
-    )
-    references = module.macos_job_test_references(macos_workflow, indirect)
-    assert not module.is_guard_only_test("tests/test_guard_profile_owned.py", references)
-
-
-def test_macos_test_references_fail_open_without_ci_workflow() -> None:
-    assert module.macos_job_test_references("jobs:\n") is None
-    assert module.macos_job_test_references("not a workflow") is None
+    assert module.classify_files(["scripts/ci/future_unknown_helper.py"]) == module.ChangeAreas.all()
 
 
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
@@ -834,6 +735,9 @@ def run_detect_step_for_paths(
         helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
         helper_copy.parent.mkdir(parents=True, exist_ok=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+        table_copy = repo / ".github" / "ci-areas.yml"
+        table_copy.parent.mkdir(parents=True, exist_ok=True)
+        table_copy.write_text(AREA_TABLE.read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -945,6 +849,9 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
         helper_copy = source / "scripts" / "ci" / "detect_ci_change_areas.py"
         helper_copy.parent.mkdir(parents=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+        table_copy = source / ".github" / "ci-areas.yml"
+        table_copy.parent.mkdir(parents=True, exist_ok=True)
+        table_copy.write_text(AREA_TABLE.read_text(encoding="utf-8"), encoding="utf-8")
         (source / "common.txt").write_text("common\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=source, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "common"], cwd=source, check=True)
