@@ -58,8 +58,10 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
+                let client = self.client
+                let command = probe.command
                 group.addTask { @MainActor in
-                    await self.client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+                    await client.submitTerminalRawInput(command, surfaceID: surfaceID)
                     try Task.checkCancellation()
                     for try await _ in proof {
                         try Task.checkCancellation()
