@@ -28,52 +28,52 @@ public struct CmuxGlaedaExecutionLocalization {
         case .invalidRequest:
             string(
                 "glaeda.cli.error.invalidRequest",
-                defaultValue: "The Glaeda request is invalid."
+                defaultValue: "The execution request is invalid."
             )
         case .invalidReceipt:
             string(
                 "glaeda.cli.error.invalidReceipt",
-                defaultValue: "The Glaeda receipt does not match this request."
+                defaultValue: "The execution receipt does not match this request."
             )
         case .requestDigestMismatch:
             string(
                 "glaeda.cli.error.requestDigestMismatch",
-                defaultValue: "The Glaeda receipt request digest does not match."
+                defaultValue: "The execution receipt request digest does not match."
             )
         case .invalidWorkloadReceiptDigest:
             string(
                 "glaeda.cli.error.invalidWorkloadDigest",
-                defaultValue: "The Glaeda workload receipt digest is invalid."
+                defaultValue: "The workload receipt digest is invalid."
             )
         case .terminalEvidenceMissing:
             string(
                 "glaeda.cli.error.terminalEvidenceMissing",
-                defaultValue: "The Glaeda terminal result is missing workload evidence."
+                defaultValue: "The terminal result is missing workload evidence."
             )
         case .invalidJSON:
             string(
                 "glaeda.cli.error.invalidJSON",
-                defaultValue: "The Glaeda input document is invalid JSON."
+                defaultValue: "The input document is invalid JSON."
             )
         case .objectRequired:
             string(
                 "glaeda.cli.error.objectRequired",
-                defaultValue: "The Glaeda input document must be a JSON object."
+                defaultValue: "The input document must be a JSON object."
             )
         case .noncanonicalJSON:
             string(
                 "glaeda.cli.error.noncanonicalJSON",
-                defaultValue: "The Glaeda input document must use canonical JSON."
+                defaultValue: "The input document must use canonical JSON."
             )
         case .documentTooLarge:
             string(
                 "glaeda.cli.error.documentTooLarge",
-                defaultValue: "The Glaeda input document exceeds the size limit."
+                defaultValue: "The input document exceeds the size limit."
             )
         case .encodingFailed:
             string(
                 "glaeda.cli.error.encodingFailed",
-                defaultValue: "The Glaeda document could not be encoded."
+                defaultValue: "The document could not be encoded."
             )
         }
     }
