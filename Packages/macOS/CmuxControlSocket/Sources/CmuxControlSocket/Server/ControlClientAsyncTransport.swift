@@ -3,6 +3,49 @@ public import Foundation
 internal import Darwin
 internal import os
 
+/// Completes asynchronous teardown after every registered dispatch source has
+/// run its cancellation handler.
+private final class DispatchSourceCancellationBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private var registrations = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Registers one source before it is activated.
+    func register() {
+        lock.lock()
+        registrations += 1
+        lock.unlock()
+    }
+
+    /// Marks one source's cancellation handler complete.
+    func complete() {
+        lock.lock()
+        registrations -= 1
+        let waiters = registrations == 0 ? self.waiters : []
+        if registrations == 0 {
+            self.waiters.removeAll(keepingCapacity: false)
+        }
+        lock.unlock()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends without blocking an executor until all sources have cancelled.
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            guard registrations > 0 else {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            waiters.append(continuation)
+            lock.unlock()
+        }
+    }
+}
+
 /// Bridges one non-blocking control-socket descriptor into an async line
 /// reader. The descriptor is never closed by this type; its connection owner
 /// retains that responsibility.
@@ -47,9 +90,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private let source: any DispatchSourceRead
     private let revocationSource: (any DispatchSourceRead)?
     /// Dispatch source cancellation is asynchronous. The connection owner
-    /// must wait for both cancellation handlers before closing a borrowed
-    /// descriptor, otherwise libdispatch can observe a vanished kevent.
-    private let sourceCancellationGroup: DispatchGroup
+    /// awaits this barrier before closing the borrowed descriptor.
+    private let sourceCancellationBarrier: DispatchSourceCancellationBarrier
     /// One-shot idle deadline carried over from SO_RCVTIMEO. DispatchSource
     /// is the low-level descriptor/timer bridge; it never blocks the task.
     private let idleReadTimer: (any DispatchSourceTimer)?
@@ -98,8 +140,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         )
         self.bufferedByteAccounting = bufferedByteAccounting
         self.limitsActive = OSAllocatedUnfairLock(initialState: initialLimits != nil)
-        let sourceCancellationGroup = DispatchGroup()
-        self.sourceCancellationGroup = sourceCancellationGroup
+        let sourceCancellationBarrier = DispatchSourceCancellationBarrier()
+        self.sourceCancellationBarrier = sourceCancellationBarrier
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -123,7 +165,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             fileDescriptor: socket,
             queue: DispatchQueue.global(qos: .utility)
         )
-        sourceCancellationGroup.enter()
+        sourceCancellationBarrier.register()
         let byteCapForDrain = self.maximumBufferedBytes
         readSource.setEventHandler { [streamContinuation, sourceBox, bufferedByteAccounting] in
             Self.drain(
@@ -134,10 +176,10 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                 maximumBufferedBytes: byteCapForDrain
             )
         }
-        readSource.setCancelHandler { [streamContinuation, sourceBox, sourceCancellationGroup] in
+        readSource.setCancelHandler { [streamContinuation, sourceBox, sourceCancellationBarrier] in
             sourceBox.source = nil
             streamContinuation.finish()
-            sourceCancellationGroup.leave()
+            sourceCancellationBarrier.complete()
         }
         sourceBox.source = readSource
         source = readSource
@@ -160,15 +202,15 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                     fileDescriptor: duplicate,
                     queue: DispatchQueue.global(qos: .utility)
                 )
-                sourceCancellationGroup.enter()
+                sourceCancellationBarrier.register()
                 revocation.setEventHandler { [streamContinuation, revocationBox] in
                     streamContinuation.finish()
                     revocationBox.source?.cancel()
                 }
-                revocation.setCancelHandler { [revocationBox, sourceCancellationGroup] in
+                revocation.setCancelHandler { [revocationBox, sourceCancellationBarrier] in
                     revocationBox.source = nil
                     close(duplicate)
-                    sourceCancellationGroup.leave()
+                    sourceCancellationBarrier.complete()
                 }
                 revocationBox.source = revocation
                 revocationSource = revocation
@@ -204,8 +246,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
 
     deinit {
         deadlineTask?.cancel()
-        source.cancel()
-        revocationSource?.cancel()
+        cancelSources()
         idleReadTimer?.cancel()
         continuation.finish()
     }
@@ -249,8 +290,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             let nextChunk = await withTaskCancellationHandler {
                 await iterator.next()
             } onCancel: {
-                source.cancel()
-                revocationSource?.cancel()
+                cancelSources()
                 idleReadTimer?.cancel()
                 continuation.finish()
             }
@@ -274,8 +314,8 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         return nil
     }
 
-    /// Explicitly terminates the reader's event sources.
-    public func cancel() {
+    /// Cancels the reader's event sources without waiting for their handlers.
+    private func cancelSources() {
         source.cancel()
         revocationSource?.cancel()
         idleReadTimer?.cancel()
@@ -289,9 +329,9 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     /// or closing that descriptor. The cancellation handlers are responsible
     /// for completing the wait; the descriptor itself remains owned by the
     /// caller.
-    public func cancelAndWait() {
-        cancel()
-        sourceCancellationGroup.wait()
+    public func cancelAndWait() async {
+        cancelSources()
+        await sourceCancellationBarrier.wait()
     }
 
     private var deadlineHasNotExpired: Bool {
@@ -465,7 +505,7 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
     private let socket: Int32
     /// One-shot writable sources must finish cancellation before the owner
     /// closes the shared socket descriptor.
-    private let sourceCancellationGroup = DispatchGroup()
+    private let sourceCancellationBarrier = DispatchSourceCancellationBarrier()
 
     /// Creates a writer over a non-blocking descriptor.
     public init(socket: Int32) {
@@ -500,15 +540,9 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
         return offset == data.count
     }
 
-    /// Cancels future write notifications.
-    public func cancel() {
-        // Each would-block wait owns a one-shot source and observes task
-        // cancellation. There is no persistent writable source to suspend.
-    }
-
     /// Waits for any one-shot writable source to finish cancellation.
-    public func cancelAndWait() {
-        sourceCancellationGroup.wait()
+    public func cancelAndWait() async {
+        await sourceCancellationBarrier.wait()
     }
 
     private static func makeNonBlocking(_ socket: Int32) -> Int32? {
@@ -526,15 +560,15 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
             fileDescriptor: socket,
             queue: DispatchQueue.global(qos: .utility)
         )
-        sourceCancellationGroup.enter()
+        sourceCancellationBarrier.register()
         writeSource.setEventHandler { [streamContinuation, sourceBox] in
             streamContinuation.yield(())
             streamContinuation.finish()
             sourceBox.source?.cancel()
         }
-        writeSource.setCancelHandler { [sourceCancellationGroup] in
+        writeSource.setCancelHandler { [sourceCancellationBarrier] in
             streamContinuation.finish()
-            sourceCancellationGroup.leave()
+            sourceCancellationBarrier.complete()
         }
         sourceBox.source = writeSource
         writeSource.activate()
@@ -547,15 +581,11 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
             streamContinuation.finish()
         }
         // The event/cancellation handler may have resumed the iterator before
-        // libdispatch ran the source's cancellation handler. Wait here while
+        // libdispatch ran the source's cancellation handler. Await here while
         // the source is still retained, so a subsequent socket close cannot
         // race the kevent teardown.
         writeSource.cancel()
-        waitForSourceCancellation()
+        await sourceCancellationBarrier.wait()
         return writable != nil
-    }
-
-    private func waitForSourceCancellation() {
-        sourceCancellationGroup.wait()
     }
 }
