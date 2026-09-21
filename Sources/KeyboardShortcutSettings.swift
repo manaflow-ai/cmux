@@ -231,7 +231,7 @@ enum KeyboardShortcutSettings {
         case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
-
+        /// Localized action title displayed by shortcut settings and command surfaces.
         var label: String {
             switch self {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
@@ -407,7 +407,7 @@ enum KeyboardShortcutSettings {
         }
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
-
+        /// Factory binding used when the user has not supplied a shortcut override.
         var defaultShortcut: StoredShortcut {
             switch self {
             case .openSettings:

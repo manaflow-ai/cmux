@@ -443,7 +443,7 @@ final class SavingTextView: NSTextView {
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
-
+    /// Creates a default editor backed by the app’s preference domain.
     convenience init() {
         self.init(frame: .zero, textContainer: nil)
     }

@@ -1045,7 +1045,7 @@ struct cmuxApp: App {
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
-
+    /// Presents window navigation and stateful View commands for the focused content.
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {

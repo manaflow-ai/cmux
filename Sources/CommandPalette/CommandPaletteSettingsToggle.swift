@@ -108,11 +108,11 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
 
 enum CommandPaletteSettingsToggleCommands {
     static let commandIdPrefix = "palette.toggleSetting."
-
+    /// Finds the setting-backed command registered under the supplied palette identifier.
     static func descriptor(commandId: String) -> CommandPaletteSettingToggleDescriptor? {
         descriptors.first { $0.commandId == commandId }
     }
-
+    /// Shared setting-backed palette commands, including the editor’s wrap preference.
     static let descriptors: [CommandPaletteSettingToggleDescriptor] = {
         let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let app: @Sendable () -> String = { String(localized: "settings.section.app", defaultValue: "App") }

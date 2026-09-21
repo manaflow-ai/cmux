@@ -9,6 +9,7 @@ enum GhosttyGotoSplitRoute {
 }
 
 extension KeyboardShortcutSettings.Action {
+    /// Selects whether an action resolves through the Dock, responder, or main workspace.
     var dockShortcutRoutingDisposition:
         DockShortcutRoutingDisposition {
         switch self {
