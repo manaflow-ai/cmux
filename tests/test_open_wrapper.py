@@ -693,7 +693,7 @@ def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
 _HEREDOC_OPEN_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?")
 _TRAILING_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
 _CASE_RE = re.compile(r"(?:^|[;&|]\s*)case\b")
-_PATTERN_REMOVAL_RE = re.compile(r'\$\{[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?(##?|%%?)')
+_PATTERN_REMOVAL_RE = re.compile(r"\$\{(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)(\[[^]]*\])?(##?|%%?)")
 
 
 def _strip_trailing_comment(line: str) -> str:
@@ -787,6 +787,15 @@ def test_top_level_statement_line_heuristics(failures: list[str]) -> None:
         "a top-level 'case' appearing after a ';' separator must be detected",
         failures,
     )
+    for separator, sample in (
+        ("&&", 'true && case "$x" in'),
+        ("||", 'false || case "$x" in'),
+    ):
+        expect(
+            bool(_CASE_RE.search(_strip_trailing_comment(sample))),
+            f"a top-level 'case' appearing after a '{separator}' separator must be detected, got {sample!r}",
+            failures,
+        )
 
     # Known, documented limitation: no quote-tracking, so a heredoc-like
     # token inside a quoted string is misdetected as a real heredoc open.
@@ -799,6 +808,56 @@ def test_top_level_statement_line_heuristics(failures: list[str]) -> None:
         "longer starts (false-positive) heredoc tracking -- if this now "
         "fails, the limitation note on _top_level_statement_lines is stale "
         "and should be updated",
+        failures,
+    )
+
+
+def test_pattern_removal_regex_detects_positional_parameters(failures: list[str]) -> None:
+    """_PATTERN_REMOVAL_RE must catch pattern removal on $1, $2, ... too.
+
+    Resources/bin/open always copies an argument into a named local (e.g.
+    `local value="$1"`) before trimming it, so today only named-variable
+    pattern removal appears before LC_ALL=C. But an attacker-controlled
+    wrapper argument reaches bash as a positional parameter first, and
+    `${1#prefix}`/`${1%suffix}` crash the same way as the named-variable
+    form on the affected bash builds -- so the guard must not have a blind
+    spot for someone pattern-matching a positional parameter directly.
+    """
+    positional_cases = ['${1#prefix}', '${1%suffix}', '${1##prefix}', '${1%%suffix}', '${10#prefix}']
+    for sample in positional_cases:
+        expect(
+            bool(_PATTERN_REMOVAL_RE.search(sample)),
+            f"expected _PATTERN_REMOVAL_RE to match positional-parameter pattern removal {sample!r}",
+            failures,
+        )
+
+    # Preserve existing named-variable matching (this is not a replacement).
+    expect(
+        bool(_PATTERN_REMOVAL_RE.search("${value#pattern}")),
+        "named-variable pattern removal must still match after adding positional-parameter support",
+        failures,
+    )
+
+    # End-to-end: the same case/pattern-removal scan used by
+    # test_wrapper_forces_c_locale_before_arg_processing must flag a
+    # positional-parameter pattern removal that runs on an
+    # attacker-controlled argument before LC_ALL=C is set.
+    vulnerable_script = [
+        'value="$1"',
+        'trimmed="${1#prefix}"',
+        "export LC_ALL=C",
+    ]
+    top_level = _top_level_statement_lines(vulnerable_script)
+    lc_all_index = next(i for i, line in top_level if line == "export LC_ALL=C")
+    flagged = [
+        line
+        for i, line in top_level
+        if i < lc_all_index and _PATTERN_REMOVAL_RE.search(_strip_trailing_comment(line))
+    ]
+    expect(
+        flagged == ['trimmed="${1#prefix}"'],
+        "expected the positional-parameter pattern removal ahead of 'export "
+        f"LC_ALL=C' to be flagged, got {flagged!r}",
         failures,
     )
 
@@ -913,6 +972,7 @@ def main() -> int:
     test_multibyte_filename_argument_does_not_crash_default_bash(failures)
     test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(failures)
     test_top_level_statement_line_heuristics(failures)
+    test_pattern_removal_regex_detects_positional_parameters(failures)
     test_wrapper_forces_c_locale_before_arg_processing(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
