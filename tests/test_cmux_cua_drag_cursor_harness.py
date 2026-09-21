@@ -3,6 +3,7 @@
 
 import itertools
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -106,6 +107,45 @@ class DividerGeometryTests(unittest.TestCase):
         after["panes"][1]["pixel_frame"]["x"] += 50
         with self.assertRaises(AssertionError):
             divider.verify_resize(before, after, "horizontal", 1)
+
+
+class DividerFailureEvidenceTests(unittest.TestCase):
+    """Subprocess errors must leave the failed matrix case in the report."""
+
+    def test_command_failure_and_timeout_preserve_case(self):
+        """Exercise failures before, during, and after a drag through the CLI runner."""
+        for stage in ("select", "before", "drag", "after"):
+            for timeout in (False, True):
+                with self.subTest(stage=stage, timeout=timeout), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    plan = {axis: {"workspace": axis, "from": [100, 100], "to": end}
+                            for axis, end in (("horizontal", [180, 100]), ("vertical", [100, 180]))}
+                    (root / "plan.json").write_text(json.dumps(plan))
+                    argv = ["matrix", "--driver", "unused-driver", "--socket", "unused-helper",
+                            "--cmux-cli", "unused-cli", "--cmux-socket", "unused-app",
+                            "--feed", str(root / "feed"), "--pid", "1", "--window-id", "2",
+                            "--plan", str(root / "plan.json"), "--out-dir", str(root / "output")]
+                    command = ["failed-command", stage]
+                    error = (subprocess.TimeoutExpired(command, 15, output=b"partial\xff", stderr=b"timeout")
+                             if timeout else subprocess.CalledProcessError(7, command, output="partial", stderr="failed"))
+                    geometry = json.dumps(DividerGeometryTests.layout("horizontal"))
+                    completed = subprocess.CompletedProcess([], 0, "{}", "")
+                    before = subprocess.CompletedProcess([], 0, geometry, "")
+                    calls = {"select": [error], "before": [completed, error],
+                             "drag": [completed, before, error],
+                             "after": [completed, before, completed, error]}[stage]
+                    with patch("sys.argv", argv), patch.object(divider.subprocess, "run", side_effect=calls):
+                        with self.assertRaises(AssertionError):
+                            divider.main()
+                    report = json.loads((root / "output" / "summary.json").read_text())
+                    self.assertFalse(report["passed"])
+                    self.assertEqual(len(report["cases"]), 1)
+                    failed = report["cases"][0]
+                    self.assertFalse(failed["passed"])
+                    self.assertEqual(failed["command"], command)
+                    self.assertEqual(failed["returncode"], None if timeout else 7)
+                    self.assertIsInstance(failed["stdout"], str)
+                    self.assertIsInstance(failed["stderr"], str)
 
 
 if __name__ == "__main__":
