@@ -31,6 +31,30 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# Every app-host test command must write to a regular file before crossing into
+# the console session. Test-launched tmux/SSH descendants may intentionally
+# outlive xcodebuild; inheriting the Actions stdout pipe from this wrapper would
+# let one detached child keep the CI step alive after the test runner exits.
+# run-and-capture owns the live follower separately, so descendants inherit only
+# the regular capture file. Explicit callers already inside run-and-capture set
+# CMUX_CI_FILE_CAPTURE_ACTIVE and skip this one common boundary.
+if [ "${CMUX_CI_FILE_CAPTURE_ACTIVE:-0}" != "1" ]; then
+  app_host_command=0
+  for command_arg in "$@"; do
+    case "$command_arg" in
+      */run-app-host-xcodebuild.sh|run-app-host-xcodebuild.sh)
+        app_host_command=1
+        break
+        ;;
+    esac
+  done
+  if [ "$app_host_command" = "1" ]; then
+    capture_tag="${CMUX_TAG:-untagged}"
+    capture_tag="$(printf '%s' "$capture_tag" | tr -c 'A-Za-z0-9._-' '_')"
+    capture_path="${RUNNER_TEMP:-/tmp}/cmux-app-host-console-capture-${capture_tag}-pid-$$.log"
+    exec /bin/bash "$ci_script_dir/run-and-capture.sh" "$capture_path" "$0" "$@"
+  fi
+fi
 cleanup_app_host_home_requested=0
 case "$1" in
   scripts/ci/cleanup-app-host-home.sh|"$ci_script_dir/cleanup-app-host-home.sh")
