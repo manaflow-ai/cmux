@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MobileWorkspaceListEmptyRow: View {
     let retry: (@Sendable () async -> Void)?
+    @State private var retryCoordinator = MobileWorkspaceRetryCoordinator()
     @State private var isRetrying = false
     @State private var retryTask: Task<Void, Never>?
     @State private var retryDeadlineTask: Task<Void, Never>?
@@ -37,7 +38,7 @@ struct MobileWorkspaceListEmptyRow: View {
                             retryTask = nil
                             isRetrying = false
                         }
-                        await retry()
+                        await retryCoordinator.run(retry)
                     }
                     retryTask = task
                     retryDeadlineTask = Task { @MainActor in
@@ -47,7 +48,6 @@ struct MobileWorkspaceListEmptyRow: View {
                             return
                         }
                         guard retryAttemptID == attemptID else { return }
-                        retryTask?.cancel()
                         retryTask = nil
                         retryDeadlineTask = nil
                         isRetrying = false
@@ -104,6 +104,8 @@ struct MobileWorkspaceListEmptyRow: View {
             retryDeadlineTask?.cancel()
             retryTask = nil
             retryDeadlineTask = nil
+            retryAttemptID = nil
+            isRetrying = false
         }
     }
 }
