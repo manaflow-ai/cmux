@@ -11,6 +11,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+if grep -Eq '^[[:space:]]*sleep[[:space:]]' "$ROOT_DIR/scripts/ci/run-and-capture.sh"; then
+  echo "FAIL: capture cancellation must not use fixed sleep polling"
+  exit 1
+fi
+if ! grep -Fq 'proc.wait(timeout=5)' "$ROOT_DIR/scripts/ci/run-and-capture.sh"; then
+  echo "FAIL: capture cancellation must use the owned bounded process wait"
+  exit 1
+fi
+
 set +e
 SECONDS=0
 /bin/bash "$ROOT_DIR/scripts/ci/run-and-capture.sh" "$TMP_DIR/capture.log" \
