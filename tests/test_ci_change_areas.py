@@ -1323,6 +1323,105 @@ def test_admission_lookup_sends_reserved_branch_characters_literally() -> None:
         assert admitted_run(api, "manaflow-ai/cmux", branch, "abc", current_run_id=9) == "https://example/8", branch
 
 
+def admission_helper():
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        return importlib.import_module("find_admitted_build")
+    finally:
+        sys.path[:] = original_path
+
+
+def test_admission_api_limits_each_request_to_the_remaining_budget() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    for remaining, expected in ((30, 10), (3, 3)):
+        with patch.object(admission.time, "monotonic", return_value=100), \
+                patch.object(admission.subprocess, "check_output", return_value="{}") as request:
+            assert admission.gh_api("example", deadline=100 + remaining) == {}
+            assert request.call_args.kwargs["timeout"] == expected
+
+
+def test_admission_api_never_starts_after_the_overall_deadline() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    with patch.object(admission.time, "monotonic", return_value=100), \
+            patch.object(admission.subprocess, "check_output") as request:
+        try:
+            admission.gh_api("example", deadline=100)
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("an expired lookup must stop before starting gh")
+        request.assert_not_called()
+
+
+def test_admission_api_discards_a_response_arriving_after_the_deadline() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    with patch.object(admission.time, "monotonic", side_effect=[100, 130]), \
+            patch.object(admission.subprocess, "check_output", return_value="{}"):
+        try:
+            admission.gh_api("example", deadline=130)
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("a late response must not admit a compile")
+
+
+def test_admission_lookup_timeout_or_missing_cli_falls_back_to_compiling() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    for error in (subprocess.TimeoutExpired(["gh", "api"], 10), FileNotFoundError("gh")):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            with patch.object(admission.subprocess, "check_output", side_effect=error):
+                result = admission.main([
+                    "--repository", "manaflow-ai/cmux", "--branch", "feature",
+                    "--fingerprint", "abc", "--current-run-id", "9",
+                    "--github-output", str(output),
+                ])
+            assert result == 0
+            assert output.read_text() == "compile_admitted=false\n"
+
+
+def test_admission_lookup_shares_one_deadline_across_successive_requests() -> None:
+    from unittest.mock import patch
+    admission = admission_helper()
+
+    base_api = admission_api(
+        [admission_run(8)], {8: [admission.artifact_name("abc", 2)]},
+        {8: [admission_job("failure")] * 100 + [admission_job("success", run_attempt=2)]},
+    )
+    clock = [100.0]
+    budgets = []
+
+    def request(command, *, text, timeout):
+        budgets.append(timeout)
+        if timeout < 9:
+            clock[0] += timeout
+            raise subprocess.TimeoutExpired(command, timeout)
+        clock[0] += 9
+        return json.dumps(base_api(command[2]))
+
+    with tempfile.TemporaryDirectory() as temporary:
+        output = Path(temporary) / "output"
+        with patch.object(admission.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(admission.subprocess, "check_output", side_effect=request):
+            assert admission.main([
+                "--repository", "manaflow-ai/cmux", "--branch", "feature",
+                "--fingerprint", "abc", "--current-run-id", "9",
+                "--github-output", str(output),
+            ]) == 0
+        assert budgets == [10, 10, 10, 3], budgets
+        assert clock[0] == 130
+        assert output.read_text() == "compile_admitted=false\n"
+
+
 def workflow_step_block(job_name: str, step_name: str) -> str:
     lines = workflow_job_block(job_name).splitlines()
     start = lines.index(f"      - name: {step_name}")
