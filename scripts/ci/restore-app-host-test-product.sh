@@ -19,6 +19,8 @@ record = {
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
     "runner_name": os.environ.get("RUNNER_NAME"),
+    "local_hit": os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true",
+    "lookup_seconds": float(os.environ.get("CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS") or 0),
     "route": os.environ.get("CMUX_ARTIFACT_TRANSPORT_ROUTE") or "unknown",
     "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "unknown",
     "outcome": "success" if os.environ.get("CMUX_RESTORE_STATUS") == "0" else "failure",

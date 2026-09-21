@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from test_ci_change_areas import (
-    linux_preflight_needs, run_linux_preflight, workflow_job_step_script,
+    linux_preflight_needs, run_guard_status, run_linux_preflight, workflow_job_step_script,
 )
 
 
@@ -21,6 +21,9 @@ JOBS = {
     "linux_guard_cli": "workflow-guard-cli-scripts",
     "linux_guard_source": "workflow-guard-source-lints",
     "ghosttykit_release": "ghosttykit-release-check",
+}
+REUSABLE_GUARDS = {
+    route: job for route, job in JOBS.items() if route != "ghosttykit_release"
 }
 
 
@@ -65,9 +68,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             with self.subTest(path=path):
                 outputs = route([path])
                 self.assertEqual(outputs, dict.fromkeys(JOBS, "false"))
+                guard_result = run_guard_status(
+                    inputs={route_name: outputs[route_name] for route_name in REUSABLE_GUARDS},
+                    results=dict.fromkeys(REUSABLE_GUARDS.values(), "skipped"),
+                )
+                self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
                 result = run_linux_preflight(linux_preflight_needs(
                     outputs=outputs,
-                    results=dict.fromkeys(JOBS.values(), "skipped"),
+                    results={"guards": "skipped", "ghosttykit-release-check": "skipped"},
                 ))
                 self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -93,10 +101,18 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 outputs = route(changed)
                 self.assertEqual(outputs, expected)
-                results = {job: "success" if outputs[name] == "true" else "skipped"
-                           for name, job in JOBS.items()}
+                guard_results = {
+                    job: "success" if outputs[route_name] == "true" else "skipped"
+                    for route_name, job in REUSABLE_GUARDS.items()
+                }
+                guard_result = run_guard_status(
+                    inputs={route_name: outputs[route_name] for route_name in REUSABLE_GUARDS},
+                    results=guard_results,
+                )
+                self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
                 result = run_linux_preflight(linux_preflight_needs(
-                    outputs=outputs, results=results,
+                    outputs=outputs,
+                    results={"guards": "success", "ghosttykit-release-check": "skipped"},
                 ))
                 self.assertEqual(result.returncode, 0, result.stderr)
         for unknown in ("tests/test_new_cloud_contract.py",
@@ -155,23 +171,37 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertEqual(route(["README.md"], macos=""), dict.fromkeys(JOBS, "true"))
 
     def test_gate_rejects_selected_guard_skip_failure_or_cancellation(self):
-        for route_name, job in JOBS.items():
+        for route_name, job in REUSABLE_GUARDS.items():
             for outcome in ("skipped", "failure", "cancelled"):
                 with self.subTest(job=job, outcome=outcome):
-                    result = run_linux_preflight(linux_preflight_needs(
-                        outputs={route_name: "true"}, results={job: outcome},
-                    ))
+                    result = run_guard_status(results={job: outcome})
                     self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f"{job}: {outcome} (route {route_name}=true)", result.stderr)
+
+        for outcome in ("skipped", "failure", "cancelled"):
+            with self.subTest(job="ghosttykit-release-check", outcome=outcome):
+                result = run_linux_preflight(linux_preflight_needs(
+                    results={"ghosttykit-release-check": outcome},
+                ))
+                self.assertNotEqual(result.returncode, 0)
 
     def test_gate_rejects_bad_or_missing_route_even_if_job_succeeded(self):
-        for route_name in JOBS:
-            needs = linux_preflight_needs()
-            del needs["changes"]["outputs"][route_name]
-            self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+        valid_guard_inputs = dict.fromkeys(REUSABLE_GUARDS, "true")
+        for route_name in REUSABLE_GUARDS:
+            missing = dict(valid_guard_inputs)
+            del missing[route_name]
+            self.assertNotEqual(run_guard_status(inputs=missing).returncode, 0)
             for value in ("", "False", "invalid"):
-                needs["changes"]["outputs"][route_name] = value
-                self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+                invalid = dict(valid_guard_inputs)
+                invalid[route_name] = value
+                self.assertNotEqual(run_guard_status(inputs=invalid).returncode, 0)
 
+        needs = linux_preflight_needs()
+        del needs["changes"]["outputs"]["ghosttykit_release"]
+        self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+        for value in ("", "False", "invalid"):
+            needs["changes"]["outputs"]["ghosttykit_release"] = value
+            self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,12 +73,18 @@ else:
       assert.equal(job.permissions.contents, "read");
       assert.equal(job.permissions["id-token"], "write");
 
+      const local = job.steps.find((step) => step.id === "node-products");
       const restore = job.steps.find((step) => step.id === "r2-products");
       const fallback = job.steps.find((step) => step.name === "Download compiled app-host test product");
+      assert.equal(local.run, 'python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"');
+      assert.equal(evaluate(restore.if, { steps: { "node-products": { outputs: { hit: "false" } } } }), "true");
       const values = {
         github: { token: "read-only-job-token" },
         vars: { CI_ARTIFACT_R2_URL: enabled ? "https://broker.example" : "" },
-        needs: { "macos-compile-admission": { outputs: { artifact_id: "123" } } },
+        needs: { "macos-compile-admission": { outputs: {
+          artifact_id: "123",
+          artifact_digest: "sha256:169fa1cbfb4a778073f1efdc24904064d3bee6103f4a89e5054936d6661eed2a",
+        } } },
       };
       const output = path.join(temporary, "output");
       execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
@@ -95,7 +101,10 @@ else:
       assert.equal(outputs.route, enabled ? "r2" : "github");
       assert.equal(outputs.r2_result, enabled ? "fill" : "disabled");
 
-      const downloadFallback = evaluate(fallback.if, { steps: { "r2-products": { outputs: { hit: outputs.hit } } } }) === "true";
+      const downloadFallback = evaluate(fallback.if, { steps: {
+        "node-products": { outputs: { hit: "false" } },
+        "r2-products": { outputs: { hit: outputs.hit } },
+      } }) === "true";
       assert.equal(downloadFallback, !enabled);
       assert.equal(fallback.uses, "./.github/actions/download-test-product");
       assert.equal(render(fallback.with["artifact-id"], values), "123");
