@@ -150,7 +150,7 @@ extension SurfaceCatalog {
         }
 
         let directURL = provider.info.privateAddress.map {
-            CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+            CmuxInternalHostnames().directPortURL(privateAddress: $0, port: port)
         }
         if var existing = resources[id] {
             // A machine address can be assigned after the first catalog pass.
@@ -303,7 +303,7 @@ extension CmuxTuiSurfaceProvider {
                 if let port = resource.id.forwardedPort {
                     refreshed.port = port
                     refreshed.url = privateAddress.map {
-                        CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+                        CmuxInternalHostnames().directPortURL(privateAddress: $0, port: port)
                     }
                 }
                 return refreshed
@@ -322,12 +322,12 @@ extension CmuxTuiSurfaceProvider {
                 if var existing = previous[id] {
                     existing.port = port
                     existing.url = privateAddress.map {
-                        CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+                        CmuxInternalHostnames().directPortURL(privateAddress: $0, port: port)
                     }
                     return existing
                 }
                 let directURL = privateAddress.map {
-                    CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+                    CmuxInternalHostnames().directPortURL(privateAddress: $0, port: port)
                 }
                 return CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL)
             }
@@ -400,7 +400,7 @@ extension CmuxTuiSurfaceProvider {
             // direct URL so an address withdrawal cannot leave a stale link in
             // the catalog; the provider endpoint cache remains independent.
             if let privateAddress {
-                canonical.url = CmuxInternalHostnames.directPortURL(privateAddress: privateAddress, port: port)
+                canonical.url = CmuxInternalHostnames().directPortURL(privateAddress: privateAddress, port: port)
             } else {
                 canonical.url = nil
             }

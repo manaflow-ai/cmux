@@ -23,7 +23,7 @@ public struct MobileWhatsNewPreviewView: View {
             .environment(center)
             .sheet(isPresented: $showsSheet) {
                 MobileWhatsNewSheet(
-                    pages: MobileWhatsNewCatalog.entries,
+                    pages: MobileWhatsNewCatalog().entries,
                     allowedWebHosts: [],
                     dismiss: { showsSheet = false }
                 )

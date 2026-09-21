@@ -174,14 +174,30 @@ extension CmuxTuiSurfaceProvider {
                 startBrowserProxy: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
                     let generation = self.currentLifecycleGeneration
+#if DEBUG
+                    let desktopStartedAt = Date()
+                    cmuxDebugLog("cloud.desktop.proxy.begin machine=\(self.machineID) port=\(port)")
+#endif
                     let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.endpoint machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
                     if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
                        try await !CloudBrowserRouting.desktopIsReachable(endpoint: endpoint, address: address, port: port) {
                         try Task.checkCancellation()
                         guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
+#endif
                         _ = try await client.openPort(id: self.machineID, port: port)
+#if DEBUG
+                        cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
                     }
+#if DEBUG
+                    cmuxDebugLog("cloud.desktop.proxy.ready machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
+#endif
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                     return endpoint
                 }
