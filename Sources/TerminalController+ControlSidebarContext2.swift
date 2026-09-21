@@ -262,6 +262,7 @@ extension TerminalController {
                     workspaceId: scope.workspaceID,
                     panelId: scope.panelID,
                     terminalLifecycleID: admittedTerminalLifecycleID,
+                    relayConnectionID: scope.remoteRelayConnectionID,
                     state: state.rawValue
                 )
             }
