@@ -68,13 +68,15 @@ struct CurrentWorkCommandPaletteTests {
     @Test
     func testPullRequestSubtitleUsesTheLocalizedLabelFormat() {
         var item = fixture()
-        item.pullRequests = [pullRequest(number: 123)]
+        item.pullRequests = [pullRequest(number: 123), pullRequest(number: 456)]
 
         let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: true)
         let format = String(localized: "cli.current.pullRequest", defaultValue: "PR: %@")
-        let expected = String.localizedStringWithFormat(format, "#123")
+        let expected = [123, 456].map { format.replacingOccurrences(of: "%@", with: "#\($0)") }
 
-        #expect(subtitle.contains(expected))
+        for label in expected {
+            #expect(subtitle.contains(label))
+        }
     }
 
     private func fixture() -> CurrentWorkSnapshot.Item {
