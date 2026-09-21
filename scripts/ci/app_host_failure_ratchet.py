@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gate app-host assertion failures against a shrink-only current-main catalog."""
+"""Gate only complete assertion-only app-host runs against a shrink-only current-main catalog."""
 
 from __future__ import annotations
 
