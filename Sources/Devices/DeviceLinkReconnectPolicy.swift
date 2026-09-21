@@ -100,6 +100,14 @@ struct DeviceLinkReconnectPolicy: Equatable, Sendable {
         case .transportLost:
             guard phase == .connected else { return phase }
             guard isDialable else { phase = .idle; return phase }
+            if let directoryPrecondition {
+                // The precondition arrived while the link was live; now that
+                // the link is gone it governs, and no redial is attempted.
+                connectedSince = nil
+                shortLivedLosses = 0
+                phase = .blocked(directoryPrecondition)
+                return phase
+            }
             if let connectedSince, now.timeIntervalSince(connectedSince) >= Self.stableConnectionInterval {
                 shortLivedLosses = 0
             }

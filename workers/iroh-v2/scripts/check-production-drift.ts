@@ -13,8 +13,9 @@
  *
  * Being behind the base ref on other commits is reported, not failed.
  *
- * Usage: bun scripts/check-production-drift.ts [--url URL] [--base REF]
- * Environment: CMUX_IROH_V2_HEALTH_URL, CMUX_IROH_V2_DRIFT_BASE (default origin/main).
+ * Usage: bun scripts/check-production-drift.ts [--url URL] [--base REF] [--environment NAME]
+ * Environment: CMUX_IROH_V2_HEALTH_URL, CMUX_IROH_V2_DRIFT_BASE (default origin/main),
+ * CMUX_IROH_V2_DRIFT_ENVIRONMENT (default production).
  */
 import { HealthSchema } from "../src/health";
 import { CONTROL_PLANE_RULES } from "../src/rules";
@@ -38,6 +39,8 @@ function git(...args: string[]): { ok: boolean; output: string } {
 
 const url = argument("--url") ?? process.env.CMUX_IROH_V2_HEALTH_URL ?? PRODUCTION_HEALTH_URL;
 const base = argument("--base") ?? process.env.CMUX_IROH_V2_DRIFT_BASE ?? "origin/main";
+// A health response from another environment (a mis-pointed URL, a staging Worker) must not pass as production.
+const expectedEnvironment = argument("--environment") ?? process.env.CMUX_IROH_V2_DRIFT_ENVIRONMENT ?? "production";
 const failures: string[] = [];
 const notes: string[] = [];
 
@@ -64,6 +67,7 @@ if (response.status === 404) {
     const missing = CONTROL_PLANE_RULES.filter(rule => !deployed.rules.includes(rule));
     const extra = deployed.rules.filter(rule => !CONTROL_PLANE_RULES.includes(rule));
     notes.push(`deployed environment=${deployed.environment} revision=${deployed.sourceRevision} rules=${deployed.rules.join(",") || "(none)"}`);
+    if (deployed.environment !== expectedEnvironment) failures.push(`${url} reports environment ${deployed.environment}, expected ${expectedEnvironment}: this is not the deployment being checked`);
     if (missing.length) failures.push(`deployment does not implement: ${missing.join(", ")}. Clients on ${base} depend on them. Deploy: ${DEPLOY_COMMAND}`);
     if (extra.length) notes.push(`deployment advertises rules this checkout does not know: ${extra.join(", ")} (production is ahead of ${base})`);
     if (deployed.sourceRevision === "unknown") {
@@ -85,5 +89,5 @@ if (response.status === 404) {
 
 for (const note of notes) console.log(note);
 for (const failure of failures) console.log(`::error::IROH v2 production drift: ${failure}`);
-console.log(JSON.stringify({ url, base, ok: failures.length === 0, failures, notes }));
+console.log(JSON.stringify({ url, base, environment: expectedEnvironment, ok: failures.length === 0, failures, notes }));
 process.exit(failures.length ? 1 : 0);

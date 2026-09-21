@@ -62,6 +62,12 @@ test("a deployment from a revision that is not on the base ref is drift", async 
   expect(result.output).toContain("not in this checkout");
 });
 
+test("a health response from another environment is not the deployment being checked", async () => {
+  const result = await run("/wrong-environment", { status: 200, body: health({ environment: "development" }) });
+  expect(result.exit).toBe(1);
+  expect(result.output).toContain("reports environment development, expected production");
+});
+
 test("a deployment at the base revision with every rule passes", async () => {
   const result = await run("/current", { status: 200, body: health() });
   expect(result.exit).toBe(0);

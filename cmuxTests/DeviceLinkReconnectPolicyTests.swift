@@ -142,6 +142,8 @@ struct DeviceLinkReconnectPolicyTests {
         _ = policy.apply(.directory(dialable: true))
         _ = policy.apply(.connectSucceeded)
         #expect(policy.apply(.directory(dialable: true, precondition: outdated)) == .connected, "a live link is proof the precondition is stale")
+        #expect(policy.apply(.transportLost) == .blocked(outdated), "once that link is gone the precondition governs; no redial")
+        #expect(policy.apply(.refreshRequested) == .blocked(outdated))
         #expect(policy.apply(.directory(dialable: false, precondition: outdated)) == .idle)
     }
 }
