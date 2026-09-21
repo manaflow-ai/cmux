@@ -141,6 +141,7 @@ class LayeredWorkflowTests(unittest.TestCase):
             self.assertNotIn("if", restore)
             self.assertEqual(restore["run"], "scripts/ci/restore-app-host-test-product.sh")
             self.assertEqual(restore["env"]["CMUX_LAYER_RESTORED"], "${{ steps.restore-layers.outputs.hit }}")
+            self.assertEqual(restore["env"]["CMUX_R2_RESTORED"], "${{ steps.r2-products.outputs.hit }}")
             layered = steps["Restore opt-in layered app-host test product"]
             self.assertIn('${CMUX_DERIVED_DATA_PATH}-layers', layered["run"])
             self.assertIn('--consumer "$CMUX_APP_HOST_CONSUMER"', layered["run"])
@@ -148,6 +149,21 @@ class LayeredWorkflowTests(unittest.TestCase):
             self.assertEqual(download["uses"], "./.github/actions/download-test-product")
             self.assertIn("Declare app-host product consumer", steps)
             self.assertIn("Report app-host product consumer receipt", steps)
+
+    def test_aggregate_route_is_committed_only_by_common_restore_validator(self):
+        action = (ROOT / ".github/actions/download-test-product/action.yml").read_text()
+        r2 = (ROOT / "scripts/ci/restore-r2-artifact.py").read_text()
+        restore = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text()
+
+        self.assertNotIn('aggregate_hit("github-aggregate")', action)
+        self.assertNotIn('aggregate_hit("r2-aggregate")', r2)
+        self.assertIn("app_host_test_products.py restore", restore)
+        self.assertIn("aggregate-hit --route r2-aggregate", restore)
+        self.assertIn("aggregate-hit --route github-aggregate", restore)
+        self.assertLess(
+            restore.index("app_host_test_products.py restore"),
+            restore.index("aggregate-hit --route r2-aggregate"),
+        )
 
     def test_actual_producer_packages_normalized_aggregate_tree(self):
         with tempfile.TemporaryDirectory() as temporary:
