@@ -125,14 +125,20 @@ async function archive(artifact: Artifact, token: string, signal: AbortSignal): 
 }
 
 type AdmissionState = { minute: number; total: number; runs: Record<string, number> };
+type AdmissionEnv = Env & { ADMISSION_MINUTE_OVERRIDE?: string };
 
-export class RequestAdmission extends DurableObject<Env> {
+export class RequestAdmission extends DurableObject<AdmissionEnv> {
   private serial: Promise<void> = Promise.resolve();
+
+  private minute(): number {
+    const override = Number(this.env.ADMISSION_MINUTE_OVERRIDE);
+    return Number.isSafeInteger(override) ? override : Math.floor(Date.now() / 60_000);
+  }
 
   private async admit(runId: string): Promise<boolean> {
     let allowed = false;
     const operation = this.serial.then(async () => {
-      const minute = Math.floor(Date.now() / 60_000);
+      const minute = this.minute();
       const stored = await this.ctx.storage.get<AdmissionState>("rate");
       const state: AdmissionState = stored?.minute === minute
         ? stored : { minute, total: 0, runs: {} };
