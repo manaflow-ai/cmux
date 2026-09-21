@@ -69,6 +69,11 @@ keys, Tailscale, or host access as part of this transition.
 
 ### Tagged builds outside the team fleet
 
+Reuse the tag's warm DerivedData and published dependencies before a cold
+build. For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh`,
+then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload. The download
+verifies the pinned artifact.
+
 Always build with a tag. **Never run bare `xcodebuild` or open an untagged
 `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID
 with other agents. The fleet publishes isolated tags through HQ. Report the
@@ -91,7 +96,7 @@ xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destinatio
 
 `<tag>` is the slug `reload.sh` makes: lowercase, with runs of other characters
 replaced by `-` (`Fix/ABC-1` becomes `fix-abc-1`). A different path starts a cold
-build. To rebuild GhosttyKit locally for a standalone checkout:
+build. When GhosttyKit itself needs rebuilding (see prebuilt reuse above):
 
 ```bash
 cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
