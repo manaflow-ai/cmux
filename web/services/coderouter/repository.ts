@@ -1296,14 +1296,14 @@ export async function markAccountCooldown(
   failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
-  const cooldownUntil = new Date(Date.now() + bounded);
+  const cooldownUntilIso = new Date(Date.now() + bounded).toISOString();
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       // A late provider error must never shorten a longer cooldown already
       // recorded by another request. Keep the database value authoritative so
       // every web instance avoids a capacity-hit account consistently.
-      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntil}), ${cooldownUntil})`,
+      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
       lastFailureCode: failureCode,
       updatedAt: new Date(),
     })
