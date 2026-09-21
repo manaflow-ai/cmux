@@ -9,9 +9,14 @@ import SwiftUI
 /// keeps interactive rows outside the bars while the table itself remains
 /// visually present beneath their effects.
 struct WorkspaceListBarUnderlap: ViewModifier {
+    /// The workspace list is not an input surface. Its keyboard-safe region
+    /// belongs to the terminal or composer that is presented above it, so a
+    /// keyboard transition must not resize the represented table.
+    static let ignoredSafeAreaRegions: SafeAreaRegions = [.container]
+
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.ignoresSafeArea(.container, edges: .vertical)
+            content.ignoresSafeArea(Self.ignoredSafeAreaRegions, edges: .vertical)
         } else {
             content
         }
