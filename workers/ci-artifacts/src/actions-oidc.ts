@@ -7,6 +7,7 @@ const OWNER_ID = "171392238";
 const WORKFLOW_PREFIX = `${REPOSITORY}/.github/workflows/ci.yml@`;
 const EVENTS = new Set(["pull_request", "merge_group", "workflow_dispatch"]);
 const MAX_TOKEN_LENGTH = 16 * 1024;
+const JWKS_LOAD_TIMEOUT_MS = 5_000;
 
 type JsonObject = Record<string, unknown>;
 export type ActionsIdentity = { runId: string; runAttempt: string; eventName: string };
@@ -72,7 +73,16 @@ async function signingKey(kid: string, fetcher: typeof fetch, signal?: AbortSign
     // when this short cache expires instead of forcing a network refresh.
     throw new Error("unknown OIDC key");
   }
-  keyLoading ??= loadKeys(fetcher, signal).finally(() => { keyLoading = undefined; });
+  if (!keyLoading) {
+    // The JWKS load is shared across callers. A single caller timing out must
+    // not abort the shared refresh for every other concurrent request.
+    const shared = new AbortController();
+    const timer = setTimeout(() => shared.abort(), JWKS_LOAD_TIMEOUT_MS);
+    keyLoading = loadKeys(fetcher, shared.signal).finally(() => {
+      clearTimeout(timer);
+      keyLoading = undefined;
+    });
+  }
   keyCache = await keyLoading;
   const key = keyCache.keys.get(kid);
   if (!key) throw new Error("unknown OIDC key");
