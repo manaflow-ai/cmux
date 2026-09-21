@@ -185,6 +185,30 @@ export class InMemoryMailBroker {
     return this.append(input);
   }
 
+  /**
+   * Append a reply while deriving its thread and ancestry from the parent.
+   * Keeping this operation on the broker prevents adapters from accidentally
+   * creating a new thread when they only have a parent message ID.
+   */
+  reply(parentMessageId: MailId, input: Omit<MailInput, "inReplyTo" | "threadId">): MailAppendResult;
+  reply(input: MailInput & { readonly inReplyTo: MailId }): MailAppendResult;
+  reply(
+    parentOrInput: MailId | (MailInput & { readonly inReplyTo: MailId }),
+    maybeInput?: Omit<MailInput, "inReplyTo" | "threadId">,
+  ): MailAppendResult {
+    const parentMessageId = typeof parentOrInput === "string" ? parentOrInput : parentOrInput.inReplyTo;
+    const input = typeof parentOrInput === "string" ? maybeInput! : parentOrInput;
+    const parent = this.messagesById.get(parentMessageId);
+    if (!parent) throw new Error(`cannot reply to unknown mail message ${parentMessageId}`);
+    return this.append({
+      ...input,
+      threadId: parent.threadId,
+      inReplyTo: parentMessageId,
+      references: [...parent.references, parentMessageId, ...(input.references ?? [])],
+      kind: input.kind ?? "reply",
+    });
+  }
+
   get(messageId: MailId): MailEnvelope | undefined {
     return this.messagesById.get(messageId);
   }

@@ -48,11 +48,10 @@ if (acknowledged.state !== "acknowledged" || acknowledged.attempts !== 1) throw 
 if (broker.inbox("claude", { state: "acknowledged" }).length !== 1) throw new Error("inbox state filtering failed");
 if (events.join(",") !== "appended,delivery,delivery") throw new Error(`delivery events missing: ${events}`);
 
-const reply = broker.append({
+const reply = broker.reply("m-root", {
   id: "m-reply",
   sender: "claude",
   recipients: ["codex"],
-  inReplyTo: "m-root",
   body: "Looks good.",
   createdAt: 200,
 });
