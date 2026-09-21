@@ -141,7 +141,7 @@ class ReleaseProductReuseTests(unittest.TestCase):
         provenance = json.loads((self.consumer / "Build/Products" / reuse.PROVENANCE).read_text())
         self.assertEqual(provenance["artifact_id"], 42)
 
-    def test_product_digest_ignores_symlink_permission_bits(self):
+    def test_product_digest_ignores_symlink_permission_bits_with_mock_metadata(self):
         app = self.producer / Path(reuse.APP_REL)
         link = app / "Contents/Frameworks/Test.framework/Versions/Current"
         baseline = reuse.product_digest(app)
