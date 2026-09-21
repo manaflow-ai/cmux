@@ -115,7 +115,7 @@ def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, st
         "source_run_event_mismatch": source_run.get("event") == "pull_request",
         "source_run_attempt_mismatch": observed_attempt == expected_attempt,
         "source_run_workflow_mismatch": source_run.get("path") == ".github/workflows/ci.yml",
-        "source_run_head_mismatch": source_run.get("head_sha") == args.head_sha,
+        "source_run_source_mismatch": source_run.get("head_sha") == args.source_sha,
         "source_run_repository_mismatch": str(run_repository).casefold() == args.repository.casefold(),
         "source_run_pr_mismatch": len(matching_prs) == 1,
         "source_run_pr_head_mismatch": (
