@@ -130,9 +130,6 @@ struct MobileWorkspaceListEmptyRow: View {
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
             retryTask?.cancel()
-            if isRetrying || retryTask != nil {
-                cancelRetry?()
-            }
             retryTimeoutTask?.cancel()
             retryTask = nil
             retryAttemptID = nil
