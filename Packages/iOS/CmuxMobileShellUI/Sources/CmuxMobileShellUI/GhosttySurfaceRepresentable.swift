@@ -445,6 +445,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
+                    self.noteViewportReportAttempt(report)
                     // The replay state machine compares incoming frame grids
                     // against the capacity this phone last told the daemon,
                     // so it can hold frames sized by stale daemon state (a
@@ -468,25 +469,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 },
                 apply: { [weak self, weak surfaceView] report, effectiveGrid in
                     guard let self, let surfaceView else { return }
+                    // Consume the generation entry for EVERY reply, including
+                    // timeout/nil replies. Keeping a dead entry until remount
+                    // made repeated relay timeouts accumulate stale negotiation
+                    // generations beside the retry loop.
+                    let generation = self.viewportReportGenerationsByReportID
+                        .removeValue(forKey: report.id) ?? 0
                     guard let effectiveGrid else {
-                        // No effective grid came back (RPC timed out or
-                        // returned nil). Left unhandled, the render stays
-                        // pinned to the prior effective grid and looks like a
-                        // frozen / letterboxed terminal even though the main
-                        // thread is fine. Re-arm the report so a transient
-                        // drop self-heals (bounded inside the surface).
                         MobileDebugLog.anchormux(
                             "zoom.viewport.noEffective grid=\(report.columns)x\(report.rows)"
                         )
-                        surfaceView.retryViewportReport()
+                        self.scheduleViewportReportRetry(
+                            surfaceView: surfaceView,
+                            reason: "rpc_no_effective"
+                        )
                         return
                     }
+                    self.cancelViewportReportRetry(resetBackoff: true)
                     surfaceView.markViewportReportConfirmed(reportID: report.id)
-                    // Consume the generation entry for EVERY reply: a
-                    // confirmation without render metadata would otherwise
-                    // strand its entry until remount.
-                    let generation = self.viewportReportGenerationsByReportID
-                        .removeValue(forKey: report.id) ?? 0
                     if let renderEpoch = effectiveGrid.renderEpoch,
                        let renderRevisionFloor = effectiveGrid.renderRevisionFloor {
                         self.verifiedReplayState.acknowledgeViewport(
