@@ -752,14 +752,23 @@ def run_web_status(
     if results:
         job_results.update(results)
     if subareas is None:
+        scope_required = route_inputs["web"] == "true" or route_inputs["macos"] == "true"
         selected_subareas = {
             "db": "true",
+            "diff_sidecar": "true",
             "instant": "true",
+            "production_build": "true",
             "react_apps": "true",
-        } if route_inputs["web"] == "true" else {
+            "typecheck": "true",
+            "unit_tests": "true",
+        } if scope_required else {
             "db": "false",
+            "diff_sidecar": "false",
             "instant": "false",
+            "production_build": "false",
             "react_apps": "false",
+            "typecheck": "false",
+            "unit_tests": "false",
         }
     else:
         selected_subareas = dict(subareas)
@@ -1959,30 +1968,56 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
 
 def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
     cases = (
-        (["web/messages/fr.json"], (False, True, False)),
-        (["web/app/[locale]/page.tsx"], (False, True, False)),
-        (["web/services/vms/workflows.ts"], (True, False, False)),
-        (["web/app/api/account/route.ts"], (True, True, False)),
-        (["webviews/src/App.tsx"], (False, False, True)),
-        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, True)),
-        (["web/public/logo.png"], (False, False, False)),
-        (["web/e2e/other.spec.ts"], (False, False, False)),
-        ([".github/workflows/ci-web.yml"], (True, True, True)),
-        (["scripts/ci/web_subareas.py"], (True, True, True)),
+        (["web/messages/fr.json"], (False, False, True, True, False, True, True)),
+        (["web/app/[locale]/page.tsx"], (False, False, True, True, False, True, True)),
+        (["web/services/vms/workflows.ts"], (True, False, False, True, False, True, True)),
+        (["web/app/api/account/route.ts"], (True, False, True, True, False, True, True)),
+        (["webviews/src/App.tsx"], (False, False, False, False, True, False, False)),
+        (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
+        (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False, False, False)),
+        (["Sources/Panels/DiffSidecarBridge.swift"], (False, True, False, False, False, False, False)),
+        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
+        (["web/public/logo.png"], (False, False, False, True, False, False, True)),
+        (["web/tests/account-route.test.ts"], (True, False, False, False, False, True, True)),
+        (["web/e2e/instant/locale-navigation.instant.ts"], (False, False, True, False, False, True, False)),
+        (["web/playwright.instant.config.ts"], (False, False, True, False, False, True, True)),
+        (["scripts/ci/web_validation.py"], (False, False, False, False, False, False, False)),
+        ([".github/workflows/ci-web.yml"], (True, True, True, True, True, True, True)),
+        (["scripts/ci/web_subareas.py"], (True, True, True, True, True, True, True)),
     )
     for paths, expected in cases:
         actual = web_subareas.classify_paths(paths)
-        assert (actual.db, actual.instant, actual.react_apps) == expected, (paths, actual)
+        assert (
+            actual.db,
+            actual.diff_sidecar,
+            actual.instant,
+            actual.production_build,
+            actual.react_apps,
+            actual.typecheck,
+            actual.unit_tests,
+        ) == expected, (paths, actual)
 
 
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
+            "web-typecheck": "skipped",
+            "web-production-build": "skipped",
+            "web-tests": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
+            "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
         },
-        subareas={"db": "false", "instant": "false", "react_apps": "false"},
+        subareas={
+            "db": "false",
+            "diff_sidecar": "false",
+            "instant": "false",
+            "production_build": "false",
+            "react_apps": "false",
+            "typecheck": "false",
+            "unit_tests": "false",
+        },
     )
     assert result.returncode == 0, result.stderr
 
