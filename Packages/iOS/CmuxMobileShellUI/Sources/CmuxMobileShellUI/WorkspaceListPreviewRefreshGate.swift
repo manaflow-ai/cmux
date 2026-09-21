@@ -1,4 +1,4 @@
-#if canImport(UIKit) && DEBUG
+#if canImport(UIKit)
 import Foundation
 
 /// Serializes the DEBUG preview's held refresh completions.
