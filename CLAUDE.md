@@ -7,10 +7,20 @@
 ## Dev builds on the Mac mini fleet
 
 For team dev builds, use the controller client `~/.local/bin/cmux-ci`. The Mac
-mini fleet is **dev-build-only** for now. GitHub CI/CD, required checks, merge
-queue checks, nightly/release automation, and TestFlight remain on their existing
-hosted runners, including Blacksmith. A successful dev build does not replace
-those checks.
+mini fleet is **dev-build-only** except for the bounded compile-admission pilot
+in `.github/workflows/persistent-macos-compile.yml`. That dispatch-only producer
+may compile Debug app-host products for trusted same-repository organization
+pull requests behind `CI_PERSISTENT_MAC_COMPILE`; dispatch/cancellation live
+only in the default-branch `persistent-macos-router.yml` workflow so PR CI
+retains read-only Actions permission. Its owned runner must live in the
+workflow-restricted `cmux-persistent-compile` runner group pinned to the
+producer workflow on `refs/heads/main`. The required
+`macOS compile admission` job remains the check/log/artifact owner and
+revalidates the producer before adoption. Release, signing, notarization,
+nightly, TestFlight, merge-queue policy, generic agent execution, and every GUI
+or runtime test remain on their existing lanes. The producer receives no
+repository secrets, and hosted compile fallback remains live. A successful dev
+build or persistent producer run never replaces the required check.
 
 Before submitting, read the current [HQ AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md)
 and [agent build contract](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/AGENT-BUILDS.md).

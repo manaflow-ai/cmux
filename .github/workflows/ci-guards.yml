@@ -36,6 +36,9 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate persistent Mac compile admission contract
+        run: python3 tests/test_ci_persistent_mac_compile.py
+
       - name: Validate tagged reload works without the shared dev backend
         run: ./tests/test_reload_local_backend_mode.sh
 
