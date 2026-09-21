@@ -45,6 +45,16 @@ class PeerArtifactSourceTests(unittest.TestCase):
             product_contract=self.product_key,
             source_revision="a" * 40,
             producer_run_id=456,
+            producer_run_attempt=1,
+            artifact_schema="1" * 64,
+            source_identity="2" * 64,
+            build_identity="3" * 64,
+            platform_class="macos",
+            architecture="arm64",
+            sdk_generation="4" * 64,
+            toolchain_generation="5" * 64,
+            build_configuration="6" * 64,
+            product_schema="7" * 64,
         )
         self.token = "peer-token-" + "x" * 48
         self._publish()
