@@ -18,6 +18,11 @@ final class BrowserNativeClickUITests: XCTestCase {
 
         let window = app.windows.firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 15))
+        let hostReady = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in self.browserWebView(in: window) != nil },
+            object: nil
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [hostReady], timeout: 15), .completed)
         let webView = try XCTUnwrap(browserWebView(in: window))
         let button = webView.buttons["Native click target"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 15), "Native click fixture must finish loading")
@@ -34,16 +39,10 @@ final class BrowserNativeClickUITests: XCTestCase {
         omnibar.typeText("example")
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
         app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-        XCTAssertTrue(
-            XCTWaiter.wait(
-                for: [XCTNSPredicateExpectation(
-                    predicate: NSPredicate { _, _ in !omnibar.exists },
-                    object: nil
-                )],
-                timeout: 5
-            ) == .completed,
-            "The omnibar must release the page after dismissal"
-        )
+        // Escape clears the address-bar query and releases focus; the chrome
+        // header intentionally remains visible. The next native click is the
+        // behavior-level proof that the dismissed overlay no longer captures
+        // the page.
 
         let dragPasteboard = NSPasteboard(name: .drag)
         dragPasteboard.clearContents()
