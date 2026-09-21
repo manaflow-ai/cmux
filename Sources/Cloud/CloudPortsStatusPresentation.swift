@@ -48,7 +48,7 @@ struct CloudPortsStatusPresentation: Equatable {
     var message: String {
         switch state {
         case .notRequested:
-            return String(localized: "cloudTree.ports.notRequested", defaultValue: "Expand Ports or refresh to check this machine’s listening services.")
+            return Self.routeNote
         case .loading:
             return String(localized: "cloudTree.ports.loading.detail", defaultValue: "Checking services through cmux’s authenticated Cloud link. No system VPN is needed.")
         case .available:

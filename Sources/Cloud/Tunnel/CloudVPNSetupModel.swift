@@ -68,7 +68,7 @@ final class CloudVPNSetupModel {
         if next.state == .off {
             let refusal = await coordinator.recordedStartRefusal()
             guard !Task.isCancelled else { return }
-            errorMessage = refusal?.error.description
+            if let refusal { errorMessage = refusal.error.description }
         } else {
             errorMessage = nil
         }
