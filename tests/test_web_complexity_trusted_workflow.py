@@ -66,8 +66,9 @@ def validate_scope_python(scope_run: str) -> None:
     marker = "python3 - <<'PY'\n"
     assert scope_run.count(marker) == 1, "scope step must contain exactly one Python heredoc"
     source = scope_run.split(marker, 1)[1]
-    assert source.endswith("\nPY"), "scope Python heredoc terminator changed"
-    tree = ast.parse(source[:-3])
+    body, terminator, tail = source.rpartition("\nPY")
+    assert terminator and not tail.strip(), "scope Python heredoc terminator changed"
+    tree = ast.parse(body)
 
     assignments = {
         target.id: node.value
