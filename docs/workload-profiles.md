@@ -17,6 +17,12 @@ environment class, task-private HOME/TMPDIR/config/Rust state, a reviewed PATH, 
 identity, semantic parameters, and only declared runtime-input variables. SSH agents, arbitrary
 tokens, caller PATH entries, and unrelated CI variables never flow into the profile child.
 
+Profiles in the `isolated-build` environment class hold one nonblocking checkout mutation lease for
+the full child lifetime so repository-level generated build inputs cannot be replaced by a second
+participating build profile. After the child settles, the runner revalidates the frozen source and
+rehashes every declared runtime input before it can publish a result. Source or input drift refuses
+the run instead of minting a receipt for mixed bytes.
+
 Profile generation is deliberate semantic versioning. Refactoring a wrapper, moving an internal helper, or changing an implementation detail can preserve the generation when the accepted source, validation, and expected result remain equivalent. Change the generation when the operation, selected tests, validity criteria, expected artifact/result class, or other pass/fail semantics change.
 
 The exact source commit/tree still records which implementation ran.
