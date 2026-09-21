@@ -143,6 +143,13 @@ class ReuseProducts(TestProductHandoff):
     def test_product_identity_separates_orchestration_from_product_inputs(self):
         identity = reuse.product_inputs
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        admission = identity._job_block(workflow, identity.MACOS_ADMISSION_JOB)
+
+        def mutate_admission(old: str, new: str) -> str:
+            changed = admission.replace(old, new, 1)
+            self.assertNotEqual(admission, changed, old)
+            return workflow.replace(admission, changed, 1)
+
         base = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
@@ -160,32 +167,33 @@ class ReuseProducts(TestProductHandoff):
             "name: CI\n",
             "name: CI orchestration-only\n",
             1,
-        ).replace(
+        )
+        # Mutating an explicitly orchestration-only step must not change product identity.
+        metrics_admission = admission.replace(
             "      - name: Record compiled-product reuse metrics\n",
             "      - name: Record compiled-product reuse metrics\n        # metrics-only edit\n",
             1,
         )
-        orchestration_identity = identity.identity_from_tree_lines(
-            admission_only,
-            orchestration_workflow,
+        self.assertNotEqual(admission, metrics_admission)
+        orchestration_workflow = workflow.replace(admission, metrics_admission, 1)
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(admission_only, orchestration_workflow),
         )
-        self.assertEqual(base_identity, orchestration_identity)
 
-        unknown_product_step = workflow.replace(
+        unknown_product_step = mutate_admission(
             "      - name: Validate Swift warning budget\n",
             "      - name: Future product mutation\n        run: touch product\n\n"
             "      - name: Validate Swift warning budget\n",
-            1,
         )
         self.assertNotEqual(
             base_identity,
             identity.identity_from_tree_lines(base, unknown_product_step),
         )
 
-        duplicate_step = workflow.replace(
+        duplicate_step = mutate_admission(
             "      - name: Validate Swift warning budget\n",
             "      - name: Compile app-host test product\n",
-            1,
         )
         with self.assertRaisesRegex(ValueError, "not unique"):
             identity.identity_from_tree_lines(base, duplicate_step)
@@ -206,20 +214,18 @@ class ReuseProducts(TestProductHandoff):
             identity.identity_from_tree_lines(changed_helper, workflow),
         )
 
-        changed_recipe = workflow.replace(
+        changed_recipe = mutate_admission(
             "scripts/ci/compile-app-host-test-product.sh build \\",
             "scripts/ci/compile-app-host-test-product.sh build --changed \\",
-            1,
         )
         self.assertNotEqual(
             base_identity,
             identity.identity_from_tree_lines(base, changed_recipe),
         )
 
-        changed_ghostty_selection = workflow.replace(
+        changed_ghostty_selection = mutate_admission(
             'echo "sha=$(git -C ghostty rev-parse HEAD)"',
             'echo "sha=$(git rev-parse HEAD:ghostty)"',
-            1,
         )
         self.assertNotEqual(
             base_identity,
