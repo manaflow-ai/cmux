@@ -596,11 +596,11 @@ try {
   // path while keeping the operation idempotent across a rebake.
   await step(
     "cmux-tui-first-terminal",
-    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json session current snapshot`)} >/tmp/cmux-first-workspaces.json || :); ` +
-      `if ! jq -e '.. | objects | select(.terminal_id? != null)' /tmp/cmux-first-workspaces.json >/dev/null 2>&1; then ` +
+    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json terminal list`)} >/tmp/cmux-first-workspaces.json || :); ` +
+      `if ! jq -e '.. | objects | select(((.terminal_id? // .id?) | strings | startswith("term_")))' /tmp/cmux-first-workspaces.json >/dev/null 2>&1; then ` +
       `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json workspace create --name Cloud`)} >/dev/null && ` +
-      `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json session current snapshot`)} >/tmp/cmux-first-workspaces.json; fi && ` +
-      `jq -e '.. | objects | select(.terminal_id? != null)' /tmp/cmux-first-workspaces.json >/dev/null && echo cmux-tui-first-terminal-ok`,
+      `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json terminal list`)} >/tmp/cmux-first-workspaces.json; fi && ` +
+      `jq -e '.. | objects | select(((.terminal_id? // .id?) | strings | startswith("term_")))' /tmp/cmux-first-workspaces.json >/dev/null && echo cmux-tui-first-terminal-ok`,
   );
   // Let the daemon, first PTY and desktop settle before the memory snapshot.
   // Freestyle resumes the snapshot rather than replaying these startup steps.
