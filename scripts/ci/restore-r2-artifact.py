@@ -20,7 +20,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 REPOSITORY = "manaflow-ai/cmux"
 OIDC_AUDIENCE = "cmux-ci-artifacts"
-OIDC_ISSUER_HOST = "token.actions.githubusercontent.com"
+OIDC_REQUEST_HOST_SUFFIX = ".actions.githubusercontent.com"
 MAX_BYTES = 2 * 1024**3
 ARCHIVES = {"app-host-products.tar.gz", "app-host-products.aar"}
 
@@ -46,7 +46,9 @@ def actions_identity(work: Path) -> str:
     request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
     request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
     parsed = urlsplit(request_url)
-    if (parsed.scheme != "https" or parsed.hostname != OIDC_ISSUER_HOST or parsed.port not in (None, 443)
+    hostname = parsed.hostname or ""
+    if (parsed.scheme != "https" or not hostname.endswith(OIDC_REQUEST_HOST_SUFFIX)
+            or hostname == OIDC_REQUEST_HOST_SUFFIX[1:] or parsed.port not in (None, 443)
             or parsed.username or parsed.password or parsed.fragment or not request_token):
         raise ValueError("Actions OIDC identity unavailable")
     query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True)
