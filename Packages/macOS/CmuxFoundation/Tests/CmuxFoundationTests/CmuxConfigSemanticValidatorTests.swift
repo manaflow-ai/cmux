@@ -132,6 +132,62 @@ struct CmuxConfigSemanticValidatorTests {
         )
     }
 
+    @Test("future additions do not consume the known notification event limit")
+    func futureNotificationEvent() throws {
+        let events: [String: Any] = [
+            "turnDone": ["sound": "Ping"],
+            "needsInput": ["sound": "Ping"],
+            "errorStalled": ["sound": "Ping"],
+            "futureEvent": ["newOption": true],
+        ]
+        let future = try issues([
+            "schemaVersion": 2,
+            "notifications": ["soundOverrides": ["codex": events]],
+        ])
+        #expect(future.isEmpty)
+        let current = try issues([
+            "schemaVersion": 1,
+            "notifications": ["soundOverrides": ["codex": events]],
+        ])
+        #expect(contains(current, path: "$.notifications.soundOverrides.codex", message: "at most 3"))
+        #expect(contains(current, path: "$.notifications.soundOverrides.codex.futureEvent", message: "unknown"))
+    }
+
+    @Test("open dictionary constraints apply to all keys in current and future schemas", arguments: [false, true])
+    func openDictionaryConstraints(tolerateUnknown: Bool) {
+        let validator = CmuxConfigSemanticValidator(scope: .global)
+        let result = validator.validateObject(
+            ["valid": "text", "invalid name": "text"],
+            schema: [
+                "maxProperties": 1,
+                "propertyNames": ["pattern": "^[a-z]+$"],
+                "additionalProperties": ["type": "string"],
+            ],
+            path: "$",
+            tolerateUnknownProperties: tolerateUnknown
+        )
+        #expect(contains(result, path: "$", message: "at most 1"))
+        #expect(contains(result, path: "$['invalid name']", message: "must match"))
+    }
+
+    @Test("closed future additions bypass name constraints but known fields stay validated")
+    func closedFutureDictionaryConstraints() {
+        let validator = CmuxConfigSemanticValidator(scope: .global)
+        let schema: [String: Any] = [
+            "maxProperties": 1,
+            "propertyNames": ["pattern": "^[a-z]+$"],
+            "additionalProperties": false,
+            "properties": ["known": ["type": "boolean"]],
+        ]
+        let value: [String: Any] = ["known": "invalid", "future name": 1]
+        let current = validator.validateObject(value, schema: schema, path: "$", tolerateUnknownProperties: false)
+        #expect(contains(current, path: "$", message: "at most 1"))
+        #expect(contains(current, path: "$['future name']", message: "must match"))
+        let future = validator.validateObject(value, schema: schema, path: "$", tolerateUnknownProperties: true)
+        #expect(future.count == 1)
+        #expect(contains(future, path: "$.known", message: "expected boolean"))
+    }
+
     @Test("project scope rejects global settings while keeping project hooks legal")
     func enforcesProjectScope() throws {
         let globalOnly = try issues(
