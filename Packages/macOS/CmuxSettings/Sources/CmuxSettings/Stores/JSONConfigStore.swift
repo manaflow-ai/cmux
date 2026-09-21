@@ -431,7 +431,20 @@ public actor JSONConfigStore {
         guard Self.resolvedWriteURL(for: fileURL) == writeURL else {
             throw JSONConfigWriteConflict.sourceChanged
         }
-        try publisher.publish(data, to: writeURL, expected: document.originalData)
+        do {
+            try publisher.publish(data, to: writeURL, expected: document.originalData)
+        } catch {
+            // A filesystem exchange can have happened before a later validation
+            // error. Never keep serving a pre-publication cache after any
+            // publisher failure; force the next read to observe disk and wake
+            // subscribers so they converge on whichever entry won.
+            cacheValid = false
+            cachedRootResolvedPath = nil
+            for continuation in subscribers.values {
+                continuation.yield(())
+            }
+            throw error
+        }
 
         // Only commit to cache after the file write succeeded.
         cachedRoot = writtenRoot
