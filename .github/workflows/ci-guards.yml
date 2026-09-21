@@ -33,8 +33,20 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate macOS runner guards
-        run: ./tests/test_ci_self_hosted_guard.sh
+      - name: Validate CMUX workload profile contract
+        run: python3 tests/test_ci_workload_profiles.py
+
+      - name: Run canonical CMUX CI guard profile
+        run: |
+          set -euo pipefail
+          state_root="$RUNNER_TEMP/cmux-ci-guard-profile"
+          rm -rf "$state_root"
+          python3 scripts/ci/cmux_workload_profile.py run cmux.ci.guard \
+            --generation 1 \
+            --state-class cold \
+            --state-root "$state_root" \
+            --result "$RUNNER_TEMP/cmux-ci-guard-result.json"
+          cat "$RUNNER_TEMP/cmux-ci-guard-result.json"
 
       - name: Validate tagged reload works without the shared dev backend
         run: ./tests/test_reload_local_backend_mode.sh
