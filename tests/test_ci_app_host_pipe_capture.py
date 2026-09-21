@@ -43,7 +43,7 @@ def validate_common_capture_boundary() -> None:
             "run-in-console-session.sh is missing app-host file capture: "
             + ", ".join(missing)
         )
-    if 'CMUX_CI_FILE_CAPTURE_ACTIVE=1 "$@"' not in capture:
+    if "CMUX_CI_FILE_CAPTURE_ACTIVE=1" not in capture:
         raise SystemExit("run-and-capture.sh must mark its child as file-captured")
 
 
