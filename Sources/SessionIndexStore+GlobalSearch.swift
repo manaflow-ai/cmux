@@ -28,8 +28,12 @@ extension SessionIndexStore {
     /// exhausted the initial Vault preview. This deliberately reuses the same
     /// per-agent readers, registry, caps, and error policy as Vault instead of
     /// introducing a second history index.
-    func loadRecentSessions(limitPerAgent: Int) async -> SearchOutcome {
-        let safeLimit = min(max(limitPerAgent, Self.perAgentLimit), Self.searchMaxFiles)
+    func loadRecentSessions(
+        limitPerAgent: Int,
+        offsetPerAgent: Int = 0
+    ) async -> SearchOutcome {
+        let safeLimit = min(max(limitPerAgent, 1), Self.searchMaxFiles)
+        let safeOffset = min(max(offsetPerAgent, 0), Self.searchMaxFiles)
         let bag = ErrorBag()
         let order = await Self.defaultAgentOrder(workingDirectory: nil)
         let combined = await Self.loadAgents(
@@ -38,7 +42,7 @@ extension SessionIndexStore {
             ampSessionRepository: ampSessionRepository,
             needle: "",
             cwdFilter: nil,
-            offset: 0,
+            offset: safeOffset,
             limit: safeLimit,
             errorBag: bag
         )

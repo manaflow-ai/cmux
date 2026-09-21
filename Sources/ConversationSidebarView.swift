@@ -443,13 +443,20 @@ struct ConversationSidebarView: View {
         let nextLimit = projection.nextHistoryPerAgentLimit(
             current: historyPerAgentLimit
         )
-        let outcome = await store.loadRecentSessions(limitPerAgent: nextLimit)
+        let outcome = await store.loadRecentSessions(
+            limitPerAgent: projection.historyPagePerAgent,
+            offsetPerAgent: historyPerAgentLimit
+        )
         guard !Task.isCancelled else { return }
 
         historyErrors = outcome.errors
         let previousIDs = Set(previousEntries.map(\.id))
-        let nextIDs = Set(outcome.entries.map(\.id))
-        expandedHistory = outcome.entries
+        let mergedHistory = projection.recentHistory(
+            initial: expandedHistory.isEmpty ? store.entries : expandedHistory,
+            expanded: outcome.entries
+        )
+        let nextIDs = Set(mergedHistory.map(\.id))
+        expandedHistory = mergedHistory
         historyPerAgentLimit = nextLimit
         canLoadMoreHistory = nextIDs.subtracting(previousIDs).isEmpty == false
             && nextLimit < SessionIndexStore.searchMaxFiles
