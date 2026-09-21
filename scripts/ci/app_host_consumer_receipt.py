@@ -67,7 +67,15 @@ def _seconds(value, label: str) -> float:
 
 
 def start(consumer: str, *, layer_index_id: str = "") -> None:
-    layers = list(required_layers(consumer))
+    policy_error = None
+    try:
+        layers = list(required_layers(consumer))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+        # Layer policy is an optimization boundary. Keep a receipt alive so
+        # the aggregate R2/GitHub fallback can proceed and report why layers
+        # were unavailable instead of failing the consumer before fallback.
+        layers = []
+        policy_error = f"layer-policy:{type(error).__name__}:{error}"
     started = os.environ.get("CMUX_APP_HOST_RUNNER_STARTED_NS", "")
     started_ns = int(started) if started.isdecimal() and int(started) > 0 else time.monotonic_ns()
     value = {
@@ -87,6 +95,8 @@ def start(consumer: str, *, layer_index_id: str = "") -> None:
         "fallback_reasons": [],
         "runner_started_ns": started_ns,
     }
+    if policy_error:
+        value["fallback_reasons"].append(policy_error[:1024])
     if not layer_index_id:
         value["fallback_reasons"].append("layer-index-unavailable")
     _write(value)
