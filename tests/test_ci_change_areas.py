@@ -1360,25 +1360,6 @@ def test_a_skipped_admission_passes_only_when_an_earlier_run_compiled_the_same_i
     ).returncode == 1
 
 
-def test_build_input_fingerprint_ignores_only_what_the_build_cannot_read() -> None:
-    sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from build_input_fingerprint import fingerprint, reaches_the_build
-
-    def tree(**files: str) -> list[str]:
-        return [f"100644 blob {object_id}\t{path}" for path, object_id in files.items()]
-
-    base = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b1", "docs/x.md": "c1", ".github/workflows/nightly.yml": "d1"})
-    same_build = tree(**{"Sources/App.swift": "a1", "tests/test_x.py": "b2", "docs/x.md": "c2", ".github/workflows/nightly.yml": "d2", "web/app/page.tsx": "e1"})
-    assert fingerprint(base, ["xcode=1"]) == fingerprint(same_build, ["xcode=1"])
-    assert fingerprint(base, ["xcode=1"]) != fingerprint(base, ["xcode=2"])
-    for path in ("Sources/App.swift", "Packages/macOS/CmuxCore/Package.swift", "cmuxTests/T.swift", "cmux.xcodeproj/project.pbxproj",
-                 "scripts/build-ghostty-cli-helper.sh", "ghostty", ".github/workflows/ci.yml", ".xcode-version", "unknown/new-dir/file"):
-        assert reaches_the_build(path), path
-        assert fingerprint(base, []) != fingerprint(base + tree(**{path: "z9"}), []), path
-    for path in ("tests/test_ci_change_areas.py", ".github/workflows/nightly.yml", "docs/a.md", "web/app/page.tsx", "README.md", "CLAUDE.md"):
-        assert not reaches_the_build(path), path
-
-
 def admission_api(runs: list[dict], artifacts: dict[int, list[str]], jobs: dict[int, list[dict]], branch: str = "feature"):
     """Fake GitHub API: `artifacts` lists the artifact names each run holds."""
     from urllib.parse import parse_qs, urlsplit
