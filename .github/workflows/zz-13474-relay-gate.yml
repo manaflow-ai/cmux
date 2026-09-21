@@ -1,0 +1,22 @@
+name: 13474 relay gate dispatch
+
+on:
+  push:
+    branches:
+      - fix/13474-viewport-rearm-storm
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch relay-only app gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: fix/13474-viewport-rearm-storm
+        run: |
+          set -euo pipefail
+          gh workflow run iroh-release-gate.yml             --repo manaflow-ai/cmux             --ref "$TARGET_REF"             -f ref="$TARGET_REF"             -f mode=relay-only
