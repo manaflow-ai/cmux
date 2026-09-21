@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -24,6 +25,12 @@ class TransportTests(unittest.TestCase):
         self.wrong_run = False
         self.corrupt = False
         self.down = False
+        self.expired = False
+        self.wrong_digest = False
+        self.api_failure = False
+        self.identity_failure = False
+        self.cache = "fill"
+        self.receipt = {}
 
     def pack(self, name, body):
         out = io.BytesIO()
@@ -33,18 +40,33 @@ class TransportTests(unittest.TestCase):
 
     def metadata(self, artifact_id):
         self.calls.append(("metadata", artifact_id))
-        return {"id": 123, "expired": False, "size_in_bytes": len(self.zip),
-                "digest": "sha256:" + hashlib.sha256(self.zip).hexdigest(),
+        if self.api_failure:
+            raise subprocess.CalledProcessError(1, ["gh", "api"])
+        digest = "f" * 64 if self.wrong_digest else hashlib.sha256(self.zip).hexdigest()
+        return {"id": 123, "expired": self.expired, "size_in_bytes": len(self.zip),
+                "digest": "sha256:" + digest,
                 "workflow_run": {"id": 999 if self.wrong_run else 456}}
 
-    def download(self, url, target, size):
+    def identity(self, work):
+        self.calls.append(("identity", Path(work).name))
+        if self.identity_failure:
+            raise ValueError("OIDC unavailable")
+        return "header.payload.signature"
+
+    def download(self, url, target, size, identity, work):
         self.calls.append(("download", url))
+        self.assertEqual(identity, "header.payload.signature")
         if self.down:
             raise TimeoutError("broker unavailable")
         target.write_bytes(b"0" * size if self.corrupt else self.zip)
+        return {"cache": self.cache, "broker_wait_seconds": 0.125,
+                "transfer_seconds": 0.5, "broker_total_seconds": 0.625,
+                "downloaded_bytes": size}
 
     def restore(self, broker="https://broker.example", repository="manaflow-ai/cmux"):
-        return transport.restore(broker, "123", "456", repository, self.destination, self.metadata, self.download)
+        self.receipt = {}
+        return transport.restore(broker, "123", "456", repository, self.destination,
+                                 self.metadata, self.download, self.identity, self.receipt)
 
     def test_disabled_does_no_network_work(self):
         self.assertFalse(self.restore(""))
@@ -67,6 +89,33 @@ class TransportTests(unittest.TestCase):
                 self.assertFalse(self.restore())
                 self.assertFalse(self.destination.exists())
                 setattr(self, reason, False)
+
+
+    def test_expiry_digest_auth_and_github_api_failures_fall_back(self):
+        for flag in ["expired", "wrong_digest", "api_failure", "identity_failure"]:
+            with self.subTest(flag=flag):
+                setattr(self, flag, True)
+                self.assertFalse(self.restore())
+                self.assertEqual(self.receipt["transport"], "github")
+                self.assertEqual(self.receipt["r2_result"], "miss")
+                self.assertIn("fallback_reason", self.receipt)
+                self.assertFalse(self.destination.exists())
+                setattr(self, flag, False)
+
+    def test_success_receipt_distinguishes_fill_and_hit_and_reports_transfer(self):
+        for cache in ["fill", "hit"]:
+            with self.subTest(cache=cache):
+                self.cache = cache
+                self.assertTrue(self.restore())
+                self.assertEqual(self.receipt["transport"], "r2")
+                self.assertEqual(self.receipt["r2_result"], cache)
+                self.assertEqual(self.receipt["downloaded_bytes"], len(self.zip))
+                self.assertEqual(self.receipt["broker_wait_seconds"], 0.125)
+                self.assertEqual(self.receipt["transfer_seconds"], 0.5)
+                self.assertIn("outer_restore_seconds", self.receipt)
+                archive = next(self.destination.iterdir())
+                archive.unlink()
+                self.destination.rmdir()
 
     def test_provider_digest_valid_but_bad_zip_falls_back(self):
         self.zip = b"not a ZIP even though its provider digest matches"
