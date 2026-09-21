@@ -111,12 +111,22 @@ fi
 
 app_host_xcodebuild_arguments=("$@")
 caller_has_result_bundle=0
+caller_has_test_timeout=0
 for app_host_argument in "${app_host_xcodebuild_arguments[@]}"; do
   if [ "$app_host_argument" = "-resultBundlePath" ]; then
     caller_has_result_bundle=1
-    break
+  fi
+  if [ "$app_host_argument" = "-test-timeouts-enabled" ]; then
+    caller_has_test_timeout=1
   fi
 done
+if [ "$caller_has_test_timeout" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=(
+    "-test-timeouts-enabled" "YES"
+    "-default-test-execution-time-allowance" "${CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS:-300}"
+    "-maximum-test-execution-time-allowance" "${CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS:-300}"
+  )
+fi
 
 # Xcode's package-product layout can recreate or empty the top-level
 # PackageFrameworks directory while resolving/test-without-building. The app
