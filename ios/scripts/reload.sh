@@ -63,6 +63,24 @@ require_option_value() {
   fi
 }
 
+# Fresh tagged bundle IDs signed with an App Store Connect API key cannot have
+# group.dev.cmux.ios associated through automatic signing. Keep the exception
+# fenced to Debug + API-key provisioning updates: local Xcode-account signing
+# and any non-Debug configuration retain their configured entitlements.
+cmux_ios_tagged_device_entitlement_mode() {
+  local configuration="$1"
+  local signing_backend="$2"
+  local allow_provisioning_updates="$3"
+
+  if [[ "$configuration" == "Debug" \
+      && "$signing_backend" == "asc-api-key" \
+      && "$allow_provisioning_updates" == "1" ]]; then
+    printf '%s' "no-app-group"
+  else
+    printf '%s' "default"
+  fi
+}
+
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
@@ -514,7 +532,9 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
 fi
 
 XCODE_AUTH_ARGS=()
+DEVICE_SIGNING_BACKEND="xcode-account"
 if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
+  DEVICE_SIGNING_BACKEND="asc-api-key"
   XCODE_AUTH_ARGS=(
     -authenticationKeyPath "$ASC_API_KEY_PATH"
     -authenticationKeyID "$ASC_API_KEY_ID"
@@ -882,6 +902,8 @@ reload_device() {
   local build_log
   local tab
   local build_args
+  local configuration="Debug"
+  local entitlement_mode
   local queue_mode=0
   local queued_device_id=""
 
@@ -952,7 +974,7 @@ reload_device() {
     ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"}
     -workspace "$WORKSPACE"
     -scheme "$SCHEME"
-    -configuration Debug
+    -configuration "$configuration"
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
@@ -968,6 +990,16 @@ reload_device() {
 
   # bash 3.2 + set -u errors on expanding an empty array; guard the expansion.
   build_args+=(${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"})
+
+  entitlement_mode="$(cmux_ios_tagged_device_entitlement_mode \
+    "$configuration" "$DEVICE_SIGNING_BACKEND" "$ALLOW_PROVISIONING_UPDATES")"
+  if [[ "$entitlement_mode" == "no-app-group" ]]; then
+    echo "==> ASC API-key automatic signing: omitting App Group from tagged Debug device entitlements"
+    build_args+=(
+      CMUX_APP_CODE_SIGN_ENTITLEMENTS=Config/cmux-debug-no-app-group.entitlements
+      CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS=Config/NotificationService-debug-no-app-group.entitlements
+    )
+  fi
 
   build_args+=(
     CMUX_APP_BUNDLE_IDENTIFIER="$BUNDLE_ID"
