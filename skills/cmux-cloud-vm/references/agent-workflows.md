@@ -99,13 +99,18 @@ Inside the machine the agent authenticates like it would locally (its own login,
 ```bash
 out=$(cmux surface new-terminal --machine <id> --no-open --json -- sh -lc 'cd "$HOME/work/app" && exec bun test --watch')
 term=$(echo "$out" | jq -r '.terminal_id')
+cleanup() {
+  [ -n "$term" ] || return 0
+  cmux vm terminal send <id> "$term" --keys ctrl+c >/dev/null 2>&1 || true
+  cmux vm terminal close <id> "$term" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 if ! cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300; then
   echo "terminal did not become ready" >&2
   exit 1
 fi
 cmux vm terminal read <id> "$term"                                # the screen a person would see
-cmux vm terminal send <id> "$term" --keys ctrl+c                  # stop it; `send … 'text' --keys enter` types a line
-cmux vm terminal close <id> "$term"                               # done with it
+# `cleanup` stops and closes the task-created watch terminal on every exit path.
 ```
 
 No pane is attached and no focus moves; a pane the user already has on that terminal shows the same input. `terminal wait` exits 1 on timeout with the screen tail, so branch on it rather than sleeping.
@@ -124,7 +129,7 @@ cmux terminal read <term>
 ```
 
 Across machines, discover the owner's available peer routes with `cmux self peers`
-or `cmux vm ls`, then use the guest's supported verbs. There is no current Mac
+or the legacy `cmux vm ls` fallback when the guest's help exposes it, then use the guest's supported verbs. There is no current Mac
 enrollment/grant command; older peer-route files remain compatible. See
 [guest operations](guest.md) for the host/guest boundary.
 
