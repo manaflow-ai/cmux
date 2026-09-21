@@ -39561,14 +39561,14 @@ export default CMUXSessionRestore;
                 return
             }
         }
-        if validatedCodexFeedTarget == nil {
-            let workspaceID = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
-                .flatMap(resolveAccessibleWorkspaceId) ?? processBinding()?.workspaceId.flatMap(resolveAccessibleWorkspaceId)
-            let surfaceID = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
-                ?? normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? processBinding()?.surfaceId
-            if let workspaceID, let surfaceID,
-               let live = resolveAccessibleSurfaceId(surfaceID, workspaceId: workspaceID) { validatedCodexFeedTarget = (workspaceID, live) }
-        }
+        if validatedCodexFeedTarget == nil,
+           let activeClient = client ?? makeLifecycleProbeClient(),
+           let target = resolvedAttentionDeliveryTarget(
+               workspaceId: feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
+               surfaceId: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"]) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+               client: activeClient,
+               deadline: Date.now.addingTimeInterval(0.75)
+           ) { validatedCodexFeedTarget = target }
         guard let validatedCodexFeedTarget else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
