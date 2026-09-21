@@ -32,11 +32,12 @@ struct MobileWorkspaceListEmptyRow: View {
                     retryAttemptID = attemptID
                     let task = Task { @MainActor in
                         defer {
-                            guard retryAttemptID == attemptID else { return }
-                            retryDeadlineTask?.cancel()
-                            retryDeadlineTask = nil
-                            retryTask = nil
-                            isRetrying = false
+                            if retryAttemptID == attemptID {
+                                retryDeadlineTask?.cancel()
+                                retryDeadlineTask = nil
+                                retryTask = nil
+                                isRetrying = false
+                            }
                         }
                         let started = await retryCoordinator.run(retry)
                         if !started {
