@@ -11411,7 +11411,8 @@ struct CMUXCLI {
                 identityFile = commandArgs[index + 1]
                 index += 2
             case "--name":
-                guard index + 1 < commandArgs.count else {
+                guard index + 1 < commandArgs.count,
+                      !commandArgs[index + 1].hasPrefix("-") else {
                     throw CLIError(message: "ssh-tmux: --name requires a workspace title")
                 }
                 workspaceName = commandArgs[index + 1]
