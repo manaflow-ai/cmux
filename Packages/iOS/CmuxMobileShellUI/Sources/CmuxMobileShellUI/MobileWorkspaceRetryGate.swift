@@ -8,7 +8,6 @@ actor MobileWorkspaceRetryGate {
     func run(_ operation: @escaping @Sendable () async -> Void) async {
         if let active {
             await active.value
-            return
         }
         let task = Task { await operation() }
         active = task
