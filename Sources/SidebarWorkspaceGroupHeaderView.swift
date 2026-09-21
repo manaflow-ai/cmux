@@ -35,6 +35,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.shortcutHintXOffset == rhs.shortcutHintXOffset &&
             lhs.shortcutHintYOffset == rhs.shortcutHintYOffset &&
             lhs.fontScale == rhs.fontScale &&
+            lhs.sidebarFontFamily == rhs.sidebarFontFamily &&
             lhs.cwdContextMenuItems == rhs.cwdContextMenuItems &&
             lhs.newWorkspacePlacement == rhs.newWorkspacePlacement &&
             lhs.rowSpacing == rhs.rowSpacing &&
@@ -68,6 +69,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat
+    let sidebarFontFamily: String?
     let cwdContextMenuItems: [CmuxResolvedConfigContextMenuItem]
     let newWorkspacePlacement: WorkspaceGroupNewPlacement?
     let rowSpacing: CGFloat
@@ -166,13 +168,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold, family: sidebarFontFamily)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
-                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
+                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold, family: sidebarFontFamily)
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
@@ -279,7 +281,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,
             offsetX: shortcutHintXOffset,
-            offsetY: shortcutHintYOffset
+            offsetY: shortcutHintYOffset,
+            fontFamily: sidebarFontFamily
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)

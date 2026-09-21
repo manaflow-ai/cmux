@@ -53,7 +53,7 @@ struct DSLSidebarRenderer: View {
     }
 
     private var resolvedFontSpec: DSLFontSpec? {
-        dslFontSpec(named: node.font, size: node.size)
+        dslFontSpec(named: node.font, size: node.size, family: node.family)
     }
 
     @ViewBuilder

@@ -168,7 +168,7 @@ struct RenderNodeView: View {
         let token = clean(modifier.firstValue)
         switch modifier.name {
         case "font":
-            return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
+            return AnyView(view.modifier(OptionalDSLFont(spec: dslFontSpec(from: token))))
         case "bold":
             return AnyView(view.fontWeight(.bold))
         case "strikethrough":
@@ -441,36 +441,6 @@ struct RenderNodeView: View {
         case "bottomTrailing": return .bottomTrailing
         default: return .center
         }
-    }
-
-    /// Resolves a font token, including the `.system(size:weight:design:)` /
-    /// `.system(.style, design:)` forms (size, monospaced design, named style).
-    private func resolveFontSpec(_ token: String?) -> DSLFontSpec? {
-        guard let token else { return nil }
-        guard token.hasPrefix("system") else { return dslFontSpec(named: token, size: nil) }
-        let design: Font.Design = token.contains("monospaced") ? .monospaced : .default
-        let weight = resolveFontWeight(in: token)
-        if let range = token.range(of: "size:") {
-            let digits = token[range.upperBound...].drop(while: { $0 == " " })
-                .prefix(while: { $0.isNumber || $0 == "." })
-            if let n = Double(digits) { return dslFontSpec(named: nil, size: n, weight: weight, design: design) }
-        }
-        let styleNames = [
-            "largeTitle", "title3", "title2", "title",
-            "headline", "subheadline", "body", "callout",
-            "footnote", "caption2", "caption",
-        ]
-        for name in styleNames where token.contains(name) {
-            return dslFontSpec(named: name, size: nil, weight: weight, design: design)
-        }
-        return dslFontSpec(named: nil, size: 13, weight: weight, design: design)
-    }
-
-    private func resolveFontWeight(in token: String) -> Font.Weight? {
-        guard let range = token.range(of: "weight:") else { return nil }
-        let rawWeight = token[range.upperBound...].drop(while: { $0 == " " || $0 == "." })
-            .prefix(while: { $0.isLetter })
-        return dslFontWeight(String(rawWeight))
     }
 
     /// Strips a leading `.` (member token) or surrounding quotes from a raw

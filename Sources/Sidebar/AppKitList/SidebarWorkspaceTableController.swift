@@ -1372,7 +1372,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                       tableView: tableView,
                       row: row,
                       size: draggingItem.draggingFrame.size,
-                      count: count
+                      count: count, fontFamily: actionBundle?.sidebarFontFamily
                   ) else {
                 return
             }
@@ -1384,7 +1384,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         tableView: NSTableView,
         row: Int,
         size: NSSize,
-        count: Int
+        count: Int, fontFamily: String?
     ) -> NSImage? {
         let rowRect = tableView.rect(ofRow: row)
         guard rowRect.width > 0,
@@ -1414,7 +1414,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
             let countText = "\(count)" as NSString
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .font: CmuxFontResolver.appKitFont(family: fontFamily, size: 10, weight: .semibold),
                 .foregroundColor: NSColor.white,
             ]
             let textSize = countText.size(withAttributes: attributes)

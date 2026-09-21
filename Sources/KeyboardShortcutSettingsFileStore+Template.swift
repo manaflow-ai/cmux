@@ -176,6 +176,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "sidebarAppearance": [
+                    "fontFamily": "",
                     "matchTerminalBackground": false,
                     "tintColor": SidebarTintDefaults().hex,
                     "lightModeTintColor": NSNull(),

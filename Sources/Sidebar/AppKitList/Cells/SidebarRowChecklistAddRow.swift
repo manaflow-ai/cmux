@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
 
@@ -59,7 +60,7 @@ final class SidebarRowChecklistAddRow: NSView {
             ghostButton.configure(
                 iconPointSize: model.scaled(7),
                 title: String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"),
-                font: .systemFont(ofSize: model.scaled(10)),
+                font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10)),
                 color: secondary,
                 onClick: onBeginAdding
             )
@@ -79,7 +80,7 @@ final class SidebarRowChecklistAddRow: NSView {
             } else if let addField {
                 // Retained editor (survives non-empty focus loss): keep the
                 // draft but follow the row's current presentation.
-                addField.font = .systemFont(ofSize: 11 * model.fontScale)
+                addField.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: 11 * model.fontScale)
                 addField.textColor = primary
                 addField.caretColor = primary
             }
@@ -144,7 +145,7 @@ final class SidebarRowChecklistAddRow: NSView {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.font = .systemFont(ofSize: 11 * model.fontScale)
+        field.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: 11 * model.fontScale)
         field.textColor = primary
         field.caretColor = primary
         field.placeholderString = String(
