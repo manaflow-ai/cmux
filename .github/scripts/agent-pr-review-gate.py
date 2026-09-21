@@ -7,6 +7,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -153,6 +155,65 @@ def review_ledger(
 def obligations(pr: dict[str, Any], bots: tuple[str, ...], reply_actors: tuple[str, ...] | None = None) -> list[Obligation]:
     actors = reply_actors or configured_reply_actors(pr)
     return [item for item in review_ledger(pr, bots, actors) if item.active]
+
+
+def attention_needed(items: list[Obligation]) -> bool:
+    """Whether a PR has an actionable bot finding awaiting an author reply."""
+    return any(item.active and not item.replied for item in items)
+
+
+def github_rest(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if "/" not in repository:
+        raise RuntimeError("GITHUB_REPOSITORY is required")
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/{path.lstrip('/')}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+    return json.loads(body) if body else None
+
+
+def sync_attention_label(pr: dict[str, Any], items: list[Obligation], label_name: str) -> str:
+    """Synchronize the triage label without changing review-gate semantics."""
+    number = int(pr.get("number") or 0)
+    if not number:
+        raise RuntimeError("pull request number is required")
+    encoded = urllib.parse.quote(label_name, safe="")
+    try:
+        github_rest("GET", f"labels/{encoded}")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        try:
+            github_rest("POST", "labels", {
+                "name": label_name,
+                "color": "D1242F",
+                "description": "Actionable automated review finding needs an author reply",
+            })
+        except urllib.error.HTTPError as create_error:
+            # Another event can race us to create the repository label.
+            if create_error.code != 422:
+                raise
+
+    if attention_needed(items):
+        github_rest("POST", f"issues/{number}/labels", {"labels": [label_name]})
+        return "present"
+
+    try:
+        github_rest("DELETE", f"issues/{number}/labels/{encoded}")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+    return "absent"
 
 
 def evaluate(
@@ -308,6 +369,16 @@ def main() -> int:
         )
         actors = configured_reply_actors(pr)
         passed, reasons, items = evaluate(pr, required_bots=bots, reply_actors=actors)
+        if "--sync-label" in sys.argv[1:]:
+            label_name = os.environ.get("REVIEW_ATTENTION_LABEL", "review: needs-attention").strip()
+            if label_name:
+                try:
+                    label_state = sync_attention_label(pr, items, label_name)
+                    print(f"agent-pr-review-label: {label_name} {label_state}")
+                except Exception:
+                    # Labeling is a triage aid. A transient write failure must not
+                    # change the review gate's merge decision.
+                    print("agent-pr-review-label: WARNING: unable to synchronize label", file=sys.stderr)
         if "--json" in sys.argv[1:]:
             print(json.dumps(ledger_report(pr, bots, actors), indent=2, sort_keys=True))
             return 0 if passed else 1
