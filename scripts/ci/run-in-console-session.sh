@@ -51,7 +51,7 @@ if [ "${CMUX_CI_FILE_CAPTURE_ACTIVE:-0}" != "1" ]; then
   if [ "$app_host_command" = "1" ]; then
     capture_tag="${CMUX_TAG:-untagged}"
     capture_tag="$(printf '%s' "$capture_tag" | tr -c 'A-Za-z0-9._-' '_')"
-    capture_path="${RUNNER_TEMP:-/tmp}/cmux-app-host-console-capture-${capture_tag}-pid-$.log"
+    capture_path="${RUNNER_TEMP:-/tmp}/cmux-app-host-console-capture-${capture_tag}-pid-$$.log"
     exec /bin/bash "$ci_script_dir/run-and-capture.sh" "$capture_path" "$0" "$@"
   fi
 fi
