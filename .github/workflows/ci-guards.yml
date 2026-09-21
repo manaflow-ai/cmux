@@ -149,14 +149,22 @@ jobs:
         run: ./scripts/check-control-plane-types.sh
 
       - name: Set up Python 3.9 for nightly prune compatibility
-        if: ${{ matrix.group != 'preflight' }}
+        if: ${{ matrix.group == 'release' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
 
-      - name: Install workflow guard Python dependencies
+      - name: Prepare workflow guard Python dependencies
         if: ${{ matrix.group != 'preflight' }}
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
+          "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            PyYAML==6.0.3 \
+            bashlex==0.18
+          echo "$RUNNER_TEMP/workflow-guard-venv/bin" >> "$GITHUB_PATH"
 
       - name: Validate Blacksmith Testbox broker trust boundary
         if: ${{ matrix.group == 'ci' }}
