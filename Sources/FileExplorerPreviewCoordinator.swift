@@ -39,7 +39,7 @@ struct FileExplorerPreviewCoordinator {
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewLease = lease
                         Self.installRemotePreviewRefresh(
-                            on: panel, workspace: workspace, store: store, context: context,
+                            on: panel, workspace: workspace,
                             isCurrent: isCurrent, provider: cloud, vmID: cloud.vmID, target: target
                         )
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
@@ -56,7 +56,7 @@ struct FileExplorerPreviewCoordinator {
                         focus: true, reuseExisting: false).first {
                         panel.cloudPreviewLease = lease
                         Self.installRemotePreviewRefresh(
-                            on: panel, workspace: workspace, store: store, context: context,
+                            on: panel, workspace: workspace,
                             isCurrent: isCurrent, provider: remote, vmID: nil, target: nil
                         )
                         workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
@@ -106,21 +106,19 @@ struct FileExplorerPreviewCoordinator {
     private static func installRemotePreviewRefresh(
         on panel: FilePreviewPanel,
         workspace: Workspace,
-        store: FileExplorerStore,
-        context: UUID,
         isCurrent: @escaping @MainActor () -> Bool,
         provider: any RemoteFileExplorerProvider,
         vmID: String?,
         target: CloudFileExplorerTarget?
     ) {
-        panel.remotePreviewRefresh = { [weak panel, weak workspace, weak store] in
-            Task { @MainActor [weak panel, weak workspace, weak store] in
-                guard let panel, let workspace, let store, let lease = panel.cloudPreviewLease,
-                      !panel.isClosed, isCurrent(), store.resourceContextID == context else { return }
+        panel.remotePreviewRefresh = { [weak panel, weak workspace] in
+            Task { @MainActor [weak panel, weak workspace] in
+                guard let panel, let workspace, let lease = panel.cloudPreviewLease,
+                      !panel.isClosed, isCurrent() else { return }
                 do {
                     if let target, let vmID { try target.validate(vmID: vmID) }
                     try await lease.refresh(using: provider)
-                    guard isCurrent(), store.resourceContextID == context,
+                    guard isCurrent(),
                           !panel.isClosed, workspace.panels[panel.id] != nil else { return }
                     if let target, let vmID { try target.validate(vmID: vmID) }
                     _ = panel.reloadFromDisk()

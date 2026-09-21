@@ -9,6 +9,7 @@ actor CloudFilePreviewCache {
     private let maximumEntries: Int
     private var entries: Set<URL> = []
     private var cleanupTask: Task<Void, Never>?
+    private var refreshTasks: [URL: Task<Void, Error>] = [:]
 
     init(directory: URL = FileManager.default.temporaryDirectory, maximumEntries: Int = 32) {
         let owner = ProcessInfo.processInfo.processIdentifier
@@ -71,12 +72,29 @@ actor CloudFilePreviewCache {
         }
         guard entries.contains(lease.url) else { throw FileExplorerError.providerUnavailable }
         guard lease.remoteIdentity == provider.remoteIdentity else { throw FileExplorerError.providerUnavailable }
-        // SSH downloads stream into the existing file; leases are read-only
-        // while displayed, so briefly restore owner write permission first.
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lease.url.path)
-        try await provider.downloadFile(path: lease.remotePath, to: lease.url)
-        try Task.checkCancellation()
-        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: lease.url.path)
+        if let task = refreshTasks[lease.url] { return try await task.value }
+        let path = lease.remotePath, destination = lease.url
+        let task = Task<Void, Error> {
+            let temporary = destination.deletingLastPathComponent()
+                .appendingPathComponent(".cmux-refresh-" + UUID().uuidString, isDirectory: false)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+            try await provider.downloadFile(path: path, to: temporary)
+            try Task.checkCancellation()
+            try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: temporary.path)
+            if FileManager.default.fileExists(atPath: destination.path) {
+                _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: destination)
+            }
+        }
+        refreshTasks[destination] = task
+        do {
+            try await task.value
+            refreshTasks[destination] = nil
+        } catch {
+            refreshTasks[destination] = nil
+            throw error
+        }
     }
 
     func release(_ url: URL) {
