@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-lines = Path('.github/workflows/ci.yml').read_text().splitlines()
+lines = Path('.github/workflows/ci-macos.yml').read_text().splitlines()
 start = lines.index('      - name: Resolve Swift packages')
 run_start = lines.index('        run: |', start) + 1
 end = next(i for i in range(run_start, len(lines))
