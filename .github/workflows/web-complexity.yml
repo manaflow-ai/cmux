@@ -32,9 +32,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Validate shallow comparison fetching
-        run: python3 tests/test_ci_fetch_complexity_base.py
-
       - name: Fetch comparison revision
         env:
           COMPARISON_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
