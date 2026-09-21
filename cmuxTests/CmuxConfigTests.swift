@@ -1700,6 +1700,95 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testLaterPackMetadataOverlayPreservesEarlierRunnableAction() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let basePackURL = root.appendingPathComponent("base.json")
+        let overridePackURL = root.appendingPathComponent("override.json")
+        try """
+        {
+          "packs": ["./base.json", "./override.json"]
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.tests": {
+              "type": "command",
+              "command": "npm test",
+              "title": "Base Tests"
+            }
+          }
+        }
+        """.write(to: basePackURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "actions": {
+            "team.tests": {
+              "title": "Team Tests"
+            }
+          }
+        }
+        """.write(to: overridePackURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        let action = try XCTUnwrap(store.resolvedAction(id: "team.tests"))
+        XCTAssertEqual(action.title, "Team Tests")
+        XCTAssertEqual(action.terminalCommand, "npm test")
+        XCTAssertEqual(action.actionSourcePath, basePackURL.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testPackLoadingStopsAtBoundedFileCount() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-pack-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let packNames = (0..<33).map { "pack-\($0).json" }
+        for name in packNames {
+            try "{}".write(
+                to: root.appendingPathComponent(name),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let configData = try JSONSerialization.data(
+            withJSONObject: ["packs": packNames],
+            options: [.prettyPrinted]
+        )
+        try configData.write(to: configURL)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.contains { issue in
+            issue.kind == .schemaError
+                && issue.message?.contains("packs exceed the maximum of 32 files") == true
+        })
+    }
+
+    @MainActor
     func testGlobalPackUsesGlobalTrustSourceAndPackIconSource() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-pack-\(UUID().uuidString)",
