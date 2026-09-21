@@ -1391,9 +1391,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
-        next.actionSourcePath = actionSourcePath ?? next.actionSourcePath
         if let action = definition.action {
             next.action = action
+            next.actionSourcePath = actionSourcePath ?? next.actionSourcePath
         }
         return next
     }
@@ -1846,6 +1846,15 @@ final class CmuxConfigStore: ObservableObject {
     private struct ParsedConfigResult {
         let config: CmuxConfigFile?
         let issue: CmuxConfigIssue?
+    }
+
+    private struct PackLoadBudget {
+        static let maxFiles = 32
+        static let maxFileBytes: UInt64 = 512 * 1024
+        static let maxTotalBytes: UInt64 = 2 * 1024 * 1024
+
+        var filesVisited = 0
+        var bytesReserved: UInt64 = 0
     }
 
     private struct ConfigEntry {
@@ -2406,7 +2415,33 @@ final class CmuxConfigStore: ObservableObject {
         primary: [String: ActionEntry],
         fallback: [String: ActionEntry]
     ) -> [String: ActionEntry] {
-        fallback.merging(primary) { _, primary in primary }
+        fallback.merging(primary) { fallbackEntry, primaryEntry in
+            let primaryDefinition = primaryEntry.definition
+            let fallbackDefinition = fallbackEntry.definition
+            return ActionEntry(
+                definition: CmuxConfigActionDefinition(
+                    action: primaryDefinition.action ?? fallbackDefinition.action,
+                    title: primaryDefinition.title ?? fallbackDefinition.title,
+                    subtitle: primaryDefinition.subtitle ?? fallbackDefinition.subtitle,
+                    keywords: primaryDefinition.keywords ?? fallbackDefinition.keywords,
+                    palette: primaryDefinition.palette ?? fallbackDefinition.palette,
+                    shortcut: primaryDefinition.shortcut ?? fallbackDefinition.shortcut,
+                    icon: primaryDefinition.icon ?? fallbackDefinition.icon,
+                    tooltip: primaryDefinition.tooltip ?? fallbackDefinition.tooltip,
+                    confirm: primaryDefinition.confirm ?? fallbackDefinition.confirm,
+                    terminalCommandTarget: primaryDefinition.terminalCommandTarget
+                        ?? fallbackDefinition.terminalCommandTarget,
+                    newWorkspaceMenu: primaryDefinition.newWorkspaceMenu
+                        ?? fallbackDefinition.newWorkspaceMenu
+                ),
+                actionSourcePath: primaryDefinition.action == nil
+                    ? fallbackEntry.actionSourcePath
+                    : primaryEntry.actionSourcePath,
+                iconSourcePath: primaryDefinition.icon == nil
+                    ? fallbackEntry.iconSourcePath
+                    : primaryEntry.iconSourcePath
+            )
+        }
     }
 
     private func packEntries(
@@ -2418,12 +2453,14 @@ final class CmuxConfigStore: ObservableObject {
     ) -> [ConfigEntry] {
         guard let config, let sourcePath else { return [] }
         var pathStack = Set<String>()
+        var budget = PackLoadBudget()
         return packEntries(
             references: config.packs,
             declaringConfigPath: sourcePath,
             inheritedSourcePath: inheritedSourcePath,
             depth: 0,
             pathStack: &pathStack,
+            budget: &budget,
             issues: &issues,
             watchPaths: &watchPaths
         )
@@ -2435,6 +2472,7 @@ final class CmuxConfigStore: ObservableObject {
         inheritedSourcePath: String?,
         depth: Int,
         pathStack: inout Set<String>,
+        budget: inout PackLoadBudget,
         issues: inout [CmuxConfigIssue],
         watchPaths: inout [String]
     ) -> [ConfigEntry] {
@@ -2458,7 +2496,37 @@ final class CmuxConfigStore: ObservableObject {
                 }
                 continue
             }
+
+            guard budget.filesVisited < PackLoadBudget.maxFiles else {
+                issues.append(schemaIssue(
+                    path: declaringConfigPath,
+                    message: "packs exceed the maximum of \(PackLoadBudget.maxFiles) files"
+                ))
+                break
+            }
+            budget.filesVisited += 1
             watchPaths.append(path)
+
+            let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+            guard let fileSize = (attributes?[.size] as? NSNumber)?.uint64Value else {
+                issues.append(schemaIssue(path: path, message: "pack file size could not be read"))
+                continue
+            }
+            guard fileSize <= PackLoadBudget.maxFileBytes else {
+                issues.append(schemaIssue(
+                    path: path,
+                    message: "pack file exceeds the \(PackLoadBudget.maxFileBytes)-byte size limit"
+                ))
+                continue
+            }
+            guard budget.bytesReserved <= PackLoadBudget.maxTotalBytes - fileSize else {
+                issues.append(schemaIssue(
+                    path: declaringConfigPath,
+                    message: "packs exceed the \(PackLoadBudget.maxTotalBytes)-byte total size limit"
+                ))
+                break
+            }
+            budget.bytesReserved += fileSize
 
             pathStack.insert(canonical)
             let result = parseConfig(at: path)
@@ -2472,6 +2540,7 @@ final class CmuxConfigStore: ObservableObject {
                     inheritedSourcePath: inheritedSourcePath,
                     depth: depth + 1,
                     pathStack: &pathStack,
+                    budget: &budget,
                     issues: &issues,
                     watchPaths: &watchPaths
                 ))
