@@ -295,6 +295,13 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let artifactChipHideClock: any Clock<Duration>
         let outputConsumerRestartClock: any Clock<Duration>
         let outputConsumerRecoveryClock: any Clock<Duration>
+        let viewportReportRetryClock: any Clock<Duration>
+        var viewportReportRetryBackoff = TerminalViewportRetryBackoff()
+        var viewportReportRetryTask: Task<Void, Never>?
+        var viewportReportRetryGeneration: UInt64 = 0
+        var lastViewportRetryColumns: Int?
+        var lastViewportRetryRows: Int?
+        var viewportLeaseHeld = false
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
         /// Shared by the legacy and verified apply paths: an alternating
@@ -338,7 +345,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void,
             artifactChipHideClock: any Clock<Duration> = ContinuousClock(),
             outputConsumerRestartClock: any Clock<Duration> = ContinuousClock(),
-            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock()
+            outputConsumerRecoveryClock: any Clock<Duration> = ContinuousClock(),
+            viewportReportRetryClock: any Clock<Duration> = ContinuousClock()
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -361,6 +369,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.artifactChipHideClock = artifactChipHideClock
             self.outputConsumerRestartClock = outputConsumerRestartClock
             self.outputConsumerRecoveryClock = outputConsumerRecoveryClock
+            self.viewportReportRetryClock = viewportReportRetryClock
             super.init()
         }
 
