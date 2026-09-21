@@ -2483,6 +2483,17 @@ final class CmuxConfigStore: ObservableObject {
 
         var entries: [ConfigEntry] = []
         for reference in references {
+            // Charge every declared reference before any path, cycle, existence,
+            // or recovery-watch work so malformed/missing fanout is bounded too.
+            guard budget.filesVisited < PackLoadBudget.maxFiles else {
+                issues.append(schemaIssue(
+                    path: declaringConfigPath,
+                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
+                ))
+                break
+            }
+            budget.filesVisited += 1
+
             let path = resolvedPackPath(reference.path, relativeToConfig: declaringConfigPath)
             let canonical = Self.canonicalPath(path)
             guard !pathStack.contains(canonical) else {
@@ -2497,14 +2508,6 @@ final class CmuxConfigStore: ObservableObject {
                 continue
             }
 
-            guard budget.filesVisited < PackLoadBudget.maxFiles else {
-                issues.append(schemaIssue(
-                    path: declaringConfigPath,
-                    message: String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
-                ))
-                break
-            }
-            budget.filesVisited += 1
             watchPaths.append(path)
 
             let attributes = try? FileManager.default.attributesOfItem(atPath: path)
