@@ -307,18 +307,13 @@ while [ "$attempt" -le "$max_attempts" ]; do
   set -e
 
   if [ -n "$result_bundle_path" ] && [ -d "$result_bundle_path" ]; then
-    typed_result_stem="${result_bundle_path%.xcresult}"
-    # Keep Apple's typed test-result JSON beside the raw bundle. Text output
-    # remains useful for streaming diagnostics; these files are the durable,
-    # machine-readable verdict evidence for later census/ratchet work.
-    xcrun xcresulttool get test-results summary \
-      --path "$result_bundle_path" --compact \
-      >"${typed_result_stem}.summary.json" \
-      2>"${typed_result_stem}.summary.err" || true
-    xcrun xcresulttool get test-results tests \
-      --path "$result_bundle_path" --compact \
-      >"${typed_result_stem}.tests.json" \
-      2>"${typed_result_stem}.tests.err" || true
+    # Keep Apple's typed test-result JSON beside the raw bundle. The extractor
+    # writes JSON atomically only after parsing it successfully; extraction
+    # failures retain the raw xcresult + stderr but never publish empty or
+    # malformed files that later automation could mistake for evidence.
+    if ! python3 scripts/ci/capture_app_host_xcresult.py "$result_bundle_path"; then
+      echo "::warning::typed xcresult extraction incomplete for $result_bundle_path" >&2
+    fi
   fi
 
   require_config_evidence=0
