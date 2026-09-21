@@ -104454,55 +104454,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, custom [sidebar-name]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud oder custom [Seitenleisten-Name]"
+            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices oder custom [Seitenleisten-Name]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud ou custom [nom-barre-latérale]"
+            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices ou custom [nom-barre-latérale]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو custom [sidebar-name]"
+            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو custom [sidebar-name]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud o custom [sidebar-name]"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices o custom [sidebar-name]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud 또는 custom [sidebar-name]"
+            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set zahtijeva način: files, find, vault, sessions, feed, dock, cloud, devices ili custom [naziv bočne trake]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set kræver en tilstand: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidepanel]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set richiede una modalità: files, find, vault, sessions, feed, dock, cloud, devices o custom [nome barra laterale]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set ត្រូវការរបៀបមួយ៖ files, find, vault, sessions, feed, dock, cloud, devices ឬ custom [ឈ្មោះរបារចំហៀង]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set krever en modus: files, find, vault, sessions, feed, dock, cloud, devices eller custom [navn på sidestolpe]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set wymaga trybu: files, find, vault, sessions, feed, dock, cloud, devices lub custom [nazwa paska bocznego]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set requer um modo: files, find, vault, sessions, feed, dock, cloud, devices ou custom [nome da barra lateral]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "для right-sidebar set требуется режим: files, find, vault, sessions, feed, dock, cloud, devices или custom [имя боковой панели]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set ต้องระบุโหมด: files, find, vault, sessions, feed, dock, cloud, devices หรือ custom [ชื่อแถบด้านข้าง]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set bir mod gerektirir: files, find, vault, sessions, feed, dock, cloud, devices veya custom [kenar çubuğu adı]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "right-sidebar set потребує режиму: files, find, vault, sessions, feed, dock, cloud, devices або custom [назва бічної панелі]"
           }
         }
       }

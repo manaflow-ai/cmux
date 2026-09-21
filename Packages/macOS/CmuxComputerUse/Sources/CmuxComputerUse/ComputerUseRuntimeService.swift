@@ -262,7 +262,6 @@ public final class ComputerUseRuntimeService {
                 guard let self else { return }
                 _ = await self.stopDaemon()
             }
-            try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
             cachedStatus = .unknown
         }
     }

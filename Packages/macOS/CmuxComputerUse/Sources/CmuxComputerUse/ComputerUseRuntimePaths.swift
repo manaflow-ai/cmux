@@ -175,10 +175,9 @@ public struct ComputerUseRuntimePaths: Sendable {
     /// authenticated to the previous helper generation. The file is accepted
     /// only when the kernel confirms that it is a single-link, owner-only
     /// regular file. Disabling the user setting stops the helper but leaves
-    /// this owner-only capability ready for an explicit `$cmux-cua` request;
-    /// `stopForTermination()` keeps it for the next host restart; disabling
-    /// Computer Use removes it, and a later explicit `$cmux-cua` request
-    /// creates a fresh capability as needed.
+    /// this owner-only capability ready for an explicit `$cmux-cua` request.
+    /// `stopForTermination()` also keeps it for the next host restart; the
+    /// next helper launch rewrites the file atomically when needed.
     private static func persistedAuthenticationToken(
         at fileURL: URL,
         ownedBy expectedOwner: uid_t
