@@ -439,15 +439,13 @@ extension AppDelegate {
                 self.mainWindowLifecycleCoordinator
                     .cancelWindowlessRecoveryResumeIndexesLoadIfUnused()
             }
-            guard let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
+            let ttyDeviceBindings = self.mainWindowLifecycleCoordinator
                 .windowlessRecoveryTTYDeviceBindings(
                     allBindingsProvider: { [weak self] in
                         self?.currentSurfaceTTYDeviceBindings() ?? [:]
                     },
                     routeBindings: routeTTYDeviceBindings
-                ) else {
-                return
-            }
+                )
             let lifecycleCoordinator = self.mainWindowLifecycleCoordinator
             let resumeIndexes = await self.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
