@@ -24,6 +24,9 @@
 import { Freestyle } from "freestyle";
 import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
+import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
+import { GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
+import guestCliDistribution from "../services/vms/guestCliDistribution.json";
 import path from "node:path";
 import {
   CMUX_TUI_HOOK_PROVIDERS,
@@ -103,6 +106,9 @@ const CHECKS: readonly string[] = [
   "bwrap --version && echo bubblewrap-ok",
   // Baked files are byte-identical to this checkout.
   ...FILE_PIN_CHECKS,
+  // The Cloud facade and guest shim are baked so a newly resumed VM does not
+  // spend its critical startup path downloading or writing the CLI.
+  `${guestCliDistributionCommand(true)} && python3 -c 'import json; d=json.load(open("/etc/cmux/cloud-cli-pin")); assert d["archiveSha256"] == "${guestCliDistribution.archiveSha256}"' && test -x ${GUEST_CMUX_SHIM_PATH} && test -x /usr/local/libexec/cmux-coderouter && test -L /usr/local/bin/cmux && test -L /usr/local/bin/coderouter && test -L /usr/local/bin/cr && echo guest-cli-baked`,
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
   // history lands on first interactive shell.
   "test -f /usr/local/share/blesh/ble.sh && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && echo bashrc-chain-ok",

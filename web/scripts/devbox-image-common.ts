@@ -7,11 +7,11 @@
  * Dockerfile plus the files it COPYs (the desktop layer under desktop/). The
  * pins the Freestyle replay installs (agent versions, the cua driver, the
  * desktop apt packages, the Ghostty .deb) are read from the Dockerfile's ARG
- * and ENV lines here, never kept as a second copy. No daemon binary is baked
- * into the container image: cmux-tui is installed by the drivers at create
- * time from the pinned files.cmux.com manifest
- * (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships the
- * cmux-devbox-boot supervisor.
+ * and ENV lines here, never kept as a second copy. The Freestyle bake carries
+ * the pinned cmux-tui daemon and checksum-pinned Cloud facade/guest shim. The
+ * drivers retain the same installers as drift recovery for older or damaged
+ * images; healthy creates do not download or write either artifact on the VM
+ * request path.
  */
 import { execFileSync, execSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
