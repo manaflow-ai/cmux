@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
