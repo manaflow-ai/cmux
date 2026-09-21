@@ -387,7 +387,16 @@
       "revoked": "Отозвано",
       "relaySettings": "Настройки ретрансляторов",
       "relaySettingsDescription": "Выберите серверы ретрансляции для этой команды. Введите по одному URL в строке.",
-      "saveRelaySettings": "Сохранить настройки ретрансляторов"
+      "saveRelaySettings": "Сохранить настройки ретрансляторов",
+      "eyebrow": "облако / устройства",
+      "scopeActive": "Показаны данные этой команды",
+      "emptyTitle": "Подключённых устройств пока нет",
+      "emptyDescription": "После сопряжения устройства cmux с этой командой здесь появятся его платформа, версия и настройки доступа.",
+      "revoking": "Отзыв доступа…",
+      "registeredDevices": "Зарегистрированные устройства",
+      "activeDevices": "Активные устройства",
+      "directoryRevision": "Ревизия каталога",
+      "savingRelaySettings": "Сохранение…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Поделиться с командой",

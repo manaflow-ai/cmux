@@ -5755,7 +5755,7 @@ import Testing
                 routeKind: .debugLoopback
             ),
         ])
-        #expect(shell.connections["mac-late"]?.client === client)
+        #expect(shell.connections[MacPairingKey(macDeviceID: "mac-late", instanceTag: "mmpool")]?.client === client)
     }
 
     @Test func officialBuildAdoptsUntagged06417OnlyFromAuthorizedTailscale() async throws {
@@ -5891,7 +5891,7 @@ import Testing
         #expect(shell.remoteClient != nil)
         #expect(shell.remoteClient !== originalClient)
         #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
-        #expect(shell.connections["test-mac"]?.client === shell.remoteClient)
+        #expect(shell.connections.onDevice("test-mac")?.client === shell.remoteClient)
     }
 
     @Test func anonymousTargetRetiresWarmControlOnSamePhysicalRoute()

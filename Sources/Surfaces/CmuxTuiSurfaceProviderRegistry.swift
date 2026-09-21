@@ -35,7 +35,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
-    private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void
+    private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
     private var refreshInFlight: Task<Bool, Never>?
     private var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
@@ -57,7 +57,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Machine IDs admitted from a successful create response remain owned by
     /// this registry until a fleet page positively observes them. A stale page
     /// must not prune a receipt that is still converging into discovery.
-    private var pendingMachineCreationIDs: Set<String> = []
+    private var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
@@ -68,15 +68,14 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
     private var isFeatureSuspended = false
-
     init(
         links: CloudMachineLinkManager,
         wireGuardHub: CloudWireGuardHub? = nil,
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
-        refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void = { provider, force in
-            await provider.refresh(force: force)
+        refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
+            await provider.refreshCurrentGraph(force: force)
         },
         closeTransports: (@MainActor () async -> Void)? = nil,
         notificationCenter: NotificationCenter = .default
@@ -151,7 +150,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = false
         accessEpoch &+= 1
         creationEpoch = UUID()
-        pendingMachineCreationIDs.removeAll()
+        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -278,15 +277,16 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let self, access == self.accessEpoch, !Task.isCancelled,
                       let discovered = await self.discoverMachines(force: force, updateExisting: true),
                       access == self.accessEpoch, !Task.isCancelled else { return false }
+                let activeMachines = (force || !self.hasCompletedInitialRefresh) ? Set(discovered.map(\.machine)) : (self.catalog?.projectedMachines ?? []).union(self.catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(self.pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(discovered.filter { !self.refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
                 await withTaskGroup(of: Void.self) { group in
-                    for provider in discovered {
+                    for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
                             guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            await self.refreshProvider(provider, force)
+                            let succeeded = await self.refreshProvider(provider, force); if succeeded, provider.isRegisteredInCatalog() { self.refreshedMachineIDs.insert(provider.machine) }
                         }
                     }
                 }
-                return access == self.accessEpoch && !Task.isCancelled
+                self.hasCompletedInitialRefresh = true; return access == self.accessEpoch && !Task.isCancelled
             }
             refreshInFlight = task
             let listed = await task.value
@@ -359,7 +359,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func unregisterMachine(_ rawID: String) {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
-        pendingMachineCreationIDs.remove(id)
+        pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
         let provider = providers.removeValue(forKey: id)
         provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
@@ -510,7 +510,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         isRetired = true
         accessEpoch &+= 1
         creationEpoch = UUID()
-        pendingMachineCreationIDs.removeAll()
+        pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil

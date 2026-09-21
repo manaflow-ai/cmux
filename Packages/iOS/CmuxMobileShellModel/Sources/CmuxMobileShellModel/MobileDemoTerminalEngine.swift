@@ -242,7 +242,7 @@ public final class MobileDemoTerminalEngine {
             session.transcript = ""
             return "\u{1B}[2J\u{1B}[H" + session.script.prompt(atPath: session.path)
         default:
-            body = MobileDemoCommandCatalog.response(
+            body = MobileDemoCommandCatalog().response(
                 command: command,
                 context: MobileDemoCommandCatalog.Context(
                     arguments: argument,
