@@ -8106,10 +8106,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             config.machine_provider.command,
-            Some(vec![
-                "/usr/local/bin/my-machine-provider".to_string(),
-                "--control".to_string(),
-            ])
+            Some(vec!["/usr/local/bin/my-machine-provider".to_string(), "--control".to_string(),])
         );
     }
 

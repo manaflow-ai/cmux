@@ -4038,10 +4038,8 @@ mod tests {
     #[test]
     fn provider_resolution_uses_configured_command_after_cli_flags() {
         let mut config = config::Config::default();
-        config.machine_provider.command = Some(vec![
-            "/usr/local/bin/my-machine-provider".into(),
-            "--control".into(),
-        ]);
+        config.machine_provider.command =
+            Some(vec!["/usr/local/bin/my-machine-provider".into(), "--control".into()]);
 
         // No CLI flags: the configured command provider launches.
         assert_eq!(
