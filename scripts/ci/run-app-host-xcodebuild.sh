@@ -303,6 +303,21 @@ while [ "$attempt" -le "$max_attempts" ]; do
   status=$?
   set -e
 
+  if [ -n "$result_bundle_path" ] && [ -d "$result_bundle_path" ]; then
+    typed_result_stem="${result_bundle_path%.xcresult}"
+    # Keep Apple's typed test-result JSON beside the raw bundle. Text output
+    # remains useful for streaming diagnostics; these files are the durable,
+    # machine-readable verdict evidence for later census/ratchet work.
+    xcrun xcresulttool get test-results summary \
+      --path "$result_bundle_path" --compact \
+      >"${typed_result_stem}.summary.json" \
+      2>"${typed_result_stem}.summary.err" || true
+    xcrun xcresulttool get test-results tests \
+      --path "$result_bundle_path" --compact \
+      >"${typed_result_stem}.tests.json" \
+      2>"${typed_result_stem}.tests.err" || true
+  fi
+
   require_config_evidence=0
   if [ "$status" -eq 0 ]; then
     require_config_evidence=1
