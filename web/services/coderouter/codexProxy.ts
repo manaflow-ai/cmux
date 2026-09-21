@@ -59,7 +59,12 @@ type CodexResponsesDependencies = {
   readonly authenticate: typeof authenticateRouteToken;
   readonly select: typeof selectAccountForSession;
   readonly credential: typeof freshCredential;
-  readonly cooldown: typeof markAccountCooldown;
+  readonly cooldown: (
+    accountId: string,
+    durationMs: number,
+    signal?: AbortSignal,
+    failureCode?: string,
+  ) => Promise<void>;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -466,6 +471,40 @@ async function proxyCodexRequestWith(
       }
       continue;
     }
+    // Providers do not consistently use 429 for model capacity. Codex has
+    // returned the same capacity/quota error as a 400 or 503, sometimes as a
+    // small JSON body and sometimes as an SSE error event. Treat that signal
+    // like a rate limit before returning it to the caller so another account
+    // can serve the request.
+    if (upstream.status < 200 || upstream.status >= 300) {
+      const probed = await probeCodexCapacity(upstream, request.signal);
+      if (probed.kind === "capacity") {
+        try {
+          await withCoderouterOperationDeadline(
+            request.signal,
+            upstreamHeaderDeadlineAt,
+            runtime.now,
+            (signal) => dependencies.cooldown(
+              account.id,
+              probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
+              signal,
+              "capacity",
+            ),
+          );
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          if (error instanceof CoderouterOperationDeadlineError) {
+            failureStage = "upstream_transport";
+            upstream = null;
+            break;
+          }
+          throw error;
+        }
+        upstream = null;
+        continue;
+      }
+      upstream = probed.response;
+    }
     if (isStreamingResponse(upstream)) {
       const probed = await probeCodexCapacity(upstream, request.signal);
       if (probed.kind === "capacity") {
@@ -494,7 +533,12 @@ async function proxyCodexRequestWith(
             request.signal,
             upstreamHeaderDeadlineAt,
             runtime.now,
-            (signal) => dependencies.cooldown(account.id, probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS, signal),
+            (signal) => dependencies.cooldown(
+              account.id,
+              probed.retryAfterMs ?? CAPACITY_COOLDOWN_MS,
+              signal,
+              "capacity",
+            ),
           );
         } catch (error) {
           if (request.signal.aborted) throw error;
@@ -615,17 +659,17 @@ async function probeCodexCapacity(
       total += next.value.byteLength;
       text += decoder.decode(next.value, { stream: true });
       const verdict = classifyCodexCapacityPrefix(text);
-      if (verdict.kind === "capacity") {
+      if (verdict.kind === "capacity" || isCodexCapacityText(text)) {
         await reader.cancel();
-        return verdict;
+        return verdict.kind === "capacity" ? verdict : { kind: "capacity" };
       }
       if (verdict.kind === "output" || total >= MAX_PREOUTPUT_PROBE_BYTES) break;
     }
     text += decoder.decode();
     const finalVerdict = classifyCodexCapacityPrefix(`${text}\n\n`);
-    if (finalVerdict.kind === "capacity") {
+    if (finalVerdict.kind === "capacity" || isCodexCapacityText(text)) {
       await reader.cancel();
-      return finalVerdict;
+      return finalVerdict.kind === "capacity" ? finalVerdict : { kind: "capacity" };
     }
   } catch (error) {
     await reader.cancel().catch(() => undefined);
@@ -719,11 +763,18 @@ function classifyCodexCapacityPrefix(text: string):
 
 function isCodexCapacityPayload(value: unknown): boolean {
   const text = JSON.stringify(value).toLowerCase();
+  return isCodexCapacityText(text);
+}
+
+function isCodexCapacityText(value: string): boolean {
+  const text = value.toLowerCase();
   return text.includes("usage_limit_reached") ||
     text.includes("rate_limit_exceeded") ||
     text.includes("selected model is at capacity") ||
     text.includes("model is at capacity") ||
-    text.includes("model_capacity");
+    text.includes("model_capacity") ||
+    text.includes("model capacity") ||
+    text.includes("temporarily overloaded");
 }
 
 function isCodexOutputPayload(value: unknown): boolean {

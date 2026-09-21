@@ -149,6 +149,21 @@ describe("codex responses proxy session routing", () => {
     expect(cooldowns).toEqual(["acct-capacity"]);
   });
 
+  test("fails over a capacity response returned as a non-2xx JSON body", async () => {
+    const bodies = [
+      JSON.stringify({ error: { code: "model_capacity", message: "Selected model is at capacity" } }),
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n\n`,
+    ];
+    const statuses = [503, 200];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: statuses.shift()!,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
   test("treats response.created as metadata and preserves the complete stream", async () => {
     const body = [
       `data: ${JSON.stringify({ type: "response.created" })}\n\n`,

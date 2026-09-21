@@ -1293,13 +1293,18 @@ export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
   signal?: AbortSignal,
+  failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
+  const cooldownUntil = new Date(Date.now() + bounded);
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      cooldownUntil: new Date(Date.now() + bounded),
-      lastFailureCode: "rate_limited",
+      // A late provider error must never shorten a longer cooldown already
+      // recorded by another request. Keep the database value authoritative so
+      // every web instance avoids a capacity-hit account consistently.
+      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntil}), ${cooldownUntil})`,
+      lastFailureCode: failureCode,
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));
