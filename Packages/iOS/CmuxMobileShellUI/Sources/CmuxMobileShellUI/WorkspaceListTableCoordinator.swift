@@ -1491,21 +1491,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     /// Whether two snapshots of a workspace render identically in the row.
     ///
-    /// Full struct equality decides — fail-closed for any field this list
-    /// does not special-case, including ones added later — except the
-    /// activity timestamps: the row renders them at minute granularity
-    /// (``MobileWorkspacePreview/activityTimestampLabel(referenceDate:calendar:)``),
-    /// while the Mac restamps `last_activity_at`/`preview_at` from the latest
-    /// notification on every list emission. Sub-minute restamps therefore
-    /// must not count as changes, or every agent-output notification
-    /// re-renders rows that look exactly the same (measured at ~9ms of
-    /// main-thread work per tick on an M-series simulator, worse on device —
-    /// the workspace-list scroll stutter).
+    /// This deliberately compares the row's render contract instead of the
+    /// transport model's full value. State-sync records also carry terminal,
+    /// surface, simulator, and directory fields for the detail screen. Those
+    /// fields can change while the row stays identical; treating them as row
+    /// changes reassigns a ``UIHostingConfiguration`` during scrolling and
+    /// makes UIKit revisit self-sizing and the viewport. Apple recommends
+    /// updating only cells whose displayed content changed, so non-row relay
+    /// state must stay out of this decision.
     static func workspaceRenderEquivalent(
         _ previous: MobileWorkspacePreview?,
         _ next: MobileWorkspacePreview?
     ) -> Bool {
-        if previous == next { return true }
         guard var normalizedPrevious = previous, let next else {
             return previous == nil && next == nil
         }
@@ -1515,7 +1512,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if Self.sameRenderedMinute(normalizedPrevious.lastActivityAt, next.lastActivityAt) {
             normalizedPrevious.lastActivityAt = next.lastActivityAt
         }
-        return normalizedPrevious == next
+        return WorkspaceRowRenderState(workspace: normalizedPrevious)
+            == WorkspaceRowRenderState(workspace: next)
     }
 
     /// Whether the row's timestamp label renders the same for both dates.
@@ -1565,6 +1563,39 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             || (previous.deleteWorkspaceGroupRequest != nil)
                 != (next.deleteWorkspaceGroupRequest != nil)
             || (previous.toggleGroupCollapsed != nil) != (next.toggleGroupCollapsed != nil)
+    }
+}
+
+/// The subset of a workspace snapshot consumed by ``WorkspaceRow`` and its
+/// accessibility value. Keeping this projection beside the table coordinator
+/// makes relay-only fields unable to trigger cell reconfiguration by accident.
+private struct WorkspaceRowRenderState: Equatable {
+    let id: MobileWorkspacePreview.ID
+    let remoteWorkspaceID: MobileWorkspacePreview.ID
+    let name: String
+    let customDescription: String?
+    let customColorHex: String?
+    let isPinned: Bool
+    let unreadState: MobileWorkspaceUnreadState
+    let previewLine: String
+    let previewAt: Date?
+    let lastActivityAt: Date?
+    let terminalCount: Int
+    let actionCapabilities: MobileWorkspaceActionCapabilities
+
+    init(workspace: MobileWorkspacePreview) {
+        id = workspace.id
+        remoteWorkspaceID = workspace.rpcWorkspaceID
+        name = workspace.name
+        customDescription = workspace.displayDescription
+        customColorHex = workspace.customColorHex
+        isPinned = workspace.isPinned
+        unreadState = workspace.unreadState
+        previewLine = workspace.previewLine
+        previewAt = workspace.previewAt
+        lastActivityAt = workspace.lastActivityAt
+        terminalCount = workspace.terminals.count
+        actionCapabilities = workspace.actionCapabilities
     }
 }
 

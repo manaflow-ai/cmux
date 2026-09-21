@@ -137,6 +137,45 @@ import UIKit
         )
     }
 
+    @Test func relayOnlyTerminalDetailsDoNotReconfigureTheWorkspaceRow() {
+        var workspace = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        workspace.terminals = [
+            MobileTerminalPreview(
+                id: "terminal-1",
+                name: "zsh",
+                currentDirectory: "/Users/aziz"
+            )
+        ]
+        var relayUpdate = workspace
+        relayUpdate.currentDirectory = "/Users/aziz/project"
+        relayUpdate.terminals[0].currentDirectory = "/Users/aziz/project"
+        relayUpdate.terminals[0].isReady = false
+        relayUpdate.terminals[0].viewportFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 120, rows: 36),
+            client: nil,
+            isCurrentClientLimiting: false
+        )
+
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        coordinator.update(
+            configuration: configuration(workspaces: [relayUpdate]),
+            in: tableView
+        )
+
+        #expect(
+            coordinator.lastPayloadApplyRoute == .noChange,
+            "Detail-only relay fields must not replace a visible workspace row."
+        )
+    }
+
     @Test func concurrentAgentUpdatesWaitForScrollToFinishAndApplyTheLatestSnapshot() {
         let initialWorkspace = preview(
             id: "workspace-1",
