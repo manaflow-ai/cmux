@@ -199,6 +199,49 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse())
         self.assertFalse((self.producer.parent / 'escape').exists())
 
+    def test_runner_label_is_not_product_authority(self):
+        values = {
+            "git": "a" * 40,
+            "xcodebuild": "Xcode 26",
+            "xcrun": "26A123",
+            "sw_vers": "25A123",
+        }
+
+        def fake_read(*args):
+            return values[args[0]]
+
+        with mock.patch.object(reuse, "read", side_effect=fake_read), \
+                mock.patch.object(reuse.shutil, "which", return_value=None), \
+                mock.patch.object(reuse.platform, "machine", return_value="arm64"):
+            with mock.patch.dict(os.environ, {"CMUX_PRODUCT_RUNNER": "node-a"}, clear=False):
+                first = reuse.contract()
+            with mock.patch.dict(os.environ, {"CMUX_PRODUCT_RUNNER": "node-b"}, clear=False):
+                second = reuse.contract()
+
+        self.assertEqual(first, second)
+        self.assertNotIn("runner", first)
+
+    def test_distribution_identity_explicitly_binds_compatibility(self):
+        value = {
+            "tree": "tree-a",
+            "xcode": "Xcode 26",
+            "sdk": "26A123",
+            "os": "25A123",
+            "architecture": "arm64",
+            "tools": {"rustc": "1", "cargo": "1"},
+            "environment": {"CMUX_SKIP_ZIG_BUILD": "1"},
+        }
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}, clear=False):
+            arm = reuse.distribution_identity(value)
+            x86 = reuse.distribution_identity({**value, "architecture": "x86_64"})
+            newer_xcode = reuse.distribution_identity({**value, "xcode": "Xcode 27"})
+
+        self.assertEqual(arm["platform_class"], "macos")
+        self.assertEqual(arm["architecture"], "arm64")
+        self.assertNotEqual(arm["build_identity"], x86["build_identity"])
+        self.assertNotEqual(arm["toolchain_generation"], newer_xcode["toolchain_generation"])
+        self.assertNotEqual(arm["build_identity"], newer_xcode["build_identity"])
+
 
 class FakeGitHub:
     repository = 'manaflow-ai/cmux'
