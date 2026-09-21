@@ -332,14 +332,20 @@ public actor JSONConfigStore {
         for url: URL,
         fileManager: FileManager = .default
     ) -> URL {
-        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
-            return url
+        // Canonicalize the parent first so the native store and cmux-settings
+        // helper derive one stable writer-lock path through symlinked ancestors.
+        let canonical = url.deletingLastPathComponent()
+            .resolvingSymlinksInPath()
+            .appendingPathComponent(url.lastPathComponent)
+            .standardizedFileURL
+        guard let destination = try? fileManager.destinationOfSymbolicLink(atPath: canonical.path) else {
+            return canonical
         }
         let destinationURL: URL
         if destination.hasPrefix("/") {
             destinationURL = URL(fileURLWithPath: destination)
         } else {
-            destinationURL = url.deletingLastPathComponent().appendingPathComponent(destination)
+            destinationURL = canonical.deletingLastPathComponent().appendingPathComponent(destination)
         }
         return destinationURL.standardizedFileURL.resolvingSymlinksInPath()
     }
@@ -370,6 +376,14 @@ public actor JSONConfigStore {
         // Resolve once so parsing, source editing, and the atomic replace all
         // target the same file when cmux.json is a symlink.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
+        // The persisted target is the source of truth. Every participating cmux
+        // writer takes this sidecar lock before its authoritative read so no
+        // read-edit-replace sequence can overlap another cmux writer.
+        let writeLock = try JSONConfigWriteLock(target: writeURL)
+        defer { writeLock.release() }
+        guard Self.resolvedWriteURL(for: fileURL) == writeURL else {
+            throw JSONConfigWriteConflict.sourceChanged
+        }
         let document = try readDocument(at: writeURL)
 
         var candidateRoot = document.root
@@ -408,6 +422,14 @@ public actor JSONConfigStore {
 
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+
+        // A non-participating editor can still change the file while we prepare
+        // the candidate. Refuse that stale snapshot; participating cmux writers
+        // cannot enter this window because they share the lock above.
+        guard Self.resolvedWriteURL(for: fileURL) == writeURL,
+              try readDocument(at: writeURL).originalData == document.originalData else {
+            throw JSONConfigWriteConflict.sourceChanged
+        }
         try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
