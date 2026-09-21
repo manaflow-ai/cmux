@@ -526,6 +526,10 @@ struct CmuxAgentChatConfigTests {
                 == String(localized: "menu.help.claudeCodeTeams", defaultValue: "Claude Code Teams")
         )
         #expect(both[0].subtitle(localContext) == "cmux claude-teams")
+        #expect(
+            both[1].title(localContext)
+                == String(localized: "menu.help.codexTeams", defaultValue: "Codex Teams")
+        )
         #expect(both[1].subtitle(localContext) == "cmux codex-teams")
         #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)
 

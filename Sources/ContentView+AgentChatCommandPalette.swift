@@ -93,8 +93,8 @@ extension ContentView {
                 commandId: commandPaletteLaunchCodexTeamsCommandID,
                 title: { _ in
                     String(
-                        localized: "agentSession.provider.codex",
-                        defaultValue: "Codex"
+                        localized: "menu.help.codexTeams",
+                        defaultValue: "Codex Teams"
                     )
                 },
                 subtitle: { _ in "cmux codex-teams" },
