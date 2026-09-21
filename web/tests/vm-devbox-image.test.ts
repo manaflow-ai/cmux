@@ -262,6 +262,51 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
+  test("ble.sh runtime files do not follow a transient XDG runtime directory", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
+    const blesh = path.join(directory, "blesh");
+    const transientRuntime = path.join(directory, "transient-runtime");
+    mkdirSync(blesh);
+    mkdirSync(transientRuntime);
+    writeFileSync(path.join(blesh, "ble.sh"), [
+      "BLE_VERSION=fixture",
+      "bleopt() { :; }",
+      "ble-face() { :; }",
+      "ble-bind() { :; }",
+      "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
+    ].join("\n"));
+    writeFileSync(path.join(directory, "terminfo.sh"), "");
+    writeFileSync(path.join(directory, "prompt.bash"), "PROMPT_COMMAND=()");
+    const rc = path.join(directory, "bashrc");
+    writeFileSync(
+      rc,
+      bashrc
+        .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
+        .replaceAll("/etc/cmux", directory)
+        .replaceAll("/usr/local/share/blesh", blesh),
+    );
+    try {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          PATH: process.env.PATH!,
+          HOME: directory,
+          USER: "cmux",
+          TERM: "dumb",
+          XDG_RUNTIME_DIR: transientRuntime,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
+        path.join(directory, ".cache", "cmux-blesh-runtime"),
+      );
+      expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("one non-root work user named cmux, on a machine named cmux", () => {
     // Half the complaint this answers: a cmux Cloud terminal opened as
     // `root@freestyle-vm`, and `claude --dangerously-skip-permissions` refuses
