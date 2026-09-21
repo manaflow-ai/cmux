@@ -13,6 +13,8 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
     private var accountID: String?
     private var generation: UInt64 = 0
 
+    deinit {}
+
     /// Creates a lease publisher, or nil when the service origin is invalid.
     public init?(
         serviceBaseURL: String,
@@ -43,16 +45,17 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
         accountID = await tokenSource.currentUserID()
         guard let nextScope, self.scope == nextScope, generation == currentGeneration else { return }
         session.setViewing(true)
-        runTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.session.run(
+        let session = self.session
+        let tokenSource = self.tokenSource
+        runTask = Task { @MainActor [weak self, session, tokenSource] in
+            await session.run(
                 scope: nextScope,
                 accessToken: {
-                    guard let accountID = self.accountID else { return nil }
-                    return await self.tokenSource.accessToken(expectedUserID: accountID)
+                    guard let accountID = self?.accountID else { return nil }
+                    return await tokenSource.accessToken(expectedUserID: accountID)
                 },
                 isCurrent: {
-                    self.generation == currentGeneration && self.scope == nextScope
+                    self?.generation == currentGeneration && self?.scope == nextScope
                 }
             )
         }
