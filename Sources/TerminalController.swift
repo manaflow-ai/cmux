@@ -2052,8 +2052,11 @@ class TerminalController {
         let writer = ControlClientAsyncWriter(socket: socket)
         let rateLimiter = ControlClientRateLimiter()
         defer {
-            lineReader.cancel()
-            writer.cancel()
+            // Dispatch source cancellation is asynchronous. Wait for every
+            // borrowed socket source to unregister before the outer defer
+            // shuts down and closes the descriptor.
+            lineReader.cancelAndWait()
+            writer.cancelAndWait()
         }
         while let line = await lineReader.nextLine(shouldContinueReading: {
             self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
