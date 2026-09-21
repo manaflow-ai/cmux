@@ -262,6 +262,54 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
+  test("ble.sh runtime files do not follow a transient XDG runtime directory", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
+    const blesh = path.join(directory, "blesh");
+    const transientRuntime = path.join(directory, "transient-runtime");
+    const bootRuntime = path.join(directory, "boot-runtime");
+    mkdirSync(blesh);
+    mkdirSync(transientRuntime);
+    writeFileSync(path.join(blesh, "ble.sh"), [
+      "BLE_VERSION=fixture",
+      "BLE_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\"",
+      "bleopt() { mkdir -p \"$BLE_RUNTIME_DIR/blesh\"; printf ok > \"$BLE_RUNTIME_DIR/blesh/live\"; }",
+      "ble-face() { :; }",
+      "ble-bind() { :; }",
+      "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
+    ].join("\n"));
+    writeFileSync(path.join(directory, "terminfo.sh"), "");
+    writeFileSync(path.join(directory, "prompt.bash"), "PROMPT_COMMAND=()");
+    const rc = path.join(directory, "bashrc");
+    writeFileSync(
+      rc,
+      bashrc
+        .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
+        .replaceAll("/etc/cmux", directory)
+        .replaceAll("/tmp/cmux-blesh-runtime-${UID}", bootRuntime)
+        .replaceAll("/usr/local/share/blesh", blesh),
+    );
+    try {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          PATH: process.env.PATH!,
+          HOME: directory,
+          USER: "cmux",
+          TERM: "dumb",
+          XDG_RUNTIME_DIR: transientRuntime,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
+        bootRuntime,
+      );
+      expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("one non-root work user named cmux, on a machine named cmux", () => {
     // Half the complaint this answers: a cmux Cloud terminal opened as
     // `root@freestyle-vm`, and `claude --dangerously-skip-permissions` refuses
