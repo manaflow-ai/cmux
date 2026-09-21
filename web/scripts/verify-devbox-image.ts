@@ -278,6 +278,11 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // real interactive logins as the work user print nothing from ble.sh or
   // the shell (a `bash -c` probe would not load ble.sh at all).
   `[ "$(find ${DEVBOX_WORK_HOME} -not -user ${DEVBOX_WORK_USER} | wc -l)" = 0 ] && echo home-owned-by-work-user`,
+  // ble.sh normally chooses /run/user/<uid>/blesh when that session directory
+  // exists. Remove that transient runtime tree after startup, then run one
+  // more command in the same durable shell. The shell must stay clean because
+  // cmux terminals can outlive the desktop/session that created them.
+  `runtime_probe=$(mktemp -d /tmp/cmux-blesh-runtime-probe.XXXXXX) && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} "$runtime_probe" && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color XDG_RUNTIME_DIR="$runtime_probe" CMUX_BLESH_RUNTIME_SENTINEL="$runtime_probe/sentinel" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'set -eu; tmux -L blesh-runtime-probe new-session -d -s login -x 120 -y 30; sleep 3; rm -rf "/tmp/cmux-blesh-runtime-$(id -u)/blesh"; tmux -L blesh-runtime-probe send-keys -t login "printf CMUX_BLESH_RUNTIME_OK > \\\"$CMUX_BLESH_RUNTIME_SENTINEL\\\"" Enter; sleep 1; tmux -L blesh-runtime-probe capture-pane -pt login >/dev/null; test -s "$CMUX_BLESH_RUNTIME_SENTINEL"; tmux -L blesh-runtime-probe kill-server' && test -s "$runtime_probe/sentinel" && rm -rf "$runtime_probe" && echo blesh-runtime-dir-removal-ok`,
   // Not cosmetic: cmux-tui refuses to store its Noise identity under a group-
   // or other-writable ancestor, and the daemon's state dir lives in this home.
   // Ubuntu's user-private-group umask (002) is what puts it there.

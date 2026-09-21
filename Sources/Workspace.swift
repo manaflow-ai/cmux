@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CMUXMobileCore
 import CmuxFoundation
 import Foundation
 import CmuxCore
@@ -217,6 +218,8 @@ extension Workspace {
         startupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
         deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
+        let finishWork = beginTerminalGeometryTransition(.restore)
+        defer { finishWork() }
         sessionRestoreLayoutSuppressionDepth += 1
         defer {
             sessionRestoreLayoutSuppressionDepth = max(sessionRestoreLayoutSuppressionDepth - 1, 0)
@@ -314,12 +317,15 @@ extension Workspace {
             return restoreSessionLayout(snapshot.layout)
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
+        let deviceProjectionPanelIDs = Set((snapshot.surfaceProjections ?? [])
+            .filter { $0.resource.machine.isDevice }.map(\.panelID))
 
         for entry in leafEntries {
             restorePane(
                 entry.paneId,
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
+                deviceProjectionPanelIDs: deviceProjectionPanelIDs,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 restorableAgentIndex: restorableAgentIndex, cloudProjectionRecordsByPanelID: cloudProjectionRecordsByPanelID,
@@ -1344,6 +1350,7 @@ extension Workspace {
         _ paneId: PaneID,
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        deviceProjectionPanelIDs: Set<UUID>,
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
@@ -1365,7 +1372,8 @@ extension Workspace {
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 restorableAgentIndex: restorableAgentIndex,
-                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId]
+                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId],
+                restoresDeviceProjection: deviceProjectionPanelIDs.contains(oldPanelId)
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1556,12 +1564,15 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        cloudProjectionRecord: SurfaceProjectionRecord? = nil
+        cloudProjectionRecord: SurfaceProjectionRecord? = nil,
+        restoresDeviceProjection: Bool = false
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
-        if cloudProjectionRecord?.resource.machine.isLocal == false,
-           let cloudProjectionRecord,
+        // Another Mac's terminal restores through the device link below, never
+        // through the Cloud VM reservation.
+        if let cloudProjectionRecord, !cloudProjectionRecord.resource.machine.isLocal,
+           !cloudProjectionRecord.resource.machine.isDevice, !restoresDeviceProjection,
            let restoredCloudPanelID = reserveRestoredCloudTerminalPane(
                snapshot: snapshot,
                projection: cloudProjectionRecord,
@@ -1574,6 +1585,9 @@ extension Workspace {
                     restoresLegacyRemoteDirectoryWithoutProvenance(snapshot)))
         switch snapshot.type {
         case .terminal:
+            if restoresDeviceProjection {
+                return restoreDeviceDisplayPanel(snapshot, in: paneId)
+            }
             let localTmuxStartCommand = sessionRestorePolicy
                 .localTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
             let snapshotRestorableAgent = localTmuxStartCommand == nil ? snapshot.terminal?.agent : nil
@@ -2616,6 +2630,7 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
+    @MainActor var terminalGeometryTransition: TerminalWorkContext.Transition = .unknown
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -4621,13 +4636,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // shared SSH control master that is still serving the moved terminal.
     private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
-
-#if DEBUG
-    func debugElapsedMs(since start: TimeInterval) -> String {
-        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-        return String(format: "%.2f", ms)
-    }
-#endif
 
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
@@ -6681,6 +6689,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             mirror.onTerminalPanelRemoved = { [weak self] panel in
                 guard let self else { return }
+                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panel.id)
                 terminalFontSizeChangeCoordinator?
                     .terminalDidLeaveWorkspace(
                         panel,
@@ -7543,6 +7552,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        if let status = terminalPanel(for: surfaceId)?.deviceAttachment { return status.presentation }
         if let failure = cloudMaterializationFailures[surfaceId] {
             return Self.cloudMaterializationFailurePresentation(
                 detail: failure.detail,
@@ -11187,14 +11197,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 }
             }
         }
-        // Seed deferred restore work only after the destination binding and
-        // persistent-SSH context have been retargeted. The resolver starts an
-        // asynchronous ownership scan, so publishing it earlier can race the
-        // adoption and reject a valid moved session.
+        // Seed deferred restore work after destination binding and persistent-
+        // SSH retargeting; early publication races asynchronous ownership scan.
         seedDetachedRestoredAgentState(from: detached)
         if detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended {
+            // Preserve the original relay owner across same-namespace moves;
+            // the destination remains remote for local lifecycle handling.
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[detached.panelId] =
-                didAdoptWorkspaceRemoteTracking ? id : detached.sessionRestoreWorkspaceId
+                detached.sessionRestoreWorkspaceId
         } else {
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: detached.panelId)
         }
@@ -13006,7 +13016,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let forkedPanel,
            remoteStartupCommand != nil,
            let workingDirectory {
-            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+            updateRemotePanelDirectoryWithMetadata(panelId: forkedPanel.id, directory: workingDirectory)
         }
         if forkedPanel == nil, let zoomedPaneId {
             _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
@@ -14111,7 +14121,10 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
         // A remote tmux mirror tab reorder propagates to tmux window order.
-        guard isRemoteTmuxMirror else { return }
+        // Mirror transactions send their desired order explicitly. Their local
+        // mutations, including rollback and remote updates, must not echo it.
+        guard isRemoteTmuxMirror,
+              !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
         _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
@@ -14278,6 +14291,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         guard !isRetiredFromOwningTabManager else { return }
+        let finishWork = beginTerminalGeometryTransition(.split)
+        defer { finishWork() }
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),
@@ -14692,6 +14707,12 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        let deviceLayoutExternal = remoteTmuxMirrorMutations.suppressesFocusActivation
+        // Capture the user's arrangement before deferred delivery: an incoming
+        // remote snapshot must not replace the intent while this event waits.
+        let deviceLayoutSnapshot = !deviceLayoutExternal
+            && cloudBindingState.projectedResources.values.contains(where: { $0.machine.isDevice })
+            ? deviceWorkspaceLayoutSnapshot() : nil
         geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce) { [weak self] in
             guard let self else { return }
             self.tmuxLayoutSnapshot = snapshot
@@ -14703,6 +14724,8 @@ extension Workspace: BonsplitDelegate {
                 userInfo: [
                     GhosttyNotificationKey.tabId: self.id,
                     GhosttyNotificationKey.topologyChanged: topologyChanged,
+                    DeviceWorkspaceLayoutHost.externalGeometryKey: deviceLayoutExternal,
+                    DeviceWorkspaceLayoutHost.layoutGeometryKey: deviceLayoutSnapshot as Any,
                 ]
             )
             self.scheduleTerminalGeometryReconcile()
