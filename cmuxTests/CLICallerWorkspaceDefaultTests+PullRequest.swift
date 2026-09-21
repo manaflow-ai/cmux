@@ -105,7 +105,7 @@ extension CLICallerWorkspaceDefaultTests {
         case "tty": environment["CMUX_CLI_TTY_NAME"] = "ttys123"
         case "worktree", "ambiguous": environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         case "window": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.hexWindowId.lowercased()]
-        case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.otherWorkspaceId]
+        case "window-mismatch": args += ["--workspace", Self.otherWorkspaceId, "--window", Self.focusedWorkspaceId]
         case "mismatch": args[1] = "https://github.com/other/repo/pull/123"
         case "invalid": args[1] = "https://example.com/pull/123"
         case "gh-failure": environment["GH_FAILURE"] = "1"
