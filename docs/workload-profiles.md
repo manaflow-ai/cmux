@@ -32,7 +32,7 @@ The exact source commit/tree still records which implementation ran.
 | Profile | Generation | Repository entrypoint | Meaning |
 | --- | ---: | --- | --- |
 | `cmux.macos.compile-admission` | 1 | `scripts/ci/workloads/macos-compile-admission.sh` | Resolve dependencies, use the canonical app-host compile script, compile the app-host test products, and validate the warning budget. |
-| `cmux.macos.dev-check` | 1 | `scripts/ci/workloads/macos-dev-check.sh` | Run an isolated direct Debug build into profile-owned DerivedData, with pinned Xcode/Rust/GhosttyKit preparation and no developer reload/socket/global-link lifecycle. |
+| `cmux.macos.dev-check` | 1 | `scripts/ci/workloads/macos-dev-check.sh` | Run the canonical tagged `reload.sh` build with a profile-owned unique tag, private DerivedData/SourcePackages, no launch, no global CLI links, local backend mode, and cloud dogfood disabled. |
 | `cmux.macos.app-host-test-shard` | 1 | `scripts/ci/workloads/macos-app-host-test-shard.sh` | Run one of six physical app-host shards as the same two deterministic logical selector batches used by CI, against an exact xctestrun input. |
 | `cmux.ci.guard` | 1 | `scripts/ci/workloads/ci-guard.sh` | Run the portable CI routing, runner-policy, required-check, shard-definition, and test-wiring guard set. |
 
