@@ -15,7 +15,7 @@ const key = `github/manaflow-ai/cmux/123/${digest}.zip`;
 const coreWrapper = `
 import { artifactHandler, ArtifactImport } from "./index.js";
 export { ArtifactImport };
-export default { fetch: artifactHandler };
+export default { fetch(request, env) { return artifactHandler(request, env); } };
 `;
 
 const boundWrapper = `
@@ -44,7 +44,7 @@ export class ArtifactImport extends ProductionImport {
     super(ctx, { ...env, ARTIFACTS: bucket });
   }
 }
-export default { fetch: artifactHandler };
+export default { fetch(request, env) { return artifactHandler(request, env); } };
 `;
 
 function r2Gate(method, fail = false) {
