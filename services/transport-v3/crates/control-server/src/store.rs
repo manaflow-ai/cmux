@@ -142,7 +142,7 @@ impl Store {
                 return Err(Error::Denied);
             }
             sqlx::query(
-                "UPDATE transport_v3_devices SET addresses=$3,metadata=$4 WHERE team_id=$1 AND peer_id=$2",
+                "UPDATE transport_v3_devices SET addresses=$3,metadata=COALESCE($4,metadata) WHERE team_id=$1 AND peer_id=$2",
             )
             .bind(&identity.team)
             .bind(peer.to_string())
