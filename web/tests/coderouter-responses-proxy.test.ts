@@ -215,6 +215,37 @@ describe("codex responses proxy session routing", () => {
     }]);
   });
 
+  test("fails over a capacity event in an NDJSON response", async () => {
+    const bodies = [
+      `${[
+        JSON.stringify({ type: "response.created" }),
+        JSON.stringify({ type: "error", code: "usage_limit_reached" }),
+      ].join("\n")}\n`,
+      `${JSON.stringify({ type: "response.output_text.delta", delta: "ok" })}\n`,
+    ];
+    const response = await capacityProxy((async () => new Response(bodies.shift()!, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('"delta":"ok"');
+    expect(cooldowns).toEqual(["acct-capacity"]);
+  });
+
+  test("preserves complete NDJSON streams without failover", async () => {
+    const body = `${[
+      JSON.stringify({ type: "response.created" }),
+      JSON.stringify({ type: "response.output_text.delta", delta: "full" }),
+    ].join("\n")}\n`;
+    const response = await capacityProxy((async () => new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/x-ndjson; charset=utf-8" },
+    })) as typeof fetch)(responsesRequest());
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+    expect(cooldowns).toEqual([]);
+  });
+
   test("fails over a capacity response returned as a non-2xx JSON body", async () => {
     const bodies = [
       JSON.stringify({ error: { code: "model_capacity", message: "Selected model is at capacity" } }),
