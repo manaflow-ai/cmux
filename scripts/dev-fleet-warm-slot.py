@@ -106,6 +106,18 @@ def distance(checkout: Path, older: str, newer: str) -> int | None:
         return None
 
 
+def first_parent_distance(checkout: Path, older: str, newer: str) -> int | None:
+    """Count the authoritative line only, excluding merged side-branch commits."""
+    if older == newer:
+        return 0
+    if not ancestor(checkout, older, newer):
+        return None
+    try:
+        return int(gout(checkout, "rev-list", "--count", "--first-parent", f"{older}..{newer}"))
+    except ValueError:
+        return None
+
+
 def changed_paths(checkout: Path, older: str, newer: str) -> list[str]:
     raw = gout(checkout, "diff", "--name-only", "--diff-filter=ACMRDTUXB", f"{older}..{newer}")
     return [line for line in raw.splitlines() if line]
@@ -1039,7 +1051,7 @@ def task_base(args: argparse.Namespace) -> dict[str, Any]:
             ):
                 return persist({"status": "cold", "reason": p["reason"], "plan": p})
 
-            main_distance = distance(
+            main_distance = first_parent_distance(
                 checkout,
                 str(gen["source_commit"]),
                 args.authoritative_main,
