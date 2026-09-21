@@ -4260,7 +4260,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     viewportReportSettleFrames = 0
                     viewportReportID &+= 1
                     awaitingViewportEcho = true
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
+                    MobileDebugLog.anchormux(
+                        "zoom.report grid=\(pending.columns)x\(pending.rows) "
+                            + "id=\(viewportReportID) retry=\(viewportReportRetries)"
+                    )
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
             }
@@ -4855,6 +4858,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         pendingViewportReport = pending
         viewportReportSettleFrames = 0
+    }
+
+    /// Retire an unresolved negotiation after the coordinator's relay retry
+    /// budget is exhausted. This leaves the last confirmed grant visible and
+    /// marks the current natural grid exhausted so stale replay frames cannot
+    /// restart the same negotiation.
+    public func markViewportReportRetryExhausted() {
+        viewportReportRetries = Self.maxViewportReportRetries
+        guard awaitingViewportEcho else { return }
+        awaitingViewportEcho = false
+        setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
     public func applyViewSize(cols: Int, rows: Int) {
