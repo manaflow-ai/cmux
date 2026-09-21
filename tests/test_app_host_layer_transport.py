@@ -96,18 +96,20 @@ class LayerTransportTests(unittest.TestCase):
         files.update(extras or {})
         return self.api.register(50, files)
 
-    def assemble(self, manifest, destination, identity):
+    def assemble(self, manifest, destination, identity, selected):
         self.restores.append(identity)
         self.assertEqual(identity, self.identity)
-        for name in t.NAMES:
+        for name in selected:
             self.assertEqual((manifest.parent / (name + ".aar")).read_bytes(), (self.root / (name + ".aar")).read_bytes())
+        for name in set(t.NAMES) - set(selected):
+            self.assertFalse((manifest.parent / (name + ".aar")).exists())
         self.assertFalse(destination.exists())
         (destination / "Build/Products").mkdir(parents=True)
-        (destination / "Build/Products/complete").write_text("all four verified")
+        (destination / "Build/Products/complete").write_text(",".join(selected))
 
-    def restore(self, callback=None):
+    def restore(self, callback=None, selected=None):
         t.restore_remote(self.api, self.reference, self.identity, self.expected,
-                         self.destination, callback or self.assemble)
+                         self.destination, callback or self.assemble, selected)
 
     def test_oversized_compressed_canonical_manifest_is_rejected_before_assembly(self):
         data = json.dumps(self.manifest).encode() + b" " * t.MAX_INDEX
@@ -149,20 +151,60 @@ class LayerTransportTests(unittest.TestCase):
                 with mock.patch.object(t, "current_identity", return_value=self.identity), mock.patch.object(t, "GitHub", return_value=self.api), \
                         mock.patch.dict(t.os.environ, {"GITHUB_REPOSITORY": "org/repo", "CMUX_RUN_HEAD_SHA": "a" * 40,
                                                      "GITHUB_OUTPUT": str(output), "GITHUB_ENV": str(envfile)}), \
-                        mock.patch.object(sys, "argv", [str(SCRIPT), "restore", str(self.destination), "--index-id", "50", "--index-digest", self.reference["artifact_digest"]]):
+                        mock.patch.object(sys, "argv", [str(SCRIPT), "restore", str(self.destination), "--index-id", "50", "--index-digest", self.reference["artifact_digest"], "--consumer", "tests-build-and-lag"]):
                     t.main()
                 self.assertEqual(output.read_text(), "hit=false\n")
                 self.assertFalse(envfile.exists())
                 self.assertFalse(self.destination.exists())
 
+    def test_unknown_consumer_cli_falls_back_without_adopting_destination(self):
+        output = self.root / "unknown.output"
+        envfile = self.root / "unknown.env"
+        with mock.patch.object(t, "current_identity", return_value=self.identity), mock.patch.object(t, "GitHub", return_value=self.api), \
+                mock.patch.dict(t.os.environ, {"GITHUB_REPOSITORY": "org/repo", "CMUX_RUN_HEAD_SHA": "a" * 40,
+                                             "GITHUB_OUTPUT": str(output), "GITHUB_ENV": str(envfile)}), \
+                mock.patch.object(sys, "argv", [str(SCRIPT), "restore", str(self.destination), "--index-id", "50",
+                                               "--index-digest", self.reference["artifact_digest"], "--consumer", "future-consumer"]):
+            t.main()
+        self.assertEqual(output.read_text(), "hit=false\n")
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(self.api.downloaded, [])
+
     def test_roundtrip_downloads_exact_pinned_ids_and_all_four_layers(self):
         self.restore()
         self.assertEqual(self.api.downloaded, [50, 10, 11, 12, 13])
-        self.assertEqual((self.destination / "Build/Products/complete").read_text(), "all four verified")
+        self.assertEqual((self.destination / "Build/Products/complete").read_text(), ",".join(t.NAMES))
         transfers = [json.loads(line.split(" ", 1)[1]) for line in self.output.getvalue().splitlines()
                      if line.startswith("CMUX_APP_HOST_LAYER_TRANSFER ")]
         self.assertEqual([row["layer"] for row in transfers], ["index", *t.NAMES])
         self.assertTrue(all(row["result"] == "success" and row["expected_zip_bytes"] > 0 for row in transfers))
+
+    def test_consumer_selection_downloads_only_authorized_required_layers(self):
+        selected = ("app-cli", "runtime", "tests")
+        self.restore(selected=selected)
+        self.assertEqual(self.api.downloaded, [50, 10, 11, 12])
+        self.assertEqual((self.destination / "Build/Products/complete").read_text(), ",".join(selected))
+        transfers = [json.loads(line.split(" ", 1)[1]) for line in self.output.getvalue().splitlines()
+                     if line.startswith("CMUX_APP_HOST_LAYER_TRANSFER ")]
+        self.assertEqual([row["layer"] for row in transfers], ["index", *selected])
+        assembly = [json.loads(line.split(" ", 1)[1]) for line in self.output.getvalue().splitlines()
+                    if line.startswith("CMUX_APP_HOST_LAYER_ASSEMBLY ")][-1]
+        self.assertEqual(assembly["layers"], list(selected))
+
+    def test_unselected_layer_provider_failure_does_not_block_consumer(self):
+        self.api.artifacts[13]["expired"] = True
+        self.api.data.pop(13)
+        self.restore(selected=("app-cli", "runtime", "tests"))
+        self.assertEqual(self.api.downloaded, [50, 10, 11, 12])
+        self.assertTrue(self.destination.is_dir())
+
+    def test_corrupt_required_selected_layer_blocks_assembly(self):
+        data = self.api.data[12]
+        self.api.data[12] = data[:-1] + bytes([data[-1] ^ 1])
+        with self.assertRaises(ValueError):
+            self.restore(selected=("app-cli", "runtime", "tests"))
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(self.restores, [])
 
     def test_expired_wrong_origin_or_prior_attempt_artifact_is_rejected(self):
         original = copy.deepcopy(self.api.artifacts[10])
