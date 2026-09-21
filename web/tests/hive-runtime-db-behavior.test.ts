@@ -3,7 +3,14 @@ import { randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
-import { bindHiveRuntimeJournal, readHiveRuntime } from "../services/vms/runtimeRegistry";
+import {
+  bindHiveRuntimeJournal,
+  readHiveRuntime,
+  resolveHiveRuntimeByMachineId,
+  resolveHiveRuntimeByProviderVmId,
+  resolveHiveRuntimeLivePlacement,
+  resolveHiveRuntimePlacement,
+} from "../services/vms/runtimeRegistry";
 
 const enabled = process.env.CMUX_DB_TEST === "1";
 const dbTest = enabled ? test : test.skip;
@@ -21,11 +28,12 @@ afterAll(async () => {
 });
 
 async function fixture() {
-  const [vm] = await db`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status)
-    values (${owner}, ${owner}, 'freestyle', 'hive-test', 'running') returning id`;
+  const providerVmId = `hive-provider-${randomUUID()}`;
+  const [vm] = await db`insert into cloud_vms (user_id, billing_team_id, provider, provider_vm_id, image_id, status)
+    values (${owner}, ${owner}, 'freestyle', ${providerVmId}, 'hive-test', 'running') returning id`;
   const [runtime] = await db`select id from cloud_runtimes where machine_id = ${vm.id}`;
   if (!runtime) throw new Error("VM insert did not create a durable runtime");
-  return { runtimeId: runtime.id as string, machineId: vm.id as string, generation: 1 };
+  return { runtimeId: runtime.id as string, machineId: vm.id as string, generation: 1, providerVmId };
 }
 
 dbTest("runtime and root/child identities survive compute deletion and a fresh read", async () => {
@@ -64,6 +72,61 @@ dbTest("journal binding rejects stale generation, machine, account and lineage b
   await db`update cloud_runtimes set placement_generation = 2 where id = ${placement.runtimeId}`;
   expect(await bind(input)).toBe(false);
   expect((await Effect.runPromise(readHiveRuntime(owner, placement.runtimeId)))?.runtime.journalSessionId).toBe(input.journalSessionId);
+});
+
+dbTest("runtime placement resolver fences owner and generation without waking", async () => {
+  const placement = await fixture();
+  const resolve = (value: Parameters<typeof resolveHiveRuntimePlacement>[0]) =>
+    Effect.runPromise(resolveHiveRuntimePlacement(value));
+  const current = await resolve({ ownerTeamId: owner, runtimeId: placement.runtimeId });
+  expect(current?.state).toBe("running");
+  expect(current?.machine?.id).toBe(placement.machineId);
+  expect(current?.providerVmId).toBe(placement.providerVmId);
+  expect((await Effect.runPromise(resolveHiveRuntimePlacement({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    expected: placement,
+  })))?.providerVmId).toBe(placement.providerVmId);
+  expect(await Effect.runPromise(resolveHiveRuntimeByMachineId({
+    ownerTeamId: owner,
+    machineId: placement.machineId,
+    expected: placement,
+  }))).toMatchObject({ runtime: { id: placement.runtimeId } });
+  expect(await Effect.runPromise(resolveHiveRuntimeByProviderVmId({
+    ownerTeamId: owner,
+    providerVmId: placement.providerVmId,
+    expected: placement,
+  }))).toMatchObject({ runtime: { id: placement.runtimeId } });
+  expect(await resolve({ ownerTeamId: "foreign", runtimeId: placement.runtimeId })).toBeNull();
+  expect(await resolve({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    expected: { ...placement, generation: 2 },
+  })).toBeNull();
+  expect(await resolve({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    expected: { ...placement, machineId: randomUUID() },
+  })).toBeNull();
+  await db`update cloud_vms set status = 'paused' where id = ${placement.machineId}`;
+  const paused = await resolve({ ownerTeamId: owner, runtimeId: placement.runtimeId });
+  expect(paused?.state).toBe("paused");
+  expect(paused?.providerVmId).toBe(placement.providerVmId);
+  expect((await Effect.runPromise(resolveHiveRuntimeLivePlacement({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+    expected: placement,
+  })))?.providerVmId).toBe(placement.providerVmId);
+  await db`update cloud_vms set status = 'failed' where id = ${placement.machineId}`;
+  const failed = await resolve({ ownerTeamId: owner, runtimeId: placement.runtimeId });
+  expect(failed?.state).toBe("unplaced");
+  expect(failed?.providerVmId).toBeNull();
+  expect(await Effect.runPromise(resolveHiveRuntimeLivePlacement({
+    ownerTeamId: owner,
+    runtimeId: placement.runtimeId,
+  }))).toBeNull();
+  await db`delete from cloud_vms where id = ${placement.machineId}`;
+  expect((await resolve({ ownerTeamId: owner, runtimeId: placement.runtimeId }))?.state).toBe("unplaced");
 });
 
 dbTest("schema enforces one runtime per VM and positive placement generations", async () => {

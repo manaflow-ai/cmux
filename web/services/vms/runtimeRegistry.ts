@@ -19,6 +19,22 @@ export type HiveRuntimeRecord = {
   readonly machine: typeof cloudVms.$inferSelect | null;
 };
 
+export type HiveRuntimePlacementState = "running" | "paused" | "provisioning" | "unplaced";
+
+export type HiveRuntimePlacementResolution = HiveRuntimeRecord & {
+  readonly state: HiveRuntimePlacementState;
+  readonly providerVmId: string | null;
+};
+
+export type HiveRuntimeLivePlacement = HiveRuntimePlacementResolution & {
+  readonly state: "running" | "paused";
+  readonly providerVmId: string;
+};
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function postgresErrorCode(cause: unknown): string | null {
   if (!cause || typeof cause !== "object") return null;
   const code = (cause as { code?: unknown }).code;
@@ -31,9 +47,126 @@ export function isCurrentHiveRuntimePlacement(
   runtime: CloudRuntimeRow,
   expected: HiveRuntimePlacement,
 ): boolean {
-  return Number.isSafeInteger(expected.generation) && expected.generation > 0 &&
+  return isUuid(expected.runtimeId) && isUuid(expected.machineId) &&
+    Number.isSafeInteger(expected.generation) && expected.generation > 0 &&
     runtime.id === expected.runtimeId && runtime.machineId === expected.machineId &&
     runtime.placementGeneration === expected.generation;
+}
+
+export function hiveRuntimePlacementState(
+  machine: typeof cloudVms.$inferSelect | null,
+): HiveRuntimePlacementState {
+  if (!machine) return "unplaced";
+  if (machine.status === "running") return "running";
+  if (machine.status === "paused") return "paused";
+  if (machine.status === "provisioning") return "provisioning";
+  return "unplaced";
+}
+
+function placementResolution(
+  record: HiveRuntimeRecord,
+): HiveRuntimePlacementResolution {
+  const state = hiveRuntimePlacementState(record.machine);
+  return {
+    ...record,
+    state,
+    providerVmId: state === "running" || state === "paused"
+      ? record.machine?.providerVmId ?? null
+      : null,
+  };
+}
+
+type HiveRuntimePlacementLookup = {
+  readonly ownerTeamId: string;
+  readonly runtimeId: string;
+  readonly expected?: HiveRuntimePlacement;
+};
+
+function resolveHiveRuntimeByWhere(
+  input: HiveRuntimePlacementLookup,
+  where: ReturnType<typeof and>,
+  operation: string,
+) {
+  return Effect.tryPromise({
+    try: async (): Promise<HiveRuntimePlacementResolution | null> => {
+      const [record] = await cloudDb().select({ runtime: cloudRuntimes, machine: cloudVms })
+        .from(cloudRuntimes)
+        .leftJoin(cloudVms, and(
+          eq(cloudVms.id, cloudRuntimes.machineId),
+          eq(cloudVms.ownerTeamId, cloudRuntimes.ownerTeamId),
+        ))
+        .where(where)
+        .limit(1);
+      if (!record) return null;
+      const expected = input.expected;
+      if (expected && !isCurrentHiveRuntimePlacement(record.runtime, expected)) return null;
+      return placementResolution(record);
+    },
+    catch: (cause) => new VmDatabaseError({ operation, cause }),
+  });
+}
+
+/**
+ * Resolves a durable runtime to its current machine placement. The expected
+ * tuple is an optional stale fence for callers that carried a placement across
+ * an asynchronous wake or provider operation. This resolver never wakes a VM.
+ */
+export function resolveHiveRuntimePlacement(input: {
+  readonly ownerTeamId: string;
+  readonly runtimeId: string;
+  readonly expected?: HiveRuntimePlacement;
+}) {
+  return resolveHiveRuntimeByWhere(
+    input,
+    and(eq(cloudRuntimes.id, input.runtimeId), eq(cloudRuntimes.ownerTeamId, input.ownerTeamId)),
+    "resolveHiveRuntimePlacement",
+  );
+}
+
+/** Resolves only a placement that can accept live provider operations. */
+export function resolveHiveRuntimeLivePlacement(input: {
+  readonly ownerTeamId: string;
+  readonly runtimeId: string;
+  readonly expected?: HiveRuntimePlacement;
+}) {
+  return resolveHiveRuntimePlacement(input).pipe(
+    Effect.map((resolution): HiveRuntimeLivePlacement | null => {
+      if (!resolution ||
+          (resolution.state !== "running" && resolution.state !== "paused") ||
+          !resolution.providerVmId) return null;
+      return resolution as HiveRuntimeLivePlacement;
+    }),
+  );
+}
+
+/** Resolves the runtime owning an internal cloud machine row. */
+export function resolveHiveRuntimeByMachineId(input: {
+  readonly ownerTeamId: string;
+  readonly machineId: string;
+  readonly expected?: HiveRuntimePlacement;
+}) {
+  return resolveHiveRuntimeByWhere(
+    { ...input, runtimeId: input.expected?.runtimeId ?? "" },
+    and(eq(cloudRuntimes.ownerTeamId, input.ownerTeamId), eq(cloudRuntimes.machineId, input.machineId)),
+    "resolveHiveRuntimeByMachineId",
+  );
+}
+
+/** Resolves a runtime from the provider VM id used by legacy Cloud routes. */
+export function resolveHiveRuntimeByProviderVmId(input: {
+  readonly ownerTeamId: string;
+  readonly providerVmId: string;
+  readonly expected?: HiveRuntimePlacement;
+}) {
+  return resolveHiveRuntimeByWhere(
+    { ...input, runtimeId: input.expected?.runtimeId ?? "" },
+    and(
+      eq(cloudRuntimes.ownerTeamId, input.ownerTeamId),
+      eq(cloudVms.providerVmId, input.providerVmId),
+      eq(cloudVms.ownerTeamId, input.ownerTeamId),
+    ),
+    "resolveHiveRuntimeByProviderVmId",
+  );
 }
 
 /** Reads account-visible identity even when its compute row has disappeared. */
