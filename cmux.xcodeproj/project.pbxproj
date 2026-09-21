@@ -3531,6 +3531,7 @@
 		F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 		0FA9A04F5E6A7466E7F5D326 /* UpdatePillUITests+MinimalMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5183B803E4A874F88AE373B0 /* UpdatePillUITests+MinimalMode.swift */; };
 		C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
+		D7E000010000000000000001 /* UpdateStateDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7E000010000000000000002 /* UpdateStateDebugWindow.swift */; };
 		A5001208 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001218 /* UpdateTitlebarAccessory.swift */; };
 		C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */; };
 		F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */ = {isa = PBXBuildFile; fileRef = F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */; };
@@ -7346,6 +7347,7 @@
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		5183B803E4A874F88AE373B0 /* UpdatePillUITests+MinimalMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdatePillUITests+MinimalMode.swift"; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
+		D7E000010000000000000002 /* UpdateStateDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateStateDebugWindow.swift; sourceTree = "<group>"; };
 		A5001218 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
 		C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/URLRequest+BrowserFailedNavigation.swift"; sourceTree = "<group>"; };
 		F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VaultAgentProcessScanner+CodexSessionCwd.swift"; sourceTree = "<group>"; };
@@ -8463,6 +8465,7 @@
 				C4160A070000000000000002 /* TitlebarLayoutDebugWindow.swift */,
 				DE000A010000000000000002 /* DevWindowDisplayDefault.swift */,
 				DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */,
+				D7E000010000000000000002 /* UpdateStateDebugWindow.swift */,
 				DC5DC5DC0000000000000002 /* CmuxSidebarActionDispatch.swift */,
 				F50030050000000000000002 /* TitlebarAccessoryContainerView.swift */,
 				F50030060000000000000002 /* TitlebarAccessoryHostingView.swift */,
@@ -14496,6 +14499,7 @@
 					C01E00020000000000000001 /* TokenTheme+AppKit.swift in Sources */,
 				A5001501 /* UITestRecorder.swift in Sources */,
 				A500120D /* UpdateLogStore.swift in Sources */,
+				D7E000010000000000000001 /* UpdateStateDebugWindow.swift in Sources */,
 				A5001208 /* UpdateTitlebarAccessory.swift in Sources */,
 				C2035A070000000000000001 /* URLRequest+BrowserFailedNavigation.swift in Sources */,
 				F76550040000000000000001 /* VaultAgentProcessScanner+CodexSessionCwd.swift in Sources */,
