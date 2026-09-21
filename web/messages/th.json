@@ -387,7 +387,16 @@
       "revoked": "เพิกถอนแล้ว",
       "relaySettings": "การตั้งค่ารีเลย์",
       "relaySettingsDescription": "เลือกเซิร์ฟเวอร์รีเลย์ที่ทีมนี้ใช้ ป้อน URL หนึ่งรายการต่อบรรทัด",
-      "saveRelaySettings": "บันทึกการตั้งค่ารีเลย์"
+      "saveRelaySettings": "บันทึกการตั้งค่ารีเลย์",
+      "eyebrow": "คลาวด์ / อุปกรณ์",
+      "scopeActive": "กำลังแสดงทีมนี้",
+      "emptyTitle": "ยังไม่มีอุปกรณ์ที่เชื่อมต่อ",
+      "emptyDescription": "เมื่ออุปกรณ์ cmux จับคู่กับทีมนี้แล้ว อุปกรณ์จะแสดงที่นี่พร้อมแพลตฟอร์ม เวอร์ชัน และการควบคุมการเข้าถึง",
+      "revoking": "กำลังเพิกถอน…",
+      "registeredDevices": "อุปกรณ์ที่ลงทะเบียน",
+      "activeDevices": "อุปกรณ์ที่ใช้งานอยู่",
+      "directoryRevision": "รุ่นแก้ไขของรายการ",
+      "savingRelaySettings": "กำลังบันทึก…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "แชร์กับทีม",
