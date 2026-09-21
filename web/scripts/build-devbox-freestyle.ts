@@ -596,7 +596,7 @@ try {
   // path while keeping the operation idempotent across a rebake.
   await step(
     "cmux-tui-first-terminal",
-    `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json session current snapshot`)} >/tmp/cmux-first-workspaces.json && ` +
+    `(${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json session current snapshot`)} >/tmp/cmux-first-workspaces.json || :); ` +
       `if ! jq -e '.. | objects | select(.terminal_id? != null)' /tmp/cmux-first-workspaces.json >/dev/null 2>&1; then ` +
       `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json workspace create --name Cloud`)} >/dev/null && ` +
       `${cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json session current snapshot`)} >/tmp/cmux-first-workspaces.json; fi && ` +
