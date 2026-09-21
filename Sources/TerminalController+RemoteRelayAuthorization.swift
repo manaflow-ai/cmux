@@ -156,7 +156,13 @@ extension TerminalController {
         // workspace can also contain local/browser panels created by the user;
         // container membership alone must never authorize local input, shell
         // creation, or scrollback reads for those panels.
-        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds
+        // A moved remote terminal may remain in the destination's remote
+        // lifecycle set when both workspaces share a relay namespace. Its
+        // launch provenance is still owned by the original workspace, so it
+        // must not enter the destination relay's authorized surface set.
+        var surfaceIDs = workspace.activeRemoteTerminalSurfaceIds.filter {
+            workspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[$0] == ownerWorkspaceID
+        }
         for mirror in workspace.remoteTmuxWindowMirrors.values {
             surfaceIDs.formUnion(mirror.surfaceIDsInLayoutOrder)
         }
@@ -201,6 +207,28 @@ extension TerminalController {
               workspace.activeRemoteSessionControllerID == connectionID else { return false }
         guard let surfaceID = surfaceID ?? routing.surfaceID else { return true }
         return workspace.isRemoteTerminalContext(surfaceID)
+    }
+
+    /// A destination workspace can retain a moved remote surface for local
+    /// lifecycle handling while the relay owner remains the launch workspace.
+    /// Read paths must apply that same provenance boundary before returning
+    /// surface IDs or summaries.
+    func remoteRelaySurfaceIsOwnedByWorkspace(
+        _ surfaceID: UUID,
+        workspace: Workspace,
+        ownerWorkspaceID: UUID
+    ) -> Bool {
+        guard workspace.id == ownerWorkspaceID,
+              workspace.isRemoteTerminalContext(surfaceID) else {
+            return false
+        }
+        if let origin = workspace.surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[surfaceID] {
+            return origin == ownerWorkspaceID
+        }
+        if case .pane = workspace.remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
+            return true
+        }
+        return false
     }
 
     /// Checks an ingress-authorized request again in the same main-actor turn
