@@ -271,6 +271,9 @@ jobs:
       - name: Validate required checks report for the merge queue
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate shallow complexity comparison fetching
+        run: python3 tests/test_ci_fetch_complexity_base.py
+
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
