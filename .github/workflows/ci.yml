@@ -1180,6 +1180,27 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run main window zoom placement regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The bulk app-host classifier tolerates ordinary assertion failures.
+          # Window placement regressions must fail the shard directly while
+          # reusing the compile-admission product.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -only-testing:cmuxTests/MainWindowZoomPlacementTests \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 60 \
+            test-without-building 2>&1 | tee "$test_log"
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/MainWindowZoomPlacementTests
+
       - name: Run bundled command PATH regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1906,13 +1927,15 @@ jobs:
           }
 
           run_unit_tests() {
-            local logical_shard
+            local logical_shard combined_status=0
             for logical_shard in "${LOGICAL_SHARDS[@]}"; do
               run_unit_test_batch "$logical_shard" || {
-                local batch_status=$?
-                return "$batch_status"
+                # Keep the other batch visible after a failure, without allowing
+                # a later successful batch to turn this worker green.
+                combined_status=$?
               }
             done
+            return "$combined_status"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still

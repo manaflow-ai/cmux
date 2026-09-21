@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import CmuxWindowing
 import Testing
 
@@ -369,5 +369,335 @@ struct MainWindowVisibleFrameFitCoreTests {
         #expect(restored.minY == Self.rightDisplay.visibleFrame.minY)
         #expect(restored.width == CGFloat(savedFrame.width))
         #expect(restored.height == CGFloat(savedFrame.height))
+    }
+
+    @Test func displayDisconnectMovesRightStrandedWindowIntoRemainingDisplay() throws {
+        let stranded = CGRect(x: 1_520, y: 120, width: 900, height: 600)
+
+        let repaired = try #require(core.repairedFrame(
+            for: stranded,
+            displays: [Self.builtInDisplay],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight,
+            mode: .visibleFrame
+        ))
+
+        #expect(Self.builtInDisplay.visibleFrame.contains(repaired))
+        #expect(repaired.width == stranded.width)
+        #expect(repaired.height == stranded.height)
+    }
+
+    @Test func nativeFullscreenReconnectDefersToAppKit() {
+        let external = SessionDisplayGeometry(
+            displayID: 88,
+            stableID: "external-reconnected",
+            frame: CGRect(x: 1_512, y: -211, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 1_512, y: -187, width: 2_560, height: 1_416)
+        )
+        let staleFullscreenFrame = CGRect(x: 1_512, y: -497, width: 2_560, height: 1_403)
+
+        let repaired = core.repairedFrame(
+            for: staleFullscreenFrame,
+            displays: [Self.builtInDisplay, external],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight,
+            mode: .nativeFullscreen
+        )
+
+        #expect(repaired == nil)
+    }
+
+    @Test func zoomedWindowAppActivationRestoresCurrentVisibleFrame() throws {
+        let shrunkZoomedFrame = CGRect(x: 0, y: 0, width: 2_560, height: 1_100)
+
+        let repaired = try #require(core.repairedFrame(
+            for: shrunkZoomedFrame,
+            displays: [Self.rightDisplay],
+            minimumWidth: Self.minimumWidth,
+            minimumHeight: Self.minimumHeight,
+            mode: .zoomed
+        ))
+
+        #expect(repaired == Self.rightDisplay.visibleFrame)
+    }
+}
+
+@Suite("Main window zoom intent")
+struct MainWindowZoomIntentTests {
+    @Test func userPlacementClearsZoomIntent() {
+        var state = MainWindowZoomIntentState()
+        state.recordZoom(isZoomed: true)
+
+        state.recordUserPlacement()
+
+        #expect(!state.wantsZoomedFrame)
+    }
+}
+
+@MainActor
+@Suite("Main window zoom placement callbacks", .serialized)
+struct MainWindowZoomPlacementTests {
+    enum RampingTopology: CaseIterable, Equatable, Sendable {
+        case missingStableIdentity
+        case degenerateVisibleFrame
+    }
+
+    @Test(arguments: RampingTopology.allCases)
+    func untrustedDisplayTopologyPreservesZoomedMonitor(_ rampingTopology: RampingTopology) throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let transientFrame = originalFrame.offsetBy(dx: originalFrame.width * 0.75, dy: 0)
+            let transientDisplay = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: rampingTopology == .missingStableIdentity ? nil : "built-in",
+                frame: transientFrame,
+                visibleFrame: transientFrame
+            )
+            var rampingDisplays = [transientDisplay]
+            if rampingTopology == .degenerateVisibleFrame {
+                rampingDisplays.append(SessionDisplayGeometry(
+                    displayID: 77,
+                    stableID: "external",
+                    frame: originalFrame,
+                    visibleFrame: .zero
+                ))
+            }
+            let core = MainWindowVisibleFrameFitCore()
+            #expect(core.trustedTopologySignature(of: rampingDisplays) == nil)
+            // The titlebar remains reachable, so the earlier reachability
+            // safety net does not move this window before zoom reconciliation.
+            #expect(AppDelegate.reconciledFrameAfterScreenChange(
+                frame: originalFrame,
+                availableDisplays: rampingDisplays
+            ) == nil)
+
+            let reconciler = MainWindowFrameReconciler()
+            reconciler.repair(
+                displays: rampingDisplays,
+                windows: [window],
+                trigger: .displayTopology(changed: false)
+            )
+
+            #expect(window.frame == originalFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+
+            let settledDisplays = [
+                SessionDisplayGeometry(
+                    displayID: 77,
+                    stableID: "external",
+                    frame: originalFrame,
+                    visibleFrame: originalFrame
+                ),
+                SessionDisplayGeometry(
+                    displayID: 42,
+                    stableID: "built-in",
+                    frame: originalFrame.offsetBy(dx: originalFrame.width, dy: 0),
+                    visibleFrame: originalFrame.offsetBy(dx: originalFrame.width, dy: 0)
+                ),
+            ]
+            _ = try #require(core.trustedTopologySignature(of: settledDisplays))
+            reconciler.repair(
+                displays: settledDisplays,
+                windows: [window],
+                trigger: .displayTopology(changed: true)
+            )
+
+            // Fitting the ramping snapshot would make the built-in display
+            // overlap most of the window here, permanently changing its monitor.
+            #expect(window.frame == originalFrame)
+        }
+    }
+
+    @Test func trustedUnchangedTopologyUpdatesZoomedVisibleFrame() throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let displayFrame = CGRect(
+                x: originalFrame.minX,
+                y: originalFrame.minY,
+                width: originalFrame.width,
+                height: originalFrame.height + 24
+            )
+            let beforeDockResize = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: "built-in",
+                frame: displayFrame,
+                visibleFrame: originalFrame
+            )
+            let dockInsetFrame = CGRect(
+                x: originalFrame.minX + 40,
+                y: originalFrame.minY + 50,
+                width: originalFrame.width - 40,
+                height: originalFrame.height - 50
+            )
+            let afterDockResize = SessionDisplayGeometry(
+                displayID: 42,
+                stableID: "built-in",
+                frame: displayFrame,
+                visibleFrame: dockInsetFrame
+            )
+            let core = MainWindowVisibleFrameFitCore()
+            let previousSignature = try #require(core.trustedTopologySignature(of: [beforeDockResize]))
+            #expect(core.trustedTopologySignature(of: [afterDockResize]) == previousSignature)
+
+            MainWindowFrameReconciler().repair(
+                displays: [afterDockResize],
+                windows: [window],
+                trigger: .displayTopology(changed: false)
+            )
+
+            #expect(window.frame == dockInsetFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func lifecycleRepairWithoutStableDisplayIdentityRestoresZoom(isRestoration: Bool) throws {
+        try withZoomedWindow { window, _ in
+            let originalFrame = window.frame
+            let display = SessionDisplayGeometry(
+                displayID: 42,
+                frame: originalFrame,
+                visibleFrame: originalFrame
+            )
+            var shrunk = originalFrame
+            shrunk.size.height -= 80
+            window.setFrameForManagedPlacement(shrunk, display: false)
+            #expect(window.frame != originalFrame)
+            #expect(window.cmuxWantsZoomedFrame)
+            #expect(MainWindowVisibleFrameFitCore().trustedTopologySignature(of: [display]) == nil)
+
+            MainWindowFrameReconciler().repair(
+                displays: [display],
+                windows: [window],
+                trigger: isRestoration ? .restorationCheckpoint : .applicationActivation
+            )
+
+            #expect(window.frame == originalFrame)
+        }
+    }
+
+    @Test func titlebarClickWithoutMovementPreservesZoomRecovery() throws {
+        try withZoomedWindow { window, _ in
+            let mouseDown = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 200, y: window.frame.height - 12),
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            ))
+            let beforeClick = window.frame
+
+            window.performDrag(with: mouseDown)
+
+            #expect(window.frame == beforeClick)
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    @Test func confirmedWindowMoveClearsZoomIntent() throws {
+        try withZoomedWindow { window, delegate in
+            delegate.windowWillMove?(Notification(name: NSWindow.willMoveNotification, object: window))
+            var placed = window.frame
+            placed.origin.x += 40
+            placed.size.width -= 100
+            window.setFrame(placed, display: false)
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
+    @Test func nativeTilingLiveResizeClearsZoomWithoutCallingSetFrameDuringTracking() throws {
+        try withZoomedWindow { window, delegate in
+            // AppKit's native tile animation emits live-resize callbacks but
+            // bypasses CmuxMainWindow.setFrame throughout the animation.
+            delegate.windowWillStartLiveResize?(Notification(
+                name: NSWindow.willStartLiveResizeNotification,
+                object: window
+            ))
+            var tiled = window.frame
+            tiled.size.width /= 2
+            window.setFrame(tiled, display: false)
+            delegate.windowDidEndLiveResize?(Notification(
+                name: NSWindow.didEndLiveResizeNotification,
+                object: window
+            ))
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
+    @Test func automaticOriginChangesPreserveZoomRecovery() throws {
+        try withZoomedWindow { window, _ in
+            window.setFrameOrigin(NSPoint(x: window.frame.minX + 20, y: window.frame.minY))
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    @Test func foreignWindowPlacementCallbacksDoNotClearZoomIntent() throws {
+        try withZoomedWindow { window, delegate in
+            let foreign = NSWindow(
+                contentRect: NSRect(x: 50, y: 50, width: 400, height: 300),
+                styleMask: [.titled, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            foreign.isReleasedWhenClosed = false
+            defer { foreign.close() }
+            delegate.windowWillMove?(Notification(name: NSWindow.willMoveNotification, object: foreign))
+            delegate.windowWillStartLiveResize?(Notification(
+                name: NSWindow.willStartLiveResizeNotification,
+                object: foreign
+            ))
+
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    private func withZoomedWindow(
+        _ body: (CmuxMainWindow, any NSWindowDelegate) throws -> Void
+    ) throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.screens.first)
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: screen.visibleFrame.minX + 50, y: screen.visibleFrame.minY + 50, width: 600, height: 400),
+            styleMask: [.titled, .resizable, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = MainWindowController(window: window)
+        defer { window.close() }
+        window.zoom(nil)
+        try #require(window.isZoomed)
+        try body(window, controller)
+    }
+
+    private func shrinkAndExpectZoomRecovery(_ window: CmuxMainWindow) {
+        var shrunk = window.frame
+        shrunk.size.height -= 80
+        window.setFrameForManagedPlacement(shrunk, display: false)
+
+        #expect(!window.isZoomed)
+        #expect(window.cmuxWantsZoomedFrame)
+        repairOnActivation(window)
+        #expect(NSScreen.screens.contains { $0.visibleFrame == window.frame })
+    }
+
+    private func expectActivationPreservesPlacement(_ window: CmuxMainWindow) {
+        let placed = window.frame
+        #expect(!window.isZoomed)
+        #expect(!window.cmuxWantsZoomedFrame)
+        repairOnActivation(window)
+        #expect(window.frame == placed)
+    }
+
+    private func repairOnActivation(_ window: CmuxMainWindow) {
+        let displays = NSScreen.screens.enumerated().map { index, screen in
+            SessionDisplayGeometry(displayID: UInt32(index + 1), frame: screen.frame, visibleFrame: screen.visibleFrame)
+        }
+        MainWindowFrameReconciler().repair(displays: displays, windows: [window], trigger: .applicationActivation)
     }
 }
