@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import glob
 import hashlib
 import json
@@ -339,6 +340,57 @@ def source_identity(expected_commit: str | None, expected_tree: str | None) -> d
         if line and line[0] in {"+", "U"}:
             raise ProfileError("checkout submodule identity differs from the frozen source")
     return {"repository": "manaflow-ai/cmux", "commit": commit, "tree": tree}
+
+
+class CheckoutMutationLease:
+    def __init__(self, profile: dict[str, Any]):
+        self.fd: int | None = None
+        if profile["environment_class"] != "isolated-build":
+            return
+        raw = git_text("rev-parse", "--git-common-dir")
+        common = Path(raw)
+        if not common.is_absolute():
+            common = ROOT / common
+        common = common.resolve(strict=True)
+        if not common.is_dir():
+            raise ProfileError("checkout metadata directory is unavailable")
+        lock_path = common / "cmux-workload-isolated-build.lock"
+        try:
+            descriptor = os.open(
+                lock_path,
+                os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+                0o600,
+            )
+        except OSError as error:
+            raise ProfileError("checkout mutation lease is unavailable") from error
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_size != 0
+            ):
+                raise ProfileError("checkout mutation lease file is unsafe")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise ProfileError("checkout mutation lease is busy") from error
+            self.fd = descriptor
+        except Exception:
+            os.close(descriptor)
+            raise
+
+    def __enter__(self) -> "CheckoutMutationLease":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        del exc_type, exc, traceback
+        if self.fd is not None:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+            os.close(self.fd)
+            self.fd = None
 
 
 def normalized_os() -> str:
@@ -861,32 +913,33 @@ def run_profile(args: argparse.Namespace) -> int:
     started_ms = time.time_ns() // 1_000_000
     started_monotonic = time.monotonic()
     timed_out = False
-    child = subprocess.Popen(
-        ["/bin/bash", str(ROOT / profile["entrypoint"])],
-        cwd=ROOT,
-        stdin=subprocess.DEVNULL,
-        env=environment,
-        start_new_session=True,
-    )
-    try:
-        exit_code = child.wait(timeout=profile["timeout"]["seconds"])
-    except subprocess.TimeoutExpired:
-        timed_out = True
+    with CheckoutMutationLease(profile):
+        child = subprocess.Popen(
+            ["/bin/bash", str(ROOT / profile["entrypoint"])],
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            env=environment,
+            start_new_session=True,
+        )
         try:
-            os.killpg(child.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            exit_code = child.wait(timeout=5)
+            exit_code = child.wait(timeout=profile["timeout"]["seconds"])
         except subprocess.TimeoutExpired:
+            timed_out = True
             try:
-                os.killpg(child.pid, signal.SIGKILL)
+                os.killpg(child.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            child.wait()
-            exit_code = 124
-    elapsed = time.monotonic() - started_monotonic
-    settled_cleanly, cleanup_state = settle_process_group(child.pid)
+            try:
+                exit_code = child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait()
+                exit_code = 124
+        elapsed = time.monotonic() - started_monotonic
+        settled_cleanly, cleanup_state = settle_process_group(child.pid)
     ended_ms = time.time_ns() // 1_000_000
     artifacts, missing_artifacts = collect_artifacts(profile, state_root)
 
