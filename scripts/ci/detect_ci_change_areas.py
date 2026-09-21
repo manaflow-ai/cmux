@@ -64,13 +64,18 @@ CI_CONTROL_PLANE_ONLY = frozenset({
 
 
 def forces_all_areas(path: str) -> bool:
-    # Only the product-area router itself and its caller force every product
-    # lane. Reusable guard workflow and unrelated CI implementation changes are
-    # validated by their owning Linux guards instead of masquerading as web/app
-    # source changes.
+    # Unknown direct CI implementation files remain fail-open. Narrow only
+    # explicitly-owned control-plane helpers whose product-area semantics are
+    # covered by a dedicated lane.
+    direct_ci_python = (
+        path.startswith("scripts/ci/")
+        and path.endswith(".py")
+        and "/" not in path[len("scripts/ci/") :]
+    )
+    if direct_ci_python and path not in CI_CONTROL_PLANE_ONLY:
+        return True
     return path in {
         CI_WORKFLOW_PATH,
-        "scripts/ci/detect_ci_change_areas.py",
         "tests/test_ci_change_areas.py",
     }
 
