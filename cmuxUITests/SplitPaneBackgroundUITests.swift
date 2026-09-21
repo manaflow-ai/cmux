@@ -56,12 +56,12 @@ final class SplitPaneBackgroundUITests: XCTestCase {
             },
             "Expected control socket at \(socketPath); diagnostics=\(loadDiagnostics())"
         )
-        var terminal: (workspaceID: String, surfaceID: String)?
+        var target: (workspaceID: String, surfaceID: String)?
         XCTAssertTrue(waitForCondition(timeout: 20) {
-            terminal = self.terminalSurface()
-            return terminal != nil
+            target = self.terminalSurface()
+            return target != nil
         }, "Expected a terminal surface in the selected workspace")
-        let source = try XCTUnwrap(terminal)
+        let source = try XCTUnwrap(target)
         let sourceSurfaceID = source.surfaceID
         // Cmd+Shift+D splits the focused panel, so make the source terminal
         // the focused one explicitly instead of relying on launch focus.
