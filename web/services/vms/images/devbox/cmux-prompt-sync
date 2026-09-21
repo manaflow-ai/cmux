@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import tempfile
 import time
+import subprocess
+import threading
 import urllib.request
 
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
@@ -55,16 +57,53 @@ def fetch_name(url):
     return payload
 
 
+def tui(*args):
+    binary = os.environ.get("CMUX_TUI_BIN", "/home/cmux/.cmux/bin/cmux-tui")
+    return subprocess.run([binary, "--session", "cloud", *args], capture_output=True, text=True, timeout=10, check=False)
+
+
+def seed_terminal(ready):
+    terminal = None
+    for _ in range(30):
+        if terminal:
+            break
+        result = tui("workspace", "create", "--name", "Cloud", "--json")
+        if result.returncode == 0:
+            try:
+                value = json.loads(result.stdout)
+                terminal = next((item.get("terminal_id") for item in walk(value) if isinstance(item, dict) and item.get("terminal_id")), None)
+            except (ValueError, TypeError):
+                pass
+        if not terminal:
+            time.sleep(1)
+    if terminal and ready.wait(timeout=30):
+        tui("terminal", terminal, "history", "clear", "--quiet")
+        tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
+
+
+def walk(value):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from walk(child)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", type=Path, default=Path("/etc/cmux"))
     parser.add_argument("--url", default="https://reflection.cmux.internal/name")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
+    ready = threading.Event()
+    threading.Thread(target=seed_terminal, args=(ready,), daemon=True).start()
     delay = 1
     while True:
         try:
             publish(args.directory, fetch_name(args.url))
+            ready.set()
             delay = 1
             if args.once:
                 return
