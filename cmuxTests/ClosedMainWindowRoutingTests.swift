@@ -2434,6 +2434,68 @@ struct FinalCloseRoutingRegressionTests {
 #endif
     }
 
+    @Test("Retiring a windowless route during its owner's finalization does not recurse")
+    func retiringWindowlessRouteDuringOwnerFinalizationDoesNotRecurse() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        route.window = nil
+        window.orderOut(nil)
+
+        // Finalizing the owner marks it closed before it drops its workspaces.
+        // Teardown observers (sidebar, notifications, remote mirrors) resolve
+        // workspace owners inside that window. The lookup reaches the
+        // windowless route, retires it, and the retirement resolves owners
+        // again for the same route.
+        var lookupsDuringFinalization = 0
+        let observation = workspace.objectWillChange.sink { _ in
+            MainActor.assumeIsolated {
+                guard manager.isFinalizedForWindowClose else { return }
+                lookupsDuringFinalization += 1
+                _ = app.tabManagerFor(tabId: workspace.id)
+            }
+        }
+        defer { observation.cancel() }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+
+        #expect(lookupsDuringFinalization > 0)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.tabManagerFor(tabId: workspace.id) == nil)
+    }
+
     @Test("Windowless owner rejects a same-identifier close request")
     func windowlessOwnerRejectsSameIdentifierCloseRequest() throws {
         _ = NSApplication.shared
