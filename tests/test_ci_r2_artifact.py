@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("r2_artifact", ROOT / "scripts/ci/restore-r2-artifact.py")
 transport = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(transport)
+measurement_spec = importlib.util.spec_from_file_location(
+    "r2_artifact_measurement", ROOT / "scripts/ci/measure-r2-artifact-run.py")
+measurement = importlib.util.module_from_spec(measurement_spec)
+measurement_spec.loader.exec_module(measurement)
 
 
 class TransportTests(unittest.TestCase):
@@ -236,6 +240,77 @@ class TransportTests(unittest.TestCase):
         self.assertFalse(self.restore())
         self.assertEqual(existing.read_text(), "untouched")
         self.assertEqual(list(self.destination.iterdir()), [existing])
+
+
+class MeasurementTests(unittest.TestCase):
+    def test_run_summary_reports_wall_runner_transport_and_byte_evidence(self):
+        producer = {
+            "id": 1,
+            "name": "macOS compile admission",
+            "started_at": "2026-09-21T10:00:00Z",
+            "completed_at": "2026-09-21T10:10:00Z",
+            "steps": [{"name": "Upload compiled app-host test product",
+                       "completed_at": "2026-09-21T10:10:00Z"}],
+        }
+        jobs = [producer]
+        records = {}
+        for index in range(1, 7):
+            job_id = 100 + index
+            jobs.append({
+                "id": job_id,
+                "name": f"app-host unit tests ({index}/6)",
+                "started_at": f"2026-09-21T10:{10 + index:02d}:00Z",
+                "completed_at": f"2026-09-21T10:{15 + index:02d}:00Z",
+                "conclusion": "success",
+            })
+            records[job_id] = [
+                {"_marker": "CMUX_TEST_PRODUCT_TRANSFER", "transport": "github",
+                 "artifact_id": "123", "archive_bytes": 90},
+                {"_marker": "CMUX_R2_ARTIFACT_ATTEMPT", "fallback_reason": "RuntimeError"},
+                {"_marker": "CMUX_TEST_PRODUCT_RESTORE", "route": "github",
+                 "elapsed_seconds": 2.5},
+            ]
+        jobs.append({
+            "id": 200,
+            "name": "tests-build-and-lag",
+            "started_at": "2026-09-21T10:25:00Z",
+            "completed_at": "2026-09-21T10:30:00Z",
+            "conclusion": "success",
+        })
+        records[200] = [
+            {"_marker": "CMUX_TEST_PRODUCT_TRANSFER", "transport": "r2", "cache": "hit",
+             "artifact_id": "123", "downloaded_bytes": 100},
+            {"_marker": "CMUX_TEST_PRODUCT_RESTORE", "route": "r2", "r2_result": "hit",
+             "elapsed_seconds": 2.0},
+        ]
+
+        with patch.object(measurement, "gh_json", return_value={"size_in_bytes": 100}):
+            result = measurement.summarize(
+                {"id": 999, "html_url": "https://example/run/999", "event": "workflow_dispatch",
+                 "status": "completed", "conclusion": "success"},
+                jobs, records)
+
+        self.assertTrue(result["complete_consumer_set"])
+        self.assertEqual(result["consumer_count"], 7)
+        self.assertEqual(result["producer_to_last_consumer_seconds"], 1800.0)
+        self.assertEqual(result["artifact_ready_to_last_consumer_seconds"], 1200.0)
+        self.assertEqual(result["aggregate_consumer_runner_minutes"], 35.0)
+        self.assertEqual(result["aggregate_producer_and_consumer_runner_minutes"], 45.0)
+        self.assertEqual(result["transport_counts"], {"r2": 1, "github": 6, "unknown": 0})
+        self.assertEqual(result["cache_results"], {"hit": 1})
+        self.assertEqual(result["fallback_reasons"], {"RuntimeError": 6})
+        self.assertEqual(result["provider_artifact_bytes"], 100)
+        self.assertEqual(result["observed_consumer_payload_bytes"], 640)
+
+    def test_marker_parser_ignores_unrelated_and_malformed_lines(self):
+        log = (
+            "prefix CMUX_TEST_PRODUCT_TRANSFER {\\\"transport\\\":\\\"r2\\\",\\\"cache\\\":\\\"fill\\\"}\\n"
+            "CMUX_TEST_PRODUCT_TRANSFER garbage\\n"
+            "other output\\n"
+        )
+        self.assertEqual(measurement.marker_records(log), [{
+            "transport": "r2", "cache": "fill", "_marker": "CMUX_TEST_PRODUCT_TRANSFER"
+        }])
 
 
 if __name__ == "__main__":
