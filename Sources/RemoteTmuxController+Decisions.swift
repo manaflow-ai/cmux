@@ -222,11 +222,9 @@ extension RemoteTmuxController {
     /// Rejected synchronous sends rebuild from the connection ledger; an async
     /// tmux `%error` triggers an authoritative `list-windows` reconciliation.
     ///
-    /// `orderedPanelIds` is the full tab-strip order; panels that are not tmux
-    /// window tabs (a sibling browser tab, a not-yet-reconciled placeholder)
-    /// are dropped and keep their tmux slots, matching
-    /// `RemoteTmuxControlMessageDecoding.windowOrder(_:applyingReorder:)`'s
-    /// subset rule for the reverse (tmux-originated) direction.
+    /// `desired` keeps only the tmux windows of `orderedPanelIds`; panels
+    /// without one (a sibling browser tab, an unreconciled placeholder) drop
+    /// out instead of failing the reorder — they have no tmux window to move.
     func handleMirrorWindowsReordered(
         workspaceId: UUID,
         orderedPanelIds: [UUID],
