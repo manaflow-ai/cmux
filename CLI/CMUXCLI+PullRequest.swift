@@ -83,6 +83,7 @@ extension CMUXCLI {
         }
         let root = try pullRequestRepositoryRoot()
         let windows = try client.sendV2(method: "window.list")["windows"] as? [[String: Any]] ?? []
+        let worktreeRoots = try pullRequestWorktreeRoots(root: root)
         var candidates: [String: String] = [:]
         for window in windows {
             guard let id = window["id"] as? String,
@@ -96,7 +97,11 @@ extension CMUXCLI {
                 let path = URL(fileURLWithPath: (directory as NSString).expandingTildeInPath)
                     .standardizedFileURL.resolvingSymlinksInPath().path
                 guard path == root || path.hasPrefix(root + "/") else { continue }
-                guard path == root || path.hasPrefix(root + "/") else { continue }
+                guard pullRequestWorkspacePathIsCandidate(
+                    path,
+                    root: root,
+                    worktreeRoots: worktreeRoots
+                ) else { continue }
                 candidates[workspaceID] = path
             }
         }
@@ -110,21 +115,42 @@ extension CMUXCLI {
         return workspaceID
     }
 
-    /// Validates the one unique fallback candidate against Git's repository
-    /// identity. Candidate collection itself is path-only; this single probe
-    /// avoids launching a process once per workspace when the collection is
-    /// large, while still rejecting missing and nested repositories reliably.
-    private func pullRequestWorkspacePathBelongsToRepository(_ path: String, root: String) -> Bool {
-        guard path == root || path.hasPrefix(root + "/") else { return false }
-        let probe = CLIProcessRunner.runProcess(
+    /// Reads registered worktree roots once for the fallback scan. Git itself
+    /// is the source of truth; no per-workspace `rev-parse` process is needed.
+    private func pullRequestWorktreeRoots(root: String) throws -> [String] {
+        let result = CLIProcessRunner.runProcess(
             executablePath: "/usr/bin/env",
-            arguments: ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            arguments: ["git", "-C", root, "worktree", "list", "--porcelain"],
             stdinText: "", timeout: 2
         )
-        guard probe.status == 0, !probe.timedOut else { return false }
-        let candidateRoot = URL(fileURLWithPath: probe.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
-            .standardizedFileURL.resolvingSymlinksInPath().path
-        return candidateRoot == root
+        guard result.status == 0, !result.timedOut else { return [root] }
+        let roots = result.stdout
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line -> String? in
+                guard line.hasPrefix("worktree ") else { return nil }
+                return URL(fileURLWithPath: String(line.dropFirst("worktree ".count)))
+                    .standardizedFileURL.resolvingSymlinksInPath().path
+            }
+        return roots.isEmpty ? [root] : roots
+    }
+
+    /// Filters one workspace path using the registered worktree roots and a
+    /// direct nested-repository marker check. These are bounded metadata reads;
+    /// the expensive Git process is launched once for the whole collection.
+    private func pullRequestWorkspacePathIsCandidate(
+        _ path: String,
+        root: String,
+        worktreeRoots: [String]
+    ) -> Bool {
+        guard FileManager.default.fileExists(atPath: path),
+              worktreeRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
+            return false
+        }
+        if path != root,
+           FileManager.default.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent(".git").path) {
+            return false
+        }
+        return true
     }
 
     private static func pullRequestWindowIDsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
