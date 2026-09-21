@@ -435,6 +435,8 @@ extension CMUXCLI {
               CFGetTypeID(number) != CFBooleanGetTypeID() else {
             return nil
         }
+        let numberType = String(cString: number.objCType)
+        guard numberType != "f", numberType != "d" else { return nil }
         let double = number.doubleValue
         guard double.isFinite, double.rounded(.towardZero) == double else { return nil }
         return number.intValue
