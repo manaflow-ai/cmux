@@ -671,9 +671,11 @@ type ClaudeProbeRead =
   | ReadableStreamReadResult<Uint8Array>
   | { readonly timedOut: true; readonly pending: Promise<ReadableStreamReadResult<Uint8Array>> };
 
-function concatClaudeProbeChunks(chunks: readonly Uint8Array[]): Uint8Array {
+function concatClaudeProbeChunks(chunks: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
-  const joined = new Uint8Array(total);
+  // Allocate an ArrayBuffer-backed view so the result is accepted as a Fetch BodyInit
+  // under TypeScript's stricter ArrayBufferLike definitions.
+  const joined = new Uint8Array(new ArrayBuffer(total));
   let offset = 0;
   for (const chunk of chunks) {
     joined.set(chunk, offset);
