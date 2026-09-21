@@ -26,7 +26,7 @@ paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that.
 ## Persistent compile-admission pilot
 
 `macos-compile-admission` has one narrow owned-Mac producer path for trusted,
-same-repository organization-member pull requests. The required
+same-repository maintainer pull requests. The required
 `macOS compile admission` job remains on the ordinary paid macOS runner and
 remains the check, log, validation, and artifact-publication owner. It may
 consume a compile product from `.github/workflows/persistent-macos-compile.yml`
@@ -64,7 +64,7 @@ Rollout is reversible through two repository variables:
   `CI_PERSISTENT_MAC_COMPILE_COHORT=13198,feature/name`: only matching trusted
   PR numbers or head branches;
 - `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
-  organization-member PR.
+  maintainer PR (`OWNER`, `MEMBER`, or `COLLABORATOR`).
 
 Queue and execution ceilings may be set with
 `CI_PERSISTENT_MAC_QUEUE_SECONDS` and
