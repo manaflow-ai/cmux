@@ -66,9 +66,10 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -resolvePackageDependencies
 
-      - name: Test semantic config validator
+      - name: Test semantic config validator and Glaeda execution contract
         run: |
           swift test --package-path Packages/macOS/CmuxFoundation --filter CmuxConfigSemanticValidatorTests
+          swift test --package-path Packages/macOS/CmuxFoundation --filter CmuxGlaedaExecutionContractTests
 
       - name: Build the standalone CLI
         run: |
