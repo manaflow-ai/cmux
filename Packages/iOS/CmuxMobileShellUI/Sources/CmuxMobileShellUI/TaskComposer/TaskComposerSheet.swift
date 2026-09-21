@@ -721,7 +721,7 @@ struct TaskComposerSheet: View {
         }
     }
 
-    private var selectedTargetPaneIsAvailable: Bool {
+    var selectedTargetPaneIsAvailable: Bool {
         guard let workspaceID = selectedTargetWorkspaceID,
               let paneID = selectedTargetPaneID else {
             return selectedTargetWorkspaceID == nil && selectedTargetPaneID == nil
