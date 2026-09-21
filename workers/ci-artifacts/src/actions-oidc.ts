@@ -68,17 +68,14 @@ async function signingKey(kid: string, fetcher: typeof fetch, signal?: AbortSign
   if (keyCache && keyCache.expiresAt > Date.now()) {
     const cached = keyCache.keys.get(kid);
     if (cached) return cached;
+    // Bound anonymous key-miss traffic. A rotated GitHub key becomes eligible
+    // when this short cache expires instead of forcing a network refresh.
+    throw new Error("unknown OIDC key");
   }
   keyLoading ??= loadKeys(fetcher, signal).finally(() => { keyLoading = undefined; });
   keyCache = await keyLoading;
   const key = keyCache.keys.get(kid);
-  if (!key) {
-    // A new GitHub signing key may appear before the five-minute cache expires.
-    keyCache = await loadKeys(fetcher, signal);
-    const refreshed = keyCache.keys.get(kid);
-    if (refreshed) return refreshed;
-    throw new Error("unknown OIDC key");
-  }
+  if (!key) throw new Error("unknown OIDC key");
   return key;
 }
 
