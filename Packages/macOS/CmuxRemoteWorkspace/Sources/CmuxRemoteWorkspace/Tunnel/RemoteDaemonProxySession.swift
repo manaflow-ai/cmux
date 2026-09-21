@@ -14,17 +14,24 @@ public protocol RemoteDaemonProxySessionHandling: AnyObject, Sendable {
     func stop()
 }
 
-/// Constructs a session for one accepted local proxy connection. The
-/// SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias rewriting behind
-/// it depend only on ``RemoteProxyStreamOpening``, so ssh-tmux's browser proxy
-/// reuses them verbatim against its non-daemon SOCKS backend.
-public func makeRemoteDaemonProxySession(
-    connection: NWConnection,
-    rpcClient: any RemoteProxyStreamOpening,
-    queue: DispatchQueue,
-    onClose: @escaping (UUID) -> Void
-) -> any RemoteDaemonProxySessionHandling {
-    RemoteDaemonProxySession(connection: connection, rpcClient: rpcClient, queue: queue, onClose: onClose)
+/// Constructs sessions for accepted local proxy connections. A constructable,
+/// injectable type rather than a free function, per the package's
+/// no-ambient-global-state policy.
+public struct RemoteDaemonProxySessionFactory: Sendable {
+    public init() {}
+
+    /// Constructs a session for one accepted local proxy connection. The
+    /// SOCKS5/HTTP-CONNECT handshake parsing and loopback-alias rewriting behind
+    /// it depend only on ``RemoteProxyStreamOpening``, so ssh-tmux's browser proxy
+    /// reuses them verbatim against its non-daemon SOCKS backend.
+    public func makeSession(
+        connection: NWConnection,
+        rpcClient: any RemoteProxyStreamOpening,
+        queue: DispatchQueue,
+        onClose: @escaping (UUID) -> Void
+    ) -> any RemoteDaemonProxySessionHandling {
+        RemoteDaemonProxySession(connection: connection, rpcClient: rpcClient, queue: queue, onClose: onClose)
+    }
 }
 
 /// One accepted local proxy connection inside ``RemoteDaemonProxyTunnel``:
@@ -428,12 +435,16 @@ final class RemoteDaemonProxySession: RemoteDaemonProxySessionHandling, @uncheck
         guard !hasForwardedRemoteHTTPHeaders else { return data }
 
         pendingRemoteHTTPHeaderBytes.append(data)
-        guard pendingRemoteHTTPHeaderBytes.count <= Self.maxPendingRemoteHTTPHeaderBytes else {
-            close(reason: "proxy remote response headers exceeded \(Self.maxPendingRemoteHTTPHeaderBytes) bytes")
-            return Data()
-        }
         let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
         guard pendingRemoteHTTPHeaderBytes.range(of: marker) != nil else {
+            // The terminator hasn't arrived yet, so this is still all header
+            // bytes (a chunk that also contains body data past `CRLFCRLF`
+            // would have matched above) — only now is it safe to bound growth
+            // without punishing a small-header response with a large body.
+            guard pendingRemoteHTTPHeaderBytes.count <= Self.maxPendingRemoteHTTPHeaderBytes else {
+                close(reason: "proxy remote response headers exceeded \(Self.maxPendingRemoteHTTPHeaderBytes) bytes")
+                return Data()
+            }
             guard eof else { return Data() }
             hasForwardedRemoteHTTPHeaders = true
             let payload = pendingRemoteHTTPHeaderBytes

@@ -41,6 +41,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
 
     private let localPort: Int
     private let dynamicForwardPort: Int
+    private let sessionFactory = RemoteDaemonProxySessionFactory()
     private let queue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-listener.\(UUID().uuidString)", qos: .utility)
 
     private var listener: NWListener?
@@ -177,7 +178,7 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
         }
         let sessionQueue = DispatchQueue(label: "com.cmuxterm.app.remote-tmux.browser-proxy-session.\(UUID().uuidString)", qos: .utility)
         let streamClient = RemoteTmuxSocksProxyStreamClient(localForwardPort: dynamicForwardPort)
-        let session = makeRemoteDaemonProxySession(
+        let session = sessionFactory.makeSession(
             connection: connection,
             rpcClient: streamClient,
             queue: sessionQueue
