@@ -146,6 +146,13 @@ struct TerminalSurfaceMountOwnershipTests {
             return token != firstToken
         }
         #expect(remounted)
+
+        // Presentation ownership, unlike temporary window attachment, releases
+        // the sticky viewport lease and its generation-fenced Mac report.
+        coordinator.setTerminalPresentationActive(false)
+        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
     }
 
     @MainActor
