@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxV3Native
 import CmuxV3Transport
+import CmuxIrxTransport
 import CryptoKit
 import Foundation
 import Security
