@@ -9,21 +9,21 @@ import CmuxTerminalCore
 
     @Test("A legacy scroller is present regardless of scrollback")
     func legacyReservesTheGutter() {
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: false))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: nil))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: true))
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: false).isPresent)
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: nil).isPresent)
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: true).isPresent)
     }
 
     @Test("An overlay scroller follows scrollback and assumes history until told otherwise")
     func overlayFollowsScrollback() {
-        #expect(!Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: true))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil))
+        #expect(!Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false).isPresent)
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: true).isPresent)
+        #expect(Policy(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil).isPresent)
     }
 
     @Test("Settings that disallow the scroller win over every style")
     func settingsWin() {
-        #expect(!Policy.isPresent(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true))
-        #expect(!Policy.isPresent(allowedBySettings: false, scrollerStyle: .overlay, hasScrollback: true))
+        #expect(!Policy(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true).isPresent)
+        #expect(!Policy(allowedBySettings: false, scrollerStyle: .overlay, hasScrollback: true).isPresent)
     }
 }

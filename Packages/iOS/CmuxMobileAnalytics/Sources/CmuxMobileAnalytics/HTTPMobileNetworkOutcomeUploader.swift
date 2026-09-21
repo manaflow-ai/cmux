@@ -124,9 +124,9 @@ public struct HTTPMobileNetworkOutcomeUploader: AnalyticsUploading {
             let (_, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .retry }
             if http.statusCode == 429,
-               let seconds = CmxRetryAfterPolicy.seconds(
+               let seconds = CmxRetryAfterPolicy().seconds(
                    from: http,
-                   defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
+                   defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
                ) {
                 await retryAfterGate.extend(by: seconds)
             }

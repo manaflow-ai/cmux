@@ -159,14 +159,14 @@ public struct MacSurfaceGalleryPreviewView: View {
             ChatArtifactStat(
                 exists: true,
                 isDirectory: false,
-                size: Int64(MacSurfaceGalleryFixtureBytes.body(for: path).count),
+                size: Int64(MacSurfaceGalleryFixtureBytes().body(for: path).count),
                 modifiedAt: Date(timeIntervalSince1970: 1_753_800_000),
                 kind: .text,
                 mimeType: path.hasSuffix(".md") ? "text/markdown" : "text/plain"
             )
         },
         fetch: { path, progress in
-            let data = MacSurfaceGalleryFixtureBytes.body(for: path)
+            let data = MacSurfaceGalleryFixtureBytes().body(for: path)
             progress?(Int64(data.count), Int64(data.count))
             return data
         }
@@ -174,8 +174,10 @@ public struct MacSurfaceGalleryPreviewView: View {
 }
 
 /// Off-actor fixture bytes so the `@Sendable` loader closures can read them.
-private enum MacSurfaceGalleryFixtureBytes {
-    static let textBody = Data("""
+private struct MacSurfaceGalleryFixtureBytes: Sendable {
+    init() {}
+
+    let textBody = Data("""
     cmux iOS all-surfaces UX round — panel file preview fixture.
 
     This body streams through the panel-scoped artifact loader and renders in
@@ -186,7 +188,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     - The header shows the surface kind badge, title, and Open on Mac.
     """.utf8)
 
-    static let markdownBody = Data("""
+    let markdownBody = Data("""
     # iosrf-demo
 
     Markdown panels now render **natively** on iOS through the shared
@@ -205,7 +207,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     ```
     """.utf8)
 
-    static func body(for path: String) -> Data {
+    func body(for path: String) -> Data {
         path.hasSuffix(".md") ? markdownBody : textBody
     }
 }
