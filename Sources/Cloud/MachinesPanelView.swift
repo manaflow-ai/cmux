@@ -604,8 +604,8 @@ struct MachinesPanelView: View {
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }, showsCloudVPNWarning: tunnelStatus.status?.state == .off,
-            source: treeSource,
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            source: treeSource, showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             devicesSection: CloudTreeDevicesSection(
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
