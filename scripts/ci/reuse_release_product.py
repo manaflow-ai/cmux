@@ -80,13 +80,21 @@ def contract() -> dict:
     package_resolved = Path("cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")
     if not package_resolved.is_file():
         raise ValueError("Package.resolved is missing")
+    # The tree of the commit this job actually checked out and compiles. On a
+    # pull_request that is the synthetic refs/pull/<n>/merge commit, so it moves
+    # when either the branch or the base moves; `seal` records the matching
+    # producer commit and `restore` re-derives its tree from GitHub.
+    tree = app_host_reuse.read("git", "rev-parse", "HEAD^{tree}")
+    if not re.fullmatch(r"[0-9a-f]{40}", tree):
+        raise ValueError("invalid checkout tree")
     value.update({
         "product": "unsigned-release-app-v1",
         # pull_request checkouts build refs/pull/<n>/merge while Actions exposes
         # workflow_run.head_sha as the PR branch commit. Bind both identities:
         # the branch revision authenticates the producer before download and
-        # the inherited tree binds the exact synthetic merge checkout bytes.
+        # the checkout tree binds the exact synthetic merge checkout bytes.
         "source_revision": required_env("CMUX_RELEASE_SOURCE_REVISION", r"[0-9a-f]{40}"),
+        "tree": tree,
         "configuration": "Release",
         "release_architectures": archs,
         "package_resolved_sha256": sha256_file(package_resolved),

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import ast
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import stat
@@ -275,6 +277,100 @@ class ReleaseProductReuseTests(unittest.TestCase):
         self.api.artifact["digest"] = "sha256:" + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
         result = self.restore()
         self.assertEqual(result["outcome"], "fallback_rebuild")
+
+
+class ContractCoverageTests(unittest.TestCase):
+    """Bind the production contract to every key the restore path indexes.
+
+    The fixtures above hand-build a contract dict, so a key that `restore`
+    reads but `contract` never produces stays green here while every real CI
+    candidate dies on KeyError and silently falls back to a full rebuild.
+    """
+
+    BRANCH_REVISION = "a" * 40
+    GHOSTTY_REVISION = "b" * 40
+    CHECKOUT_TREE = "c" * 40
+
+    COMMANDS = {
+        ("xcodebuild", "-version"): "Xcode 26.3\nBuild version 26C123",
+        ("xcrun", "--sdk", "macosx", "--show-sdk-build-version"): "26C123",
+        ("sw_vers", "-buildVersion"): "26C123",
+        ("git", "-C", "ghostty", "rev-parse", "HEAD"): GHOSTTY_REVISION,
+        ("git", "rev-parse", "HEAD^{tree}"): CHECKOUT_TREE,
+    }
+
+    ENVIRONMENT = {
+        "CMUX_RELEASE_ARCHS": "arm64 x86_64",
+        "CMUX_RELEASE_SOURCE_REVISION": BRANCH_REVISION,
+        "CMUX_RELEASE_GHOSTTY_HELPER_SHA256": "e" * 64,
+        "CMUX_RELEASE_GHOSTTY_HELPER_TOOLCHAIN_SHA256": "f" * 64,
+        "CMUX_RELEASE_GHOSTTY_HELPER_SDK": "15.5",
+        "CMUX_RELEASE_TUI_COMMIT": "1" * 40,
+        "CMUX_RELEASE_TUI_MANIFEST_SHA256": "2" * 64,
+    }
+
+    def read(self, *args):
+        """Stand in for the host toolchain while the real contract code runs."""
+        if args in self.COMMANDS:
+            return self.COMMANDS[args]
+        if len(args) == 2 and args[1] in {"--version", "version"}:
+            return f"{Path(args[0]).name} 1.0.0"
+        raise AssertionError(f"unexpected command: {args}")
+
+    def production_contract(self):
+        """Evaluate the real contract() with only host commands stubbed out."""
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(ROOT)
+        with mock.patch.object(reuse.app_host_reuse, "read", side_effect=self.read), \
+                mock.patch.dict(os.environ, self.ENVIRONMENT):
+            return reuse.contract()
+
+    def indexed_keys(self):
+        """Collect every value["..."] the module reads off a contract dict."""
+        module = ast.parse((ROOT / "scripts/ci/reuse_release_product.py").read_text())
+        keys = set()
+        for function in ast.walk(module):
+            if not isinstance(function, ast.FunctionDef) or function.name == "contract":
+                continue
+            arguments = function.args
+            names = {argument.arg for argument in
+                     [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]}
+            if "value" not in names:
+                continue
+            for node in ast.walk(function):
+                if (isinstance(node, ast.Subscript)
+                        and isinstance(node.value, ast.Name)
+                        and node.value.id == "value"
+                        and isinstance(node.slice, ast.Constant)
+                        and isinstance(node.slice.value, str)):
+                    keys.add(node.slice.value)
+        return keys
+
+    def test_contract_carries_every_key_the_restore_path_indexes(self):
+        keys = self.indexed_keys()
+        # Guard the scan itself: an AST refactor that finds nothing must fail.
+        self.assertLessEqual({"source_revision", "tree"}, keys)
+        self.assertEqual(keys - set(self.production_contract()), set())
+
+    def test_contract_binds_the_checked_out_tree_not_the_branch_revision(self):
+        value = self.production_contract()
+        # The producer receipt records `git rev-parse HEAD`; restore re-derives
+        # that commit's tree from GitHub and compares it against this key, so
+        # both sides must describe the compiled checkout, not the branch head.
+        self.assertEqual(value["tree"], self.CHECKOUT_TREE)
+        self.assertEqual(value["source_revision"], self.BRANCH_REVISION)
+        self.assertNotEqual(value["tree"], value["source_revision"])
+
+    def test_contract_key_changes_when_the_checkout_tree_changes(self):
+        baseline = reuse.app_host_reuse.key(self.production_contract())
+        self.COMMANDS = {**self.COMMANDS, ("git", "rev-parse", "HEAD^{tree}"): "9" * 40}
+        self.assertNotEqual(reuse.app_host_reuse.key(self.production_contract()), baseline)
+
+    def test_contract_rejects_an_unusable_checkout_tree(self):
+        self.COMMANDS = {**self.COMMANDS, ("git", "rev-parse", "HEAD^{tree}"): "HEAD^{tree}"}
+        with self.assertRaises(ValueError):
+            self.production_contract()
 
 
 if __name__ == "__main__":
