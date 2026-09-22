@@ -2124,8 +2124,15 @@ def admission_run(run_id: int, owner: str = "manaflow-ai/cmux") -> dict:
     return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
 
 
+# ci.yml reaches the admission job through ci-macos.yml, so GitHub reports it
+# as "<caller job> / <job name>". The fixture must use the composed name the
+# API actually returns; using the bare name hid a regression in which both
+# reuse lookups silently matched nothing.
+ADMISSION_JOB_API_NAME = "macos / macOS compile admission"
+
+
 def admission_job(conclusion: str, run_attempt: int = 1) -> dict:
-    return {"name": "macOS compile admission", "conclusion": conclusion, "run_attempt": run_attempt}
+    return {"name": ADMISSION_JOB_API_NAME, "conclusion": conclusion, "run_attempt": run_attempt}
 
 
 def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None:
@@ -3244,6 +3251,45 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     step = block[start:end]
     assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
+
+
+def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
+    """The producer lookups must survive ci.yml reaching admission indirectly.
+
+    `.github/workflows/ci.yml` calls `ci-macos.yml`, so the admission job is
+    reported as "<caller job key> / <job name>", not by its bare name. Both
+    reuse paths previously compared the whole string and therefore stopped
+    finding any producer the moment that indirection was introduced, with no
+    failing test and no CI signal. Derive the composed name from the workflows
+    themselves so a future move breaks this test instead of reuse.
+    """
+    import yaml
+
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    caller = next(
+        (key for key, job in ci["jobs"].items()
+         if str(job.get("uses", "")).endswith("/ci-macos.yml")),
+        None,
+    )
+    assert caller, "no ci.yml job calls ci-macos.yml"
+
+    macos = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8"))
+    inner = macos["jobs"]["macos-compile-admission"]["name"]
+    composed = f"{caller} / {inner}"
+
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import ADMISSION_JOB, admission_job_name
+
+    assert inner == ADMISSION_JOB, f"ci-macos.yml job name {inner!r} != ADMISSION_JOB {ADMISSION_JOB!r}"
+    assert admission_job_name(composed), f"find_admitted_build does not match {composed!r}"
+    assert admission_job_name(inner), "the bare name must still match for inlined callers"
+    assert not admission_job_name("macos / some other job")
+    assert not admission_job_name(None)
+
+    reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
+    assert '.rsplit(" / ", 1)[-1] == "macOS compile admission"' in reuse, (
+        "reuse_app_host_products.py must match the final segment of the job name"
+    )
 
 
 if __name__ == "__main__":
