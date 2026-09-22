@@ -75,6 +75,12 @@ publish_zig_for_later_steps() {
   if [ -n "${GITHUB_ENV:-}" ]; then
     echo "CMUX_ZIG=$zig_path" >> "$GITHUB_ENV"
   fi
+  # GITHUB_PATH and GITHUB_ENV only reach *later* steps. A caller inside the
+  # same step -- ensure-ghosttykit.sh installing zig for its from-source
+  # fallback -- needs the path now, so hand it back through a file it names.
+  if [ -n "${CMUX_ZIG_PATH_FILE:-}" ]; then
+    echo "$zig_path" > "$CMUX_ZIG_PATH_FILE"
+  fi
 }
 
 read_zig_lib_dir() {

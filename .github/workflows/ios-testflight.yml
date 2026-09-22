@@ -451,10 +451,40 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-          # Full history so generate-testflight-notes.sh can walk the commit
-          # range since the last beta.
-          fetch-depth: 0
-          fetch-tags: true
+          # Shallow. The only thing in this job that reads history is
+          # generate-testflight-notes.sh, and the step below deepens exactly as
+          # far as that needs. fetch-depth: 0 spent 8m42s of a 22m job cloning
+          # 2.1 GB of history on run 35794306343, to read a few commits. No
+          # step here reads tags, so they are not fetched either.
+          fetch-depth: 1
+
+      - name: Deepen history to the previous beta
+        if: ${{ needs.decide.outputs.last_uploaded_sha != '' }}
+        env:
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
+        run: |
+          set -euo pipefail
+          # generate-testflight-notes.sh walks LAST_UPLOADED_SHA..HEAD, where
+          # the base is the previous successful upload's head. At the
+          # 20-minute cadence that is a handful of commits; it only grows when
+          # uploads have been failing. Deepen toward it in steps and stop as
+          # soon as the range is whole.
+          #
+          # Notes are not worth failing an upload over -- the generator falls
+          # back to a generic line when the base is unreachable -- so running
+          # out of depth here is reported, not fatal.
+          for depth in 100 500 2000; do
+            if git merge-base --is-ancestor "$LAST_UPLOADED_SHA" HEAD 2>/dev/null; then
+              break
+            fi
+            echo "deepening to $depth commits to reach $LAST_UPLOADED_SHA"
+            git fetch --no-tags --quiet --depth="$depth" origin "$GITHUB_SHA" || true
+          done
+          if git merge-base --is-ancestor "$LAST_UPLOADED_SHA" HEAD 2>/dev/null; then
+            echo "notes base $LAST_UPLOADED_SHA reached in $(git rev-list --count "$LAST_UPLOADED_SHA..HEAD") commits"
+          else
+            echo "notes base $LAST_UPLOADED_SHA is more than 2000 commits back; notes fall back to the generic line"
+          fi
 
       - name: Resolve TestFlight distribution
         id: distribution
@@ -485,15 +515,16 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
-
       - name: Provision GhosttyKit
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
+          #
+          # zig is not installed ahead of this step: the script installs it
+          # itself if and only if it reaches the from-source path, which the
+          # pinned prebuilt normally spares it.
           ./scripts/ensure-ghosttykit.sh
 
       - name: Install asc CLI

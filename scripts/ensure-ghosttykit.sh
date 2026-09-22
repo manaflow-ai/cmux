@@ -223,6 +223,27 @@ else
     echo "==> Seeding cache from prebuilt GhosttyKit.xcframework"
   else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    # zig is needed on this path and nowhere else. Callers used to install it
+    # unconditionally before calling this script, which bought a verified
+    # toolchain download on every run including the common one that returns
+    # above: 5m42s of the 22m upload job in run 35794306343, for a compiler
+    # that was never invoked.
+    ZIG_BIN="zig"
+    if ! command -v zig >/dev/null 2>&1; then
+      if [[ -n "${CI:-}" && -x "$SCRIPT_DIR/install-zig-ci.sh" ]]; then
+        echo "==> zig is not on PATH; installing it for the from-source build"
+        ZIG_PATH_FILE="$(mktemp "$CACHE_ROOT/.zig-path.XXXXXX")"
+        CMUX_ZIG_PATH_FILE="$ZIG_PATH_FILE" "$SCRIPT_DIR/install-zig-ci.sh"
+        if [[ -s "$ZIG_PATH_FILE" ]]; then
+          ZIG_BIN="$(cat "$ZIG_PATH_FILE")"
+        fi
+        rm -f "$ZIG_PATH_FILE"
+      else
+        echo "Error: zig is required to build GhosttyKit from source." >&2
+        echo "Install it, or let the prebuilt xcframework download succeed." >&2
+        exit 1
+      fi
+    fi
     (
       cd ghostty
       # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's
@@ -231,7 +252,7 @@ else
       # bundle, skipped by -Demit-macos-app=false). Runtime lookups are
       # comptime-gated to return the msgid, which is what cmux shipped
       # all along.
-      zig build \
+      "$ZIG_BIN" build \
         -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" \
         -Dsentry=false \
         -Di18n=false \
