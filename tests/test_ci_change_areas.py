@@ -1877,6 +1877,47 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
         assert wants_full_suite(event, "compile-only", []) is True
 
 
+def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import labels_from_event
+
+    with tempfile.TemporaryDirectory() as tmp:
+        event_path = Path(tmp) / "event.json"
+        event_path.write_text(
+            json.dumps(
+                {
+                    "pull_request": {
+                        "labels": [
+                            {"name": "bug"},
+                            {"name": "full-ci"},
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert labels_from_event(event_path) == ["bug", "full-ci"]
+
+        event_path.write_text(
+            json.dumps({"pull_request": {"labels": []}}),
+            encoding="utf-8",
+        )
+        assert labels_from_event(event_path) == []
+
+        event_path.write_text("{}", encoding="utf-8")
+        assert labels_from_event(event_path) is None
+
+
+def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]" in workflow
+
+    suite = workflow_step_block("changes", "Choose the macOS suite for this run")
+    assert "gh api" not in suite
+    assert "github.event.pull_request.number" not in suite
+    assert '--event-path "$GITHUB_EVENT_PATH"' in suite
+
+
 def test_merge_groups_stop_at_the_first_failure() -> None:
     shards = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "fail-fast: ${{ github.event_name == 'merge_group' }}" in shards
