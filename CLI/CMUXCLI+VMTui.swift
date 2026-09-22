@@ -458,11 +458,19 @@ extension CMUXCLI {
             let terminalStartedAt = Date()
             do {
                 // The snapshot contract creates the first remote workspace and
-                // terminal before the daemon accepts clients. Read the
-                // already-journaled catalog here. A forced provider refresh
-                // repeats the whole remote graph sync on every New Machine
-                // click and races the boot-time seed we are about to project.
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId], responseTimeout: 180)
+                // terminal before the daemon accepts clients, so one link plus
+                // one graph read is all New Machine needs to find it.
+                //
+                // `ensure_linked` is that minimum, and it is required: a machine
+                // created a moment ago has no provider and no link in this app,
+                // so a plain cached read returns no graph and the resolver
+                // reports `.unavailable` ("The machine's sessions are
+                // unavailable"). That regression shipped once when the flag was
+                // dropped to "save work". Do not remove it, and do not upgrade it
+                // to `refresh: true`: a forced pass waits behind the fleet poll's
+                // in-flight connect and rescans ports for nothing. A reopen of a
+                // machine that is already linked costs no network at all.
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
