@@ -10,14 +10,14 @@ struct FileExplorerWorkspaceRootResolver {
     let managedCloudEnabled: @MainActor @Sendable () -> Bool
 
     init(
-        catalog: SurfaceCatalog = .shared,
+        catalog: SurfaceCatalog? = nil,
         teamScope: @escaping @MainActor @Sendable () -> AuthenticatedTeamScope? = {
             AppDelegate.shared?.auth?.coordinator.authenticatedTeamScope
         },
         cloudEnabled: @escaping @MainActor @Sendable () -> Bool = { CloudMachinesFeature.isEnabled },
         managedCloudEnabled: @escaping @MainActor @Sendable () -> Bool = { ManagedCloudPolicy.isEnabled }
     ) {
-        self.catalog = catalog
+        self.catalog = catalog ?? SurfaceCatalog.shared
         self.teamScope = teamScope
         self.cloudEnabled = cloudEnabled
         self.managedCloudEnabled = managedCloudEnabled
