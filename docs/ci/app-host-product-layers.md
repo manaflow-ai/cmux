@@ -69,11 +69,24 @@ this inventory. Signature bytes are preserved; this check does not replace
 `codesign` verification or native execution. All symlink chains must remain within the product namespace; archive
 entries cannot appear beneath a symlink.
 
-The first consumer profile **requires all four layers**. Embedded test bundles
-can be sealed by the host app's CodeResources, so an app-only consumer cannot
-silently omit tests. Independent layers permit granular caching and accounting;
-splitting alone is not a claim of reduced transfer bytes. A future partial profile
-needs evidence from signatures, xctestruns and native loader dependencies.
+The canonical manifest always describes all four layers. Consumer profiles may
+select a canonical ordered subset without changing that manifest identity.
+
+The current app-host test profile is:
+
+```text
+app-cli + runtime + tests
+```
+
+It deliberately omits `diagnostics`: top-level dSYMs, compiler Swift modules,
+and `.a`/`.o` inputs are not referenced by the xctestrun manifests or required
+to execute the assembled app/test product. Embedded test bundles remain in the
+`tests` layer, so the profile never treats an app-only tree as test-complete.
+
+Subset restore still validates the full manifest/index identity and every
+selected archive's exact provider identity, digest, inventory, modes, links, and
+portable metadata. An unselected layer is absence, not a compatible substitute.
+The full four-layer profile remains available for diagnostics and rollback.
 
 The outer transport index pins this manifest's bytes and all provider artifact
 IDs/digests after upload. It must deliver exactly the four archives beside this
