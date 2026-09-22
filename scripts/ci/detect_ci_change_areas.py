@@ -678,6 +678,8 @@ def is_macos_neutral(
             "web/",
             "webviews/",
             "cmux-tui/",
+            "cmux-browser/",
+            "daemon/remote/",
         )
     ):
         return True
