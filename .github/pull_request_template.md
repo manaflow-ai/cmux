@@ -21,7 +21,7 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 ```text
 @codex review
 @coderabbitai review
-@greptile-apps review
+@greptile review
 @cubic-dev-ai review
 ```
 
@@ -35,4 +35,4 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
 
-<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. -->
+<!-- Agent-authored/API-created PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. GitHub's API does not inject this template; the trusted gate requests Greptile automatically for opted-in heads. -->

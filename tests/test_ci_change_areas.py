@@ -764,14 +764,23 @@ def run_web_status(
     if results:
         job_results.update(results)
     if subareas is None:
+        scope_required = route_inputs["web"] == "true" or route_inputs["macos"] == "true"
         selected_subareas = {
             "db": "true",
+            "diff_sidecar": "true",
             "instant": "true",
+            "production_build": "true",
             "react_apps": "true",
-        } if route_inputs["web"] == "true" else {
+            "typecheck": "true",
+            "unit_tests": "true",
+        } if scope_required else {
             "db": "false",
+            "diff_sidecar": "false",
             "instant": "false",
+            "production_build": "false",
             "react_apps": "false",
+            "typecheck": "false",
+            "unit_tests": "false",
         }
     else:
         selected_subareas = dict(subareas)
@@ -1408,7 +1417,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
     from build_input_fingerprint import fingerprint
     import product_input_identity as product_inputs
 
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     admission = product_inputs._job_block(
         workflow,
         product_inputs.MACOS_ADMISSION_JOB,
@@ -1433,11 +1442,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
 
     # Changing CI orchestration still exercises CI, but it does not make the
     # already-compiled app-host product stale.
-    orchestration_workflow = workflow.replace(
-        "name: CI\n",
-        "name: CI orchestration-only\n",
-        1,
-    )
+    orchestration_workflow = workflow
     metrics_admission = admission.replace(
         "      - name: Record compiled-product reuse metrics\n",
         "      - name: Record compiled-product reuse metrics\n"
@@ -1850,12 +1855,14 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
 def test_merge_groups_stop_at_the_first_failure() -> None:
     shards = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     assert "fail-fast: ${{ github.event_name == 'merge_group' }}" in shards
-    # The job that may cancel runs must come from the default branch, where a
-    # queued pull request cannot edit it, and must not run repository code.
+    # The privileged watcher is started by a merge-group-only workflow, so an
+    # ordinary pull request never creates a skipped fail-fast run. It still runs
+    # from the default branch and executes no repository code.
     watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [CI]\n    types: [in_progress]" in watcher
-    assert "types: [requested" not in watcher
-    assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
+    assert "  workflow_run:\n    workflows: [Merge-group policy checks]\n    types: [in_progress]" in watcher
+    assert "workflows: [CI]" not in watcher
+    assert "head_sha=$HEAD_SHA" in watcher
+    assert "event=merge_group" in watcher
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
@@ -2077,30 +2084,57 @@ def test_web_workflow_parallelizes_typecheck_tests_and_browser_checks() -> None:
 
 def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
     cases = (
-        (["web/messages/fr.json"], (False, True, False)),
-        (["web/app/[locale]/page.tsx"], (False, True, False)),
-        (["web/services/vms/workflows.ts"], (True, False, False)),
-        (["web/app/api/account/route.ts"], (True, True, False)),
-        (["webviews/src/App.tsx"], (False, False, True)),
-        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, True)),
-        (["web/public/logo.png"], (False, False, False)),
-        (["web/e2e/other.spec.ts"], (False, False, False)),
-        ([".github/workflows/ci-web.yml"], (True, True, True)),
-        (["scripts/ci/web_subareas.py"], (True, True, True)),
+        (["web/messages/fr.json"], (False, False, True, True, False, True, True)),
+        (["web/app/[locale]/page.tsx"], (False, False, True, True, False, True, True)),
+        (["web/services/vms/workflows.ts"], (True, False, False, True, False, True, True)),
+        (["web/app/api/account/route.ts"], (True, False, True, True, False, True, True)),
+        (["webviews/src/App.tsx"], (False, False, False, False, True, False, False)),
+        (["webviews/src/diff/App.tsx"], (False, True, False, False, True, False, False)),
+        (["Native/DiffSidecar/src/server.rs"], (False, True, False, False, False, False, False)),
+        (["Sources/Panels/DiffSidecarBridge.swift"], (False, True, False, False, False, False, False)),
+        (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
+        (["web/public/logo.png"], (False, False, False, True, False, False, True)),
+        (["web/tests/account-route.test.ts"], (False, False, False, False, False, True, True)),
+        (["web/tests/notifications-push-route.test.ts"], (True, False, False, False, False, True, True)),
+        (["web/e2e/instant/locale-navigation.instant.ts"], (False, False, True, False, False, True, False)),
+        (["web/playwright.instant.config.ts"], (False, False, True, False, False, True, True)),
+        (["scripts/ci/web_validation.py"], (False, False, False, False, False, False, False)),
+        ([".github/workflows/ci-web.yml"], (True, True, True, True, True, True, True)),
+        (["scripts/ci/web_subareas.py"], (True, True, True, True, True, True, True)),
     )
     for paths, expected in cases:
         actual = web_subareas.classify_paths(paths)
-        assert (actual.db, actual.instant, actual.react_apps) == expected, (paths, actual)
+        assert (
+            actual.db,
+            actual.diff_sidecar,
+            actual.instant,
+            actual.production_build,
+            actual.react_apps,
+            actual.typecheck,
+            actual.unit_tests,
+        ) == expected, (paths, actual)
 
 
 def test_web_status_allows_unselected_subarea_jobs_to_skip() -> None:
     result = run_web_status(
         results={
+            "web-typecheck": "skipped",
+            "web-production-build": "skipped",
+            "web-tests": "skipped",
             "web-instant-navigation": "skipped",
             "react-apps-check": "skipped",
+            "diff-sidecar-check": "skipped",
             "web-db-migrations": "skipped",
         },
-        subareas={"db": "false", "instant": "false", "react_apps": "false"},
+        subareas={
+            "db": "false",
+            "diff_sidecar": "false",
+            "instant": "false",
+            "production_build": "false",
+            "react_apps": "false",
+            "typecheck": "false",
+            "unit_tests": "false",
+        },
     )
     assert result.returncode == 0, result.stderr
 
@@ -2221,6 +2255,29 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install Release helpers" in release_block
+
+
+def test_swift_package_selection_precedes_optional_tool_setup() -> None:
+    block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
+
+    select_index = block.index("      - name: Select package tests")
+    ghostty_index = block.index("      - name: Capture Ghostty revision")
+    rust_index = block.index("      - name: Install Rust")
+    unit_index = block.index("      - name: Run Swift package unit tests")
+
+    assert select_index < ghostty_index < unit_index
+    assert select_index < rust_index < unit_index
+    assert "needs_ghosttykit=true" in block
+    assert "needs_rust=true" in block
+    assert "if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}" in block
+    assert "if: ${{ steps.select.outputs.needs_rust == 'true' }}" in block
+    assert "SELECTED_PACKAGES: ${{ steps.select.outputs.selected_packages }}" in block
+    assert 'done < "$selected"' in block
+    assert block.count("python3 scripts/ci/select_package_tests.py") == 1
+
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    assert "steps.select.outputs.needs_ghosttykit" not in app_host
+    assert "steps.select.outputs.needs_rust" not in app_host
 
 
 def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
