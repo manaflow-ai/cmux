@@ -46,6 +46,25 @@ A steady-state generation chain improves total CI work when F - W > D + S + P.
 
 If publication can occur outside the authoritative required-check critical path, report both feedback latency and total macOS/transfer consumption. A generation that wins compile time but loses after transfer stops here.
 
+## Transport choice for a first PR pilot
+
+Use a one-day GitHub Actions artifact for the first generation pilot.
+
+The existing private R2 compiled-product broker is optimized for one immutable
+GitHub artifact feeding several consumers. It still requires the producer to
+upload the GitHub artifact first, and a cold broker miss adds a GitHub-to-R2
+import before the consumer read. A generation chain normally has one consumer:
+the next run of the same PR. Extending broker admission to fork-produced mutable
+build state therefore adds policy and another transfer leg before it proves a
+latency win.
+
+The GitHub dependency cache is also a later option, not the first pilot. Same-PR
+ref scoping is useful isolation, but #13160 removed PR cache writes after
+multi-gigabyte entries evicted trusted seeds under the repository's then-active
+cache budget. Reintroduce that backend only with an explicit storage/eviction
+decision and measurements. The canary should keep generation state out of the
+shared compilation-CAS namespace.
+
 ## Identity contract for any later canary implementation
 
 Reuse scripts/ci/product_input_identity.py for app-host source and recipe identity. A generation manifest additionally binds repository, PR number and head repository, seed commit/tree, exact candidate commit/tree at consumption, Xcode and selected developer directory, macOS SDK version/build, architecture/runner class, absolute workspace path, absolute DerivedData path, Package.resolved digest, recursive submodule identity, generation schema, archive digests, and byte/file ceilings.
