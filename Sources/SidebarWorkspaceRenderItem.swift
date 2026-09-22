@@ -1,20 +1,6 @@
 import CmuxWorkspaces
 import Foundation
 
-#if DEBUG
-/// Test-only instrumentation for the exact `ForEach(..., id: \\.id)` path
-/// implicated by #8373. The callback observes ID reads without changing the
-/// production identity value or retaining row models.
-@MainActor
-enum SidebarWorkspaceRenderItemDiagnostics {
-    static var onIDRead: ((SidebarWorkspaceRenderItemID) -> Void)?
-
-    static func reset() {
-        onIDRead = nil
-    }
-}
-#endif
-
 /// Stable value identity for one drawable item in the workspace sidebar.
 ///
 /// Keep live `Workspace` / `WorkspaceGroup` references out of this value. A
@@ -29,17 +15,12 @@ enum SidebarWorkspaceRenderItem {
     case workspace(workspaceId: UUID)
 
     var id: SidebarWorkspaceRenderItemID {
-        let value: SidebarWorkspaceRenderItemID
         switch self {
         case .groupHeader(let groupId, _):
-            value = .group(groupId)
+            return .group(groupId)
         case .workspace(let workspaceId):
-            value = .workspace(workspaceId)
+            return .workspace(workspaceId)
         }
-#if DEBUG
-        SidebarWorkspaceRenderItemDiagnostics.onIDRead?(value)
-#endif
-        return value
     }
 
     var rowWorkspaceId: UUID {
