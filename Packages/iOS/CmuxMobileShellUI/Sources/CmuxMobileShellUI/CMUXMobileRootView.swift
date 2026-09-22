@@ -603,7 +603,7 @@ struct CMUXMobileRootView: View {
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
-                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    reconnectStoredMac: { reconnectStoredMacIfNeeded() },
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
                     }
