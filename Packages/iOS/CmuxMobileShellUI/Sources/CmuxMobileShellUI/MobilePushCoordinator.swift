@@ -1163,14 +1163,28 @@ public final class MobilePushCoordinator {
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
-            ) else { return }
+            ) else {
+                // Once the owning Mac has published an authoritative list, a
+                // missing workspace is a definitive closed-tab result. During
+                // recovery the retained list is only a cache, so keep waiting
+                // for the fresh snapshot before surfacing the alert.
+                guard store.workspaceListIsAuthoritative else { return }
+                pendingDeeplink = nil
+                presentTabUnavailableAlert()
+                return
+            }
             workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
-            ) else { return }
+            ) else {
+                guard store.workspaceListIsAuthoritative else { return }
+                pendingDeeplink = nil
+                presentTabUnavailableAlert()
+                return
+            }
             workspaceTarget = owner
         } else {
             pendingDeeplink = nil

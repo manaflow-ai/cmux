@@ -4154,9 +4154,9 @@ final class cmuxUITests: XCTestCase {
         let selection = app.staticTexts["PushTabNavigationSelection"]
         XCTAssertTrue(selection.waitForExistence(timeout: 5))
         XCTAssertTrue(
-            NSPredicate(format: "label CONTAINS %@", "terminal-notes")
+            NSPredicate(format: "label CONTAINS %@", "Notes")
                 .evaluate(with: selection),
-            "The parked notification tap must select the Notes terminal after reconnect."
+            "The parked notification tap must open the Notes tab after reconnect."
         )
         capture("push-tab-opened-after-reconnect")
 
@@ -4167,6 +4167,13 @@ final class cmuxUITests: XCTestCase {
         capture("push-tab-unavailable-alert")
         alert.buttons["OK"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+
+        app.buttons["PushMissingWorkspaceButton"].tap()
+        let workspaceAlert = app.alerts["Tab unavailable"]
+        XCTAssertTrue(workspaceAlert.waitForExistence(timeout: 5))
+        capture("push-workspace-unavailable-alert")
+        workspaceAlert.buttons["OK"].tap()
+        XCTAssertTrue(workspaceAlert.waitForNonExistence(timeout: 3))
     }
 
     @MainActor

@@ -4300,6 +4300,21 @@ struct InertPushRegistration: PushRegistering {
     #expect(coordinator.tabUnavailableAlert == nil)
 }
 
+@Test @MainActor func notificationTapAlertsWhenWorkspaceIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-home", name: "Home", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-gone", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
+}
+
 /// A surface-only tap (no workspaceId in the payload) must wait for the
 /// terminal's owning workspace to load, then navigate to that workspace and
 /// select the terminal. Pre-fix it bypassed the membership gate: the terminal
