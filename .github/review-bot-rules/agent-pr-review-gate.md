@@ -53,7 +53,7 @@ and PR `issue_comment` updates. Only Greptile-authored issue comments evaluate
 the gate; status-comment edits from other providers are skipped before checkout.
 Those unrelated comment providers also receive separate concurrency keys.
 
-Every trigger executes the checker from `github.workflow_sha`, the exact trusted
+Every eligible trigger executes the checker from `github.workflow_sha`, the exact trusted
 commit that defines the workflow. Stacked PR base branches supply review data
 only; they never supply executable gate code. Head-change triggers use a
 separate concurrency lane from review rechecks, and unrelated comment churn
