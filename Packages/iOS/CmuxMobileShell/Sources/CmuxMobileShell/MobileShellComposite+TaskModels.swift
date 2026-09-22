@@ -488,12 +488,20 @@ extension MobileShellComposite {
                         hostOutcome = outcome
                         hostFailure = result
                         if let backendResult, backendResult.error == nil {
-                            // The backend catalog is usable while host
-                            // discovery is unavailable. Keep that valid
-                            // fallback visible without surfacing a false
-                            // "Mac unavailable" picker error.
-                            self.cacheTaskModels(backendResult, for: key)
-                            didUpdate?(backendResult)
+                            // The backend catalog is usable while transient
+                            // host discovery is unavailable. Preserve a
+                            // permanent provider error so the agent picker
+                            // explains why these fallback models cannot run.
+                            let fallback = MobileTaskModelListResult(
+                                models: backendResult.models,
+                                source: backendResult.source,
+                                defaultModel: backendResult.defaultModel,
+                                error: outcome.outcome == .stopped(.providerUnavailable)
+                                    ? .providerUnavailable
+                                    : nil
+                            )
+                            self.cacheTaskModels(fallback, for: key)
+                            didUpdate?(fallback)
                         }
                         continue
                     }
@@ -514,8 +522,16 @@ extension MobileShellComposite {
                         continue
                     }
                     backendResult = result
-                    cacheTaskModels(result, for: key)
-                    didUpdate?(result)
+                    let fallback = MobileTaskModelListResult(
+                        models: result.models,
+                        source: result.source,
+                        defaultModel: result.defaultModel,
+                        error: hostOutcome?.outcome == .stopped(.providerUnavailable)
+                            ? .providerUnavailable
+                            : nil
+                    )
+                    cacheTaskModels(fallback, for: key)
+                    didUpdate?(fallback)
                 }
             }
             if let hostFailure, backendResult == nil {
