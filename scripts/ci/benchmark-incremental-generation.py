@@ -180,6 +180,7 @@ def restore_missing_tracked_files(workspace: Path) -> list[str]:
 
 
 def normalize_tracked_mtimes(workspace: Path, metrics: Path | None = None) -> None:
+    started = time.monotonic()
     base_seconds = 978_307_200
     span_seconds = 15 * 365 * 24 * 60 * 60
     records = subprocess.check_output(
@@ -203,7 +204,11 @@ def normalize_tracked_mtimes(workspace: Path, metrics: Path | None = None) -> No
         mtime_ns = seconds * 1_000_000_000 + nanoseconds
         os.utime(path, ns=(mtime_ns, mtime_ns), follow_symlinks=False)
         normalized += 1
-    payload = {"workspace": str(workspace.resolve()), "normalized_files": normalized}
+    payload = {
+        "workspace": str(workspace.resolve()),
+        "normalized_files": normalized,
+        "normalization_seconds": round(time.monotonic() - started, 6),
+    }
     if metrics:
         metrics.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     print("CMUX_CANARY_MTIME_NORMALIZATION=" + json.dumps(payload, sort_keys=True), flush=True)
