@@ -182,7 +182,10 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 of: anchorView,
                 preferredEdge: preferredEdge
             )
-            if popover.isShown {
+            // AppKit can report `isShown == false` while an opening animation is
+            // still in flight. Register immediately so animated roots participate
+            // in grouped dismissal just like immediately shown popovers.
+            if groupMemberID == nil {
                 groupMemberID = group?.register(popover: popover, anchor: anchorView)
             }
         }
