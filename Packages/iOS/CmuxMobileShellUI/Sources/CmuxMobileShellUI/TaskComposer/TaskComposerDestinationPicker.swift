@@ -8,11 +8,33 @@ import SwiftUI
 struct TaskComposerDestinationPicker: View {
     @Environment(\.dismiss) private var dismiss
 
+    /// Keep the picker compact until the user chooses which workspace to
+    /// inspect. Only one workspace can be expanded at a time so the pane maps
+    /// remain easy to compare on a phone.
+    @State private var expandedWorkspaceID: MobileWorkspacePreview.ID?
+
     let workspaces: [MobileWorkspacePreview]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let selectedPaneID: MobilePanePreview.ID?
     let isDisabled: Bool
     let select: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
+
+    init(
+        workspaces: [MobileWorkspacePreview],
+        selectedWorkspaceID: MobileWorkspacePreview.ID?,
+        selectedPaneID: MobilePanePreview.ID?,
+        isDisabled: Bool,
+        select: @escaping (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
+    ) {
+        self.workspaces = workspaces
+        self.selectedWorkspaceID = selectedWorkspaceID
+        self.selectedPaneID = selectedPaneID
+        self.isDisabled = isDisabled
+        self.select = select
+        _expandedWorkspaceID = State(
+            initialValue: selectedPaneID == nil ? nil : selectedWorkspaceID
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -76,20 +98,48 @@ struct TaskComposerDestinationPicker: View {
     }
 
     private func workspaceCard(_ workspace: MobileWorkspacePreview) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(workspace.name)
-                .font(.headline)
-                .lineLimit(1)
-            Text(L10n.string(
-                "mobile.taskComposer.destination.choosePane",
-                defaultValue: "Choose a pane"
-            ))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            paneMap(for: workspace)
+        DisclosureGroup(
+            isExpanded: expandedBinding(for: workspace.rpcWorkspaceID)
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L10n.string(
+                    "mobile.taskComposer.destination.choosePane",
+                    defaultValue: "Choose a pane"
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                paneMap(for: workspace)
+            }
+            .padding(.top, 8)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "rectangle.3.group")
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                Text(workspace.name)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+            }
         }
+        .accessibilityIdentifier(
+            "MobileTaskComposerDestinationWorkspace-\(workspace.rpcWorkspaceID.rawValue)"
+        )
+        .disabled(isDisabled)
         .padding(14)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func expandedBinding(
+        for workspaceID: MobileWorkspacePreview.ID
+    ) -> Binding<Bool> {
+        Binding(
+            get: { expandedWorkspaceID == workspaceID },
+            set: { isExpanded in
+                expandedWorkspaceID = isExpanded ? workspaceID : nil
+            }
+        )
     }
 
     private func paneMap(for workspace: MobileWorkspacePreview) -> some View {
@@ -132,6 +182,9 @@ struct TaskComposerDestinationPicker: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isDisabled)
+                    .accessibilityIdentifier(
+                        "MobileTaskComposerDestinationPane-\(workspace.rpcWorkspaceID.rawValue)-\(pane.id.rawValue)"
+                    )
                     .frame(
                         width: max(44, proxy.size.width * frame.width),
                         height: max(36, proxy.size.height * frame.height)
