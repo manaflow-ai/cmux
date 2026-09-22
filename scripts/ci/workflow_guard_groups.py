@@ -28,13 +28,11 @@ GROUPS = (
 STEP_OWNERS = {
     "Initialize Ghostty for Zig version guard": "release-tooling",
     "Run canonical CMUX CI guard profile": "ci",
-    "Set up Bun for guard tests": "preflight",
     "Test XCStrings catalog lint": "preflight",
     "Test macOS localization catalog tooling": "preflight",
     "Test review fabric contracts": "preflight",
     "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Validate Blacksmith Testbox broker trust boundary": "ci",
-    "Prepare workflow guard Python dependencies": "ci",
     "Validate build graph health tooling": "preflight",
     "Validate CI Xcode selection fast path": "release-notary",
     "Validate CI change area filter": "ci",
