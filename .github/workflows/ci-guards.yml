@@ -316,6 +316,32 @@ jobs:
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
 
+      - name: Validate app-host result ratchet
+        if: ${{ matrix.group == 'app-host-process' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_app_host_result_accounting.py
+          python3 scripts/ci/app_host_result_accounting.py validate-catalog scripts/ci/app-host-known-failures.json
+
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            base_catalog="$RUNNER_TEMP/app-host-known-failures-base.json"
+            catalog_path="scripts/ci/app-host-known-failures.json"
+            if ! base_path="$(git ls-tree -r --name-only "$BASE_SHA" -- "$catalog_path")"; then
+              echo "Unable to inspect the base app-host known-failure catalog." >&2
+              exit 1
+            elif [ -z "$base_path" ]; then
+              echo "Bootstrapping app-host known-failure catalog; future changes are subset-only."
+            else
+              git show "$BASE_SHA:$catalog_path" >"$base_catalog"
+              python3 scripts/ci/app_host_result_accounting.py catalog-diff --base "$base_catalog" --current "$catalog_path"
+            fi
+          fi
+
       - name: Validate app-host user configuration isolation
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_home_isolation.py

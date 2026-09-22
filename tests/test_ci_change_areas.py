@@ -1051,6 +1051,8 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    *,
+    known_failure: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW)
     script = script.replace("${{ matrix.shard }}", "1")
@@ -1066,6 +1068,40 @@ def run_app_host_unit_test_step(
         shutil.copy2(
             ROOT / "scripts/ci/classify-app-host-test-output.py",
             ci_scripts / "classify-app-host-test-output.py",
+        )
+        shutil.copy2(
+            ROOT / "scripts/ci/app_host_result_accounting.py",
+            ci_scripts / "app_host_result_accounting.py",
+        )
+        known_catalog = ci_scripts / "app-host-known-failures.json"
+        shutil.copy2(
+            ROOT / "scripts/ci/app-host-known-failures.json",
+            known_catalog,
+        )
+        if known_failure:
+            known_catalog.write_text(
+                json.dumps({
+                    "bootstrap_main_sha": "1" * 40,
+                    "version": 1,
+                    "tests": {
+                        "FakeTests/testOne()": {
+                            "classification": "test bug",
+                            "issue": 13095,
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+        inventory = runner_temp / "cmux-app-host-test-inventory.json"
+        inventory.write_text(
+            json.dumps({
+                "version": 1,
+                "tests": [
+                    "FakeTests/testOne()",
+                    "FakeTests/testTwo()",
+                ],
+            }),
+            encoding="utf-8",
         )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
@@ -1099,8 +1135,22 @@ if [ -f "$counter" ]; then
 fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
+result_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-$RUNNER_TEMP/cmux-app-host-xcresults}"
+mkdir -p "$result_root"
+if [ "${CMUX_TEST_KNOWN_FAILURE_MODE:-0}" = "1" ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-${iteration}.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Passed"}]}]}
+JSON
+  echo "Executed 2 tests, with 1 failure (0 unexpected)"
+  echo "** TEST FAILED **"
+  exit 65
+fi
 if [ "$iteration" -eq 1 ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-1.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Failed"}]}]}
+JSON
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  echo "** TEST FAILED **"
   exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
@@ -1128,13 +1178,14 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_KNOWN_FAILURE_MODE": "1" if known_failure else "0",
+                "CMUX_APP_HOST_TEST_INVENTORY": str(inventory),
             },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         return result, runner_marker.exists()
-
 
 def linux_preflight_needs(
     *,
@@ -3018,6 +3069,29 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> None:
+    result, runner_invoked = run_app_host_unit_test_step(known_failure=True)
+
+    assert runner_invoked
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RATCHET_KNOWN_FAILURE FakeTests/testOne()" in result.stdout
+
+
+def test_app_host_ratchet_uses_built_inventory_and_typed_results() -> None:
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    run_script = workflow_job_step_script(
+        "app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW
+    )
+
+    assert "- name: Enumerate built app-host tests" in app_host
+    assert "-enumerate-tests" in app_host
+    assert "CMUX_APP_HOST_TEST_INVENTORY" in app_host
+    assert "app_host_result_accounting.py inventory" in app_host
+    assert "app_host_result_accounting.py check-run" in run_script
+    assert "--tests-json" in run_script
+    assert "app-host-known-failures.json" in run_script
 
 
 def run_focused_app_host_step(

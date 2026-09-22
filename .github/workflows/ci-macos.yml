@@ -1065,6 +1065,40 @@ jobs:
           rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
+      - name: Enumerate built app-host tests
+        run: |
+          set -euo pipefail
+          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
+          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
+          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
+          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
+          bash scripts/ci/run-and-capture.sh "$enumeration_log" \
+            scripts/ci/run-in-console-session.sh \
+            xcodebuild test-without-building \
+            -enumerate-tests \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-enumeration-style hierarchical \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$enumeration_json"
+          test -s "$enumeration_json"
+          python3 scripts/ci/app_host_result_accounting.py inventory \
+            "$enumeration_json" --output "$inventory_json"
+          test -s "$inventory_json"
+          echo "CMUX_APP_HOST_TEST_INVENTORY=$inventory_json" >> "$GITHUB_ENV"
+
+      - name: Upload built app-host test inventory
+        if: ${{ matrix.shard == 1 }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.log
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1769,6 +1803,8 @@ jobs:
             local execution_attempt="$2"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
+            local batch_tag="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}"
+            local result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
             local reserve_args=()
             local reservation
             for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
@@ -1799,7 +1835,7 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
             : >"$batch_output"
-            CMUX_TAG="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}" \
+            CMUX_TAG="$batch_tag" \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
@@ -1864,19 +1900,35 @@ jobs:
             kill "$stream_pid" 2>/dev/null || true
             wait "$stream_pid" 2>/dev/null || true
 
-            local classification_status
-            set +e
-            python3 scripts/ci/classify-app-host-test-output.py "$batch_output"
-            classification_status=$?
-            set -e
+            shopt -s nullglob
+            local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
+            shopt -u nullglob
+            if [ "${#typed_results[@]}" -eq 0 ]; then
+              echo "No typed xcresult test JSON found for $batch_tag" >&2
+              if [ "$batch_status" -ne 0 ]; then
+                return "$batch_status"
+              fi
+              return 1
+            fi
 
-            # xcodebuild's non-zero status is always authoritative. For a zero
-            # xcodebuild status, the classifier still requires positive,
-            # completed XCTest/Swift Testing execution.
+            local accounting_status
+            set +e
+            python3 scripts/ci/app_host_result_accounting.py check-run \
+              --inventory "$CMUX_APP_HOST_TEST_INVENTORY" \
+              --selectors "$shard_args" \
+              --known scripts/ci/app-host-known-failures.json \
+              --log "$batch_output" \
+              --xcode-status "$batch_status" \
+              --tests-json "${typed_results[@]}"
+            accounting_status=$?
+            set -e
+            if [ "$accounting_status" -eq 0 ]; then
+              return 0
+            fi
             if [ "$batch_status" -ne 0 ]; then
               return "$batch_status"
             fi
-            return "$classification_status"
+            return "$accounting_status"
           }
 
           run_unit_tests() {
