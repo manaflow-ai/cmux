@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -112,6 +113,48 @@ struct QuitConfirmationAlertPresenterTests {
             )
             #expect(appDelegate.hasQuitConfirmationDirtyWorkspaces())
         }
+    }
+
+    @Test("Confirmed suppression persists never and suppresses the next quit confirmation")
+    func confirmedSuppressionPersistsNeverAndSuppressesNextQuitConfirmation() {
+        let suiteName = "cmux.tests.quit-suppression.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = QuitConfirmationStore(defaults: defaults)
+        store.setMode(.always)
+
+        #expect(
+            AppDelegate.shouldPersistQuitConfirmationSuppression(
+                response: .alertFirstButtonReturn,
+                suppressionState: .on
+            )
+        )
+        if AppDelegate.shouldPersistQuitConfirmationSuppression(
+            response: .alertFirstButtonReturn,
+            suppressionState: .on
+        ) {
+            store.setMode(.never)
+        }
+
+        #expect(store.confirmQuitMode == .never)
+        #expect(
+            !AppDelegate.shouldShowQuitConfirmation(
+                store: store,
+                isQuitWarningConfirmed: false,
+                hasDirtyWorkspaces: true,
+                isDevBuild: false
+            )
+        )
+
+        store.setMode(.always)
+        #expect(
+            !AppDelegate.shouldPersistQuitConfirmationSuppression(
+                response: .alertSecondButtonReturn,
+                suppressionState: .on
+            )
+        )
+        #expect(store.confirmQuitMode == .always)
     }
 
     @Test
