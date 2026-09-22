@@ -2099,6 +2099,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for entry in pairedMacLoadTasks.values {
             entry.task.cancel()
         }
+        for entry in abandonedPairedMacLoadTasks.values {
+            entry.cleanupTask.cancel()
+            entry.operationTask.cancel()
+        }
         for task in computerVisibilityMutationTasksByID.values {
             task.cancel()
         }
@@ -3239,8 +3243,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 nanoseconds: hydrationDeadline
             ) { [weak self] in
                 guard let self else { return false }
-                await self.loadPairedMacs()
-                return true
+                return await self.loadPairedMacs()
             }
             guard hydration.value == true else {
                 finishStoredMacReconnectAttempt(generation: generation)
@@ -3637,15 +3640,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private struct PairedMacLoadEntry {
         let id: UUID
-        let task: Task<Void, Never>
+        let task: Task<Bool, Never>
         let isForcedRefresh: Bool
+        let refreshGeneration: UInt64?
+    }
+
+    private struct AbandonedPairedMacLoadEntry {
+        let id: UUID
+        let cleanupTask: Task<Void, Never>
+        let operationTask: Task<Bool, Never>
     }
 
     @ObservationIgnored private var pairedMacLoadTasks: [
         PairedMacLoadKey: PairedMacLoadEntry
     ] = [:]
-    @ObservationIgnored private var pairedMacLoadRefreshSourceIDs: [
-        PairedMacLoadKey: UUID
+    @ObservationIgnored private var abandonedPairedMacLoadTasks: [
+        PairedMacLoadKey: AbandonedPairedMacLoadEntry
+    ] = [:]
+    @ObservationIgnored private var pairedMacLoadRefreshGeneration: [
+        PairedMacLoadKey: UInt64
+    ] = [:]
+    @ObservationIgnored private var pairedMacLoadCompletedRefreshGeneration: [
+        PairedMacLoadKey: UInt64
     ] = [:]
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
@@ -4174,48 +4190,61 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A missing current Stack user id yields no pairings rather than falling
     /// back to the unscoped all-users query, so a shared device never exposes
     /// another user's Macs in the switcher.
-    public func loadPairedMacs(forceRefresh: Bool = false) async {
+    @discardableResult
+    public func loadPairedMacs(forceRefresh: Bool = false) async -> Bool {
         guard let scope = await currentScopeSnapshot() else {
             await performPairedMacLoad()
-            return
+            return true
         }
         let key = PairedMacLoadKey(scope)
-        var waitedEntryID: UUID?
+        let requestedRefreshGeneration: UInt64?
+        if forceRefresh {
+            let next = (pairedMacLoadRefreshGeneration[key] ?? 0) &+ 1
+            pairedMacLoadRefreshGeneration[key] = next
+            requestedRefreshGeneration = next
+        } else {
+            requestedRefreshGeneration = nil
+        }
         while true {
-            if let entry = pairedMacLoadTasks[key] {
-                if forceRefresh, entry.isForcedRefresh {
-                    await entry.task.value
-                    return
+            if let abandoned = abandonedPairedMacLoadTasks[key] {
+                abandoned.operationTask.cancel()
+                if await isScopeCurrent(scope) {
+                    pairedMacLoadState = .failed
                 }
-                waitedEntryID = entry.id
-                await entry.task.value
-                // A forced refresh represents a store mutation that happened
-                // while an older read was in flight. The completed task removes
-                // itself before waking this waiter, so retrying here starts a
-                // read of the newer snapshot without spinning on a completed
-                // task.
-                if forceRefresh {
-                    if pairedMacLoadRefreshSourceIDs[key] == entry.id {
-                        return
+                return false
+            }
+            if let entry = pairedMacLoadTasks[key] {
+                let result = await entry.task.value
+                if let requestedRefreshGeneration {
+                    if entry.isForcedRefresh,
+                       entry.refreshGeneration ?? 0
+                            >= requestedRefreshGeneration {
+                        return result
+                    }
+                    if pairedMacLoadCompletedRefreshGeneration[key, default: 0]
+                        >= requestedRefreshGeneration {
+                        return result
                     }
                     continue
                 }
-                return
+                return result
+            }
+            if let requestedRefreshGeneration,
+               pairedMacLoadCompletedRefreshGeneration[key, default: 0]
+                    >= requestedRefreshGeneration {
+                return true
             }
             break
         }
         let id = UUID()
-        let isForcedRefresh = forceRefresh
-        let refreshSourceID = isForcedRefresh ? waitedEntryID : nil
+        let refreshGeneration = forceRefresh
+            ? pairedMacLoadRefreshGeneration[key]
+            : nil
         let loadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self else { return false }
             defer {
                 if self.pairedMacLoadTasks[key]?.id == id {
                     self.pairedMacLoadTasks[key] = nil
-                }
-                if let refreshSourceID,
-                   self.pairedMacLoadTasks[key]?.id != id {
-                    self.pairedMacLoadRefreshSourceIDs[key] = refreshSourceID
                 }
             }
             let load = await Self.raceAgainstDeadline(
@@ -4225,18 +4254,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 await self.performPairedMacLoad()
                 return true
             }
+            if let abandoned = load.abandoned {
+                let abandonedID = UUID()
+                let cleanupTask = Task { @MainActor [weak self] in
+                    _ = await abandoned.value
+                    guard let self else { return }
+                    if self.abandonedPairedMacLoadTasks[key]?.id == abandonedID {
+                        self.abandonedPairedMacLoadTasks[key] = nil
+                    }
+                }
+                self.abandonedPairedMacLoadTasks[key] =
+                    AbandonedPairedMacLoadEntry(
+                        id: abandonedID,
+                        cleanupTask: cleanupTask,
+                        operationTask: abandoned
+                    )
+            }
             if load.value == nil,
                await self.isScopeCurrent(scope),
                self.pairedMacLoadState == .notLoaded {
                 self.pairedMacLoadState = .failed
             }
+            let succeeded = load.value == true
+            if succeeded, let refreshGeneration {
+                self.pairedMacLoadCompletedRefreshGeneration[key] = max(
+                    self.pairedMacLoadCompletedRefreshGeneration[key] ?? 0,
+                    refreshGeneration
+                )
+            }
+            return succeeded
         }
         pairedMacLoadTasks[key] = PairedMacLoadEntry(
             id: id,
             task: loadTask,
-            isForcedRefresh: isForcedRefresh
+            isForcedRefresh: forceRefresh,
+            refreshGeneration: refreshGeneration
         )
-        await loadTask.value
+        return await loadTask.value
     }
 
     private func performPairedMacLoad() async {
