@@ -53,7 +53,7 @@ struct CloudTreeRowContentView: View {
             EmptyView()
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
-        case .displaysPool(_, let count):
+        case .displaysPool(_, let count, _):
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
