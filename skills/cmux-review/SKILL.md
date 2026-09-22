@@ -201,9 +201,10 @@ When the user requested repair, or the workflow explicitly allows it:
 1. create a checkpoint before mutation when cmux Vault is available;
 2. repair one verified finding at a time;
 3. prefer the smallest change that removes the demonstrated failure;
-4. rerun the exact verification that established the defect;
-5. review the repair delta in a fresh context;
-6. cap autonomous repair loops at two attempts per finding.
+4. capture the resulting exact source identity;
+5. rerun the exact verification that established the defect and retain its post-repair evidence;
+6. review the repair delta in a fresh context;
+7. cap autonomous repair loops at two attempts per finding.
 
 Useful cmux primitives:
 
@@ -237,7 +238,9 @@ The receipt should conform to:
 
 The receipt records source identity, policy version, review brief, candidate counts, findings, evidence, and dispositions. It is a local artifact under Git metadata and must never be added to source control.
 
-Compute the diff hash from the exact reviewed patch. For working-tree review, include staged and unstaged state in the reviewed patch and record `working_tree_dirty: true`.
+The top-level `source` is the exact state against which discovery, challenge, and pre-repair verification ran. Use full Git object ids; never abbreviate `base_sha` or `head_sha`. Compute the diff hash from the exact reviewed patch. For working-tree review, include staged and unstaged state in the reviewed patch and record `working_tree_dirty: true`.
+
+A successful repair crosses into a new source state. Record that state as `repair.after_source` and record the replay of the original discriminator under `repair.verification`. Do not let post-repair evidence inherit the pre-repair source coordinate implicitly.
 
 A later review of the same source state may reuse a receipt only when the relevant policy/ruleset identity also matches. New source changes require re-evaluating affected findings and dependencies.
 
