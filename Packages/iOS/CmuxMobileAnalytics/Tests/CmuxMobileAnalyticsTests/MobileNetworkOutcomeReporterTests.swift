@@ -17,7 +17,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         )
         let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
         reporter.ingest(DiagnosticEvent(
-            .appFeatureAction, ms: 15_000,
+            .appFeatureAction, surface: 42, ms: 15_000,
             a: DiagnosticAppEventKind.taskModelListRetryScheduled.rawValue,
             b: DiagnosticFailureKind.timedOut.rawValue, c: 8
         ))
@@ -33,6 +33,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(events.first?.properties["phase"] == .string("retry_scheduled"))
         #expect(events.first?.properties["attempt"] == .int(8))
         #expect(events.first?.properties["retry_delay_ms"] == .int(15_000))
+        #expect(events.first?.properties["correlation_id"] == .int(42))
         #expect(events.last?.properties["phase"] == .string("retry_stopped"))
         #expect(events.last?.properties["stop_reason"] == .string("authorizationRequired"))
     }

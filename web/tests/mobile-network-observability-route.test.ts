@@ -126,7 +126,7 @@ describe("iOS mobile network observability route", () => {
       properties: {
         operation: "model_list", phase: "retry_scheduled", outcome: "failure",
         duration_ms: 0, model_count: 0, failure: "timedOut",
-        attempt: 8, retry_delay_ms: 15_000,
+        attempt: 8, retry_delay_ms: 15_000, correlation_id: 42,
       },
     };
     const stopped = {
@@ -140,7 +140,7 @@ describe("iOS mobile network observability route", () => {
     const response = await POST(outcomeRequest([retry, stopped]));
     expect(response.status).toBe(200);
     expect(emitted[0]?.batch).toMatchObject([
-      { discoveryPhase: "retry_scheduled", attempt: 8, retryDelayMs: 15_000 },
+      { discoveryPhase: "retry_scheduled", attempt: 8, retryDelayMs: 15_000, correlationId: 42 },
       { discoveryPhase: "retry_stopped", stopReason: "authorizationRequired" },
     ]);
     const invalid = await POST(outcomeRequest([{

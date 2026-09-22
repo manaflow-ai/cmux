@@ -146,6 +146,11 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             "model_count": .int(modelCount),
             "duration_ms": .int(Int(event.ms ?? 0)),
         ]
+        if let surface = event.surface {
+            // This is the existing process-local correlation handle. It lets
+            // Axiom join one refresh's retries without exporting the Mac ID.
+            properties["correlation_id"] = .int(Int(surface))
+        }
         if let phase {
             properties["phase"] = .string(phase)
         }

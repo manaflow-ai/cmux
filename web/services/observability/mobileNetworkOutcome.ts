@@ -44,7 +44,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
-  "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason",
+  "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -120,6 +120,7 @@ export type MobileTaskModelDiscovery = {
   readonly outcome: "success" | "failure";
   readonly durationMs: number;
   readonly modelCount: number;
+  readonly correlationId?: number;
   readonly discoveryPhase?: "retry_scheduled" | "retry_stopped";
   readonly attempt?: number;
   readonly retryDelayMs?: number;
@@ -248,7 +249,7 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "failure">;
+type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "correlationId" | "failure">;
 type MobileTaskModelRetryMetadata = Pick<MobileTaskModelDiscovery, "discoveryPhase" | "attempt" | "retryDelayMs" | "stopReason">;
 
 const taskModelRetryPhases = new Set(["retry_scheduled", "retry_stopped"]);
@@ -264,13 +265,17 @@ function parseMobileTaskModelDiscoveryPayload(
   if (properties.outcome !== "success" && properties.outcome !== "failure") return null;
   const durationMs = unsignedInteger(properties.duration_ms);
   const modelCount = unsignedInteger(properties.model_count);
+  const correlationId = properties.correlation_id === undefined
+    ? undefined
+    : unsignedInteger(properties.correlation_id);
   const failure = optionalSetValue(properties.failure, failures);
-  if (durationMs === null || modelCount === null || failure === false) return null;
+  if (durationMs === null || modelCount === null || correlationId === null || failure === false) return null;
   if (properties.outcome === "failure" && typeof failure !== "string") return null;
   return {
     outcome: properties.outcome,
     durationMs,
     modelCount,
+    ...(typeof correlationId === "number" ? { correlationId } : {}),
     ...(typeof failure === "string" ? { failure } : {}),
   };
 }
@@ -468,6 +473,7 @@ export async function emitMobileObservabilityEvents(
           "cmux.mobile.outcome": observation.outcome,
           "cmux.mobile.duration_ms": observation.durationMs,
           "cmux.mobile.model_count": observation.modelCount,
+          "cmux.mobile.correlation_id": observation.correlationId,
           "cmux.mobile.discovery_phase": observation.discoveryPhase,
           "cmux.mobile.attempt": observation.attempt,
           "cmux.mobile.retry_delay_ms": observation.retryDelayMs,
