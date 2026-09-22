@@ -21,7 +21,12 @@ invocation_id="$(python3 -c 'import os; print(os.getppid())')"
 log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-${invocation_id}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
-echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
+# A crashed app host is relaunched by xcodebuild, which then resumes the run.
+# Nothing bounds that loop, so cap the restarts one invocation may spend before
+# the wrapper aborts it (https://github.com/manaflow-ai/cmux/issues/13707).
+export CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET="${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET:-2}"
+restart_budget_exit_code=123
+echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
@@ -350,6 +355,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
+    # A restart-budget abort is the one failure that must never be retried:
+    # every attempt would crash-loop again and spend the same runner time.
+    if [ "$status" -eq "$restart_budget_exit_code" ]; then
+      echo "App-host restart budget exceeded on attempt $attempt/$max_attempts; not retrying" >&2
+      exit "$status"
+    fi
     retry_reason=""
     if [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
