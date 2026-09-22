@@ -1,0 +1,462 @@
+name: Xcode incremental generation canary
+
+on:
+  push:
+    branches:
+      - exp/incremental-generation-canary-v2-20260921
+
+permissions:
+  contents: read
+
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
+  CANARY_BASE: 2393fd16b875819909c8f633271934a3f6d0292e
+  CANARY_TARGET: 2f943925239bcff183fcb452379725fa3b4b4b20
+  CANARY_REPO_URL: https://github.com/manaflow-ai/cmux.git
+  CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+  CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+  CMUX_SKIP_ZIG_BUILD: "1"
+
+jobs:
+  validate:
+    name: Validate canary harness
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Run offline canary tests
+        run: python3 tests/test_ci_incremental_generation_canary.py
+      - name: Validate Python syntax
+        run: python3 -m py_compile scripts/ci/benchmark-incremental-generation.py
+
+  seed:
+    name: Build generation A
+    needs: validate
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Preserve benchmark harness outside the worktree
+        run: |
+          cp scripts/ci/benchmark-incremental-generation.py "$RUNNER_TEMP/benchmark.py"
+          chmod +x "$RUNNER_TEMP/benchmark.py"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Materialize fresh source at generation A
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" source-fresh \
+            --workspace "$GITHUB_WORKSPACE" \
+            --base "$CANARY_BASE" \
+            --target "$CANARY_BASE" \
+            --metrics "$RUNNER_TEMP/seed-source.json"
+
+      - name: Normalize generation A source mtimes
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" normalize-mtimes \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metrics "$RUNNER_TEMP/seed-mtime-normalization.json"
+
+      - name: Compute Swift package cache key
+        id: package-key
+        run: |
+          echo "hash=$(shasum -a 256 cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift packages
+        id: spm-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-source-packages
+          key: spm-${{ steps.package-key.outputs.hash }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-source-packages"
+
+      - name: Compute compilation cache fingerprint
+        id: cas-key
+        run: |
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh fingerprint "$RUNNER_TEMP/cmux-derived-data-compile-admission")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore shared Xcode compilation CAS
+        id: cas-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-compile-admission-cas
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-${{ env.CANARY_BASE }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build generation A from cold DerivedData
+        run: |
+          rm -rf "$RUNNER_TEMP/cmux-derived-data-compile-admission"
+          python3 "$RUNNER_TEMP/benchmark.py" build \
+            --workspace "$GITHUB_WORKSPACE" \
+            --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" \
+            --source-packages "$RUNNER_TEMP/cmux-source-packages" \
+            --cas "$RUNNER_TEMP/cmux-compile-admission-cas" \
+            --label seed-A \
+            --source-metrics "$RUNNER_TEMP/seed-source.json" \
+            --metrics "$RUNNER_TEMP/seed-build.json"
+
+      - name: Archive source generation and DerivedData
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" archive \
+            --workspace "$GITHUB_WORKSPACE" \
+            --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" \
+            --outdir "$RUNNER_TEMP/generation" \
+            --metrics "$RUNNER_TEMP/archive.json"
+
+      - name: Start worktree upload timer
+        run: python3 -c 'import os,time; open(os.environ["RUNNER_TEMP"]+"/worktree-upload-start","w").write(str(time.monotonic()))'
+
+      - name: Upload worktree generation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-canary-worktree
+          path: ${{ runner.temp }}/generation/worktree.tar.gz
+          compression-level: 0
+          retention-days: 1
+
+      - name: Record worktree upload time
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          seconds = time.monotonic() - float((root / "worktree-upload-start").read_text())
+          payload = {"kind": "worktree-upload", "seconds": round(seconds, 6), "archive_bytes": (root / "generation/worktree.tar.gz").stat().st_size}
+          (root / "worktree-upload.json").write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_TRANSFER=" + json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Start DerivedData upload timer
+        run: python3 -c 'import os,time; open(os.environ["RUNNER_TEMP"]+"/dd-upload-start","w").write(str(time.monotonic()))'
+
+      - name: Upload DerivedData generation
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-canary-derived-data
+          path: ${{ runner.temp }}/generation/derived-data.tar.gz
+          compression-level: 0
+          retention-days: 1
+
+      - name: Record DerivedData upload time
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          seconds = time.monotonic() - float((root / "dd-upload-start").read_text())
+          payload = {"kind": "derived-data-upload", "seconds": round(seconds, 6), "archive_bytes": (root / "generation/derived-data.tar.gz").stat().st_size}
+          (root / "dd-upload.json").write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_TRANSFER=" + json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Preserve seed build log
+        if: always()
+        run: cp "$RUNNER_TEMP/cmux-derived-data-compile-admission/cmux-build.log" "$RUNNER_TEMP/seed-cmux-build.log" 2>/dev/null || true
+
+      - name: Record seed row
+        env:
+          SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
+          CAS_CACHE_HIT: ${{ steps.cas-cache.outputs.cache-hit }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          row = {"arm": "seed-A", "spm_restore_hit": os.environ.get("SPM_CACHE_HIT", ""), "cas_restore_hit": os.environ.get("CAS_CACHE_HIT", "")}
+          for key, name in [
+              ("source", "seed-source.json"),
+              ("build", "seed-build.json"),
+              ("archive", "archive.json"),
+              ("worktree_upload", "worktree-upload.json"),
+              ("derived_data_upload", "dd-upload.json"),
+          ]:
+              path = root / name
+              row[key] = json.loads(path.read_text())
+          (root / "seed-row.json").write_text(json.dumps(row, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_ROW=" + json.dumps(row, sort_keys=True))
+          PY
+
+      - name: Upload seed metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-canary-seed-metrics
+          path: |
+            ${{ runner.temp }}/seed-source.json
+            ${{ runner.temp }}/seed-mtime-normalization.json
+            ${{ runner.temp }}/seed-build.json
+            ${{ runner.temp }}/archive.json
+            ${{ runner.temp }}/worktree-upload.json
+            ${{ runner.temp }}/dd-upload.json
+            ${{ runner.temp }}/seed-row.json
+            ${{ runner.temp }}/seed-cmux-build.log
+          retention-days: 1
+
+  benchmark:
+    name: Benchmark ${{ matrix.arm }}
+    needs: seed
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        arm:
+          - cold-fresh
+          - fresh-restored-dd
+          - fresh-normalized-restored-dd
+          - restored-generation
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Preserve benchmark harness outside the worktree
+        run: |
+          cp scripts/ci/benchmark-incremental-generation.py "$RUNNER_TEMP/benchmark.py"
+          chmod +x "$RUNNER_TEMP/benchmark.py"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Resolve benchmark paths
+        env:
+          ARM: ${{ matrix.arm }}
+        run: |
+          if [ "$ARM" = "relocated-workspace" ]; then
+            workspace="$RUNNER_TEMP/cmux-relocated-workspace"
+          else
+            workspace="$GITHUB_WORKSPACE"
+          fi
+          if [ "$ARM" = "relocated-dd" ]; then
+            derived="$RUNNER_TEMP/cmux-derived-data-relocated"
+          else
+            derived="$RUNNER_TEMP/cmux-derived-data-compile-admission"
+          fi
+          {
+            echo "CMUX_CANARY_WORKSPACE=$workspace"
+            echo "CMUX_CANARY_DERIVED=$derived"
+          } >> "$GITHUB_ENV"
+
+      - name: Start worktree download timer
+        if: matrix.arm == 'restored-generation' || matrix.arm == 'restored-synthetic-merge' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
+        run: python3 -c 'import os,time; open(os.environ["RUNNER_TEMP"]+"/worktree-download-start","w").write(str(time.monotonic()))'
+
+      - name: Download worktree generation
+        if: matrix.arm == 'restored-generation' || matrix.arm == 'restored-synthetic-merge' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-canary-worktree
+          path: ${{ runner.temp }}/worktree-artifact
+
+      - name: Record worktree download time
+        if: matrix.arm == 'restored-generation' || matrix.arm == 'restored-synthetic-merge' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          archive = root / "worktree-artifact/worktree.tar.gz"
+          payload = {"kind": "worktree-download", "seconds": round(time.monotonic() - float((root / "worktree-download-start").read_text()), 6), "archive_bytes": archive.stat().st_size}
+          (root / "worktree-download.json").write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_TRANSFER=" + json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Start DerivedData download timer
+        if: matrix.arm != 'cold-fresh'
+        run: python3 -c 'import os,time; open(os.environ["RUNNER_TEMP"]+"/dd-download-start","w").write(str(time.monotonic()))'
+
+      - name: Download DerivedData generation
+        if: matrix.arm != 'cold-fresh'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incremental-canary-derived-data
+          path: ${{ runner.temp }}/dd-artifact
+
+      - name: Record DerivedData download time
+        if: matrix.arm != 'cold-fresh'
+        run: |
+          python3 - <<'PY'
+          import json, os, time
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          archive = root / "dd-artifact/derived-data.tar.gz"
+          payload = {"kind": "derived-data-download", "seconds": round(time.monotonic() - float((root / "dd-download-start").read_text()), 6), "archive_bytes": archive.stat().st_size}
+          (root / "dd-download.json").write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_TRANSFER=" + json.dumps(payload, sort_keys=True))
+          PY
+
+      - name: Fresh checkout transition to generation B
+        if: matrix.arm == 'cold-fresh' || matrix.arm == 'fresh-restored-dd' || matrix.arm == 'fresh-normalized-restored-dd'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" source-fresh \
+            --workspace "$GITHUB_WORKSPACE" \
+            --base "$CANARY_BASE" \
+            --target "$CANARY_TARGET" \
+            --metrics "$RUNNER_TEMP/source.json"
+
+      - name: Normalize fresh B mtimes from Git blob IDs
+        if: matrix.arm == 'fresh-normalized-restored-dd'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" normalize-mtimes \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metrics "$RUNNER_TEMP/mtime-normalization.json"
+
+      - name: Restore worktree generation A and advance to B
+        if: matrix.arm == 'restored-generation' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" source-restored \
+            --workspace "$CMUX_CANARY_WORKSPACE" \
+            --archive "$RUNNER_TEMP/worktree-artifact/worktree.tar.gz" \
+            --repo-url "$CANARY_REPO_URL" \
+            --base "$CANARY_BASE" \
+            --target "$CANARY_TARGET" \
+            --metrics "$RUNNER_TEMP/source.json"
+
+      - name: Restore worktree generation A and create synthetic PR merge
+        if: matrix.arm == 'restored-synthetic-merge'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" source-restored \
+            --workspace "$CMUX_CANARY_WORKSPACE" \
+            --archive "$RUNNER_TEMP/worktree-artifact/worktree.tar.gz" \
+            --repo-url "$CANARY_REPO_URL" \
+            --base "$CANARY_BASE" \
+            --target "$CANARY_TARGET" \
+            --synthetic-merge \
+            --metrics "$RUNNER_TEMP/source.json"
+
+      - name: Restore DerivedData
+        if: matrix.arm != 'cold-fresh'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" extract-dd \
+            --archive "$RUNNER_TEMP/dd-artifact/derived-data.tar.gz" \
+            --derived "$CMUX_CANARY_DERIVED" \
+            --metrics "$RUNNER_TEMP/dd-restore.json"
+
+      - name: Keep cold arm DerivedData empty
+        if: matrix.arm == 'cold-fresh'
+        run: rm -rf "$CMUX_CANARY_DERIVED"
+
+      - name: Compute Swift package cache key
+        id: package-key
+        run: |
+          lock="$CMUX_CANARY_WORKSPACE/cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          echo "hash=$(shasum -a 256 "$lock" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift packages
+        id: spm-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-source-packages
+          key: spm-${{ steps.package-key.outputs.hash }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 "$CMUX_CANARY_WORKSPACE/scripts/ci/sanitize-xcode-source-packages-cache.py" "$RUNNER_TEMP/cmux-source-packages"
+
+      - name: Compute compilation cache fingerprint
+        id: cas-key
+        run: |
+          cd "$CMUX_CANARY_WORKSPACE"
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_CANARY_DERIVED")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore shared Xcode compilation CAS
+        id: cas-cache
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-compile-admission-cas
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-${{ env.CANARY_BASE }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build benchmark arm
+        id: build
+        continue-on-error: true
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" build \
+            --workspace "$CMUX_CANARY_WORKSPACE" \
+            --derived "$CMUX_CANARY_DERIVED" \
+            --source-packages "$RUNNER_TEMP/cmux-source-packages" \
+            --cas "$RUNNER_TEMP/cmux-compile-admission-cas" \
+            --label "${{ matrix.arm }}" \
+            --source-metrics "$RUNNER_TEMP/source.json" \
+            --dd-metrics "$RUNNER_TEMP/dd-restore.json" \
+            --metrics "$RUNNER_TEMP/build.json"
+
+      - name: Preserve benchmark build log
+        if: always()
+        run: cp "$CMUX_CANARY_DERIVED/cmux-build.log" "$RUNNER_TEMP/cmux-build.log" 2>/dev/null || true
+
+      - name: Record benchmark row
+        if: always()
+        env:
+          ARM: ${{ matrix.arm }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
+          CAS_CACHE_HIT: ${{ steps.cas-cache.outputs.cache-hit }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          row = {
+              "arm": os.environ["ARM"],
+              "build_outcome": os.environ.get("BUILD_OUTCOME", ""),
+              "spm_restore_hit": os.environ.get("SPM_CACHE_HIT", ""),
+              "cas_restore_hit": os.environ.get("CAS_CACHE_HIT", ""),
+          }
+          for key, name in [
+              ("source", "source.json"),
+              ("mtime_normalization", "mtime-normalization.json"),
+              ("derived_restore", "dd-restore.json"),
+              ("build", "build.json"),
+              ("worktree_download", "worktree-download.json"),
+              ("derived_data_download", "dd-download.json"),
+          ]:
+              path = root / name
+              row[key] = json.loads(path.read_text()) if path.is_file() else None
+          (root / "row.json").write_text(json.dumps(row, sort_keys=True, indent=2) + "\n")
+          print("CMUX_CANARY_ROW=" + json.dumps(row, sort_keys=True))
+          PY
+
+      - name: Upload benchmark metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-canary-metrics-${{ matrix.arm }}
+          path: |
+            ${{ runner.temp }}/source.json
+            ${{ runner.temp }}/mtime-normalization.json
+            ${{ runner.temp }}/dd-restore.json
+            ${{ runner.temp }}/build.json
+            ${{ runner.temp }}/worktree-download.json
+            ${{ runner.temp }}/dd-download.json
+            ${{ runner.temp }}/row.json
+            ${{ runner.temp }}/cmux-build.log
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Fail arm if build failed
+        if: steps.build.outcome != 'success'
+        run: exit 1
