@@ -3053,7 +3053,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
     }
 
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(
+        let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -4209,10 +4209,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
             return true
         }
-    }
-
-    private final class KeyStatusTestWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
     }
 
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {

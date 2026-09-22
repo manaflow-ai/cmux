@@ -4837,7 +4837,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
