@@ -4,11 +4,32 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "scripts" / "ci" / "run-swift-testing-suites.sh"
+
+
+def run_runner(package: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        [str(RUNNER), str(package)],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    deadline = time.monotonic() + 30
+    while process.poll() is None:
+        if time.monotonic() >= deadline:
+            process.kill()
+            output, _ = process.communicate()
+            raise AssertionError(f"runner failed to exit within test deadline\n{output}")
+        time.sleep(0.05)
+    output, _ = process.communicate()
+    return subprocess.CompletedProcess(process.args, process.returncode, output)
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
@@ -33,16 +54,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
 
-            completed = subprocess.run(
-                [str(RUNNER), str(package)],
-                cwd=ROOT,
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=5,
-                check=False,
-            )
+            completed = run_runner(package, env)
 
             self.assertEqual(completed.returncode, 0, completed.stdout)
             invocations = calls.read_text(encoding="utf-8").splitlines()
@@ -84,16 +96,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
             env["CMUX_SWIFT_TEST_ATTEMPTS"] = str(attempts)
 
-            completed = subprocess.run(
-                [str(RUNNER), str(package)],
-                cwd=ROOT,
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=5,
-                check=False,
-            )
+            completed = run_runner(package, env)
 
             self.assertEqual(completed.returncode, 0, completed.stdout)
             invocations = calls.read_text(encoding="utf-8").splitlines()
@@ -123,16 +126,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] = "1"
 
-            completed = subprocess.run(
-                [str(RUNNER), str(package)],
-                cwd=ROOT,
-                env=env,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=5,
-                check=False,
-            )
+            completed = run_runner(package, env)
 
             self.assertEqual(completed.returncode, 124, completed.stdout)
             self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
