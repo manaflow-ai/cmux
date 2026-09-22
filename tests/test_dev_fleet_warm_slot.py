@@ -566,6 +566,32 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(result["status"], "invalid_identity")
         self.assertEqual(marker.read_text(), "keep")
 
+    def test_cleanup_budget_is_bounded_and_unknown_entries_are_preserved(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        unknown = layout.retired_cold_tasks / "operator-data"
+        unknown.mkdir(parents=True)
+        marker = unknown / "marker"
+        marker.write_text("keep")
+
+        result = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=33,
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "invalid_cleanup_budget")
+        self.assertEqual(marker.read_text(), "keep")
+
+        valid = warm_slot.retired_cold_task_root(layout, "c" * 32)
+        valid.mkdir(parents=True)
+        (valid / "fixture.bin").write_bytes(b"x")
+        result = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=1,
+        )
+        self.assertEqual(result["status"], "reclaimed")
+        self.assertFalse(valid.exists())
+        self.assertEqual(marker.read_text(), "keep")
+
     def test_background_cleanup_yields_to_foreground_signal(self):
         layout = warm_slot.Layout(self.state, "slot")
         generation = "b" * 32
