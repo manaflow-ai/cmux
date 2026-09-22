@@ -124,8 +124,12 @@ class RoutingTests(unittest.TestCase):
         self.assertIn("selected = compile_job(api, run_id)", source)
         self.assertIn('selected.get("status") != "completed"', source)
 
-    def test_only_trusted_same_repository_members_are_eligible(self):
+    def test_only_trusted_same_repository_maintainers_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
+        self.assertEqual(
+            route.eligibility(args(author_association="COLLABORATOR")),
+            (True, "pilot"),
+        )
         self.assertEqual(
             route.eligibility(args(head_repository="someone/cmux")),
             (False, "untrusted_repository"),
@@ -274,6 +278,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
+        self.assertIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
         self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
