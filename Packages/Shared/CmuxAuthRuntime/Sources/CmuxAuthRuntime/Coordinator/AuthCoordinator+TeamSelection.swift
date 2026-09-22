@@ -12,7 +12,9 @@ public extension AuthCoordinator {
         teamMutationGeneration &+= 1
         let mutationGeneration = teamMutationGeneration
         let sessionGeneration = self.sessionGeneration
-        try await client.setSelectedTeam(id: id)
+        try await runPhase(.teamSelection, timeout: timeouts.network) {
+            try await client.setSelectedTeam(id: id)
+        }
         guard sessionGeneration == self.sessionGeneration,
               mutationGeneration == teamMutationGeneration,
               isAuthenticated else {
