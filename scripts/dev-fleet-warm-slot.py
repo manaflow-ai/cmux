@@ -1585,7 +1585,7 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                         layout,
                         "stale_active_lease_recovered",
                         lease_id=lease.get("lease_id"),
-                        kind=lease.get("kind"),
+                        lease_kind=lease.get("kind"),
                         cold_cache_retirement=(
                             cold_retirement.get("status") if cold_retirement is not None else None
                         ),
