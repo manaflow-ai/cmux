@@ -3,6 +3,7 @@
 import argparse
 import importlib.util
 import sys
+import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -33,6 +34,16 @@ def args(*, best_effort: bool) -> argparse.Namespace:
 class NightlyPruneRateLimitTests(unittest.TestCase):
     def test_best_effort_prune_ignores_github_rate_limit(self) -> None:
         error = MODULE.GitHubAPIError(403, '{"message":"API rate limit exceeded"}')
+        with mock.patch.object(MODULE, "parse_args", return_value=args(best_effort=True)), \
+                mock.patch.object(MODULE, "load_release", side_effect=error):
+            self.assertEqual(MODULE.main(), 0)
+
+    def test_best_effort_prune_ignores_gh_rate_limit(self) -> None:
+        error = subprocess.CalledProcessError(
+            1,
+            ["gh", "api"],
+            stderr="HTTP 403: API rate limit exceeded",
+        )
         with mock.patch.object(MODULE, "parse_args", return_value=args(best_effort=True)), \
                 mock.patch.object(MODULE, "load_release", side_effect=error):
             self.assertEqual(MODULE.main(), 0)
