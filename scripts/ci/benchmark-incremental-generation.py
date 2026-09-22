@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -393,6 +394,60 @@ def record_source_metrics(
     print("CMUX_CANARY_SOURCE=" + json.dumps(payload, sort_keys=True), flush=True)
 
 
+def tracked_superproject_paths(workspace: Path) -> list[str]:
+    records = subprocess.check_output(
+        ["git", "ls-files", "--stage", "-z"],
+        cwd=workspace,
+    ).split(b"\0")
+    paths: list[str] = []
+    for record in records:
+        if not record:
+            continue
+        metadata, raw_path = record.split(b"\t", 1)
+        mode, _object_id, stage = metadata.split()
+        if stage != b"0" or mode == b"160000":
+            continue
+        relative = os.fsdecode(raw_path)
+        parsed = PurePosixPath(relative)
+        if parsed.is_absolute() or ".." in parsed.parts:
+            raise SystemExit(f"unsafe tracked source path: {relative}")
+        paths.append(relative)
+    return paths
+
+
+def gzip_tracked_tar(workspace: Path, destination: Path) -> float:
+    """Archive only tracked superproject files, with exact PAX mtimes."""
+    started = time.monotonic()
+    paths = tracked_superproject_paths(workspace)
+    with destination.open("wb") as raw:
+        with gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=1, mtime=0) as compressed:
+            with tarfile.open(
+                fileobj=compressed,
+                mode="w",
+                format=tarfile.PAX_FORMAT,
+                dereference=False,
+            ) as archive:
+                for relative in paths:
+                    source = workspace / relative
+                    info = archive.gettarinfo(str(source), arcname=relative)
+                    stat = os.lstat(source)
+                    seconds, nanoseconds = divmod(stat.st_mtime_ns, 1_000_000_000)
+                    info.mtime = seconds
+                    info.pax_headers["mtime"] = f"{seconds}.{nanoseconds:09d}"
+                    # Remove machine/user-specific archive metadata; Xcode source
+                    # identity depends on the file bytes/path/timestamp, not uid.
+                    info.uid = 0
+                    info.gid = 0
+                    info.uname = ""
+                    info.gname = ""
+                    if info.isfile():
+                        with source.open("rb") as stream:
+                            archive.addfile(info, stream)
+                    else:
+                        archive.addfile(info)
+    return time.monotonic() - started
+
+
 def gzip_tar(source: Path, destination: Path, excludes=()) -> float:
     started = time.monotonic()
     tar = subprocess.Popen(
@@ -417,17 +472,7 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
     worktree_archive = outdir / "worktree.tar.gz"
     dd_archive = outdir / "derived-data.tar.gz"
     submodule_paths = configured_submodule_paths(workspace)
-    worktree_excludes = [
-        "./.git",
-        "./GhosttyKit.xcframework",
-        "./.ci-source-packages",
-        *[f"./{path}" for path in submodule_paths],
-    ]
-    worktree_seconds = gzip_tar(
-        workspace,
-        worktree_archive,
-        excludes=tuple(worktree_excludes),
-    )
+    worktree_seconds = gzip_tracked_tar(workspace, worktree_archive)
     reusable_derived_paths = [
         Path("Build/Intermediates.noindex"),
         Path("Build/Products/Debug"),
