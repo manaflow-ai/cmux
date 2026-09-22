@@ -69,3 +69,50 @@ Generation reuse is acceleration. It does not reuse test success. The merge queu
 If the changed-source restored-generation arm wins after transfer cost, the smallest next step is an off-by-default PR-only canary selected by a repository variable/workflow input, limited to explicit cohorts and same-PR previous-generation consumption. Missing or invalid state falls back immediately to the current hosted compile and every attempt uploads raw metrics.
 
 If the benchmark loses after transfer, stop at the evidence and investigate smaller state sets or deterministic mtime normalization instead.
+
+
+## Measured evidence so far
+
+### Existing hosted admission baseline
+
+PR #13432 commit d28027e ran hosted compile admission in workflow run 35645230722.
+The R2 compilation CAS restored by prefix in 23.748 seconds. The subsequent
+compile still took 990.199 seconds. The log contained 1,124 compiler-CAS hit
+mentions and 2,682 miss mentions overall; target cmux accounted for 47 hits and
+2,638 misses.
+
+A later #13432 head run compiled in 821.282 seconds and still recorded 2,639
+cmux-target CAS misses. This is motivation only; the canary uses its own matched
+A/B runner measurements for acceptance.
+
+### Natural-mtime canary run 35671427595
+
+The first canary accidentally omitted CI_CACHE_R2_PUBLIC_URL, so the R2 restore
+action correctly reported the store as unavailable. Treat its build rows as a
+CAS-cold experiment, not as the production-CAS comparison. The corrected
+canary adds the endpoint before another run.
+
+Completed producer A measurements:
+
+- cold build wall: 796.096 seconds;
+- SwiftCompile log lines: 10,307;
+- CAS hit/miss mentions: 0 / 3,708;
+- DerivedData disk: 7,524,298,752 bytes;
+- worktree disk: 2,056,282,112 bytes;
+- DerivedData archive: 2,087,797,886 bytes;
+- worktree archive: 167,339,616 bytes;
+- total generation archive: 2,255,137,502 bytes;
+- DerivedData compression: 56.242 seconds;
+- worktree compression: 5.393 seconds;
+- DerivedData artifact upload: 17.429 seconds;
+- worktree artifact upload: 3.378 seconds;
+- producer compression + upload overhead: about 82.44 seconds.
+
+The matched cold-fresh B arm took 946.270 seconds and produced 10,307
+SwiftCompile log lines with 0 / 3,708 compiler-CAS hit/miss mentions.
+
+The build-timing fields in this first run are intentionally excluded: a harness
+PATH bug prevented the timing wrapper from reaching xcodebuild. The build
+invocation itself remained the canonical compile script. The corrected harness
+has a green Linux regression test for the fixed wrapper/parser path and uploads
+the raw cmux build log for recomputation.
