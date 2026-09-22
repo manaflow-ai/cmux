@@ -198,6 +198,456 @@ extension CMUXCLI {
             .standardizedFileURL
     }
 
+    private func reviewValidateReceiptPayload(
+        _ payload: [String: Any],
+        fileName: String
+    ) throws {
+        func invalid(_ detail: String) -> CLIError {
+            CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.review.error.invalidReceiptDetail",
+                    defaultValue: "Invalid cmux review receipt '%1$@': %2$@"
+                ),
+                fileName,
+                detail
+            ))
+        }
+
+        let expectedTopLevel: Set<String> = [
+            "schema_version",
+            "policy_version",
+            "repository_root",
+            "ruleset_sha256",
+            "source",
+            "brief",
+            "summary",
+            "findings",
+            "created_at"
+        ]
+        guard Set(payload.keys) == expectedTopLevel else {
+            throw invalid("unexpected or missing top-level fields")
+        }
+        guard reviewInt(payload["schema_version"]) == 1 else {
+            throw invalid("schema_version must be 1")
+        }
+        guard reviewNonemptyString(payload["policy_version"]) != nil else {
+            throw invalid("policy_version must be a non-empty string")
+        }
+        guard reviewNonemptyString(payload["repository_root"]) != nil else {
+            throw invalid("repository_root must be a non-empty string")
+        }
+        if let ruleset = payload["ruleset_sha256"], !(ruleset is NSNull) {
+            guard let ruleset = ruleset as? String, reviewIsLowerHex(ruleset, lengths: [64]) else {
+                throw invalid("ruleset_sha256 must be null or 64 lowercase hex characters")
+            }
+        }
+
+        guard let source = payload["source"] as? [String: Any] else {
+            throw invalid("source must be an object")
+        }
+        try reviewValidateSource(source, label: "source", invalid: invalid)
+
+        guard let brief = payload["brief"] as? [String: Any] else {
+            throw invalid("brief must be an object")
+        }
+        try reviewValidateBrief(brief, invalid: invalid)
+
+        guard let createdAt = reviewNonemptyString(payload["created_at"]),
+              ISO8601DateFormatter().date(from: createdAt) != nil else {
+            throw invalid("created_at must be an ISO-8601 timestamp")
+        }
+
+        guard let summary = payload["summary"] as? [String: Any] else {
+            throw invalid("summary must be an object")
+        }
+        let summaryKeys: Set<String> = [
+            "hypotheses_investigated",
+            "suppressed",
+            "refuted",
+            "verified",
+            "human_judgment"
+        ]
+        guard Set(summary.keys) == summaryKeys else {
+            throw invalid("summary has unexpected or missing fields")
+        }
+        for key in summaryKeys {
+            guard let value = reviewNonnegativeInt(summary[key]) else {
+                throw invalid("summary.\(key) must be a non-negative integer")
+            }
+            if value > 1_000_000 {
+                throw invalid("summary.\(key) exceeds the admitted boundary")
+            }
+        }
+
+        guard let findings = payload["findings"] as? [[String: Any]] else {
+            throw invalid("findings must be an array")
+        }
+        guard findings.count <= 10_000 else {
+            throw invalid("findings exceeds the admitted boundary")
+        }
+
+        var ids = Set<String>()
+        for finding in findings {
+            try reviewValidateFinding(
+                finding,
+                source: source,
+                seenIDs: &ids,
+                invalid: invalid
+            )
+        }
+
+        let refuted = findings.filter { ($0["disposition"] as? String) == "refuted" }.count
+        let suppressed = findings.filter { ($0["disposition"] as? String) == "suppressed" }.count
+        let human = findings.filter { ($0["disposition"] as? String) == "human_required" }.count
+        let verified = findings.filter { finding in
+            guard let verification = finding["verification"] as? [String: Any],
+                  let result = verification["result"] as? String else {
+                return false
+            }
+            return result == "reproduced" || result == "supported_static"
+        }.count
+
+        guard reviewNonnegativeInt(summary["refuted"]) == refuted else {
+            throw invalid("summary.refuted disagrees with retained findings")
+        }
+        guard reviewNonnegativeInt(summary["suppressed"]) == suppressed else {
+            throw invalid("summary.suppressed disagrees with retained findings")
+        }
+        guard reviewNonnegativeInt(summary["human_judgment"]) == human else {
+            throw invalid("summary.human_judgment disagrees with retained findings")
+        }
+        guard reviewNonnegativeInt(summary["verified"]) == verified else {
+            throw invalid("summary.verified disagrees with retained findings")
+        }
+        guard let investigated = reviewNonnegativeInt(summary["hypotheses_investigated"]),
+              investigated >= findings.count else {
+            throw invalid("summary.hypotheses_investigated is smaller than retained findings")
+        }
+    }
+
+    private func reviewValidateBrief(
+        _ brief: [String: Any],
+        invalid: (String) -> CLIError
+    ) throws {
+        let keys: Set<String> = [
+            "intent",
+            "requirements",
+            "out_of_scope_changes",
+            "behavior_changed",
+            "risk_areas",
+            "file_groups",
+            "reading_order",
+            "safeguards",
+            "coverage_gaps"
+        ]
+        guard Set(brief.keys) == keys,
+              reviewNonemptyString(brief["intent"]) != nil,
+              brief["out_of_scope_changes"] is [String],
+              brief["behavior_changed"] is [String],
+              brief["reading_order"] is [String],
+              brief["safeguards"] is [String],
+              brief["coverage_gaps"] is [String] else {
+            throw invalid("brief has invalid or missing fields")
+        }
+
+        guard let requirements = brief["requirements"] as? [[String: Any]] else {
+            throw invalid("brief.requirements must be an array")
+        }
+        let requirementKeys: Set<String> = ["requirement", "status", "evidence"]
+        for requirement in requirements {
+            guard Set(requirement.keys) == requirementKeys,
+                  reviewNonemptyString(requirement["requirement"]) != nil,
+                  let status = requirement["status"] as? String,
+                  ["satisfied", "missing", "uncertain"].contains(status),
+                  requirement["evidence"] is [String] else {
+                throw invalid("brief.requirements contains an invalid requirement")
+            }
+        }
+
+        guard let risks = brief["risk_areas"] as? [[String: Any]] else {
+            throw invalid("brief.risk_areas must be an array")
+        }
+        for risk in risks {
+            let allowed: Set<String> = ["level", "area", "reason"]
+            guard Set(risk.keys).isSubset(of: allowed),
+                  risk["level"] != nil,
+                  risk["area"] != nil,
+                  let level = risk["level"] as? String,
+                  ["high", "medium", "low"].contains(level),
+                  reviewNonemptyString(risk["area"]) != nil else {
+                throw invalid("brief.risk_areas contains an invalid risk")
+            }
+            if let reason = risk["reason"], !(reason is NSNull),
+               reviewNonemptyString(reason) == nil {
+                throw invalid("brief.risk_areas reason must be a non-empty string when present")
+            }
+        }
+
+        guard let groups = brief["file_groups"] as? [[String: Any]] else {
+            throw invalid("brief.file_groups must be an array")
+        }
+        for group in groups {
+            let keys: Set<String> = ["label", "paths"]
+            guard Set(group.keys) == keys,
+                  reviewNonemptyString(group["label"]) != nil,
+                  group["paths"] is [String] else {
+                throw invalid("brief.file_groups contains an invalid group")
+            }
+        }
+    }
+
+    private func reviewValidateFinding(
+        _ finding: [String: Any],
+        source: [String: Any],
+        seenIDs: inout Set<String>,
+        invalid: (String) -> CLIError
+    ) throws {
+        let allowed: Set<String> = [
+            "id",
+            "title",
+            "severity",
+            "claims",
+            "failure_mode",
+            "paths",
+            "discovery_sources",
+            "challenge",
+            "verification",
+            "repair",
+            "disposition"
+        ]
+        let required: Set<String> = allowed.subtracting(["repair"])
+        guard Set(finding.keys).isSubset(of: allowed),
+              required.isSubset(of: Set(finding.keys)),
+              let id = reviewNonemptyString(finding["id"]),
+              seenIDs.insert(id).inserted,
+              reviewNonemptyString(finding["title"]) != nil,
+              reviewNonemptyString(finding["failure_mode"]) != nil,
+              let severity = finding["severity"] as? String,
+              ["P0", "P1", "P2", "P3"].contains(severity),
+              finding["paths"] is [String],
+              finding["discovery_sources"] is [String] else {
+            throw invalid("findings contains an invalid finding")
+        }
+
+        guard let claims = finding["claims"] as? [[String: Any]], !claims.isEmpty else {
+            throw invalid("finding \(id) must retain at least one claim")
+        }
+        var hasStrongClaim = false
+        var hasUnknownClaim = false
+        for claim in claims {
+            let keys: Set<String> = ["kind", "message", "evidence"]
+            guard Set(claim.keys) == keys,
+                  let kind = claim["kind"] as? String,
+                  ["proven", "derived", "observed", "inferred", "unknown"].contains(kind),
+                  reviewNonemptyString(claim["message"]) != nil,
+                  let evidence = claim["evidence"] as? [[String: Any]] else {
+                throw invalid("finding \(id) contains an invalid claim")
+            }
+            hasStrongClaim = hasStrongClaim || kind == "proven" || kind == "derived"
+            hasUnknownClaim = hasUnknownClaim || kind == "unknown"
+            try reviewValidateEvidence(evidence, findingID: id, invalid: invalid)
+        }
+
+        guard let challenge = finding["challenge"] as? [String: Any],
+              Set(challenge.keys) == Set(["disposition", "evidence"]),
+              let challengeDisposition = challenge["disposition"] as? String,
+              ["refuted", "survives_challenge", "uncertain"].contains(challengeDisposition),
+              let challengeEvidence = challenge["evidence"] as? [[String: Any]] else {
+            throw invalid("finding \(id) has an invalid challenge")
+        }
+        try reviewValidateEvidence(challengeEvidence, findingID: id, invalid: invalid)
+
+        guard let verification = finding["verification"] as? [String: Any],
+              Set(verification.keys) == Set(["result", "evidence"]),
+              let verificationResult = verification["result"] as? String,
+              ["reproduced", "supported_static", "not_reproduced", "blocked", "human_judgment"].contains(verificationResult),
+              let verificationEvidence = verification["evidence"] as? [[String: Any]] else {
+            throw invalid("finding \(id) has invalid verification")
+        }
+        try reviewValidateEvidence(verificationEvidence, findingID: id, invalid: invalid)
+
+        guard let disposition = finding["disposition"] as? String,
+              ["repaired", "refuted", "accepted_risk", "superseded", "human_required", "unresolved", "suppressed"].contains(disposition) else {
+            throw invalid("finding \(id) has an invalid disposition")
+        }
+
+        if disposition == "refuted" && challengeDisposition != "refuted" {
+            throw invalid("finding \(id) is refuted without challenger refutation")
+        }
+        if challengeDisposition == "refuted"
+            && disposition != "refuted"
+            && disposition != "suppressed" {
+            throw invalid("finding \(id) survives after challenger refutation")
+        }
+        if (verificationResult == "reproduced" || verificationResult == "supported_static")
+            && !hasStrongClaim {
+            throw invalid("finding \(id) has supported verification without a proven or derived claim")
+        }
+        if disposition == "human_required"
+            && !hasUnknownClaim
+            && challengeDisposition != "uncertain"
+            && verificationResult != "blocked"
+            && verificationResult != "human_judgment" {
+            throw invalid("finding \(id) requires a human without retained uncertainty")
+        }
+
+        if let repairValue = finding["repair"], !(repairValue is NSNull) {
+            guard let repair = repairValue as? [String: Any] else {
+                throw invalid("finding \(id) repair must be an object or null")
+            }
+            try reviewValidateRepair(
+                repair,
+                findingID: id,
+                source: source,
+                preRepairVerification: verificationResult,
+                finalDisposition: disposition,
+                invalid: invalid
+            )
+        } else if disposition == "repaired" {
+            throw invalid("finding \(id) is repaired without a repair receipt")
+        }
+    }
+
+    private func reviewValidateRepair(
+        _ repair: [String: Any],
+        findingID: String,
+        source: [String: Any],
+        preRepairVerification: String,
+        finalDisposition: String,
+        invalid: (String) -> CLIError
+    ) throws {
+        let allowed: Set<String> = ["attempted", "result", "after_source", "verification", "notes"]
+        guard Set(repair.keys).isSubset(of: allowed),
+              repair["attempted"] is Bool,
+              let result = repair["result"] as? String,
+              ["fixed", "failed", "deferred", "not_attempted"].contains(result) else {
+            throw invalid("finding \(findingID) has an invalid repair receipt")
+        }
+        if let notes = repair["notes"], !(notes is NSNull),
+           reviewNonemptyString(notes) == nil {
+            throw invalid("finding \(findingID) repair notes must be a non-empty string when present")
+        }
+
+        guard finalDisposition == "repaired" else {
+            return
+        }
+        guard repair["attempted"] as? Bool == true, result == "fixed" else {
+            throw invalid("finding \(findingID) is repaired without an attempted fixed repair")
+        }
+        guard let afterSource = repair["after_source"] as? [String: Any] else {
+            throw invalid("finding \(findingID) is repaired without after_source")
+        }
+        try reviewValidateSource(afterSource, label: "finding \(findingID) repair.after_source", invalid: invalid)
+        guard !reviewSourcesEqual(source, afterSource) else {
+            throw invalid("finding \(findingID) repaired source is unchanged")
+        }
+        guard let replay = repair["verification"] as? [String: Any],
+              Set(replay.keys) == Set(["result", "evidence"]),
+              replay["result"] as? String == "passed",
+              let evidence = replay["evidence"] as? [[String: Any]],
+              !evidence.isEmpty else {
+            throw invalid("finding \(findingID) is repaired without passed evidence-bearing verification")
+        }
+        try reviewValidateEvidence(evidence, findingID: findingID, invalid: invalid)
+        guard preRepairVerification == "reproduced" || preRepairVerification == "supported_static" else {
+            throw invalid("finding \(findingID) is repaired without pre-repair evidence support")
+        }
+    }
+
+    private func reviewValidateEvidence(
+        _ evidence: [[String: Any]],
+        findingID: String,
+        invalid: (String) -> CLIError
+    ) throws {
+        let allowed: Set<String> = ["kind", "summary", "command", "path", "line"]
+        let kinds = [
+            "code_path",
+            "guard",
+            "test",
+            "build",
+            "static_analysis",
+            "reproduction",
+            "runtime_trace",
+            "ui_automation",
+            "counterexample",
+            "human"
+        ]
+        for item in evidence {
+            guard Set(item.keys).isSubset(of: allowed),
+                  item["kind"] != nil,
+                  item["summary"] != nil,
+                  let kind = item["kind"] as? String,
+                  kinds.contains(kind),
+                  reviewNonemptyString(item["summary"]) != nil else {
+                throw invalid("finding \(findingID) contains invalid evidence")
+            }
+            for key in ["command", "path"] {
+                if let value = item[key], !(value is NSNull),
+                   reviewNonemptyString(value) == nil {
+                    throw invalid("finding \(findingID) evidence.\(key) must be a non-empty string")
+                }
+            }
+            if let line = item["line"], !(line is NSNull),
+               reviewNonnegativeInt(line).map({ $0 >= 1 }) != true {
+                throw invalid("finding \(findingID) evidence.line must be a positive integer")
+            }
+        }
+    }
+
+    private func reviewValidateSource(
+        _ source: [String: Any],
+        label: String,
+        invalid: (String) -> CLIError
+    ) throws {
+        let keys: Set<String> = ["base_sha", "head_sha", "diff_sha256", "working_tree_dirty"]
+        guard Set(source.keys) == keys,
+              let base = source["base_sha"] as? String,
+              let head = source["head_sha"] as? String,
+              let diff = source["diff_sha256"] as? String,
+              reviewIsLowerHex(base, lengths: [40, 64]),
+              reviewIsLowerHex(head, lengths: [40, 64]),
+              reviewIsLowerHex(diff, lengths: [64]),
+              source["working_tree_dirty"] is Bool else {
+            throw invalid("\(label) has invalid source identity")
+        }
+    }
+
+    private func reviewSourcesEqual(
+        _ lhs: [String: Any],
+        _ rhs: [String: Any]
+    ) -> Bool {
+        (lhs["base_sha"] as? String) == (rhs["base_sha"] as? String)
+            && (lhs["head_sha"] as? String) == (rhs["head_sha"] as? String)
+            && (lhs["diff_sha256"] as? String) == (rhs["diff_sha256"] as? String)
+            && (lhs["working_tree_dirty"] as? Bool) == (rhs["working_tree_dirty"] as? Bool)
+    }
+
+    private func reviewNonemptyString(_ value: Any?) -> String? {
+        guard let value = value as? String,
+              !value.isEmpty,
+              value.trimmingCharacters(in: .whitespacesAndNewlines) == value,
+              !value.contains("\0") else {
+            return nil
+        }
+        return value
+    }
+
+    private func reviewNonnegativeInt(_ value: Any?) -> Int? {
+        guard let value = value as? Int, value >= 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func reviewIsLowerHex(_ value: String, lengths: Set<Int>) -> Bool {
+        guard lengths.contains(value.utf8.count) else {
+            return false
+        }
+        return value.utf8.allSatisfy { byte in
+            (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 102)
+        }
+    }
+
     private func reviewLedger(startingAt directory: String) throws -> ReviewLedger {
         let repoRoot = try reviewGitRepoRoot(startingAt: directory)
         let reviewDirectory = try reviewDirectoryURL(repoRoot: repoRoot)
@@ -238,11 +688,7 @@ extension CMUXCLI {
                 ))
             }
 
-            guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  payload["created_at"] is String,
-                  payload["source"] is [String: Any],
-                  payload["summary"] is [String: Any],
-                  payload["findings"] is [[String: Any]] else {
+            guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw CLIError(message: String.localizedStringWithFormat(
                     String(
                         localized: "cli.review.error.invalidReceipt",
@@ -251,6 +697,7 @@ extension CMUXCLI {
                     file.lastPathComponent
                 ))
             }
+            try reviewValidateReceiptPayload(payload, fileName: file.lastPathComponent)
 
             receipts.append(ReviewReceipt(
                 id: file.deletingPathExtension().lastPathComponent,
