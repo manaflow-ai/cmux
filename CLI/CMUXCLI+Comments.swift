@@ -599,16 +599,27 @@ extension CMUXCLI {
         label: String,
         invalid: (String) -> CLIError
     ) throws {
-        let keys: Set<String> = ["base_sha", "head_sha", "diff_sha256", "working_tree_dirty"]
+        let keys: Set<String> = [
+            "base_sha",
+            "head_sha",
+            "tree_sha",
+            "working_tree_dirty",
+            "patch_sha256"
+        ]
         guard Set(source.keys) == keys,
               let base = source["base_sha"] as? String,
               let head = source["head_sha"] as? String,
-              let diff = source["diff_sha256"] as? String,
+              let tree = source["tree_sha"] as? String,
               reviewIsLowerHex(base, lengths: [40, 64]),
               reviewIsLowerHex(head, lengths: [40, 64]),
-              reviewIsLowerHex(diff, lengths: [64]),
+              reviewIsLowerHex(tree, lengths: [40, 64]),
               source["working_tree_dirty"] is Bool else {
             throw invalid("\(label) has invalid source identity")
+        }
+        if let patch = source["patch_sha256"], !(patch is NSNull) {
+            guard let patch = patch as? String, reviewIsLowerHex(patch, lengths: [64]) else {
+                throw invalid("\(label).patch_sha256 must be null or 64 lowercase hex characters")
+            }
         }
     }
 
@@ -617,9 +628,7 @@ extension CMUXCLI {
         _ rhs: [String: Any]
     ) -> Bool {
         (lhs["base_sha"] as? String) == (rhs["base_sha"] as? String)
-            && (lhs["head_sha"] as? String) == (rhs["head_sha"] as? String)
-            && (lhs["diff_sha256"] as? String) == (rhs["diff_sha256"] as? String)
-            && (lhs["working_tree_dirty"] as? Bool) == (rhs["working_tree_dirty"] as? Bool)
+            && (lhs["tree_sha"] as? String) == (rhs["tree_sha"] as? String)
     }
 
     private func reviewNonemptyString(_ value: Any?) -> String? {
