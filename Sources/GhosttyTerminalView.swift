@@ -5954,7 +5954,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
         case #selector(beginPaneSwapSelection(_:)):
-            return PaneSwapSelectionController.canBegin(from: terminalSurface)
+            return PaneSwapSelectionController().canBegin(from: terminalSurface)
         case #selector(copyWorkspaceAndSurfaceIdentifiers(_:)):
             return terminalSurface != nil
         default:
@@ -8767,7 +8767,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     @objc private func beginPaneSwapSelection(_ sender: Any?) {
-        if !PaneSwapSelectionController.begin(from: terminalSurface, in: window) {
+        if !PaneSwapSelectionController().begin(from: terminalSurface, in: window) {
             NSSound.beep()
         }
     }
