@@ -265,6 +265,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var outputStartReady = false
         var terminalPresentationIsActive: Bool
         var outputStartContinuation: AsyncStream<Void>.Continuation?
+        /// Keeps the one-shot viewport stream consumed independently from the
+        /// output task's timeout loop. Cancelling a `for await` child during a
+        /// timeout terminates the shared `AsyncStream`, so a late geometry
+        /// callback would otherwise be discarded permanently.
+        private var outputStartSignalTask: Task<Void, Never>?
         var outputStartViewportTimeouts = 0
         var outputStartMinimumViewportReportID: UInt64?
         var preparedViewportReportsByReportID: [UInt64: MobileTerminalViewportPreparation] = [:]
@@ -435,6 +440,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // registering the replacement scheduler and live-font consumer.
             liveFontTask?.cancel()
             liveFontTask = nil
+            outputStartSignalTask?.cancel()
+            outputStartSignalTask = nil
             viewportReportScheduler?.cancel()
             viewportReportScheduler = nil
             let surfaceID = surfaceID
@@ -442,8 +449,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             if outputStartReady {
                 outputStartSignal = nil
             } else {
-                outputStartSignal = AsyncStream { [weak self] continuation in
+                let signal = AsyncStream<Void> { [weak self] continuation in
                     self?.outputStartContinuation = continuation
+                }
+                outputStartSignal = signal
+                outputStartSignalTask = Task { @MainActor in
+                    for await _ in signal {
+                        guard !Task.isCancelled else { return }
+                        // The geometry callback owns the state transition. This
+                        // task only keeps the stream alive until that callback
+                        // arrives, independent of the timeout loop below.
+                        return
+                    }
                 }
             }
             viewportReportScheduler = TerminalViewportReportScheduler(
@@ -531,7 +548,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 if let outputStartSignal {
                     guard let self else { return }
                     guard await self.waitForOutputStart(
-                        signal: outputStartSignal,
                         generation: taskGeneration
                     ) else { return }
                 }
@@ -871,41 +887,30 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// validated viewport. After bounded retries the existing recovery
         /// alert gives the user an explicit lifecycle boundary.
         private func waitForOutputStart(
-            signal: AsyncStream<Void>,
             generation: UInt64
         ) async -> Bool {
             let clock = outputConsumerRestartClock
             while !Task.isCancelled,
                   outputTaskGeneration == generation,
                   !outputStartReady {
-                let timedOut = await withTaskGroup(of: Bool.self) { group in
-                    group.addTask {
-                        for await _ in signal {
-                            return false
-                        }
+                // The signal has a dedicated consumer, so this timeout loop
+                // never cancels the shared stream. Polling in short slices
+                // keeps the late geometry callback responsive without giving
+                // cancellation ownership of the one-shot signal.
+                for _ in 0..<10 {
+                    guard !Task.isCancelled,
+                          outputTaskGeneration == generation else {
                         return false
                     }
-                    group.addTask {
-                        do {
-                            try await clock.sleep(
-                                for: Self.outputStartViewportTimeout,
-                                tolerance: nil
-                            )
-                            return true
-                        } catch {
-                            return false
-                        }
+                    guard !outputStartReady else { return true }
+                    do {
+                        try await clock.sleep(
+                            for: .milliseconds(100),
+                            tolerance: nil
+                        )
+                    } catch {
+                        return false
                     }
-                    let result = await group.next() ?? false
-                    group.cancelAll()
-                    return result
-                }
-                guard !Task.isCancelled,
-                      outputTaskGeneration == generation else {
-                    return false
-                }
-                guard timedOut else {
-                    return outputStartReady
                 }
                 guard !outputStartReady else { return true }
 
@@ -1117,6 +1122,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             outputStartViewportTimeouts = 0
             outputStartMinimumViewportReportID = nil
             clickGeneration &+= 1
+            outputStartSignalTask?.cancel()
+            outputStartSignalTask = nil
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()

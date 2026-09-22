@@ -50,7 +50,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .hybrid:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.bytes", "terminal.render_grid", "terminal.set_font",
+                    "terminal.bytes", "terminal.render_grid", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -60,7 +60,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .renderGrid:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.render_grid", "terminal.set_font",
+                    "terminal.render_grid", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -70,7 +70,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             case .rawBytes:
                 return [
                     "workspace.updated", "mobile.sync.delta",
-                    "terminal.bytes", "terminal.set_font",
+                    "terminal.bytes", "terminal.events.heartbeat", "terminal.set_font",
                     "notification.dismissed", "notification.badge", "notification.feed.changed",
                     "phone_push.status.changed", "caffeine.status.changed",
                     "mobile.compatible_tags.changed",
@@ -112,6 +112,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let terminalVerifiedReplayCapability = "terminal.render_grid.verified_replay.v1"
     static let terminalScreenAnchorCapability = "terminal.render_grid.screen_anchor.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    /// Hosts that advertise this capability emit a lossless event-lane
+    /// heartbeat. A successful control RPC proves host registration only; a
+    /// heartbeat received here proves this phone's event reader is alive.
+    static let terminalEventHeartbeatCapability = "terminal.events.heartbeat.v1"
     static let browserStreamCapability = MobileBrowserStreamCapability.identifier
     static let browserStreamViewportCapability = MobileBrowserStreamCapability.viewportIdentifier
     static let browserStreamDialogCapability = MobileBrowserStreamCapability.dialogIdentifier
@@ -14100,10 +14104,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ticks independently and, on each tick, hops to the main actor to compare
     /// `lastTerminalEventAt` against `renderGridLivenessSilenceThreshold`. While
     /// events keep arriving, `lastTerminalEventAt` stays fresh and every tick is a
-    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict: an
-    /// idle terminal pushes no events, so the tick first re-asserts the
-    /// subscription with a bounded idempotent `mobile.events.subscribe`
-    /// round-trip and only recovers when that probe fails (see
+    /// no-op. A threshold crossing is treated as a SUSPICION, not a verdict:
+    /// legacy hosts use a bounded registration probe because an idle terminal
+    /// pushes no events, while heartbeat-capable hosts require delivery proof
+    /// before the listener is restarted (see
     /// ``checkRenderGridLiveness(listenerID:)``).
     private func startRenderGridLivenessWatchdog(listenerID: UUID) {
         stopRenderGridLivenessWatchdog(listenerID: nil)
@@ -14156,12 +14160,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Single ownership point for the liveness clock the watchdog reads.
     ///
     /// Stamped by (1) every envelope the listener loop actually consumes,
-    /// (2) a successful host probe (positive proof the channel is alive while
-    /// the terminal is merely idle), and (3) the arming of a new watchdog
-    /// generation, as the clean generation reset. The watchdog compares this
-    /// single record against `renderGridLivenessSilenceThreshold`. The only
-    /// other write is `resetTerminalOutputTracking` clearing it to nil when
-    /// the connection context is torn down entirely.
+    /// (2) a successful host probe for legacy hosts that lack delivery
+    /// heartbeats, and (3) the arming of a new watchdog generation, as the
+    /// clean generation reset. The watchdog compares this single record against
+    /// `renderGridLivenessSilenceThreshold`. The only other write is
+    /// `resetTerminalOutputTracking` clearing it to nil when the connection
+    /// context is torn down entirely.
     private func recordTerminalEventStreamLiveness() {
         lastTerminalEventAt = runtime?.now() ?? Date()
         renderGridLivenessConsecutiveProbeFailures = 0
@@ -14180,9 +14184,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// One watchdog tick on the main actor: if the subscription generation still
     /// matches, the store is connected, and the stream has been silent past the
-    /// threshold, verify the silence with a bounded host probe and only tear
-    /// down + re-subscribe + replay (via the existing resync path) after two
-    /// consecutive probe failures with no intervening evidence of liveness.
+    /// threshold, verify the silence with a bounded host probe. Legacy hosts
+    /// require two consecutive probe failures before the existing recovery
+    /// path runs. A heartbeat-capable host restarts the event reader when the
+    /// probe confirms its registration is still present but no heartbeat was
+    /// delivered to this phone.
     ///
     /// The probe step exists because silence is ambiguous: a healthy idle
     /// terminal emits nothing (the Mac dedupes unchanged render-grid frames by
@@ -14235,15 +14241,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   self.remoteClient === client,
                   self.connectionState == .connected else { return }
             if case .subscribed(let alreadySubscribed) = ack {
-                // The host accepted the re-subscribe over the event channel:
-                // the stream is healthy. Count the round-trip as the liveness
-                // evidence so the silence window restarts from this proof.
+                let heartbeatCapable = self.supportedHostCapabilities.contains(
+                    Self.terminalEventHeartbeatCapability
+                )
+                // A heartbeat-capable host separates registration from
+                // delivery liveness. The probe only proves that the Mac still
+                // owns the subscription; a heartbeat is the evidence that
+                // this phone's reader is consuming the event lane.
+                if heartbeatCapable, alreadySubscribed != false {
+                    MobileDebugLog.anchormux(
+                        "sync.liveness delivery_unproven restart silentMs=\(Int(silent * 1000))"
+                    )
+                    mobileShellLog.info(
+                        "event subscription is registered but delivery heartbeat stopped; restarting listener"
+                    )
+                    self.resyncTerminalOutput(
+                        reason: "liveness_event_delivery",
+                        restartEventStream: true,
+                        recoversConnectionOnSubscriptionFailure: false
+                    )
+                    return
+                }
+                // A missing registration is repaired in place for every host.
+                // The host has just reinstalled the subscription, so replay
+                // repairs the output window that was absent while it was
+                // unregistered. Do not stamp delivery liveness here for a
+                // heartbeat-capable host; the next heartbeat must provide that
+                // evidence.
+                self.markMacConnectionHealthy()
+                if heartbeatCapable, alreadySubscribed == false {
+                    MobileDebugLog.anchormux("sync.liveness heartbeat_registration_repaired silentMs=\(Int(silent * 1000))")
+                    self.repairLostTerminalEventSubscription(
+                        reason: "liveness_probe_repaired"
+                    )
+                    return
+                }
+                // Legacy hosts have no delivery heartbeat. Preserve their
+                // bounded probe behavior, where a successful registration
+                // round-trip is the strongest available liveness evidence.
                 self.recordTerminalEventStreamLiveness()
                 // The round-trip is also positive proof of the client/host
                 // connection itself; recover the visible status if a prior
                 // transient RPC failure marked it unavailable, since an idle
                 // terminal may never emit another event to flip it back.
-                self.markMacConnectionHealthy()
                 if alreadySubscribed == false {
                     // The registration had been LOST host-side (the probe just
                     // reinstalled it), so render-grid deltas emitted during the
@@ -15614,7 +15654,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let surfaceID = payload.surfaceID
         let bytes = payload.bytes
-        guard !terminalLaneOutputReadySurfaceIDs.contains(surfaceID) else { return }
         if diagnosedTerminalOutputSurfaceIDs.insert(surfaceID).inserted {
             recordAppEvent(
                 .terminalOutputReceived,

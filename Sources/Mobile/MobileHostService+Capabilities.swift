@@ -210,6 +210,7 @@ extension MobileHostService {
             "notification.reconcile.v1",
             "phone_push.keys.exchange.v1",
             "terminal.bytes.v1",
+            "terminal.events.heartbeat.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
             // Screen-anchored render grids: frames anchor to the active area
