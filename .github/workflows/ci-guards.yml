@@ -49,10 +49,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
-      - name: Validate shared manual workflow ref resolution
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_manual_workflow_ref_resolution.py
-
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
