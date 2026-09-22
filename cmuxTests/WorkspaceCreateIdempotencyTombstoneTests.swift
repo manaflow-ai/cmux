@@ -428,9 +428,10 @@ import Testing
     }
 
     private static func containsInitialCommand(_ command: String, in manager: TabManager) -> Bool {
-        manager.tabs.contains { workspace in
+        let startupCommand = WorkspaceInitialCommandLoginShell.wrap(command)
+        return manager.tabs.contains { workspace in
             workspace.panels.values.compactMap { $0 as? TerminalPanel }
-                .contains { $0.surface.debugInitialCommand() == command }
+                .contains { $0.surface.debugInitialCommand() == startupCommand }
         }
     }
 

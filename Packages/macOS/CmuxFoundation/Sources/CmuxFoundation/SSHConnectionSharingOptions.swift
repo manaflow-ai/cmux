@@ -65,15 +65,14 @@ public struct SSHConnectionSharingOptions: Sendable {
     /// Adds sharing defaults while honoring effective control settings from
     /// the user's SSH configuration.
     ///
-    /// Explicit caller options retain highest precedence. When the caller did
-    /// not provide any control option and `ssh -G` reported non-default
-    /// control settings, those effective values are carried forward instead
-    /// of installing cmux's socket.
+    /// Explicit caller options retain highest precedence per key. Independently
+    /// configured host control settings fill the remaining keys instead of
+    /// installing cmux's socket.
     ///
     /// - Parameters:
     ///   - options: Explicit OpenSSH `-o` values.
     ///   - userConfiguredControlOptions: Effective custom values parsed by
-    ///     ``userConfiguredControlOptions(fromSSHConfigOutput:)``.
+    ///     ``userConfiguredControlOptions(fromSSHConfigOutput:explicitOptions:)``.
     /// - Returns: Effective explicit options for native SSH commands.
     public func mergingDefaults(
         into options: [String],
@@ -136,6 +135,72 @@ public struct SSHConnectionSharingOptions: Sendable {
     ///   cmux control options are added.
     /// - Returns: Effective custom `-o` values, or `nil` for OpenSSH defaults.
     public func userConfiguredControlOptions(fromSSHConfigOutput output: String) -> [String]? {
+        userConfiguredControlOptions(fromSSHConfigOutput: output, explicitOptions: [])
+    }
+
+    /// Parses resolved host control settings with the explicit caller options
+    /// that were included in the `ssh -G` invocation.
+    ///
+    /// Explicit values do not prove host customization: OpenSSH includes them in
+    /// its output and normalizes `ControlPersist=0` to `yes`. A custom value on
+    /// another control key still preserves the host's full effective settings,
+    /// with explicit options retaining precedence when merged.
+    ///
+    /// - Parameters:
+    ///   - output: Effective configuration reported by OpenSSH.
+    ///   - explicitOptions: Caller-provided `-o` values included in that output.
+    /// - Returns: Effective custom host control settings, or `nil` for defaults.
+    public func userConfiguredControlOptions(
+        fromSSHConfigOutput output: String,
+        explicitOptions: [String]
+    ) -> [String]? {
+        userConfiguredControlOptions(
+            fromSSHConfigOutput: output,
+            baselineSSHConfigOutput: nil,
+            explicitOptions: explicitOptions
+        )
+    }
+
+    /// Parses resolved host control settings against OpenSSH's built-in
+    /// defaults, taken from a `-F /dev/null` baseline when one is available.
+    ///
+    /// `ssh -G` prints defaults too, and omits unset keys such as
+    /// `ControlPath`, so an absent key means the built-in default on both
+    /// sides. A host setting counts as configured only when its effective value
+    /// differs from the baseline. OpenSSH versions that normalize a host
+    /// `ControlMaster no` to the default `false` report no difference, and
+    /// cmux sharing stays enabled for them.
+    public func userConfiguredControlOptions(
+        fromSSHConfigOutput output: String,
+        baselineSSHConfigOutput: String?,
+        explicitOptions: [String]
+    ) -> [String]? {
+        // OpenSSH omits unset keys, so an absent key is its built-in default.
+        let builtInDefaults = [
+            "controlmaster": "false",
+            "controlpath": "none",
+            "controlpersist": "no",
+        ]
+        let values = builtInDefaults.merging(
+            controlConfigurationValues(fromSSHConfigOutput: output)
+        ) { _, reported in reported }
+        let baselineValues = builtInDefaults.merging(
+            baselineSSHConfigOutput.map(controlConfigurationValues(fromSSHConfigOutput:)) ?? [:]
+        ) { _, reported in reported }
+        let resolver = SSHAgentSocketResolver()
+        let hasCustomValue = builtInDefaults.keys.contains { key in
+            guard !resolver.hasOptionKey(explicitOptions, key: key) else { return false }
+            return values[key]?.lowercased() != baselineValues[key]?.lowercased()
+        }
+        guard hasCustomValue else { return nil }
+        return [
+            "ControlMaster=\(values["controlmaster"] ?? "false")",
+            "ControlPath=\(values["controlpath"] ?? "none")",
+            "ControlPersist=\(values["controlpersist"] ?? "no")",
+        ]
+    }
+
+    private func controlConfigurationValues(fromSSHConfigOutput output: String) -> [String: String] {
         var values: [String: String] = [:]
         for line in output.split(whereSeparator: \.isNewline) {
             let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
@@ -146,20 +211,7 @@ public struct SSHConnectionSharingOptions: Sendable {
             }
             values[key] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        // Keep the fallback explicitly disabled if an OpenSSH version omits default-valued keys.
-        let controlMaster = values["controlmaster"] ?? "false"
-        let controlPath = values["controlpath"] ?? "none"
-        let controlPersist = values["controlpersist"] ?? "no"
-        let hasCustomValue = !isDisabled(controlMaster)
-            || controlPath.lowercased() != "none"
-            || !["no", "false", "off", "0"].contains(controlPersist.lowercased())
-        guard hasCustomValue else { return nil }
-        return [
-            "ControlMaster=\(controlMaster)",
-            "ControlPath=\(controlPath)",
-            "ControlPersist=\(controlPersist)",
-        ]
+        return values
     }
 
     /// Returns the configured `ControlPath` when it is one of cmux's native

@@ -46,6 +46,16 @@ class TransportTests(unittest.TestCase):
     def restore(self, broker="https://broker.example", repository="manaflow-ai/cmux"):
         return transport.restore(broker, "123", "456", repository, self.destination, self.metadata, self.download)
 
+    def test_worker_toolchain_only_runs_for_worker_owned_changes(self):
+        workflow = (ROOT / ".github/workflows/ci-artifact-transport.yml").read_text()
+        self.assertIn("Detect Worker changes", workflow)
+        self.assertIn("workers/ci-artifacts", workflow)
+        self.assertGreaterEqual(
+            workflow.count("if: steps.worker.outputs.run == 'true'"),
+            3,
+        )
+        self.assertIn("fetch-depth: 2", workflow)
+
     def test_disabled_does_no_network_work(self):
         self.assertFalse(self.restore(""))
         self.assertEqual(self.calls, [])
@@ -71,6 +81,22 @@ class TransportTests(unittest.TestCase):
     def test_provider_digest_valid_but_bad_zip_falls_back(self):
         self.zip = b"not a ZIP even though its provider digest matches"
         self.assertFalse(self.restore())
+        self.assertFalse(self.destination.exists())
+
+    def test_expected_provider_digest_must_match_metadata(self):
+        expected = "sha256:" + hashlib.sha256(self.zip).hexdigest()
+        self.assertTrue(transport.restore(
+            "https://broker.example", "123", "456", "manaflow-ai/cmux",
+            self.destination, self.metadata, self.download,
+            expected_provider_digest=expected,
+        ))
+        self.destination.joinpath("app-host-products.aar").unlink()
+        self.destination.rmdir()
+        self.assertFalse(transport.restore(
+            "https://broker.example", "123", "456", "manaflow-ai/cmux",
+            self.destination, self.metadata, self.download,
+            expected_provider_digest="sha256:" + "0" * 64,
+        ))
         self.assertFalse(self.destination.exists())
 
     def test_other_run_or_repository_is_not_reused(self):

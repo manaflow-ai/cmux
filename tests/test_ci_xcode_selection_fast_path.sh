@@ -84,6 +84,32 @@ if [[ "$(cat "$xcode_select_log")" != "-s $pinned_developer" ]]; then
   exit 1
 fi
 
+: > "$env_file"
+: > "$xcode_select_log"
+skip_output="$(
+  PATH="$bin_dir:/usr/bin:/bin" \
+    GITHUB_ENV="$env_file" \
+    CMUX_TEST_XCODE_SELECT_LOG="$xcode_select_log" \
+    CMUX_CI_DEVELOPER_DIR="$pinned_developer" \
+    CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 \
+    CMUX_CI_SKIP_XCODE_SELECT=1 \
+    "$SCRIPT"
+)"
+
+if [[ "$(cat "$env_file")" != "DEVELOPER_DIR=$pinned_developer" ]]; then
+  echo "FAIL: profile-local Xcode selection did not export DEVELOPER_DIR"
+  exit 1
+fi
+if [[ -s "$xcode_select_log" ]]; then
+  echo "FAIL: profile-local Xcode selection mutated the host-global selector"
+  cat "$xcode_select_log" >&2
+  exit 1
+fi
+if ! grep -Fq "Skipping host-global xcode-select update" <<< "$skip_output"; then
+  echo "FAIL: profile-local Xcode selection did not report the bounded mode"
+  exit 1
+fi
+
 old_app="$tmp_dir/Xcode_16.4.app"
 old_developer="$old_app/Contents/Developer"
 mkdir -p "$old_developer"

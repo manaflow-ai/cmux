@@ -1,9 +1,26 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
 export type AgentEvent =
   | { kind: "meta"; model?: string; providerSessionId?: string }
+  | {
+      kind: "routing";
+      phase: RoutePhase;
+      conversationId: string;
+      requestId: string;
+      attempt: number;
+      parentSessionId?: string;
+      parentConversationId?: string;
+      provider?: string;
+      model?: string;
+      reason?: string;
+      handoffMode?: "native_fork" | "compact_replay";
+      retryAfterMs?: number;
+      health?: RouteHealth;
+      at?: number;
+    }
   | { kind: "options"; options: SessionOption[]; actions?: SessionActions }
   | { kind: "commands"; trigger: CommandTrigger; commands: CommandEntry[] }
   | { kind: "user"; text: string }
@@ -42,7 +59,7 @@ export interface SessionOption {
 export interface CommandEntry { name: string; description?: string; source?: string; }
 export interface CommandGroup { trigger: CommandTrigger; commands: CommandEntry[]; }
 export interface ProviderCapabilities { options: SessionOption[]; triggers: CommandTrigger[]; }
-export interface SessionActions { fork?: boolean; }
+export interface SessionActions { fork?: boolean; handoff?: boolean; }
 export interface ChangedFile { path: string; adds: number; dels: number; status: string; }
 
 const diffKeySeparator = "\0";
@@ -76,7 +93,18 @@ export type Block =
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
-export interface SessionSummary { id: string; provider: string; cwd: string; title: string; status: string; capabilities?: ProviderCapabilities; }
+export interface SessionSummary {
+  id: string;
+  provider: string;
+  cwd: string;
+  title: string;
+  status: string;
+  capabilities?: ProviderCapabilities;
+  conversationId?: string;
+  parentSessionId?: string;
+  parentConversationId?: string;
+  startRequestId?: string;
+}
 export type CtrlJMode = "newline" | "menu";
 
 function closeStreaming(blocks: Block[]): Block[] {
@@ -141,6 +169,7 @@ export interface SessionState {
   ctrlJ: CtrlJMode;
   phase: "composer" | "chat";
   session: SessionSummary | null;
+  routing: RouteStatus | null;
   blocks: Block[];
   options: SessionOption[];
   actions: SessionActions;
@@ -152,12 +181,14 @@ export interface SessionState {
   fileDiffs: Record<string, string>;
   lastError: string;
   forkPending: boolean;
+  handoffPending: boolean;
   start(opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }): boolean;
   compose(): void;
   reply(text: string): void;
   stop(): void;
   setOption(id: string, value: OptionValue): void;
   fork(): void;
+  handoff(): void;
   requestProviderOptions(provider: string, cwd: string): void;
   requestProviderCommands(provider: string, cwd: string): void;
   requestFiles(cwd: string, query?: string): void;
@@ -192,6 +223,10 @@ const routedSessionId = (routePath().match(/^\/s\/([\w-]+)/) || [])[1] || null;
 export const composerDraftKey = "agentui.draft";
 const PENDING_START_TIMEOUT_MS = 30_000;
 
+function newClientRequestId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function restoreComposerDraft(storage: Pick<Storage, "setItem">, prompt: string) {
   storage.setItem(composerDraftKey, prompt);
 }
@@ -200,6 +235,18 @@ export function consumeOptimisticUserEcho(queue: string[], text: string): boolea
   if (queue[0] !== text) return false;
   queue.shift();
   return true;
+}
+
+export function shouldAcceptHandoffResponse(
+  sourceSessionId: string | undefined,
+  pendingSourceSessionId: string | null,
+  currentSessionId: string | null,
+): boolean {
+  return Boolean(
+    sourceSessionId
+      && sourceSessionId === pendingSourceSessionId
+      && sourceSessionId === currentSessionId
+  );
 }
 
 export function useSession(): SessionState {
@@ -211,6 +258,7 @@ export function useSession(): SessionState {
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
   const [phase, setPhase] = useState<"composer" | "chat">(routedSessionId ? "chat" : "composer");
   const [session, setSession] = useState<SessionSummary | null>(null);
+  const [routing, setRouting] = useState<RouteStatus | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [options, setOptions] = useState<SessionOption[]>([]);
   const [actions, setActions] = useState<SessionActions>({});
@@ -222,21 +270,35 @@ export function useSession(): SessionState {
   const [fileDiffs, setFileDiffs] = useState<Record<string, string>>({});
   const [lastError, setLastError] = useState("");
   const [forkPending, setForkPending] = useState(false);
+  const [handoffPending, setHandoffPending] = useState(false);
+  // Reserve the tab during the click's user-activation window. The provider
+  // fork itself is asynchronous, so opening it when the response arrives can
+  // be rejected as a popup by the browser.
+  const handoffWindowRef = useRef<Window | null>(null);
+  const pendingHandoffSourceSessionRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string | null>(routedSessionId);
   const pendingFileDiffKeysRef = useRef<Record<string, string[]>>({});
   const pendingStartRef = useRef<{
     requestId: string;
+    conversationId: string;
     key: string;
     provider: string;
     cwd: string;
     prompt: string;
     options?: Record<string, OptionValue>;
-    queuedReplies: string[];
+    queuedReplies: { requestId: string; prompt: string }[];
     failed?: boolean;
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+
+  const closeHandoffWindow = useCallback(() => {
+    const popup = handoffWindowRef.current;
+    handoffWindowRef.current = null;
+    pendingHandoffSourceSessionRef.current = null;
+    if (popup && !popup.closed) popup.close();
+  }, []);
 
   const clearPendingStartTimeout = useCallback(() => {
     if (pendingStartTimeoutRef.current) window.clearTimeout(pendingStartTimeoutRef.current);
@@ -254,6 +316,7 @@ export function useSession(): SessionState {
     sessionIdRef.current = null;
     optimisticUsersRef.current = [];
     setSession(null);
+    setRouting(null);
     setBlocks([]);
     setOptions([]);
     setActions({});
@@ -289,7 +352,7 @@ export function useSession(): SessionState {
         const pending = pendingStartRef.current;
         if (sessionIdRef.current) sendRaw({ op: "subscribe", sessionId: sessionIdRef.current });
         else if (pending && !pending.failed) {
-          sendRaw({ op: "start", requestId: pending.requestId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
+          sendRaw({ op: "start", requestId: pending.requestId, conversationId: pending.conversationId, provider: pending.provider, cwd: pending.cwd, prompt: pending.prompt, options: pending.options });
           armPendingStartTimeout();
         }
       };
@@ -307,6 +370,13 @@ export function useSession(): SessionState {
             break;
           }
           case "session-created":
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             sessionIdRef.current = msg.session.id;
             history.replaceState(null, "", appPath("/s/" + msg.session.id));
             document.title = msg.session.title || "cmux agent";
@@ -315,11 +385,13 @@ export function useSession(): SessionState {
               clearPendingStartTimeout();
               pendingStartRef.current = null;
               setSession({ ...msg.session, status: "running" });
-              for (const prompt of queuedReplies) {
-                sendRaw({ op: "send", sessionId: msg.session.id, prompt });
+              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
+              for (const queued of queuedReplies) {
+                sendRaw({ op: "send", sessionId: msg.session.id, requestId: queued.requestId, prompt: queued.prompt });
               }
             } else {
               setSession(msg.session);
+              setRouting(msg.routing?.kind === "routing" ? normalizeRouteStatus(msg.routing) : null);
               setBlocks([]);
               optimisticUsersRef.current = [];
             }
@@ -331,9 +403,17 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "history":
+            if (
+              pendingHandoffSourceSessionRef.current
+              && pendingHandoffSourceSessionRef.current !== msg.session.id
+            ) {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             sessionIdRef.current = msg.session.id;
             document.title = msg.session.title || "cmux agent";
             setSession(msg.session);
+            setRouting(latestRouteStatus(msg.events as AgentEvent[]));
             setBlocks((msg.events as AgentEvent[]).reduce(foldEvent, [] as Block[]));
             optimisticUsersRef.current = [];
             setOptions(latestOptions(msg.events as AgentEvent[]));
@@ -344,9 +424,12 @@ export function useSession(): SessionState {
             setPhase("chat");
             break;
           case "no-session":
+            closeHandoffWindow();
+            setHandoffPending(false);
             history.replaceState(null, "", appPath("/"));
             sessionIdRef.current = null;
             setSession(null);
+            setRouting(null);
             setOptions([]);
             setActions({});
             setCommands([]);
@@ -363,6 +446,7 @@ export function useSession(): SessionState {
           case "event":
             if (msg.sessionId === sessionIdRef.current) {
               const evt = msg.evt as AgentEvent;
+              if (evt.kind === "routing") setRouting(normalizeRouteStatus(evt));
               if (evt.kind === "user" && consumeOptimisticUserEcho(optimisticUsersRef.current, evt.text)) {
                 break;
               }
@@ -376,6 +460,33 @@ export function useSession(): SessionState {
           case "session-forked":
             setForkPending(false);
             window.open(appPath("/s/" + msg.session.id), "_blank");
+            break;
+          case "session-handoff":
+            {
+              const sourceSessionId = typeof msg.sourceSessionId === "string"
+                ? msg.sourceSessionId
+                : undefined;
+              if (!shouldAcceptHandoffResponse(
+                sourceSessionId,
+                pendingHandoffSourceSessionRef.current,
+                sessionIdRef.current,
+              )) {
+                break;
+              }
+              setHandoffPending(false);
+              const target = appPath("/s/" + msg.session.id);
+              const popup = handoffWindowRef.current;
+              handoffWindowRef.current = null;
+              pendingHandoffSourceSessionRef.current = null;
+              if (popup && !popup.closed) {
+                popup.location.href = target;
+                popup.focus();
+              } else {
+                // A popup blocker (or a non-browser host) still leaves the
+                // user with a deterministic way to reach the child session.
+                window.location.assign(target);
+              }
+            }
             break;
           case "options-list":
             setProviderOptions((m) => ({ ...m, [msg.provider]: msg.options ?? [] }));
@@ -417,6 +528,10 @@ export function useSession(): SessionState {
               }
             }
             if (msg.op === "fork") setForkPending(false);
+            if (msg.op === "handoff") {
+              closeHandoffWindow();
+              setHandoffPending(false);
+            }
             if (msg.op === "get-file-diff" && typeof msg.path === "string" && msg.path) {
               const path = String(msg.path);
               const queue = pendingFileDiffKeysRef.current[path];
@@ -430,16 +545,22 @@ export function useSession(): SessionState {
       ws.onclose = () => { if (!closed) setTimeout(connect, 800); };
     };
     connect();
-    return () => { closed = true; clearPendingStartTimeout(); wsRef.current?.close(); };
-  }, [armPendingStartTimeout, clearPendingStartTimeout, failPendingStart, sendRaw]);
+    return () => {
+      closed = true;
+      clearPendingStartTimeout();
+      closeHandoffWindow();
+      wsRef.current?.close();
+    };
+  }, [armPendingStartTimeout, clearPendingStartTimeout, closeHandoffWindow, failPendingStart, sendRaw]);
 
   const start = useCallback((opts: { provider: string; cwd: string; prompt: string; options?: Record<string, OptionValue> }) => {
     const key = JSON.stringify([opts.provider, opts.cwd, opts.prompt, opts.options ?? {}]);
     const current = pendingStartRef.current;
     if (current && !current.failed && current.key === key) return false;
-    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    if (!sendRaw({ op: "start", requestId, ...opts })) return false;
-    pendingStartRef.current = { requestId, key, queuedReplies: [], ...opts };
+    const requestId = newClientRequestId("start");
+    const conversationId = crypto.randomUUID();
+    if (!sendRaw({ op: "start", requestId, conversationId, ...opts })) return false;
+    pendingStartRef.current = { requestId, conversationId, key, queuedReplies: [], ...opts };
     armPendingStartTimeout();
     optimisticUsersRef.current = [opts.prompt];
     sessionIdRef.current = null;
@@ -452,7 +573,10 @@ export function useSession(): SessionState {
       cwd: opts.cwd,
       title: opts.prompt.length > 64 ? opts.prompt.slice(0, 64) + "…" : opts.prompt,
       status: "running",
+      conversationId,
+      startRequestId: requestId,
     });
+    setRouting(null);
     setBlocks([{ kind: "user", text: opts.prompt }]);
     setOptions([]);
     setActions({});
@@ -464,10 +588,13 @@ export function useSession(): SessionState {
   }, [armPendingStartTimeout, sendRaw]);
   const compose = useCallback(() => {
     clearPendingStartTimeout();
+    closeHandoffWindow();
+    setHandoffPending(false);
     pendingStartRef.current = null;
     history.replaceState(null, "", appPath("/"));
     document.title = "cmux agent";
     sessionIdRef.current = null;
+    setRouting(null);
     setSession(null);
     setBlocks([]);
     setOptions([]);
@@ -476,7 +603,7 @@ export function useSession(): SessionState {
     pendingFileDiffKeysRef.current = {};
     setFileDiffs({});
     setPhase("composer");
-  }, [clearPendingStartTimeout]);
+  }, [clearPendingStartTimeout, closeHandoffWindow]);
   const reply = useCallback((text: string) => {
     const pending = pendingStartRef.current;
     if (!sessionIdRef.current && pending?.failed) {
@@ -484,13 +611,13 @@ export function useSession(): SessionState {
       return;
     }
     if (!sessionIdRef.current && pending && !pending.failed) {
-      pending.queuedReplies.push(text);
+      pending.queuedReplies.push({ requestId: newClientRequestId("turn"), prompt: text });
       optimisticUsersRef.current.push(text);
       setBlocks((bs) => [...closeStreaming(bs), { kind: "user", text }]);
       return;
     }
     if (sessionIdRef.current) {
-      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, prompt: text })) {
+      if (sendRaw({ op: "send", sessionId: sessionIdRef.current, requestId: newClientRequestId("turn"), prompt: text })) {
         setSession((s) => (s ? { ...s, status: "running" } : s));
       }
     }
@@ -506,6 +633,20 @@ export function useSession(): SessionState {
       if (sendRaw({ op: "fork", sessionId: sessionIdRef.current })) setForkPending(true);
     }
   }, [sendRaw]);
+  const handoff = useCallback(() => {
+    const sourceSessionId = sessionIdRef.current;
+    if (sourceSessionId) {
+      closeHandoffWindow();
+      const popup = window.open("about:blank", "_blank");
+      if (sendRaw({ op: "handoff", sessionId: sourceSessionId })) {
+        handoffWindowRef.current = popup;
+        pendingHandoffSourceSessionRef.current = sourceSessionId;
+        setHandoffPending(true);
+      } else {
+        popup?.close();
+      }
+    }
+  }, [closeHandoffWindow, sendRaw]);
   const requestProviderOptions = useCallback((provider: string, cwd: string) => {
     sendRaw({ op: "list-options", provider, cwd });
   }, [sendRaw]);
@@ -535,6 +676,7 @@ export function useSession(): SessionState {
     ctrlJ,
     phase,
     session,
+    routing,
     blocks,
     options,
     actions,
@@ -546,12 +688,14 @@ export function useSession(): SessionState {
     fileDiffs,
     lastError,
     forkPending,
+    handoffPending,
     start,
     compose,
     reply,
     stop,
     setOption,
     fork,
+    handoff,
     requestProviderOptions,
     requestProviderCommands,
     requestFiles,
@@ -566,6 +710,13 @@ function latestOptions(events: AgentEvent[]): SessionOption[] {
     if (events[i].kind === "options") return (events[i] as Extract<AgentEvent, { kind: "options" }>).options;
   }
   return [];
+}
+
+export function latestRouting(events: AgentEvent[]): Extract<AgentEvent, { kind: "routing" }> | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === "routing") return events[i] as Extract<AgentEvent, { kind: "routing" }>;
+  }
+  return null;
 }
 
 function latestActions(events: AgentEvent[]): SessionActions {
