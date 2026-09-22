@@ -103,6 +103,10 @@ extension WorkspaceListView {
                 return currentTarget?.macDeviceID == emptyStateMacDeviceID
                     && currentTarget?.instanceTag == emptyStateMacInstanceTag
                     && store.workspaces.isEmpty
+                    // Hiding the empty row is itself part of the active
+                    // recovery transition. Do not let that structural
+                    // disappearance cancel the retry that owns recovery.
+                    && !store.isRecoveringWorkspaceList
             }
         }
         let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
