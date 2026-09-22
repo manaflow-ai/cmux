@@ -7,7 +7,7 @@ the global EndpointID ownership map and the corresponding owner counts. Device
 registrations, challenges, permissions, directory state and rate limits remain
 in Durable Object SQLite. Credentials do not create a row per issuance.
 
-The shared development Worker is `cmux-iroh-v2-development`. For isolated
+The shared development Worker is `cmux-v2-development`. For isolated
 branch work, deploy a suffixed Worker:
 
 ```sh

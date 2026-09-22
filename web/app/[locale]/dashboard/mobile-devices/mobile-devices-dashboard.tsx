@@ -10,7 +10,7 @@ const PROJECT_ID = process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "";
 const DEFAULT_ENVIRONMENT = process.env.NEXT_PUBLIC_IROH_V2_ENVIRONMENT ??
   (process.env.NODE_ENV === "production" ? "production" : "development");
 const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
-  `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.debussy.workers.dev`;
+  `https://cmux-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.debussy.workers.dev`;
 
 type Props = { readonly userId: string };
 
