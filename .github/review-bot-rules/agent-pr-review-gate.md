@@ -43,7 +43,7 @@ only for request deduplication, current-head review evidence, and Greptile check
 state. It does not depend on the heavier GraphQL thread ledger, so a ledger read
 failure cannot prevent the review request itself. When no current review,
 in-progress Greptile check, or trusted per-head request marker exists, it posts
-exactly one `@greptile-apps review` request for that head. Only
+exactly one `@greptileai review` request for that head. Only
 `github-actions[bot]` markers suppress a repeat, so a PR author cannot forge
 the request state. The opt-in marker controls enforcement, not whether automated
 review is requested.
