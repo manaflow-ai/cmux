@@ -1,4 +1,4 @@
-name: Agent PR review gate
+name: Agent PR review gate v2
 
 on:
   pull_request_target:
