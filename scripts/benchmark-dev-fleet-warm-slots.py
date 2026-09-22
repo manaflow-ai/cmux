@@ -212,6 +212,26 @@ def task(
     return run_helper(helper, argv, env=env)
 
 
+def cleanup(
+    helper: Path,
+    state: Path,
+    slot: str,
+    *,
+    max_generations: int = 1,
+    measure_bytes: bool = True,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    argv = [
+        "cleanup",
+        "--machine-state", str(state),
+        "--slot", slot,
+        "--max-generations", str(max_generations),
+    ]
+    if measure_bytes:
+        argv.append("--measure-bytes")
+    return run_helper(helper, argv, env=env)
+
+
 def reserve(
     helper: Path,
     state: Path,
@@ -421,11 +441,33 @@ def bytes_under(path: Path) -> int:
     return total
 
 
+def cold_generation_count(state_root: Path, namespace: str) -> int:
+    count = 0
+    for root in state_root.glob(f"*/slots/*/cache/{namespace}"):
+        try:
+            entries = root.iterdir()
+        except OSError:
+            continue
+        for entry in entries:
+            name = entry.name
+            if (
+                len(name) == 32
+                and all(character in "0123456789abcdef" for character in name)
+                and not entry.is_symlink()
+                and entry.is_dir()
+            ):
+                count += 1
+    return count
+
+
 def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict[str, Any]:
     tasks: list[dict[str, Any]] = []
     warms: list[dict[str, Any]] = []
+    cleanup_passes: list[dict[str, Any]] = []
     fallbacks_required = 0
     for name, result in results.items():
+        if name.endswith("_cleanup") and isinstance(result.get("reclaimed"), int):
+            cleanup_passes.append({"case": name, **result})
         if name == "warmer_interrupted_by_real_work" and result.get("status") == "completed":
             warm_receipt = receipt_from(result.get("warmer", {}))
             task_receipt = receipt_from(result.get("task", {}))
@@ -493,6 +535,7 @@ def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict
         "useful_warm_hit_percent": round(100.0 * useful / len(tasks), 3) if tasks else 0.0,
         "task_known_to_build_start_seconds": stats("task_known_to_build_start_seconds"),
         "first_build_wall_seconds": stats("wall_seconds"),
+        "cold_cache_retirement_seconds": stats("cold_cache_retirement_seconds"),
         "swift_compile_count_total": sum(int(row.get("swift_compile_count", 0)) for row in tasks),
         "warmer_build_seconds": round(warm_seconds, 6),
         "warmer_duty_cycle_percent": round(100.0 * warm_seconds / elapsed, 3) if elapsed > 0 else 0.0,
@@ -506,6 +549,22 @@ def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict
         "state_disk_bytes": bytes_under(state_root),
         "task_cache_growth_bytes": sum(int(row.get("disk_growth_bytes", 0)) for row in tasks),
         "warmer_cache_growth_bytes": sum(int(row.get("disk_growth_bytes", 0)) for row in warms),
+        "cold_cleanup_pass_count": len(cleanup_passes),
+        "cold_cleanup_wall_seconds": round(
+            sum(float(row.get("wall_seconds", 0)) for row in cleanup_passes),
+            6,
+        ),
+        "cold_cleanup_reclaimed_bytes": sum(
+            int(row.get("reclaimed_bytes", 0)) for row in cleanup_passes
+        ),
+        "active_cold_generation_count": cold_generation_count(
+            state_root,
+            "cold-tasks",
+        ),
+        "retired_cold_generation_count": cold_generation_count(
+            state_root,
+            "retired-cold-tasks",
+        ),
         "tasks": [
             {
                 "case": row["case"],
@@ -518,6 +577,7 @@ def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict
                 "fallback_reason": row.get("fallback_reason"),
                 "warmer_in_flight_at_task_known": row.get("warmer_in_flight_at_task_known"),
                 "disk_growth_bytes": row.get("disk_growth_bytes"),
+                "cold_cache_retirement_seconds": row.get("cold_cache_retirement_seconds"),
             }
             for row in tasks
         ],
@@ -552,7 +612,12 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
 
     try:
         main = manifest["main_commit"]
-        record("cold_new_slot", task(helper, state("cold_new_slot"), checkout, "slot", main, "cold", command))
+        cold_state = state("cold_new_slot")
+        record("cold_new_slot", task(helper, cold_state, checkout, "slot", main, "cold", command))
+        record(
+            "cold_new_slot_cleanup",
+            cleanup(helper, cold_state, "slot", max_generations=1, measure_bytes=True),
+        )
 
         exact_state = state("exact_base_warm")
         record("exact_base_warm_seed", warm(helper, exact_state, checkout, "slot", main, command))
@@ -672,6 +737,14 @@ def summarize_events(path: Path) -> dict[str, Any]:
     exact = sum(row.get("match_class") == "exact" for row in tasks)
     near = sum(row.get("match_class") == "near" for row in tasks)
     quarantines = sum(row.get("event") == "lineage_quarantined" for row in rows)
+    cold_retired = sum(row.get("event") == "cold_task_retired" for row in rows)
+    cold_reclaimed = sum(row.get("event") == "cold_task_reclaimed" for row in rows)
+    cold_preempted = sum(row.get("event") == "cold_task_cleanup_preempted" for row in rows)
+    cold_failed = sum(row.get("event") == "cold_task_cleanup_failed" for row in rows)
+    cold_deferred = sum(
+        row.get("event") in {"cold_task_retirement_deferred", "cold_task_cleanup_deferred"}
+        for row in rows
+    )
     timestamps = []
     for row in rows:
         raw = row.get("at")
@@ -697,10 +770,18 @@ def summarize_events(path: Path) -> dict[str, Any]:
         "recovery_count": sum(row.get("event") == "native_run_recovered" for row in rows),
         "task_known_to_build_start_seconds": [row.get("task_known_to_build_start_seconds") for row in tasks],
         "first_build_wall_seconds": [row.get("wall_seconds") for row in tasks],
+        "cold_cache_retirement_seconds": [
+            row.get("cold_cache_retirement_seconds") for row in tasks
+        ],
         "swift_compile_count": [row.get("swift_compile_count") for row in tasks],
         "warmer_build_seconds": round(warmer_seconds, 6),
         "warmer_duty_cycle_percent": round(100.0 * warmer_seconds / elapsed, 3) if elapsed > 0 else 0.0,
         "disk_growth_bytes": sum(int(row.get("disk_growth_bytes", 0)) for row in tasks + warms),
+        "cold_task_retired_count": cold_retired,
+        "cold_task_reclaimed_count": cold_reclaimed,
+        "cold_task_cleanup_preempted_count": cold_preempted,
+        "cold_task_cleanup_failed_count": cold_failed,
+        "cold_task_cleanup_deferred_count": cold_deferred,
     }
 
 

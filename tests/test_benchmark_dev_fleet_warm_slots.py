@@ -84,6 +84,28 @@ class BenchmarkTest(unittest.TestCase):
         task_argv = run.call_args.args[1]
         self.assertIn("--measure-disk", task_argv)
 
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.cleanup(helper, state, "slot")
+        cleanup_argv = run.call_args.args[1]
+        self.assertIn("--measure-bytes", cleanup_argv)
+        self.assertIn("--max-generations", cleanup_argv)
+
+    def test_cold_generation_count_tracks_only_generated_directory_ids(self):
+        state = self.root / "state"
+        active = state / "case/slots/slot/cache/cold-tasks"
+        retired = state / "case/slots/slot/cache/retired-cold-tasks"
+        active.mkdir(parents=True)
+        retired.mkdir(parents=True)
+        (active / ("a" * 32)).mkdir()
+        (active / "operator-data").mkdir()
+        (retired / ("b" * 32)).mkdir()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (retired / ("c" * 32)).symlink_to(outside, target_is_directory=True)
+
+        self.assertEqual(bench.cold_generation_count(state, "cold-tasks"), 1)
+        self.assertEqual(bench.cold_generation_count(state, "retired-cold-tasks"), 1)
+
     def test_event_report_exposes_trial_metrics(self):
         path = self.root / "events.jsonl"
         rows = [
@@ -100,8 +122,14 @@ class BenchmarkTest(unittest.TestCase):
                     "wall_seconds": 4.0,
                     "swift_compile_count": 0,
                     "disk_growth_bytes": 5,
+                    "cold_cache_retirement_seconds": 0.001,
                 },
             },
+            {"event": "cold_task_retired"},
+            {"event": "cold_task_reclaimed", "reclaimed_bytes": 4096},
+            {"event": "cold_task_cleanup_preempted"},
+            {"event": "cold_task_cleanup_failed"},
+            {"event": "cold_task_cleanup_deferred"},
             {"event": "lineage_quarantined"},
         ]
         path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
@@ -112,6 +140,12 @@ class BenchmarkTest(unittest.TestCase):
         self.assertEqual(report["warmer_build_seconds"], 3.0)
         self.assertEqual(report["quarantine_count"], 1)
         self.assertEqual(report["disk_growth_bytes"], 25)
+        self.assertEqual(report["cold_cache_retirement_seconds"], [0.001])
+        self.assertEqual(report["cold_task_retired_count"], 1)
+        self.assertEqual(report["cold_task_reclaimed_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_preempted_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_failed_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_deferred_count"], 1)
 
 
 if __name__ == "__main__":

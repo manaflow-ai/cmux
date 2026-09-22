@@ -330,23 +330,154 @@ def retired_cold_task_root(layout: Layout, generation_id: str) -> Path:
     return layout.retired_cold_tasks / cold_task_generation_id(generation_id)
 
 
+def cache_directory_state(layout: Layout, directory: Path, *, create: bool) -> str:
+    """Validate a fixed slot-cache directory chain without following symlinks."""
+    try:
+        relative = directory.relative_to(layout.cache)
+    except ValueError:
+        return "path_confusion"
+
+    chain = [layout.machine / "slots", layout.slot, layout.cache]
+    current = layout.cache
+    for part in relative.parts:
+        current = current / part
+        chain.append(current)
+
+    for path in chain:
+        while True:
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                if not create:
+                    return "absent"
+                try:
+                    path.mkdir()
+                except FileExistsError:
+                    continue
+                except OSError:
+                    return "unavailable"
+                continue
+            except OSError:
+                return "unavailable"
+            break
+        if not stat.S_ISDIR(info.st_mode):
+            return "path_confusion"
+    return "ready"
+
+
 def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
     try:
         generation = cold_task_generation_id(generation_id)
     except ValueError:
         return {"status": "invalid_identity"}
 
+    active_namespace = layout.cache / "cold-tasks"
     active = cold_task_root(layout, generation)
     retired = retired_cold_task_root(layout, generation)
-    if retired.exists():
+
+    retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=False)
+    if retired_state in {"path_confusion", "unavailable"}:
+        reason = "retired_namespace_path_confusion" if retired_state == "path_confusion" else "retired_namespace_unavailable"
+        event(
+            layout,
+            "cold_task_retirement_deferred",
+            cold_task_generation_id=generation,
+            reason=reason,
+        )
         return {
-            "status": "already_retired" if not active.exists() else "conflict",
+            "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
+            "reason": reason,
             "cold_task_generation_id": generation,
         }
-    if not active.exists():
+
+    retired_info = None
+    if retired_state == "ready":
+        try:
+            retired_info = retired.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return {
+                "status": "deferred",
+                "reason": "retired_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
+        if retired_info is not None and not stat.S_ISDIR(retired_info.st_mode):
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="retired_generation_path_confusion",
+            )
+            return {
+                "status": "invalid_namespace",
+                "reason": "retired_generation_path_confusion",
+                "cold_task_generation_id": generation,
+            }
+
+    active_state = cache_directory_state(layout, active_namespace, create=False)
+    if active_state in {"path_confusion", "unavailable"}:
+        reason = "active_namespace_path_confusion" if active_state == "path_confusion" else "active_namespace_unavailable"
+        event(
+            layout,
+            "cold_task_retirement_deferred",
+            cold_task_generation_id=generation,
+            reason=reason,
+        )
+        return {
+            "status": "invalid_namespace" if active_state == "path_confusion" else "deferred",
+            "reason": reason,
+            "cold_task_generation_id": generation,
+        }
+
+    active_info = None
+    if active_state == "ready":
+        try:
+            active_info = active.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            return {
+                "status": "deferred",
+                "reason": "active_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
+        if active_info is not None and not stat.S_ISDIR(active_info.st_mode):
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="active_generation_path_confusion",
+            )
+            return {
+                "status": "invalid_namespace",
+                "reason": "active_generation_path_confusion",
+                "cold_task_generation_id": generation,
+            }
+
+    if retired_info is not None:
+        return {
+            "status": "already_retired" if active_info is None else "conflict",
+            "cold_task_generation_id": generation,
+        }
+    if active_info is None:
         return {"status": "absent", "cold_task_generation_id": generation}
 
-    layout.retired_cold_tasks.mkdir(parents=True, exist_ok=True)
+    retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=True)
+    if retired_state != "ready":
+        reason = "retired_namespace_path_confusion" if retired_state == "path_confusion" else "retired_namespace_unavailable"
+        event(
+            layout,
+            "cold_task_retirement_deferred",
+            cold_task_generation_id=generation,
+            reason=reason,
+        )
+        return {
+            "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
+            "reason": reason,
+            "cold_task_generation_id": generation,
+        }
+
     try:
         os.replace(active, retired)
     except OSError:
@@ -426,26 +557,46 @@ def cleanup_retired_cold_tasks(
     *,
     preempt_fd: int | None = None,
     max_generations: int = 1,
+    measure_bytes: bool = False,
 ) -> dict[str, Any]:
     """Reclaim bounded retired cold-task generations outside foreground locks."""
+    started = time.monotonic()
+    reclaimed_bytes = 0
+
+    def finished(result: dict[str, Any]) -> dict[str, Any]:
+        result["wall_seconds"] = round(time.monotonic() - started, 6)
+        if measure_bytes:
+            result["reclaimed_bytes"] = reclaimed_bytes
+        return result
+
     if max_generations <= 0 or max_generations > 32:
-        return {
+        return finished({
             "status": "failed",
             "reason": "invalid_cleanup_budget",
             "reclaimed": 0,
-        }
+        })
     try:
         cleanup_lock = locked(layout.cleanup_lock, blocking=False)
         cleanup_lock.__enter__()
     except BlockingIOError:
-        return {"status": "deferred", "reason": "cleanup_already_running", "reclaimed": 0}
+        event(layout, "cold_task_cleanup_deferred", reason="cleanup_already_running")
+        return finished({"status": "deferred", "reason": "cleanup_already_running", "reclaimed": 0})
 
     reclaimed = 0
     failures: list[dict[str, str]] = []
     attempts = 0
     try:
-        if not layout.retired_cold_tasks.exists():
-            return {"status": "idle", "reclaimed": 0}
+        retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=False)
+        if retired_state == "absent":
+            return finished({"status": "idle", "reclaimed": 0})
+        if retired_state != "ready":
+            reason = (
+                "retired_namespace_path_confusion"
+                if retired_state == "path_confusion"
+                else "retired_namespace_unreadable"
+            )
+            event(layout, "cold_task_cleanup_failed", reason=reason)
+            return finished({"status": "failed", "reason": reason, "reclaimed": 0})
 
         try:
             retired_entries = layout.retired_cold_tasks.iterdir()
@@ -455,11 +606,11 @@ def cleanup_retired_cold_tasks(
                 "cold_task_cleanup_failed",
                 reason="retired_namespace_unreadable",
             )
-            return {
+            return finished({
                 "status": "failed",
                 "reason": "retired_namespace_unreadable",
                 "reclaimed": 0,
-            }
+            })
 
         try:
             for root in retired_entries:
@@ -472,6 +623,27 @@ def cleanup_retired_cold_tasks(
 
                 attempts += 1
                 generation = root.name
+                try:
+                    root_info = root.lstat()
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_generation_unreadable",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+                if not stat.S_ISDIR(root_info.st_mode):
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_generation_path_confusion",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+                candidate_bytes = disk_bytes(root) if measure_bytes else 0
                 try:
                     proc = subprocess.Popen(
                         ["/bin/rm", "-rf", str(root)],
@@ -517,7 +689,7 @@ def cleanup_retired_cold_tasks(
                     }
                     if failures:
                         result["failures"] = failures
-                    return result
+                    return finished(result)
 
                 if proc.returncode != 0 or root.exists():
                     failure = {
@@ -529,7 +701,13 @@ def cleanup_retired_cold_tasks(
                     continue
 
                 reclaimed += 1
-                event(layout, "cold_task_reclaimed", cold_task_generation_id=generation)
+                reclaimed_bytes += candidate_bytes
+                event(
+                    layout,
+                    "cold_task_reclaimed",
+                    cold_task_generation_id=generation,
+                    reclaimed_bytes=candidate_bytes if measure_bytes else None,
+                )
         except OSError:
             event(
                 layout,
@@ -537,11 +715,11 @@ def cleanup_retired_cold_tasks(
                 reason="retired_namespace_unreadable",
             )
             if not failures:
-                return {
+                return finished({
                     "status": "failed",
                     "reason": "retired_namespace_unreadable",
                     "reclaimed": reclaimed,
-                }
+                })
             failures.append({"reason": "retired_namespace_unreadable"})
 
         result = {
@@ -556,7 +734,7 @@ def cleanup_retired_cold_tasks(
                     result["cold_task_generation_id"] = failures[0][
                         "cold_task_generation_id"
                     ]
-        return result
+        return finished(result)
     finally:
         cleanup_lock.__exit__(None, None, None)
 
@@ -1556,11 +1734,16 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     receipt["build_input_fingerprint"] = None
 
                 if cold_generation is not None:
+                    retirement_started = time.monotonic()
                     if receipt["outcome"] == "recovery_required":
                         retirement = {"status": "deferred_recovery_required"}
                     else:
                         retirement = retire_cold_task(layout, cold_generation)
                     receipt["cold_cache_retirement"] = retirement["status"]
+                    receipt["cold_cache_retirement_seconds"] = round(
+                        time.monotonic() - retirement_started,
+                        6,
+                    )
 
                 if args.receipt:
                     atomic_json(args.receipt, receipt)
@@ -1649,6 +1832,33 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                     pid = lease.get("pid")
                     if isinstance(pid, int) and pid > 0 and same_process(pid, lease.get("process_identity")):
                         return {"status": "blocked", "reason": "lease_owner_alive", "pid": pid}
+
+                    lease_run = lease.get("native_run_id")
+                    lease_group = lease.get("native_process_group")
+                    if lease_run is not None or lease_group is not None:
+                        if not isinstance(lease_run, str) or not lease_run:
+                            return {
+                                "status": "blocked",
+                                "reason": "stale_lease_without_durable_run_identity",
+                            }
+                        if lease_run != args.run_id:
+                            return {
+                                "status": "blocked",
+                                "reason": "run_id_mismatch",
+                                "expected_run_id": lease_run,
+                            }
+                        if not isinstance(lease_group, int) or lease_group <= 0:
+                            return {
+                                "status": "blocked",
+                                "reason": "stale_lease_without_durable_child_identity",
+                            }
+                        if group_alive(lease_group):
+                            return {
+                                "status": "blocked",
+                                "reason": "process_group_alive",
+                                "process_group": lease_group,
+                            }
+
                     cold_retirement = None
                     if lease.get("kind") == "task" and lease.get("cold_task_generation_id") is not None:
                         cold_retirement = retire_cold_task(layout, lease.get("cold_task_generation_id"))
@@ -1820,6 +2030,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--machine-state", type=Path, required=True)
     p.add_argument("--slot", type=slot_id, required=True)
     p.add_argument("--max-generations", type=int, default=1)
+    p.add_argument(
+        "--measure-bytes",
+        action="store_true",
+        help="recursively count reclaimed bytes; intended for benchmarks/diagnostics",
+    )
     return parser
 
 
@@ -1849,6 +2064,7 @@ def main() -> int:
             cleanup_retired_cold_tasks(
                 Layout(args.machine_state.resolve(), args.slot),
                 max_generations=args.max_generations,
+                measure_bytes=args.measure_bytes,
             )
         )
     raise AssertionError(args.action)
