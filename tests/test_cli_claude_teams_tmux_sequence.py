@@ -15,6 +15,7 @@ from pathlib import Path
 
 from claude_teams_test_utils import (
     resolve_cmux_cli,
+    socket_request_method,
     stable_tmux_numeric_id,
     strip_capability_envelope,
 )
@@ -274,10 +275,16 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
                 continue
 
             request = json.loads(decoded_line)
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
+
             response = {
                 "ok": True,
                 "result": self.server.state.handle(  # type: ignore[attr-defined]
-                    request["method"],
+                    method,
                     request.get("params", {}),
                 ),
                 "id": request.get("id"),

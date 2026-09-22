@@ -42,6 +42,16 @@ def strip_capability_envelope(decoded_line: str) -> str | None:
     return envelope_parts[2]
 
 
+def socket_request_method(request: object) -> str | None:
+    """The `method` of a decoded socket request, or None when the payload is not a
+    JSON object carrying a string method. A fake server answers those with an error
+    line, so the CLI reports the bad payload instead of the handler raising on it."""
+    if not isinstance(request, dict):
+        return None
+    method = request.get("method")
+    return method if isinstance(method, str) else None
+
+
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
     if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
@@ -75,7 +85,11 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
                 continue
 
             request = json.loads(decoded_line)
-            method = str(request["method"])
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
             self.server.requests.append(method)  # type: ignore[attr-defined]
             workspace_id = self.server.workspace_id  # type: ignore[attr-defined]
             window_id = self.server.window_id  # type: ignore[attr-defined]
