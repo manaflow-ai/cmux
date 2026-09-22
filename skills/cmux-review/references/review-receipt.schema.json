@@ -435,8 +435,9 @@
       "required": [
         "base_sha",
         "head_sha",
-        "diff_sha256",
-        "working_tree_dirty"
+        "tree_sha",
+        "working_tree_dirty",
+        "patch_sha256"
       ],
       "properties": {
         "base_sha": {
@@ -447,12 +448,19 @@
           "type": "string",
           "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
-        "diff_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
         "working_tree_dirty": {
           "type": "boolean"
+        },
+        "tree_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "patch_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },
