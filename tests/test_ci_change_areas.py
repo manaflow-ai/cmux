@@ -274,6 +274,7 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         "scripts/ci/app_host_test_products.py",
         "scripts/ci/compile-app-host-test-product.sh",
         "scripts/ci/product_input_identity.py",
+        "scripts/ci/peer_product_source.py",
         "scripts/ci/restore-app-host-test-product.sh",
         "scripts/ci/reuse_app_host_products.py",
         "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -2206,6 +2207,16 @@ def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
         assert "CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}" in block
+        assert "CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}" in block
+        assert "CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}" in block
+
+
+def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        assert block.index("Try node-local compiled product cache") < block.index("Try trusted fleet peer artifact source")
+        assert block.index("Try trusted fleet peer artifact source") < block.index("Try shared R2 artifact transport")
+        assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
