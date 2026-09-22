@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$ARTIFACT_DIR"
-          ./scripts/ci/benchmark-xcode-incremental-generation.sh             seed "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
+          bash ./scripts/ci/benchmark-xcode-incremental-generation.sh             seed "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
 
       - name: Upload seed metrics
         if: always()
@@ -143,7 +143,7 @@ jobs:
           ARTIFACT_DIR: ${{ runner.temp }}/incgen-artifacts
         run: |
           set -euo pipefail
-          ./scripts/ci/benchmark-xcode-incremental-generation.sh             consumer "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
+          bash ./scripts/ci/benchmark-xcode-incremental-generation.sh             consumer "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
 
       - name: Upload replay metrics
         if: always()
