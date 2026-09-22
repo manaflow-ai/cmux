@@ -1052,11 +1052,11 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
 
 
-def test_workflow_empty_diff_runs_all_areas() -> None:
+def test_workflow_empty_diff_skips_product_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
-    assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert "PR diff is empty; skipping product-area CI." in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_router_changes_run_everything() -> None:
