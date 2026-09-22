@@ -445,6 +445,27 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
 
+      - name: Generate Xcode build metrics receipt
+        id: build-metrics
+        if: steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/build_metrics.py "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            --output "$RUNNER_TEMP/xcode-build-metrics.json" \
+            --compile-seconds "${{ steps.hosted-compile.outputs.seconds }}" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Xcode build metrics receipt
+        if: steps.build-metrics.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xcode-build-metrics.json
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Validate Swift warning budget
         id: warning-validation
         if: steps.reuse-products.outputs.hit != 'true'
