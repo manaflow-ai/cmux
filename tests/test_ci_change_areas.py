@@ -226,6 +226,20 @@ def test_changelog_runs_web_validation() -> None:
 
 def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+    assert_areas(
+        [
+            "workers/presence/src/index.ts",
+            "config/iroh/managed-relay-catalog.json",
+            "vercel.json",
+            ".vercelignore",
+        ],
+        macos=False,
+        web=True,
+    )
+
+
+def test_macos_config_stays_macos_relevant() -> None:
+    assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
