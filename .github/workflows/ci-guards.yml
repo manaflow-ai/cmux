@@ -46,6 +46,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
+      - name: Validate Swift incremental diagnostics tooling
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_swift_incremental_diagnostics.py
+
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
