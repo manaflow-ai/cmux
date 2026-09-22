@@ -106,6 +106,10 @@ public enum MobileTaskModelRefreshLoop {
         }
     ) async {
         var attempt = 0
+        // The composer contract requires recovery to continue for the entire
+        // time it remains open. Only a typed permanent outcome or owner
+        // cancellation may end this loop; the capped delay prevents a hot
+        // request loop while the Mac or provider is unavailable.
         while !Task.isCancelled, shouldContinue() {
             switch await refresh() {
             case .succeeded, .stopped:
@@ -520,7 +524,9 @@ extension MobileShellComposite {
                     case .hostUnavailable:
                         outcome = .retry(.hostUnreachable)
                     case nil:
-                        outcome = .succeeded
+                        outcome = result.models.isEmpty && result.defaultModel == nil
+                            ? .retry(.unknown)
+                            : .succeeded
                     }
                     return MobileTaskModelHostRefreshResult(
                         result: result,
@@ -618,6 +624,7 @@ extension MobileShellComposite {
                     }
                     guard result.source == .discovered,
                           !result.models.isEmpty || result.defaultModel != nil else {
+                        hostOutcome = outcome
                         continue
                     }
                     cacheTaskModels(result, for: key)
