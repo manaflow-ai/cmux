@@ -736,10 +736,7 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-a"])
     }
 
-    /// Discovery hands back exclusively Iroh-route candidates, so the strict
-    /// Tailscale connection method must skip the broker lookup entirely: no
-    /// discovery request, no candidates, and therefore no Iroh dial downstream.
-    @Test func tailscaleOnlyMethodSkipsZeroTouchIrohDiscovery() async throws {
+    @Test func legacyGlobalTailscaleDoesNotBlockNewComputerDiscovery() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
         let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
         let fixture = try await makeFixture(
@@ -762,9 +759,9 @@ struct IrohZeroTouchDiscoveryTests {
             excluding: []
         )
 
-        #expect(secondary.isEmpty)
-        #expect(launch.isEmpty)
-        #expect(discovery.callCount() == 0)
+        #expect(secondary.map(\.macDeviceID) == ["mac-a"])
+        #expect(launch.map(\.macDeviceID) == ["mac-a"])
+        #expect(discovery.callCount() == 2)
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 

@@ -45,6 +45,47 @@ import Testing
         )
     }
 
+    @Test(arguments: [MobileConnectionMethod.automatic.rawValue, nil] as [String?])
+    func coldStartUsesStoredComputerMethodDespiteLegacyTailscaleDefault(
+        storedMethod: String?
+    ) async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac", displayName: "Test Mac", routes: [try iroh()],
+            instanceTag: "default", markActive: true,
+            stackUserID: "user-1", teamID: nil, now: clock.now
+        )
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac", instanceTag: "default", rawValue: storedMethod,
+            stackUserID: "user-1", teamID: nil
+        )
+        let defaults = UserDefaults(suiteName: "cold-start-method-\(UUID().uuidString)")!
+        defaults.set(MobileConnectionMethod.tailscale.rawValue,
+                     forKey: MobileConnectionMethodStore.methodKey)
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory, now: { clock.now }, supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true, pairedMacStore: pairedStore,
+            connectionMethodStore: MobileConnectionMethodStore(defaults: defaults),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(), pairingHintDefaults: defaults
+        )
+        // Restore starts before the published computer list has loaded.
+        #expect(shell.pairedMacs.isEmpty)
+        #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(shell.activeRoute?.kind == .iroh)
+        await shell.remoteClient?.disconnect()
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
