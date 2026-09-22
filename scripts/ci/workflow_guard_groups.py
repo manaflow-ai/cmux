@@ -32,6 +32,7 @@ STEP_OWNERS = {
     "Test macOS localization catalog tooling": "preflight",
     "Test review fabric contracts": "preflight",
     "Validate Blacksmith Testbox broker trust boundary": "ci",
+    "Validate build graph health tooling": "preflight",
     "Validate CI Xcode selection fast path": "release-notary",
     "Validate CI change area filter": "ci",
     "Validate CMUX INTERNAL main-push path filter": "release-ios",
