@@ -210,8 +210,9 @@ import Testing
     }
 
     @Test func paginationPinsRevisionAndRestartsAfterConcurrentChange() async throws {
-        let backend = V2TestBackend(now: now)
-        let service = try service(backend: backend)
+        let backend = V2TestBackend(now: now, directoryRules: ["cmux.mac-peer-inbound.v1"])
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
         await service.start()
         _ = try await ready(service)
         _ = try await service.refreshDirectory()
@@ -226,23 +227,49 @@ import Testing
         #expect(await socket.directoryRevisions == [nil, 2, nil, 3])
         #expect(await service.snapshot().cache.directory?.revision == 3)
         #expect(await service.snapshot().cache.directory?.rules == ["cmux.mac-peer-inbound.v1"])
+        #expect(await store.state?.directory?.rules == directory.rules)
         await service.stop()
     }
 
-    @Test func directoryRulesSurviveRevocationProjection() async throws {
-        let backend = V2TestBackend(now: now)
-        let service = try service(backend: backend)
+    @Test(arguments: [false, true], [false, true])
+    func directoryRulesSurviveSocketAndHTTPRefresh(advertised: Bool, httpOnly: Bool) async throws {
+        let rules: [String]? = advertised ? ["cmux.mac-peer-inbound.v1"] : nil
+        let backend = V2TestBackend(now: now, directoryRules: rules)
+        if httpOnly { await backend.disableSockets() }
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
         await service.start()
         _ = try await ready(service)
         let directory = try await service.refreshDirectory()
-        #expect(directory.rules == ["cmux.mac-peer-inbound.v1"])
+        #expect(directory.rules == rules)
+        #expect(await store.state?.directory?.rules == rules)
+        await service.stop()
+        let restored = try self.service(backend: backend, store: store)
+        await restored.start()
+        _ = try await ready(restored)
+        #expect(await restored.snapshot().cache.directory?.rules == rules)
+        await restored.stop()
+    }
+
+    @Test func directoryRulesSurviveRevocationProjection() async throws {
+        let backend = V2TestBackend(now: now, directoryRules: ["cmux.mac-peer-inbound.v1"])
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
         let socket = await backend.currentSocket()
-        let events = await service.events()
-        try await socket.push(V2RevokedResponse(deviceRecordID: "other-device", revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
-        for await state in events where state.cache.directory?.revision == 2 {
-            #expect(state.cache.directory?.rules == ["cmux.mac-peer-inbound.v1"])
-            break
-        }
+        await socket.changeDirectoryDuringPagination()
+        _ = try await service.refreshDirectory()
+        // Hold the persisted revocation before its follow-up refresh can replace it.
+        await store.holdDirectorySave(revision: 4)
+        try await socket.push(V2RevokedResponse(deviceRecordID: "inbound-2", revision: 4,
+            schemaID: .deviceRevokedV1, teamID: "team"))
+        await store.waitForHeldSave()
+        let directory = await service.snapshot().cache.directory
+        #expect(directory?.inboundPeers?.map(\.device.deviceRecordID) == ["inbound-3"])
+        #expect(directory?.rules == ["cmux.mac-peer-inbound.v1"])
+        #expect(await store.state?.directory == directory)
+        await store.releaseSave()
         await service.stop()
     }
 

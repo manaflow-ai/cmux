@@ -9,8 +9,13 @@ actor V2TestBackend {
     var httpRequests: [URLRequest] = []
     var enrolled: Bool
     let now: Int
+    let directoryRules: [String]?
 
-    init(now: Int, enrolled: Bool = false) { self.now = now; self.enrolled = enrolled }
+    init(now: Int, enrolled: Bool = false, directoryRules: [String]? = nil) {
+        self.now = now
+        self.enrolled = enrolled
+        self.directoryRules = directoryRules
+    }
 
     func connect(_ request: URLRequest) async throws -> any V2ControlSocket {
         if failSockets { throw URLError(.cannotConnectToHost) }
@@ -20,7 +25,7 @@ actor V2TestBackend {
         let setup = try JSONDecoder().decode(V2SocketSetup.self, from: data)
         handshakes.append(setup)
         authorizations.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
-        let socket = V2TestSocket(device: setup.device, now: now)
+        let socket = V2TestSocket(device: setup.device, now: now, directoryRules: directoryRules)
         sockets.append(socket)
         try await socket.prepare(setup, enrolled: enrolled)
         return socket
@@ -34,7 +39,7 @@ actor V2TestBackend {
         httpRequests.append(request)
         if request.url?.path == "/v2/control/session" {
             let setup = try JSONDecoder().decode(V2SocketSetup.self, from: request.httpBody!)
-            let temporary = V2TestSocket(device: setup.device, now: now)
+            let temporary = V2TestSocket(device: setup.device, now: now, directoryRules: directoryRules)
             try await temporary.prepare(setup, enrolled: enrolled)
             return V2HTTPResponse(status: 200, body: try await temporary.receive(), retryAfter: nil)
         }
@@ -42,7 +47,7 @@ actor V2TestBackend {
         let base64 = header.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         let data = Data(base64Encoded: base64 + String(repeating: "=", count: (4 - base64.count % 4) % 4))!
         let setup = try JSONDecoder().decode(V2SocketSetup.self, from: data)
-        let temporary = V2TestSocket(device: setup.device, now: now)
+        let temporary = V2TestSocket(device: setup.device, now: now, directoryRules: directoryRules)
         try await temporary.send(request.httpBody!)
         if let registration = try? JSONDecoder().decode(V2RegisterRequest.self, from: request.httpBody!), registration.schemaID == .deviceRegisterV1 { enrolled = true }
         return V2HTTPResponse(status: 200, body: try await temporary.receive(), retryAfter: nil)

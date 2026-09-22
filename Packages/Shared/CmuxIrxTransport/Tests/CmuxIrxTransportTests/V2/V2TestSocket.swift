@@ -4,6 +4,7 @@ import Foundation
 actor V2TestSocket: V2ControlSocket {
     let device: V2DeviceDescriptor
     let now: Int
+    let directoryRules: [String]?
     var queued: [Data] = []
     var receiver: CheckedContinuation<Data, any Error>?
     var closed = false
@@ -24,9 +25,10 @@ actor V2TestSocket: V2ControlSocket {
     var directoryRevision = 1
     let record: V2DeviceRecord
 
-    init(device: V2DeviceDescriptor, now: Int) {
+    init(device: V2DeviceDescriptor, now: Int, directoryRules: [String]? = nil) {
         self.device = device
         self.now = now
+        self.directoryRules = directoryRules
         record = V2DeviceRecord(descriptor: device, deviceRecordID: "device-record", revision: 1, revoked: false)
     }
 
@@ -77,10 +79,10 @@ actor V2TestSocket: V2ControlSocket {
                     permissionExpiresAt: now + 3600 + step)
                 try push(V2DirectoryResponse(directory: V2Directory(devices: [record], inboundPeers: [inbound], issuedAt: now,
                     nextCursor: next, permissionExpiresAt: now + 3600, relayURLs: [], revision: revision,
-                    rules: ["cmux.mac-peer-inbound.v1"], teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+                    rules: directoryRules, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
                 return
             }
-            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, rules: ["cmux.mac-peer-inbound.v1"], teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, rules: directoryRules, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
         case "device.metadata.v1":
             lastMetadataRequestID = header.requestId
             if failNextMetadataReply {
