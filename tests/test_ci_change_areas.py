@@ -588,19 +588,6 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
     raise AssertionError(f"{step_name} run block not found in {job_name}")
 
 
-def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
-    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
-    env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
-    return subprocess.run(
-        ["bash", "-c", script],
-        cwd=ROOT,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-
 def run_ci_status(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
     script = workflow_job_step_script("ci-status", "Check routed CI jobs")
     env = {**os.environ, "CI_NEEDS": json.dumps(needs)}
@@ -699,38 +686,6 @@ exit 9
             stderr=subprocess.PIPE,
         )
         return result, runner_marker.exists()
-
-
-def linux_preflight_needs(
-    *,
-    outputs: dict[str, str] | None = None,
-    results: dict[str, str] | None = None,
-) -> dict[str, object]:
-    route_outputs = {
-        "linux_guard_tests": "true",
-        "linux_guard_history": "true",
-        "linux_guard_cli": "true",
-        "linux_guard_source": "true",
-        "ghosttykit_release": "true",
-        "macos": "true",
-        "web": "true",
-        "agent_session_web": "true",
-    }
-    if outputs:
-        route_outputs.update(outputs)
-    job_results = {
-        "changes": "success",
-        "static-preflight": "success",
-        "guards": "success",
-        "ghosttykit-release-check": "success",
-        "web": "success",
-    }
-    if results:
-        job_results.update(results)
-    return {
-        name: {"result": result, "outputs": route_outputs if name == "changes" else {}}
-        for name, result in job_results.items()
-    }
 
 
 def run_guard_status(
@@ -1231,8 +1186,9 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
-def test_ci_status_owns_route_semantics_without_tests_aggregate() -> None:
+def test_ci_status_owns_final_route_semantics_without_rollup_jobs() -> None:
     block = workflow_job_block("ci-status")
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
     for job_name in [
         "changes",
@@ -1240,24 +1196,24 @@ def test_ci_status_owns_route_semantics_without_tests_aggregate() -> None:
         "guards",
         "ghosttykit-release-check",
         "web",
-        "linux-preflight",
         "macos",
     ]:
         assert f"      - {job_name}" in block
     assert "      - tests" not in block
-    assert "\n  tests:\n" not in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "      - linux-preflight" not in block
+    assert "\n  tests:\n" not in workflow
+    assert "\n  linux-preflight:\n" not in workflow
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: \${{ always() }}" in block
+    assert "if: " + "$" + "{{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
-    assert 'guard_routes = (' in block
+    assert "guard_routes = (" in block
     assert 'ghosttykit_route = outputs.get("ghosttykit_release")' in block
     assert 'web_routes = ("web", "macos", "agent_session_web")' in block
     assert 'macos_route = outputs.get("macos")' in block
-    assert 'bad["linux-preflight"]' in block
     assert 'bad["macos"]' in block
-
+    assert 'bad["linux-preflight"]' not in block
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
@@ -1340,13 +1296,33 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
-def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
+def test_macos_workflow_call_admits_directly_from_cheap_aggregates() -> None:
     caller = workflow_job_block("macos")
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    for dependency in (
+        "changes",
+        "static-preflight",
+        "guards",
+        "ghosttykit-release-check",
+        "web",
+    ):
+        assert f"      - {dependency}" in caller
+    assert "      - linux-preflight" not in caller
+    assert "\n  linux-preflight:\n" not in workflow
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
+    assert "needs.static-preflight.result == 'success'" in caller
+    assert "needs.web.result == 'success'" in caller
+    assert "needs.guards.result == 'success'" in caller
+    assert "needs.guards.result == 'skipped'" in caller
+    for route in GUARD_ROUTE_JOBS:
+        assert f"needs.changes.outputs.{route} == 'false'" in caller
+    assert "needs.changes.outputs.ghosttykit_release == 'true'" in caller
+    assert "needs.ghosttykit-release-check.result == 'success'" in caller
+    assert "needs.changes.outputs.ghosttykit_release == 'false'" in caller
+    assert "needs.ghosttykit-release-check.result == 'skipped'" in caller
+
     for route in (
         "macos",
         "full_suite",
@@ -1356,18 +1332,17 @@ def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
         "source_tree",
         "source_parent1",
     ):
-        assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in caller
+        expected = "$" + "{{ needs.changes.outputs." + route + " }}"
+        assert f"      {route}: {expected}" in caller
     assert "      actions: read" in caller
     assert "      contents: read" in caller
     assert "      pull-requests: read" in caller
 
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     assert "needs.changes" not in admission
-    assert "needs.linux-preflight" not in admission
     assert "inputs.source_identity_valid" in admission
     assert "inputs.source_tree" in admission
     assert "inputs.source_parent1" in admission
-
 
 def ci_status_needs(
     *,
@@ -1395,7 +1370,6 @@ def ci_status_needs(
         "guards": "success" if guard_route == "true" else "skipped",
         "ghosttykit-release-check": "success" if ghosttykit_release == "true" else "skipped",
         "web": "success" if routed_web else "skipped",
-        "linux-preflight": "success" if macos == "true" else "skipped",
         "macos": "success" if macos == "true" else "skipped",
     }
     values.update(results or {})
@@ -1413,9 +1387,6 @@ def test_ci_status_rejects_skips_for_routed_work() -> None:
     assert run_ci_status(ci_status_needs()).returncode == 0
     assert run_ci_status(
         ci_status_needs(results={"macos": "skipped"})
-    ).returncode != 0
-    assert run_ci_status(
-        ci_status_needs(results={"linux-preflight": "skipped"})
     ).returncode != 0
     assert run_ci_status(
         ci_status_needs(web="true", macos="false", results={"web": "skipped"})
@@ -1918,7 +1889,11 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
 
     assert "name: macOS compile admission" in admission
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - guards" in caller
+    assert "      - ghosttykit-release-check" in caller
+    assert "      - web" in caller
+    assert "      - linux-preflight" not in caller
     assert "inputs.macos == 'true'" in admission
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
@@ -1983,52 +1958,6 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert ".local/state/cmux/crash" in app_host
     assert "Library/Logs/DiagnosticReports" in app_host
     assert "if: ${{ failure() || cancelled() }}" in app_host
-
-
-def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
-    block = workflow_job_block("linux-preflight")
-
-    assert "name: linux-preflight" in block
-    assert "      - changes" in block
-    assert "      - static-preflight" in block
-    assert "      - guards" in block
-    for guard_job in GUARD_JOBS:
-        assert f"      - {guard_job}" not in block
-    assert "      - ghosttykit-release-check" in block
-    assert "      - web" in block
-    for web_job in WEB_JOBS:
-        assert f"      - {web_job}" not in block
-    assert "if: ${{ always() }}" in block
-    assert 'guard_routes = (' in block
-    assert 'bad[f"guards.{route}"]' in block
-    assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
-    assert 'web_routes = ("web", "macos", "agent_session_web")' in block
-    assert 'bad[f"web.{route}"]' in block
-    assert 'bad["web"] = f"{web_result} (one or more web routes=true)"' in block
-    assert 'allowed_routed = {' in block
-    assert 'routed_outputs = {' in block
-    assert 'bad[name] = f"{result} (route {route}=true)"' in block
-
-
-def test_linux_preflight_requires_guard_aggregate_when_any_guard_is_routed() -> None:
-    assert run_linux_preflight(linux_preflight_needs()).returncode == 0
-
-    for outcome in ("failure", "cancelled", "skipped"):
-        result = run_linux_preflight(linux_preflight_needs(results={"guards": outcome}))
-
-        assert result.returncode != 0, outcome
-        assert f"guards: {outcome} (one or more guard routes=true)" in result.stderr
-
-
-def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_false() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(
-            outputs=dict.fromkeys(GUARD_ROUTE_JOBS, "false"),
-            results={"guards": "skipped"},
-        )
-    )
-
-    assert result.returncode == 0, result.stderr
 
 
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
@@ -2194,25 +2123,6 @@ def test_web_status_allows_unrouted_skips() -> None:
         results=dict.fromkeys(WEB_JOBS, "skipped"),
     )
     assert result.returncode == 0, result.stderr
-
-
-def test_linux_preflight_fails_when_routed_web_workflow_skips() -> None:
-    result = run_linux_preflight(linux_preflight_needs(results={"web": "skipped"}))
-
-    assert result.returncode != 0
-    assert "web: skipped (one or more web routes=true)" in result.stderr
-
-
-def test_linux_preflight_allows_unrouted_web_workflow_skip() -> None:
-    result = run_linux_preflight(
-        linux_preflight_needs(
-            outputs={"web": "false", "macos": "false", "agent_session_web": "false"},
-            results={"web": "skipped"},
-        )
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "web: skipped" in result.stdout
 
 
 def test_macos_status_rejects_required_skip_failure_or_cancellation() -> None:
