@@ -104,6 +104,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_release_sdk_lane.sh
 
+      - name: Validate build-only reload keeps the tagged app bundle
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_build_only_keeps_tagged_app.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
