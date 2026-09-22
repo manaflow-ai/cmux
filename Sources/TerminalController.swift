@@ -198,12 +198,6 @@ class TerminalController {
     nonisolated let socketOverloadResponder = TerminalController.makeSocketOverloadResponder()
     /// Deduplicates the once-per-episode Sentry captures for socket-lane stalls.
     nonisolated let socketLaneHealth = SocketLaneHealth()
-    /// The single owner of resume-command approval prompting; the socket lane
-    /// queues proposals here instead of running an app-modal alert inline.
-    let surfaceResumeApprovalPrompter = SurfaceResumeApprovalPrompter(
-        presenter: SurfaceResumeApprovalSheetPresenter(),
-        canPrompt: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
-    )
     /// Latest main-actor-published read results. Socket workers consult this
     /// mirror synchronously before falling back to a live command path.
     nonisolated let socketReadSnapshotStore = ControlReadSnapshotStore()

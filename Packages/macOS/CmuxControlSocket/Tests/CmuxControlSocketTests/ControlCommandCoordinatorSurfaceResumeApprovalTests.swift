@@ -2,62 +2,52 @@ import Foundation
 import Testing
 @testable import CmuxControlSocket
 
-/// `surface.resume.set` must answer immediately and tell the client whether
-/// the user's "Allow Resume Command?" decision is still outstanding, instead
-/// of parking the command behind an app-modal alert on the main thread
-/// (https://github.com/manaflow-ai/cmux/issues/13369).
+/// #13369: `surface.resume.set` reports a binding that still needs approval
+/// instead of waiting on the app's approval prompt.
 @MainActor
-@Suite("ControlCommandCoordinator surface.resume.set approval reporting")
+@Suite("ControlCommandCoordinator surface resume approval")
 struct ControlCommandCoordinatorSurfaceResumeApprovalTests {
-    private func makeSnapshot(approvalPromptPending: Bool) -> ControlSurfaceResumeSnapshot {
-        ControlSurfaceResumeSnapshot(
-            windowID: UUID(),
+    @Test func surfaceResumeSetReportsApprovalRequired() {
+        let (payload, _) = resumePayload(method: "surface.resume.set", approvalRequired: true)
+        #expect(payload?["approval_required"] == .bool(true))
+        #expect(payload?["resume_claimed"] == nil)
+    }
+
+    @Test func surfaceResumeGetOmitsApprovalRequired() {
+        let (payload, _) = resumePayload(method: "surface.resume.get", approvalRequired: nil)
+        #expect(payload != nil)
+        #expect(payload?["approval_required"] == nil)
+    }
+
+    private func resumePayload(
+        method: String,
+        approvalRequired: Bool?
+    ) -> ([String: JSONValue]?, FakeSurfaceControlCommandContext) {
+        let context = FakeSurfaceControlCommandContext()
+        let surfaceID = UUID()
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
             workspaceID: UUID(),
-            paneID: UUID(),
-            surfaceID: UUID(),
+            paneID: nil,
+            surfaceID: surfaceID,
             cleared: false,
             binding: nil,
             restoreRecord: nil,
-            resumeClaimed: nil,
-            approvalPromptPending: approvalPromptPending
-        )
-    }
-
-    private func resumeSetPayload(
-        _ context: FakeSurfaceControlCommandContext
-    ) throws -> [String: JSONValue] {
+            approvalRequired: approvalRequired
+        ))
         let coordinator = ControlCommandCoordinator(context: context)
         let result = coordinator.handle(ControlRequest(
             id: .int(1),
-            method: "surface.resume.set",
+            method: method,
             params: [
+                "surface_id": .string(surfaceID.uuidString),
                 "command": .string("tmux attach -t work"),
-                "source": .string("manual"),
             ]
         ))
-        guard case .ok(.object(let payload))? = result else {
-            Issue.record("expected an ok payload, got \(String(describing: result))")
-            return [:]
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected \(method) result, got \(result)")
+            return (nil, context)
         }
-        return payload
-    }
-
-    @Test func resumeSetReportsWhenNoApprovalDecisionIsOutstanding() throws {
-        let context = FakeSurfaceControlCommandContext()
-        context.resumeResolution = .result(makeSnapshot(approvalPromptPending: false))
-
-        let payload = try resumeSetPayload(context)
-
-        #expect(payload["approval_prompt_pending"] == .bool(false))
-    }
-
-    @Test func resumeSetReportsAQueuedApprovalPrompt() throws {
-        let context = FakeSurfaceControlCommandContext()
-        context.resumeResolution = .result(makeSnapshot(approvalPromptPending: true))
-
-        let payload = try resumeSetPayload(context)
-
-        #expect(payload["approval_prompt_pending"] == .bool(true))
-        #expect(payload["cleared"] == .bool(false))
+        return (payload, context)
     }
 }

@@ -122,7 +122,7 @@ extension TerminalController {
         binding: SurfaceResumeBindingSnapshot?,
         cleared: Bool,
         claimSucceeded: Bool? = nil,
-        approvalPromptPending: Bool = false
+        approvalRequired: Bool? = nil
     ) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: target.windowID(using: self),
@@ -135,7 +135,7 @@ extension TerminalController {
                 ? nil
                 : controlSurfaceRestoreRecord(target: target, binding: binding),
             resumeClaimed: claimSucceeded,
-            approvalPromptPending: approvalPromptPending
+            approvalRequired: approvalRequired
         )
     }
 
@@ -217,73 +217,29 @@ extension TerminalController {
         )
     }
 
-    /// Resolves the stored trust for a proposed binding without ever waiting
-    /// on the user. When the proposal needs a human decision, the binding is
-    /// returned as-is (manual, no auto-resume) with `needsPrompt == true`, and
-    /// the caller queues it on ``SurfaceResumeApprovalPrompter``. The former
-    /// inline `NSAlert.runModal()` here ran inside the socket command's
-    /// main-actor job and starved every other main-actor job until the alert
-    /// closed, wedging the control socket (#13369).
-    private func surfaceResumeBindingWithApproval(
-        _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeApprovalLookup<(binding: SurfaceResumeBindingSnapshot, needsPrompt: Bool)> {
-        let context: (
-            effectiveBinding: SurfaceResumeBindingSnapshot,
-            existingRecord: SurfaceResumeApprovalRecord?
-        )
-        switch SurfaceResumeApprovalStore.approvalProposalContext(for: binding) {
-        case .pendingSigningSecret:
-            return .pendingSigningSecret
-        case let .resolved(resolvedContext):
-            context = resolvedContext
-        }
-        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: context.existingRecord
-        ) {
-            return .resolved((promptlessCLIManualBinding, false))
-        }
-        let needsPrompt = SurfaceResumeApprovalStore.shouldPromptForProposal(
-            binding: binding,
-            existingRecord: context.existingRecord
-        )
-        return .resolved((context.effectiveBinding, needsPrompt))
-    }
-
-    private var surfaceResumeApprovalPendingMessage: String {
-        String(
-            localized: "surfaceResumeApproval.pending.message",
-            defaultValue: "Resume approval data is still loading. Retry the request."
-        )
-    }
-
-    /// Queues the user's approval decision for a binding that was just stored
-    /// on `target`. The decision is applied to the live binding only while the
-    /// surface still holds exactly that binding; the signed record governs
-    /// later proposals and restores either way.
-    private func queueSurfaceResumeApprovalPrompt(
-        for storedBinding: SurfaceResumeBindingSnapshot,
-        target: ControlSurfaceResumeTarget
-    ) -> Bool {
-        surfaceResumeApprovalPrompter.enqueue(SurfaceResumeApprovalProposal(
-            binding: storedBinding,
-            preferredWindow: AppDelegate.shared?.mainWindowContext(for: target.tabManager)?.window,
-            apply: { record in
-                guard target.binding == storedBinding else { return }
-                var approved = storedBinding
-                approved.approvalPolicy = record.policy
-                approved.approvalRecordId = record.id
-                approved.autoResume = record.policy == .auto
-                target.setBinding(approved)
-            }
-        ))
-    }
-
+    /// `surface.resume.set` from the control socket. Never presents approval UI;
+    /// see ``SurfaceResumeProposalOrigin``.
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        setSurfaceResumeBinding(
+            routing: routing,
+            explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: hasResolvedWindowID,
+            inputs: inputs,
+            origin: .controlSocket
+        )
+    }
+
+    func setSurfaceResumeBinding(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs,
+        origin: SurfaceResumeProposalOrigin
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -325,13 +281,13 @@ extension TerminalController {
             return .setFailed
         }
         let effectiveBinding: SurfaceResumeBindingSnapshot
-        let needsPrompt: Bool
-        switch surfaceResumeBindingWithApproval(locatedBinding) {
+        let approvalRequired: Bool
+        switch surfaceResumeBindingWithApproval(locatedBinding, origin: origin) {
         case .pendingSigningSecret:
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
-        case let .resolved(resolution):
-            effectiveBinding = resolution.binding
-            needsPrompt = resolution.needsPrompt
+        case let .resolved(resolved):
+            effectiveBinding = resolved.binding
+            approvalRequired = resolved.approvalRequired
         }
         guard target.setBinding(effectiveBinding) else {
             // A same-session agent-hook write cannot demote a trusted binding.
@@ -340,17 +296,20 @@ extension TerminalController {
             // own session and third-party tooling reads the effective state.
             if let keptBinding = target.binding,
                effectiveBinding.downgradesTrustedAgentHookBinding(keptBinding) {
-                return .result(surfaceResumeSnapshot(target: target, binding: keptBinding, cleared: false))
+                return .result(surfaceResumeSnapshot(
+                    target: target,
+                    binding: keptBinding,
+                    cleared: false,
+                    approvalRequired: false
+                ))
             }
             return .emptyResumeCommand
         }
-        let approvalPromptPending = needsPrompt
-            && queueSurfaceResumeApprovalPrompt(for: effectiveBinding, target: target)
         return .result(surfaceResumeSnapshot(
             target: target,
             binding: effectiveBinding,
             cleared: false,
-            approvalPromptPending: approvalPromptPending
+            approvalRequired: approvalRequired
         ))
     }
 

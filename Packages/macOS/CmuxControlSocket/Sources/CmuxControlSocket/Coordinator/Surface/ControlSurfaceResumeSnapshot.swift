@@ -24,12 +24,10 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     public let restoreRecord: ControlSurfaceRestoreRecord?
     /// Whether an optional compare-and-claim request succeeded.
     public let resumeClaimed: Bool?
-    /// Whether `resume.set` stored the binding without auto-resume trust and
-    /// queued the "Allow Resume Command?" decision for the user. The prompt is
-    /// presented asynchronously by the app, never inside the command, so the
-    /// reply returns immediately; `approval_policy` stays `null` until the
-    /// user answers.
-    public let approvalPromptPending: Bool
+    /// For `surface.resume.set`: whether the stored binding still needs a
+    /// person to approve it in the app before it can auto-resume. The control
+    /// socket never presents that approval prompt; `nil` for other commands.
+    public let approvalRequired: Bool?
 
     /// Creates a resume snapshot.
     ///
@@ -40,10 +38,9 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
     ///   - surfaceID: The surface's identifier.
     ///   - cleared: Whether the binding was cleared.
     ///   - binding: The resulting resume binding.
-    ///   - restoreRecord: The typed restore record, if any.
-    ///   - resumeClaimed: The claim result for a restore launch, if requested.
-    ///   - approvalPromptPending: Whether the user's approval decision was
-    ///     queued asynchronously (default `false`).
+    ///   - restoreRecord: Structured process data for `cmux restore` or `cmux fork`.
+    ///   - resumeClaimed: Whether an optional compare-and-claim request succeeded.
+    ///   - approvalRequired: Whether the binding still needs approval in the app.
     public init(
         windowID: UUID?,
         workspaceID: UUID,
@@ -53,7 +50,7 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         binding: ControlSurfaceResumeBinding?,
         restoreRecord: ControlSurfaceRestoreRecord?,
         resumeClaimed: Bool? = nil,
-        approvalPromptPending: Bool = false
+        approvalRequired: Bool? = nil
     ) {
         self.windowID = windowID
         self.workspaceID = workspaceID
@@ -63,6 +60,6 @@ public struct ControlSurfaceResumeSnapshot: Sendable, Equatable {
         self.binding = binding
         self.restoreRecord = restoreRecord
         self.resumeClaimed = resumeClaimed
-        self.approvalPromptPending = approvalPromptPending
+        self.approvalRequired = approvalRequired
     }
 }

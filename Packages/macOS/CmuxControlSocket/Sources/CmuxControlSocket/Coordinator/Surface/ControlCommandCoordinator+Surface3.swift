@@ -26,14 +26,15 @@ extension ControlCommandCoordinator {
         return source == "process-detected" ? "manual" : source
     }
     // MARK: - resume.set
-    /// `surface.resume.set` — set (and run the approval flow for) a resume binding.
+    /// `surface.resume.set` — set a resume binding; never waits on approval UI (#13369).
     func surfaceResumeSet(_ params: [String: JSONValue]) -> ControlCallResult {
         if let error = surfaceResumeTargetValidationError(params) { return error }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
-        guard let command = rawString(params, "command")?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let command = rawString(params, "command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
             !command.isEmpty else {
             return .err(code: "invalid_params", message: "Missing command", data: nil)
         }
@@ -206,13 +207,11 @@ extension ControlCommandCoordinator {
                 "surface_ref": ref(.surface, snapshot.surfaceID),
                 "cleared": .bool(snapshot.cleared),
                 "agent_restore_admission_supported": .bool(true),
-                "approval_prompt_pending": .bool(snapshot.approvalPromptPending),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
             ]
-            if let resumeClaimed = snapshot.resumeClaimed {
-                result["resume_claimed"] = .bool(resumeClaimed)
-            }
+            result["resume_claimed"] = snapshot.resumeClaimed.map(JSONValue.bool)
+            result["approval_required"] = snapshot.approvalRequired.map(JSONValue.bool)
             return .ok(.object(result))
         }
     }

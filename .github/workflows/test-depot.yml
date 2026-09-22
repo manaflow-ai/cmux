@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       skip_unit_tests:
@@ -51,10 +51,16 @@ on:
         default: "120"
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   tests:
+    needs: resolve-ref
     # Depot is retired for cmux CI. Keep this reusable test lane on the
     # repository's normal macOS runner and do not expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -72,7 +78,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Select Xcode

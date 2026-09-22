@@ -5543,7 +5543,9 @@ extension SessionPersistenceTests {
         XCTAssertTrue(record.matches(secondBinding))
         XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: secondBinding,
-            existingRecord: record
+            existingRecord: record,
+            isMainThread: true,
+            isRunningTests: false
         ))
     }
 
@@ -5616,7 +5618,9 @@ extension SessionPersistenceTests {
 
         XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: nil
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
         ))
     }
 
@@ -5633,7 +5637,9 @@ extension SessionPersistenceTests {
 
         XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: nil
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
         ))
     }
 
@@ -6045,7 +6051,9 @@ extension SessionPersistenceTests {
 
         XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: nil
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
         ))
     }
 
@@ -6315,7 +6323,9 @@ extension SessionPersistenceTests {
 
         XCTAssertTrue(SurfaceResumeApprovalStore.shouldPromptForProposal(
             binding: binding,
-            existingRecord: nil
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
         ))
     }
 

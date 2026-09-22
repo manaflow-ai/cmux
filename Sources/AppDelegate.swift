@@ -858,6 +858,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    private var shortcutMatcher: ConfiguredShortcutMatcher {
+        ConfiguredShortcutMatcher(layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    }
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
@@ -1091,20 +1094,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
-    private var didSetupFeedSidebarUITest = false
-    private var didStartFeedSidebarUITestPush = false
-    private var feedSidebarUITestObservers: [NSObjectProtocol] = []
+    private lazy var feedSidebarUITestCoordinator = FeedSidebarUITestCoordinator(
+        environment: ProcessInfo.processInfo.environment,
+        notificationCenter: .default,
+        windowContextOwner: self,
+        reveal: { [weak self] in
+            guard let self else { return nil }
+            let result = self.debugRevealRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return .init(
+                revealed: result.revealed,
+                visible: result.visible,
+                contextFound: result.contextFound,
+                stateFound: result.stateFound,
+                activeMode: result.activeMode
+            )
+        },
+        isPending: { requestId in
+            FeedCoordinator.shared.store?.items.contains { item in
+                guard item.status.isPending else { return false }
+                if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
+                    return itemRequestId == requestId
+                }
+                return false
+            } ?? false
+        },
+        pushClient: FeedSidebarUITestPushClient(handleSocketLine: {
+            TerminalController.shared.handleSocketLine($0)
+        }),
+        recordDiagnostics: { [weak self] stage in
+            self?.uiTestDiagnosticsWriter.write(stage: stage)
+        }
+    )
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
-    private struct UITestRenderDiagnosticsSnapshot {
-        let panelId: UUID
-        let drawCount: Int
-        let presentCount: Int
-        let lastPresentTime: Double
-        let windowVisible: Bool
-        let appIsActive: Bool
-        let desiredFocus: Bool
-        let isFirstResponder: Bool
+    private lazy var uiTestSocketSanityCoordinator = UITestSocketSanityCoordinator(
+        dependencies: .init(
+            configuration: { [weak self] in self?.socketListenerConfigurationIfEnabled() },
+            activeSocketPath: { path in
+                TerminalController.shared.activeSocketPath(preferredPath: path)
+            },
+            health: { path in
+                TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+            },
+            probe: { [weak self] command, path, timeout in
+                self?.socketTransport.probeCommand(command, at: path, timeout: timeout)
+            },
+            restart: { [weak self] source in
+                self?.restartSocketListenerIfEnabled(source: source)
+            },
+            recordStage: { [weak self] stage in
+                self?.recordUITestSocketSanityStage(stage)
+            }
+        )
+    )
+    private lazy var uiTestDiagnosticsWriter = UITestDiagnosticsWriter(
+        isRunningUnderXCTest: { [weak self] environment in
+            self?.isRunningUnderXCTest(environment) ?? false
+        },
+        socketDiagnostics: { [weak self] environment in
+            self?.uiTestSocketSanityDiagnostics(environment: environment) ?? [:]
+        },
+        renderDiagnostics: { [weak self] in
+            self?.currentUITestRenderDiagnosticsForWriter()
+        }
+    )
+
+    private func uiTestSocketSanityDiagnostics(environment: [String: String]) -> [String: String] {
+        uiTestSocketSanityCoordinator.diagnostics(environment: environment)
+    }
+
+    private func recordUITestSocketSanityStage(_ stage: String) {
+        uiTestDiagnosticsWriter.write(stage: stage)
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
@@ -1191,6 +1255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -1598,7 +1663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
-            setupFeedSidebarUITestIfNeeded()
+            feedSidebarUITestCoordinator.startIfNeeded()
 #endif
         }
 
@@ -1638,11 +1703,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
 #if DEBUG
-        writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
+        uiTestDiagnosticsWriter.write(stage: "didFinishLaunching")
         CmuxMainRunLoopStallMonitor.shared.installIfNeeded()
         CmuxMainThreadTurnProfiler.shared.installIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "after1s")
+            self?.uiTestDiagnosticsWriter.write(stage: "after1s")
         }
 #endif
 
@@ -1844,7 +1909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for window in self.mainWindowsForVisibilityController() {
                     window.orderFrontRegardless()
                 }
-                self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
+                self.uiTestDiagnosticsWriter.write(stage: "afterForceWindow")
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
@@ -1870,162 +1935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    private func writeUITestDiagnosticsIfNeeded(stage: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
-
-        var payload = loadUITestDiagnostics(at: path)
-        let isRunningUnderXCTest = isRunningUnderXCTest(env)
-
-        let windows = NSApp.windows
-        let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
-        let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
-        let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
-        let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
-
-        payload["stage"] = stage
-        payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
-        payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
-        payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
-        payload["windowsCount"] = String(windows.count)
-        payload["windowIdentifiers"] = ids
-        payload["windowVisibleFlags"] = vis
-        payload["windowScreenDisplayIDs"] = screenIDs
-        payload["uiTestTargetDisplayID"] = targetDisplayID
-        if let rawDisplayID = UInt32(targetDisplayID) {
-            let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
-            let movedWindow = windows.contains(where: { $0.screen?.cmuxDisplayID == rawDisplayID })
-            payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
-            payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
-        }
-        appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestPortalDiagnosticsIfNeeded(&payload, environment: env)
-
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private func loadUITestDiagnostics(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
-
-    private func appendUITestSocketDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""
-            payload["socketMode"] = "off"
-            payload["socketReady"] = "0"
-            payload["socketPingResponse"] = ""
-            payload["socketIsRunning"] = "0"
-            payload["socketAcceptLoopAlive"] = "0"
-            payload["socketPathMatches"] = "0"
-            payload["socketPathExists"] = "0"
-            payload["socketPathOwnedByListener"] = "0"
-            payload["socketFailureSignals"] = "socket_disabled"
-            return
-        }
-
-        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.preferredSocketPath)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
-        let pingResponse = health.isHealthy
-            ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
-            : nil
-        let isReady = health.isHealthy && pingResponse == "PONG"
-        var failureSignals = health.failureSignals
-        if health.isHealthy && pingResponse != "PONG" {
-            failureSignals.append("ping_timeout")
-        }
-
-        payload["socketExpectedPath"] = socketPath
-        payload["socketMode"] = config.accessMode.rawValue
-        payload["socketReady"] = isReady ? "1" : "0"
-        payload["socketPingResponse"] = pingResponse ?? ""
-        payload["socketIsRunning"] = health.isRunning ? "1" : "0"
-        payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
-        payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
-        payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
-        payload["socketPathOwnedByListener"] = health.socketPathOwnedByListener ? "1" : "0"
-        payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
-    }
-
-    private func appendUITestPortalDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
-
-        let stats = TerminalWindowPortalRegistry.debugPortalStats()
-        payload["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
-        payload["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
-        payload["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
-        if let totals = stats["totals"] as? [String: Any] {
-            for (key, value) in totals {
-                payload["portal_\(key)"] = Self.uiTestStringValue(value)
-            }
-        }
-    }
-
-    private static func uiTestStringValue(_ value: Any?) -> String {
-        switch value {
-        case let value as String:
-            return value
-        case let value as Bool:
-            return value ? "1" : "0"
-        case let value as Int:
-            return String(value)
-        case let value as NSNumber:
-            return value.stringValue
-        case let value as UUID:
-            return value.uuidString
-        case .some(let value):
-            return String(describing: value)
-        case .none:
-            return ""
-        }
-    }
-
-    private func appendUITestRenderDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
-
-        guard let renderState = currentUITestRenderDiagnostics() else {
-            payload["renderStatsAvailable"] = "0"
-            payload["renderPanelId"] = ""
-            payload["renderDrawCount"] = ""
-            payload["renderPresentCount"] = ""
-            payload["renderLastPresentTime"] = ""
-            payload["renderWindowVisible"] = ""
-            payload["renderAppIsActive"] = ""
-            payload["renderDesiredFocus"] = ""
-            payload["renderIsFirstResponder"] = ""
-            payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-            return
-        }
-
-        payload["renderStatsAvailable"] = "1"
-        payload["renderPanelId"] = renderState.panelId.uuidString
-        payload["renderDrawCount"] = String(renderState.drawCount)
-        payload["renderPresentCount"] = String(renderState.presentCount)
-        payload["renderLastPresentTime"] = String(format: "%.6f", renderState.lastPresentTime)
-        payload["renderWindowVisible"] = renderState.windowVisible ? "1" : "0"
-        payload["renderAppIsActive"] = renderState.appIsActive ? "1" : "0"
-        payload["renderDesiredFocus"] = renderState.desiredFocus ? "1" : "0"
-        payload["renderIsFirstResponder"] = renderState.isFirstResponder ? "1" : "0"
-        payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-    }
-
-    private func currentUITestRenderDiagnostics() -> UITestRenderDiagnosticsSnapshot? {
+    private func currentUITestRenderDiagnosticsForWriter() -> UITestDiagnosticsWriter.RenderDiagnostics? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -2041,7 +1951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let terminalPanel else { return nil }
         let stats = terminalPanel.hostedView.debugRenderStats()
-        return UITestRenderDiagnosticsSnapshot(
+        return UITestDiagnosticsWriter.RenderDiagnostics(
             panelId: terminalPanel.id,
             drawCount: stats.drawCount,
             presentCount: stats.presentCount,
@@ -2066,7 +1976,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
             }
-            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayMissing")
+            self.uiTestDiagnosticsWriter.write(stage: "targetDisplayMissing")
             return
         }
 
@@ -2076,7 +1986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
             }
-            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayNoWindow")
+            self.uiTestDiagnosticsWriter.write(stage: "targetDisplayNoWindow")
             return
         }
 
@@ -2099,7 +2009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return
         }
-        self.writeUITestDiagnosticsIfNeeded(stage: "afterMoveToTargetDisplay")
+        self.uiTestDiagnosticsWriter.write(stage: "afterMoveToTargetDisplay")
     }
 #endif
 
@@ -2557,11 +2467,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         self.newMachineSheetPresenter = newMachineSheetPresenter
         self.computerUseRuntimeService = computerUseRuntimeService
-        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
-            self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
-        }
         let cloudUploader = CloudTelemetryUploader(
-            auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
+            auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
         )
         let cloudOperations = CloudOperationRecorder(uploader: cloudUploader, identity: { [weak coordinator = auth.coordinator] in
             coordinator?.authenticatedSessionIdentity
@@ -2688,7 +2595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
-            scheduleUITestSocketSanityCheckIfNeeded()
+            uiTestSocketSanityCoordinator.scheduleIfNeeded(environment: env)
         }
         // Best-effort one-time migration: a value previously stored in the
         // legacy ~/.config/cmux/dev-window-display file moves into the shared
@@ -3575,38 +3482,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func scheduleUITestSocketSanityCheckIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-            guard let self else { return }
-            guard let config = self.socketListenerConfigurationIfEnabled() else {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityDisabled")
-                return
-            }
-
-            let expectedPath = TerminalController.shared.activeSocketPath(
-                preferredPath: config.preferredSocketPath
-            )
-            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
-            let pingResponse = health.isHealthy
-                ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
-                : nil
-            let isReady = health.isHealthy && pingResponse == "PONG"
-            if isReady {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
-                return
-            }
-
-            self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-                self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
-            }
-        }
-    }
-
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
@@ -3618,7 +3493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.writeUITestDiagnosticsIfNeeded(stage: stage)
+                    self?.uiTestDiagnosticsWriter.write(stage: stage)
                 }
             }
             self.displayResolutionUITestObservers.append(observer)
@@ -3631,7 +3506,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         observe(.terminalSurfaceDidBecomeReady, "displayUITest.terminalSurfaceDidBecomeReady")
         observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
 
-        writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+        uiTestDiagnosticsWriter.write(stage: "displayUITest.setup")
     }
 
     private func setupPortalStatsUITestDiagnosticsIfNeeded() {
@@ -3645,185 +3520,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+            MainActor.assumeIsolated {
+                self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+            }
         }
         portalStatsUITestObservers.append(observer)
-        writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.portalStats.setup")
+        uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.portalStats.setup")
     }
 
-    private func setupFeedSidebarUITestIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard !didSetupFeedSidebarUITest else { return }
-        guard let path = env["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"], !path.isEmpty else { return }
-        didSetupFeedSidebarUITest = true
 
-        setupFeedSidebarUITestReveal(resultPath: path)
-        writeFeedSidebarUITestData(["stage": "revealOnly"], at: path)
-    }
-
-    private func setupFeedSidebarUITestReveal(resultPath: String) {
-        var observer: NSObjectProtocol?
-        let attemptReveal: () -> Void = { [weak self] in
-            guard let self else { return }
-            let result = self.debugRevealRightSidebarInActiveMainWindow(
-                mode: .dock,
-                focusFirstItem: false,
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-            self.writeFeedSidebarUITestData([
-                "reveal": result.revealed ? "1" : "0",
-                "revealVisible": result.visible ? "1" : "0",
-                "revealContextFound": result.contextFound ? "1" : "0",
-                "revealStateFound": result.stateFound ? "1" : "0",
-                "revealActiveMode": result.activeMode ?? "",
-            ], at: resultPath)
-            self.writeUITestDiagnosticsIfNeeded(
-                stage: result.revealed ? "feedSidebarUITest.reveal.ok" : "feedSidebarUITest.reveal.pending"
-            )
-            if result.revealed {
-                self.startFeedSidebarUITestPushIfNeeded(resultPath: resultPath)
-                if let observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-            }
-        }
-
-        observer = NotificationCenter.default.addObserver(
-            forName: .mainWindowContextsDidChange,
-            object: self,
-            queue: .main
-        ) { _ in
-            attemptReveal()
-        }
-        if let observer {
-            feedSidebarUITestObservers.append(observer)
-        }
-        DispatchQueue.main.async(execute: attemptReveal)
-    }
-
-    private func startFeedSidebarUITestPushIfNeeded(resultPath: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard !didStartFeedSidebarUITestPush else { return }
-        guard let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !requestId.isEmpty else {
-            return
-        }
-        didStartFeedSidebarUITestPush = true
-
-        writeFeedSidebarUITestData([
-            "pushStarted": "1",
-            "pushRequestId": requestId,
-        ], at: resultPath)
-        observeFeedSidebarUITestPending(requestId: requestId, resultPath: resultPath)
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var updates = Self.feedSidebarUITestPushUpdates(response: Self.runFeedSidebarUITestPush(requestId: requestId))
-            if updates["pushResultStatus"] == "resolved" { updates["shortcutResponse"] = TerminalController.shared.handleSocketLine("simulate_shortcut ctrl+3") }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.writeFeedSidebarUITestData(updates, at: resultPath)
-                self.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.push.finished")
-            }
-        }
-    }
-
-    private func observeFeedSidebarUITestPending(
-        requestId: String,
-        resultPath: String,
-        remainingAttempts: Int = 75
-    ) {
-        let pending = FeedCoordinator.shared.snapshot(pendingOnly: false).contains { item in
-            guard item.status.isPending else { return false }
-            if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
-                return itemRequestId == requestId
-            }
-            return false
-        }
-        if pending {
-            writeFeedSidebarUITestData([
-                "pushPendingObserved": "1",
-            ], at: resultPath)
-            return
-        }
-        guard remainingAttempts > 0 else {
-            writeFeedSidebarUITestData([
-                "pushPendingObserved": "0",
-            ], at: resultPath)
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.observeFeedSidebarUITestPending(
-                requestId: requestId,
-                resultPath: resultPath,
-                remainingAttempts: remainingAttempts - 1
-            )
-        }
-    }
-
-    private static func runFeedSidebarUITestPush(requestId: String) -> String {
-        let params: [String: Any] = [
-            "event": [
-                "session_id": "uitest-\(requestId)",
-                "hook_event_name": "PermissionRequest",
-                "_source": "claude",
-                "tool_name": "Write",
-                "tool_input": ["file_path": "/tmp/feeduitest"],
-                "_opencode_request_id": requestId,
-            ],
-            "wait_timeout_seconds": 120,
-        ]
-        let frame: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "feed.push",
-            "params": params,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"message\":\"failed to encode feed.push frame\"}}"
-        }
-        return TerminalController.shared.handleSocketLine(line)
-    }
-
-    private static func feedSidebarUITestPushUpdates(response: String) -> [String: String] {
-        var updates: [String: String] = ["pushResponse": response]
-        guard let data = response.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            updates["pushError"] = "invalid response: \(response)"
-            return updates
-        }
-        guard object["ok"] as? Bool == true else {
-            let error = object["error"] as? [String: Any]
-            updates["pushError"] = (error?["message"] as? String) ?? "feed.push returned ok=false"
-            return updates
-        }
-        guard let result = object["result"] as? [String: Any],
-              let status = result["status"] as? String else {
-            updates["pushError"] = "feed.push response missing result.status"
-            return updates
-        }
-        updates["pushResultStatus"] = status
-        if let decision = result["decision"] as? [String: Any],
-           let mode = decision["mode"] as? String {
-            updates["pushResultMode"] = mode
-        }
-        return updates
-    }
-
-    private func writeFeedSidebarUITestData(_ updates: [String: String], at path: String) {
-        var payload: [String: String] = {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                return [:]
-            }
-            return object
-        }()
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
 #endif
 
     private func captureSessionLaunchStateIfNeeded(
@@ -4574,6 +4279,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveTimer = nil
         sessionAutosaveTickInFlight = false
         sessionAutosaveDeferredRetryPending = false
+    }
+
+    /// Schedule a session snapshot after todo edits settle. The existing
+    /// session persistence owner captures current in-memory state, keeping
+    /// todo edits consistent with simultaneous pane and workspace changes.
+    func saveTodoState(in _: Workspace) {
+        guard !isTerminatingApp,
+              didAttemptStartupSessionRestore,
+              !isApplyingSessionRestore else { return }
+        if todoStatePersistenceCoordinator == nil {
+            todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
+                saveSnapshot: { [weak self] in
+                    guard let self, !self.isTerminatingApp else { return false }
+                    return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+                }
+            )
+        }
+        todoStatePersistenceCoordinator?.enqueue()
     }
 
     private func installLifecycleSnapshotObserversIfNeeded() {
@@ -6224,7 +5947,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
+    func addWorkspace(
+        windowId: UUID,
+        workingDirectory: String? = nil,
+        bringToFront shouldBringToFront: Bool = false,
+        select: Bool? = nil,
+        placementOverride: WorkspacePlacement? = nil
+    ) -> UUID? {
         guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
         if shouldBringToFront, let window = state.window {
             setActiveMainWindow(window)
@@ -6232,9 +5961,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let workspace = state.tabManager.addWorkspaceIfActive(
             workingDirectory: workingDirectory,
-            select: shouldBringToFront
+            select: select ?? shouldBringToFront,
+            placementOverride: placementOverride
         ) else { return nil }
         return workspace.id
+    }
+
+    /// Routes the sidebar's trailing workspace action through the window that
+    /// owns that sidebar, without changing whichever main window is active.
+    func createWorkspaceAtEndFromSidebar(
+        windowId: UUID,
+        tabManager: TabManager
+    ) {
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+            _ = performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remoteTmux"
+            )
+        } else if addWorkspace(
+            windowId: windowId,
+            bringToFront: false,
+            select: true,
+            placementOverride: .end
+        ) == nil {
+            // Keep previews and transitional windows usable while the
+            // per-window context is being registered.
+            tabManager.addWorkspaceIfActive(placementOverride: .end)
+        }
     }
 
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
@@ -10470,6 +10223,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow]) }
         controller.onGeometryChanged = { [weak self] changedWindow in self?.handleMainWindowGeometryChange(changedWindow) }
+        controller.shouldRetireZoomIntentForProgrammaticResize = { [weak self] _ in
+            guard let self else { return false }
+            // Capture suppression remains armed until a later persistence write.
+            // Once both signatures have reconciled, ordinary active-app placement
+            // owns the frame again even while that persistence firewall is armed.
+            let displayReconcilePending =
+                self.isScreenChangeCaptureSuppressed
+                && (
+                    self.screenChangeCaptureSuppressionSignature == nil
+                    || self.didObserveUnknownVisibleFrameFitTopology
+                )
+            return NSApp.isActive
+                && !self.isTerminatingApp
+                && !self.isApplyingSessionRestore
+                && !displayReconcilePending
+        }
         controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
             guard let exactOwner = self.mainWindowOwnerIdentity(forExactWindow: closingWindow),
@@ -14501,8 +14270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning(
-        onCancel: (() -> Void)? = nil,
-        forceConfirmation: Bool = false
+        onCancel: (() -> Void)? = nil
     ) -> Bool {
         if let activeQuitConfirmationAlertPresenter {
             if let onCancel {
@@ -14510,7 +14278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        if !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -17369,16 +17137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        shortcutMatcher.matches(
+            event: event,
+            shortcut: shortcut,
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        )
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
@@ -17428,16 +17191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
                 return nil
             }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
+            return shortcutMatcher.numberedDigit(event: event, stroke: secondStroke)
         }
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        return shortcutMatcher.numberedDigit(event: event, shortcut: shortcut)
     }
 
     func routableNumberedConfiguredShortcutDigit(
@@ -17468,17 +17229,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   shortcut.firstStroke == prefix else {
                 return false
             }
-            return matchDirectionalShortcut(
+            return shortcutMatcher.matchesDirectional(
                 event: event,
                 stroke: secondStroke,
                 arrowGlyph: arrowGlyph,
                 arrowKeyCode: arrowKeyCode
             )
         }
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
+        return shortcutMatcher.matchesDirectional(
             event: event,
-            stroke: shortcut.firstStroke,
+            shortcut: shortcut,
             arrowGlyph: arrowGlyph,
             arrowKeyCode: arrowKeyCode
         )
@@ -17810,11 +17570,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Match a shortcut stroke against an event, handling normal keys.
     func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        shortcutMatcher.matches(event: event, stroke: stroke)
     }
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        shortcutMatcher.matches(event: event, shortcut: shortcut)
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
@@ -17932,148 +17692,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags == stroke.modifierFlags else { return nil }
-        let numberKeyDigit = digitForNumberKeyCode(event.keyCode)
-
-        if let digit = numberedShortcutDigit(
-            eventCharacter: event.charactersIgnoringModifiers,
-            applyShiftSymbolNormalization: flags.contains(.shift),
-            eventKeyCode: event.keyCode
-        ) {
-            return digit
-        }
-
-        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
-        let hasUsableASCIIEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
-            && (eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true)
-        if !hasUsableASCIIEventChars || numberKeyDigit != nil {
-            let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
-            if let digit = numberedShortcutDigit(
-                eventCharacter: layoutCharacter,
-                applyShiftSymbolNormalization: false,
-                eventKeyCode: event.keyCode
-            ) {
-                return digit
-            }
-        }
-
-        return numberKeyDigit
+        shortcutMatcher.numberedDigit(event: event, stroke: stroke)
     }
 
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func numberedShortcutDigit(
-        eventCharacter: String?,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> Int? {
-        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
-        let normalized = normalizedShortcutEventCharacter(
-            eventCharacter,
-            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
-        )
-        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
-        return digit
+        shortcutMatcher.numberedDigit(event: event, shortcut: shortcut)
     }
 
     private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
-        if digitForNumberKeyCode(event.keyCode) != nil {
-            return true
-        }
-        return numberedShortcutDigit(
-            eventCharacter: event.charactersIgnoringModifiers,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: event.keyCode
-        ) != nil
-    }
-
-    private func normalizedShortcutEventCharacter(
-        _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> String {
-        let lowered = eventCharacter.lowercased()
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "+": return "="
-        case "_": return "-"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
-    }
-
-    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
-        switch keyCode {
-        case 18: return 1 // kVK_ANSI_1
-        case 19: return 2 // kVK_ANSI_2
-        case 20: return 3 // kVK_ANSI_3
-        case 21: return 4 // kVK_ANSI_4
-        case 23: return 5 // kVK_ANSI_5
-        case 22: return 6 // kVK_ANSI_6
-        case 26: return 7 // kVK_ANSI_7
-        case 28: return 8 // kVK_ANSI_8
-        case 25: return 9 // kVK_ANSI_9
-        default:
-            return nil
-        }
-    }
-
-    /// Match arrow key shortcuts using keyCode
-    /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
-    private func matchArrowShortcut(event: NSEvent, stroke: ShortcutStroke, keyCode: UInt16) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        return event.keyCode == keyCode && flags == stroke.modifierFlags
-    }
-
-    /// Match tab key shortcuts using keyCode 48
-    private func matchTabShortcut(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 48 && flags == stroke.modifierFlags
+        shortcutMatcher.eventCouldMatchNumberedDigit(event)
     }
 
     func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
-    }
-
-    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
-    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        stroke: ShortcutStroke,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        if stroke.key == arrowGlyph {
-            return matchArrowShortcut(event: event, stroke: stroke, keyCode: arrowKeyCode)
-        }
-        return matchShortcutStroke(event: event, stroke: stroke)
+        shortcutMatcher.matchesTab(event: event, shortcut: shortcut)
     }
 
     func matchDirectionalShortcut(
@@ -18082,10 +17713,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
+        shortcutMatcher.matchesDirectional(
             event: event,
-            stroke: shortcut.firstStroke,
+            shortcut: shortcut,
             arrowGlyph: arrowGlyph,
             arrowKeyCode: arrowKeyCode
         )
@@ -18510,13 +18140,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // The "Don't warn again for Cmd+Q" preference does not apply here:
-        // Ctrl+D has already exited the sole shell, so this decision must offer
-        // Cancel as the only way to recover a terminal instead of quitting cmux.
-        _ = handleQuitShortcutWarning(
-            onCancel: onCancel,
-            forceConfirmation: onCancel != nil
-        )
+        // Use the same quit policy as Cmd+Q and app termination. When the
+        // policy shows the dialog, Cancel still restores the exited shell.
+        _ = handleQuitShortcutWarning(onCancel: onCancel)
         return false
     }
 
