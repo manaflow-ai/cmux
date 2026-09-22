@@ -30,13 +30,14 @@ def command_output(*argv: str) -> str | None:
 
 def nearest_target(lines: list[str], index: int, radius: int = 4) -> str | None:
     # Cache remarks may appear immediately before or after the Xcode action line.
-    # Prefer a preceding action, then a following one, while staying tightly
-    # bounded so unrelated nearby targets are not attributed accidentally.
-    for direction in (-1, 1):
-        for distance in range(1, radius + 1):
+    # Choose the nearest action; when both sides are equally close, prefer the
+    # preceding action. This avoids attaching a leading cache remark to an older
+    # target when the action it describes follows on the next line.
+    for distance in range(1, radius + 1):
+        for direction in (-1, 1):
             candidate = index + direction * distance
             if candidate < 0 or candidate >= len(lines):
-                break
+                continue
             line = lines[candidate].strip()
             if not line:
                 continue
