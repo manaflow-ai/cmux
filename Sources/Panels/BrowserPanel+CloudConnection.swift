@@ -119,24 +119,51 @@ extension BrowserPanel {
     func prepareCloudBrowserNavigation() {
         guard let endpoint = cloudAccess.model?.browserProxy,
               let address = cloudAccess.model?.target.host else { return }
-        guard endpoint != cloudBrowserProxyEndpoint else { return }
-        cloudBrowserProxyEndpoint = endpoint
-        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
+        if endpoint != cloudBrowserProxyEndpoint {
+            cloudBrowserProxyEndpoint = endpoint
+            websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+            CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
+        }
+        installCurrentCloudDesktopDocumentIdentity()
         if webView.configuration.websiteDataStore !== websiteDataStore {
             replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
                                          reason: "cloud_browser_route", restoreAfterReplacement: false)
         }
     }
 
+    func installCurrentCloudDesktopDocumentIdentity() {
+        guard cloudAccess.isDesktop else { return }
+        CloudDesktopConnectionObserver.installDocumentScript(on: webView, documentIdentity: cloudAccess.documentIdentity)
+    }
+
     func installCloudDesktopConnectionObserver(on webView: WKWebView) {
         let isCurrent = webViewObservationValidator(for: webView)
-        CloudDesktopConnectionObserver.install(on: webView, onConnecting: { [weak self] url in
+        CloudDesktopConnectionObserver.install(on: webView, documentIdentity: cloudAccess.documentIdentity, onConnecting: { [weak self] url in
             guard let self, isCurrent() else { return }
             self.cloudAccess.desktopConnectionIsConnecting(url: url)
-        }) { [weak self] url, isConnected in
+        }) { [weak self] url, state, documentIdentity in
             guard let self, isCurrent() else { return }
-            self.cloudAccess.desktopConnectionDidChange(url: url, isConnected: isConnected)
+            self.applyCloudDesktopRecovery(
+                self.cloudAccess.desktopConnectionDidChange(
+                    url: url, state: state, documentIdentity: documentIdentity
+                )
+            )
+        }
+    }
+
+    func cloudDesktopRouteDidChange() {
+        applyCloudDesktopRecovery(cloudAccess.desktopRouteDidChange())
+    }
+
+    private func applyCloudDesktopRecovery(_ action: CloudDesktopRecoveryPolicy.Action) {
+        switch action {
+        case .resolveEndpoint:
+            cloudAccess.resolveDesktopCarrierIfGone()
+        case .rebind:
+            guard let url = cloudAccess.navigationURL ?? cloudAccess.remoteURL else { return }
+            navigate(to: url)
+        case .idle:
+            break
         }
     }
 

@@ -5428,6 +5428,7 @@ final class BrowserPanel: Panel, ObservableObject {
         var leaveCloudRouteAfterValidation = false
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
+            if cloudAccess.isDesktop { _ = cloudAccess.beginDesktopNavigationIdentity() }
             prepareCloudBrowserNavigation()
         } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
             $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
