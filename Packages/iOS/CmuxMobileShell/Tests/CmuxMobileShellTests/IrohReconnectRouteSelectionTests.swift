@@ -183,16 +183,16 @@ extension ReconnectRouteSelectionTests {
                 supportedKinds: [.iroh, .tailscale]
             )
             let orderedKinds: String = String(describing: ordered.map(\.kind))
-            Issue.record("PROBE mac tag=" + tag + " method=" + method)
-            Issue.record("PROBE routes=" + kinds + " grants=" + grants)
-            Issue.record("PROBE ordered=" + orderedKinds)
+            Issue.record(Comment(rawValue: "PROBE mac tag=" + tag + " method=" + method))
+            Issue.record(Comment(rawValue: "PROBE routes=" + kinds + " grants=" + grants))
+            Issue.record(Comment(rawValue: "PROBE ordered=" + orderedKinds))
         }
 
         #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         let err: String = String(describing: store.connectionError)
         let st: String = String(describing: store.connectionState)
         let status: String = String(describing: store.macConnectionStatus)
-        Issue.record("PROBE error=" + err + " state=" + st + " status=" + status)
+        Issue.record(Comment(rawValue: "PROBE error=" + err + " state=" + st + " status=" + status))
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedKinds() == [.tailscale])
         #expect(
