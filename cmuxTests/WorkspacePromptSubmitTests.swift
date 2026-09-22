@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import CMUXAgentLaunch
+import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -280,4 +281,105 @@ struct WorkspacePromptSubmitTests {
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
     }
+
+    @Test func testPromptScrollMarkerCapturesLiveBottom() throws {
+        let geometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 37, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let marker = try #require(TerminalPromptScrollMarker(geometry: geometry))
+
+        #expect(marker.topRow == 100)
+        #expect(marker.rowSpaceRevision == 7)
+    }
+
+    @Test func testPromptScrollMarkerTracksItsRowAsOutputAppends() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 220, offset: 200, len: 20),
+            rowSpaceRevision: 7
+        )
+
+        let fraction = try #require(marker.trackFraction(in: currentGeometry))
+
+        #expect(abs(fraction - 0.5) < 0.0001)
+    }
+
+    @Test func testPromptScrollMarkerExpiresWhenGhosttyRenumbersRows() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+                rowSpaceRevision: 7
+            )
+        ))
+        let renumberedGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 120, offset: 100, len: 20),
+            rowSpaceRevision: 8
+        )
+
+        #expect(marker.trackFraction(in: renumberedGeometry) == nil)
+    }
+
+    @Test func testPromptScrollMarkerRecordedBeforeScrollbackAppearsStaysAtStart() throws {
+        let marker = try #require(TerminalPromptScrollMarker(
+            geometry: NotificationScrollRestoreGeometry(
+                scrollbar: GhosttyScrollbar(total: 20, offset: 0, len: 40),
+                rowSpaceRevision: 3
+            )
+        ))
+        let currentGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 80, offset: 60, len: 20),
+            rowSpaceRevision: 3
+        )
+
+        #expect(marker.topRow == 0)
+        #expect(marker.trackFraction(in: currentGeometry) == 0)
+    }
+
+
+    @Test func testPromptScrollMarkerClickJumpsToCapturedRow() throws {
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        hostedView.recordPromptScrollMarker()
+
+        #expect(hostedView.promptScrollMarkerRowsForTesting == [80])
+
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 1
+        )
+        #expect(hostedView.activatePromptScrollMarkerForTesting(at: 0))
+        #expect(surfaceView.performedRows == [80])
+        #expect(surfaceView.attemptedRowSpaceRevisions == [1])
+    }
+
+    @Test func testPromptScrollMarkerClickRejectsRenumberedScrollback() throws {
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 100, offset: 80, len: 20),
+            rowSpaceRevision: 1
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+
+        hostedView.recordPromptScrollMarker()
+        surfaceView.setAuthoritativeScrollbar(
+            GhosttyScrollbar(total: 180, offset: 160, len: 20),
+            rowSpaceRevision: 2
+        )
+
+        #expect(!hostedView.activatePromptScrollMarkerForTesting(at: 0))
+        #expect(surfaceView.performedRows.isEmpty)
+    }
+
 }
