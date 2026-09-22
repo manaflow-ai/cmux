@@ -242,7 +242,7 @@
         "id",
         "title",
         "severity",
-        "claim",
+        "claims",
         "failure_mode",
         "paths",
         "discovery_sources",
@@ -266,10 +266,6 @@
             "P2",
             "P3"
           ]
-        },
-        "claim": {
-          "type": "string",
-          "minLength": 1
         },
         "failure_mode": {
           "type": "string",
@@ -376,6 +372,13 @@
             "unresolved",
             "suppressed"
           ]
+        },
+        "claims": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/claim"
+          }
         }
       }
     },
@@ -414,6 +417,36 @@
         "line": {
           "type": "integer",
           "minimum": 1
+        }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "message",
+        "evidence"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "proven",
+            "derived",
+            "observed",
+            "inferred",
+            "unknown"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
         }
       }
     }
