@@ -442,6 +442,10 @@ class WarmSlotTest(unittest.TestCase):
         active = warm_slot.cold_task_root(layout, generation)
         (active / "DerivedData").mkdir(parents=True)
         (active / "DerivedData/fixture.bin").write_bytes(b"x")
+        outside = self.root / "lease-supplied-path-must-survive"
+        outside.mkdir()
+        outside_marker = outside / "marker"
+        outside_marker.write_text("keep")
         warm_slot.atomic_json(layout.lease, {
             "schema_version": 1,
             "lease_id": "stale-native",
@@ -452,6 +456,7 @@ class WarmSlotTest(unittest.TestCase):
             "native_run_id": "exact-run",
             "native_process_group": 424242,
             "cold_task_generation_id": generation,
+            "derived_data_path": str(outside),
         })
         args = argparse.Namespace(machine_state=self.state, slot="slot", run_id="exact-run")
 
@@ -475,6 +480,7 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(recovered["cold_cache_retirement"], "retired")
         self.assertFalse(active.exists())
         self.assertTrue(warm_slot.retired_cold_task_root(layout, generation).exists())
+        self.assertEqual(outside_marker.read_text(), "keep")
 
     def test_tree_change_runs_native_warmer(self):
         first = self.warm(self.base)
