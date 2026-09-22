@@ -3,6 +3,47 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
+        if let surfaceCount = intFromAny(pane["surface_count"]) {
+            return surfaceCount > 0
+        }
+        if let surfaceIDs = pane["surface_ids"] as? [String] {
+            return !surfaceIDs.isEmpty
+        }
+        if let surfaces = pane["surfaces"] as? [[String: Any]] {
+            return !surfaces.isEmpty
+        }
+        if let selectedSurfaceID = pane["selected_surface_id"] as? String {
+            return !selectedSurfaceID.isEmpty
+        }
+        return false
+    }
+
+    /// Returns nil only when pane.surfaces succeeds with an empty surface list.
+    func tmuxSelectedSurfaceIdIfPresent(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "pane.surfaces",
+            params: ["workspace_id": workspaceId, "pane_id": paneId]
+        )
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else {
+            throw CLIError(message: "Pane has no surface to target")
+        }
+        guard !surfaces.isEmpty else { return nil }
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
+           let id = selected["id"] as? String,
+           !id.isEmpty {
+            return id
+        }
+        if let id = surfaces.lazy.compactMap({ $0["id"] as? String }).first(where: { !$0.isEmpty }) {
+            return id
+        }
+        throw CLIError(message: "Pane has no surface to target")
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
