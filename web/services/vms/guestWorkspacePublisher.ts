@@ -149,7 +149,7 @@ Restart=always
 RestartSec=1
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
