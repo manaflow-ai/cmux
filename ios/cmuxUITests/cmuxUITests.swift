@@ -68,6 +68,7 @@ final class cmuxUITests: XCTestCase {
     func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
+        var screenshotBrightness: [String: Double] = [:]
 
         for appearance in ["light", "dark"] {
             app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -105,10 +106,11 @@ final class cmuxUITests: XCTestCase {
             ))
             context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
+            screenshotBrightness[appearance] = brightness
             if appearance == "light" {
-                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
+                XCTAssertGreaterThan(brightness, 0.65, "Light mode must use the light Settings capture")
             } else {
-                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
+                XCTAssertLessThan(brightness, 0.35, "Dark mode must use the dark Settings capture")
             }
             let before = XCTAttachment(screenshot: app.screenshot())
             before.name = "Fitted pairing page - \(appearance)"
@@ -133,6 +135,13 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
             app.terminate()
         }
+        let lightBrightness = try XCTUnwrap(screenshotBrightness["light"])
+        let darkBrightness = try XCTUnwrap(screenshotBrightness["dark"])
+        XCTAssertGreaterThan(
+            lightBrightness,
+            darkBrightness,
+            "The instructional screenshot must follow the app appearance"
+        )
         try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
     }
 
@@ -156,7 +165,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(detail.exists)
             XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
             XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
-            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 642.0 / 95.0, accuracy: 0.05)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 1030.0 / 285.0, accuracy: 0.05)
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -11831,6 +11840,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         primary.tap()
         let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
         XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)[
+            "MobileOnboardingPairingSettingsScreenshot"
+        ].waitForExistence(timeout: 5))
         capture("onboarding-4-enable-completed", in: app)
         record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
     }
@@ -11874,6 +11886,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         app.buttons["MobileOnboardingSecondaryButton"].tap()
         let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
         XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)[
+            "MobileOnboardingPairingSettingsScreenshot"
+        ].waitForExistence(timeout: 5))
         capture("replay-4-not-now-completed", in: app)
         app.buttons["MobileOnboardingBackButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)[
@@ -11901,6 +11916,8 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         defer { app.terminate() }
         let retry = app.buttons["MobileWorkspaceEmptyRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        let emptyState = app.descendants(matching: .any)["MobileWorkspaceEmptyState"]
+        XCTAssertTrue(emptyState.exists)
         for attempt in 1...2 {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
@@ -11910,14 +11927,15 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             ]
             XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
             XCTAssertEqual(statusLine.label, "Reconnecting…")
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
+            XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
             // Emit an empty-list update before the pending refresh completes.
             app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
             XCTAssertTrue(app.descendants(matching: .any)[
                 "MobileWorkspaceListRefreshGeneration-\(attempt * 2 - 1)"
             ].waitForExistence(timeout: 5))
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
             XCTAssertTrue(finish.exists)
             capture("retry-\(attempt)-pending-after-list-update", in: app)
             finish.tap()
@@ -11928,6 +11946,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
                 predicate: enabled, object: nil
             )], timeout: 5), .completed)
+            XCTAssertTrue(emptyState.waitForExistence(timeout: 5))
             capture("retry-\(attempt)-completed-after-list-update", in: app)
         }
         record("retry-lifecycle-result", "Retry stayed disabled across an intermediate empty-list update, completed after an explicit fixture signal, and accepted a second retry. No timing delay is used by this fixture.")

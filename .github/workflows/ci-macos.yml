@@ -3410,6 +3410,11 @@ jobs:
 
           inputs = json.loads(os.environ["MACOS_INPUTS"])
           needs = json.loads(os.environ["MACOS_NEEDS"])
+          # The caller leaves compile_admitted unset when its build-input reuse
+          # steps are skipped (full suite) or fail; unset means "compile", the
+          # same reading the macos-compile-admission job condition uses.
+          if inputs.get("compile_admitted") == "":
+              inputs["compile_admitted"] = "false"
           for route in ("macos", "full_suite", "compile_admitted", "release_build"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
