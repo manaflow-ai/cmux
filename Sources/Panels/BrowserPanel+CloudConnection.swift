@@ -4,10 +4,15 @@ import WebKit
 extension BrowserPanel {
     func installCloudDesktopConnectionObserver(on webView: WKWebView) {
         let isCurrent = webViewObservationValidator(for: webView)
-        CloudDesktopConnectionObserver.install(on: webView) { [weak self] url, state in
+        CloudDesktopConnectionObserver.install(on: webView, documentIdentity: cloudAccess.documentIdentity) { [weak self] url, state, documentIdentity in
             guard let self, isCurrent() else { return }
-            self.applyCloudDesktopRecovery(self.cloudAccess.desktopConnectionDidChange(url: url, state: state))
+            self.applyCloudDesktopRecovery(self.cloudAccess.desktopConnectionDidChange(url: url, state: state, documentIdentity: documentIdentity))
         }
+    }
+
+    func installCurrentCloudDesktopDocumentIdentity() {
+        guard cloudAccess.isDesktop else { return }
+        CloudDesktopConnectionObserver.installDocumentScript(on: webView, documentIdentity: cloudAccess.documentIdentity)
     }
 
     /// The shared route reported a new phase. A replaced carrier leaves the

@@ -2005,11 +2005,14 @@ final class BrowserPanel: Panel, ObservableObject {
     func prepareCloudBrowserNavigation() {
         guard let endpoint = cloudAccess.model?.browserProxy,
               let address = cloudAccess.model?.target.host else { return }
-        guard endpoint != cloudBrowserProxyEndpoint else { return }
-        cloudBrowserProxyEndpoint = endpoint
-        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
-        if webView.configuration.websiteDataStore !== websiteDataStore {
+        if endpoint != cloudBrowserProxyEndpoint {
+            cloudBrowserProxyEndpoint = endpoint
+            websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
+            CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: address, on: webView)
+        }
+        installCurrentCloudDesktopDocumentIdentity()
+        if endpoint == cloudBrowserProxyEndpoint,
+           webView.configuration.websiteDataStore !== websiteDataStore {
             replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
                                          reason: "cloud_browser_route", restoreAfterReplacement: false)
         }
@@ -5436,6 +5439,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) -> WKNavigation? {
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
+            if cloudAccess.isDesktop { _ = cloudAccess.beginDesktopNavigationIdentity() }
             prepareCloudBrowserNavigation()
         } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
             $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))

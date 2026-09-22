@@ -89,6 +89,7 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    private(set) var documentIdentity = UUID().uuidString
 
     func showUnavailable(_ message: String) {
         leave()
@@ -139,9 +140,14 @@ final class CloudBrowserAccessState {
     /// noVNC's document may finish loading before its RFB/WebSocket fails.
     /// Only the current, committed Cloud Desktop document may report its state.
     @discardableResult
-    func desktopConnectionDidChange(url: URL, state: CloudDesktopConnectionState) -> CloudDesktopRecoveryPolicy.Action {
+    func desktopConnectionDidChange(
+        url: URL,
+        state: CloudDesktopConnectionState,
+        documentIdentity: String? = nil
+    ) -> CloudDesktopRecoveryPolicy.Action {
         guard isDesktop, hasCommittedNavigation,
-              let navigationURL, url == navigationURL else { return .idle }
+              let navigationURL, url == navigationURL,
+              documentIdentity.map({ $0 == self.documentIdentity }) ?? true else { return .idle }
         desktopConnection = state
         if state.isConnected { dismissedFailure = nil }
         return recovery.viewerDidReport(state)
@@ -213,6 +219,15 @@ final class CloudBrowserAccessState {
         recovery.reset()
         cancelDesktopCarrierProbe()
         dismissedFailure = nil
+        documentIdentity = UUID().uuidString
+    }
+
+    /// Returns a new identity before a Cloud Desktop document is loaded.
+    /// Messages from the previous document are ignored even when WebKit keeps
+    /// the same view and URL for the replacement navigation.
+    func beginDesktopNavigationIdentity() -> String {
+        documentIdentity = UUID().uuidString
+        return documentIdentity
     }
 
     func nextURL() -> URL? {

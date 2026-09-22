@@ -28,10 +28,17 @@ enum CloudDesktopConnectionState: String, Sendable, Equatable, CaseIterable {
 final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHandler {
     static let name = "cmuxCloudDesktopConnection"
     static let contentWorld = WKContentWorld.world(name: "cmux.cloud.desktop-connection")
-    static let userScript = WKUserScript(
+    private static let scriptMarker = "cmuxCloudDesktopDocumentIdentity"
+
+    static func userScript(documentIdentity: String) -> WKUserScript {
+        let escapedIdentity = documentIdentity
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        return WKUserScript(
         source: """
         (() => {
           if (location.pathname !== '/vnc.html') return;
+          const \(scriptMarker) = '\(escapedIdentity)';
           const status = document.getElementById('noVNC_status');
           if (!status || !document.getElementById('noVNC_container')) return;
           let last;
@@ -54,7 +61,7 @@ final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHandler {
               : 'disconnected';
             if (value && value !== last) {
               last = value;
-              window.webkit.messageHandlers['\(name)'].postMessage(value);
+              window.webkit.messageHandlers['\(name)'].postMessage({state: value, documentIdentity: \(scriptMarker)});
             }
           };
           const observer = new MutationObserver(report);
@@ -66,33 +73,52 @@ final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHandler {
         injectionTime: .atDocumentEnd,
         forMainFrameOnly: true,
         in: contentWorld
-    )
+        )
+    }
 
     private weak var webView: WKWebView?
-    private let onChange: @MainActor (URL, CloudDesktopConnectionState) -> Void
+    private let onChange: @MainActor (URL, CloudDesktopConnectionState, String) -> Void
 
-    init(webView: WKWebView, onChange: @escaping @MainActor (URL, CloudDesktopConnectionState) -> Void) {
+    init(webView: WKWebView, onChange: @escaping @MainActor (URL, CloudDesktopConnectionState, String) -> Void) {
         self.webView = webView
         self.onChange = onChange
     }
 
     static func install(
         on webView: WKWebView,
-        onChange: @escaping @MainActor (URL, CloudDesktopConnectionState) -> Void
+        documentIdentity: String,
+        onChange: @escaping @MainActor (URL, CloudDesktopConnectionState, String) -> Void
     ) {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: name, contentWorld: contentWorld)
         controller.add(CloudDesktopConnectionObserver(webView: webView, onChange: onChange), contentWorld: contentWorld, name: name)
-        if !controller.userScripts.contains(where: { $0.source == userScript.source }) {
-            controller.addUserScript(userScript)
+        installDocumentScript(on: webView, documentIdentity: documentIdentity)
+    }
+
+    static func install(
+        on webView: WKWebView,
+        onChange: @escaping @MainActor (URL, CloudDesktopConnectionState) -> Void
+    ) {
+        install(on: webView, documentIdentity: UUID().uuidString) { url, state, _ in
+            onChange(url, state)
         }
+    }
+
+    static func installDocumentScript(on webView: WKWebView, documentIdentity: String) {
+        let controller = webView.configuration.userContentController
+        let retained = controller.userScripts.filter { !$0.source.contains(scriptMarker) }
+        controller.removeAllUserScripts()
+        for script in retained { controller.addUserScript(script) }
+        controller.addUserScript(userScript(documentIdentity: documentIdentity))
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == Self.name, message.frameInfo.isMainFrame,
               message.webView === webView, let url = message.frameInfo.request.url,
-              let raw = message.body as? String,
+              let payload = message.body as? [String: Any],
+              let raw = payload["state"] as? String,
+              let documentIdentity = payload["documentIdentity"] as? String,
               let state = CloudDesktopConnectionState(rawValue: raw) else { return }
-        onChange(url, state)
+        onChange(url, state, documentIdentity)
     }
 }
