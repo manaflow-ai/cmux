@@ -108,6 +108,10 @@ extension WorkspaceListView {
                     // disappearance cancel the retry that owns recovery.
                     && !store.isRecoveringWorkspaceList
             }
+        } ?? {
+            // Preview fixtures do not provide a store. Their recovery state is
+            // supplied directly to WorkspaceListView instead.
+            workspaces.isEmpty && !isRecoveringWorkspaceList
         }
         let cancelRefreshForEmptyState: (() -> Void)? = store.map { store in
             {
