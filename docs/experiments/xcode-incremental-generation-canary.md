@@ -62,7 +62,9 @@ PR code may corrupt only its own disposable generation. It gains no authority ov
 
 ## Authoritative validation
 
-Generation reuse is acceleration. It does not reuse test success. The merge queue can retain the current clean compile as the authoritative gate.
+Generation reuse is acceleration. It does not reuse test success. The merge queue can retain a clean compile as the authoritative gate.
+
+For fork/contributor generations, same-run app-host products may feed that PR's own test shards, but they must never enter the cross-run compiled-product reuse pool. The existing merge-group product selector accepts exact products from eligible PR producers; a generation-backed untrusted producer therefore needs an explicit non-reusable provenance bit (or must omit the reusable-product seal) so merge-group lookup rejects it and performs a clean compile. The clean merge-group compile may still read the trusted main-seeded compilation CAS.
 
 ## Canary implementation boundary
 
