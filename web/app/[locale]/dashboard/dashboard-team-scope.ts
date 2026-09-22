@@ -61,38 +61,56 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
     if (team.id === selected.id) return;
+    const previousCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey);
+    const previousSearch = new URLSearchParams(searchParams.toString());
+    const optimisticSearch = new URLSearchParams(previousSearch);
+
+    // Update the shared catalog and URL before waiting for Stack Auth. The
+    // dashboard pages already treat ?team= as an authorized request scope, so
+    // they can start rendering the new team while the persisted selection is
+    // being written.
+    queryClient.setQueryData<DashboardTeamCatalog>(
+      queryKey,
+      (current) => current ? { ...current, selectedTeamId: team.id } : current,
+    );
+    persistCoderouterOrganizationScope(userId, team.id);
+    optimisticSearch.set("team", team.id);
+    router.replace(pathWithSearch(pathname, optimisticSearch));
+
     const cancellation = new AbortController();
     const timeout = setTimeout(() => cancellation.abort(new Error("Team switch timed out")), CATALOG_TIMEOUT_MS);
-    let response: Response;
+    const rollback = () => {
+      queryClient.setQueryData(queryKey, previousCatalog);
+      persistCoderouterOrganizationScope(userId, selected.id);
+      router.replace(pathWithSearch(pathname, previousSearch));
+    };
     try {
-      response = await fetch("/api/subrouter/teams", {
+      const response = await fetch("/api/subrouter/teams", {
         method: "PATCH",
         headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ teamId: team.id }),
         signal: cancellation.signal,
       });
+      if (!response.ok) throw new Error("Could not switch dashboard team");
+    } catch (error) {
+      rollback();
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
-    if (!response.ok) throw new Error("Could not switch dashboard team");
-    // Keep the legacy cookie in sync for older dashboard pages while the
-    // Stack Auth selected team remains the authority.
-    persistCoderouterOrganizationScope(userId, team.id);
-    queryClient.setQueryData<DashboardTeamCatalog>(
-      queryKey,
-      (current) => current ? { ...current, selectedTeamId: team.id } : current,
-    );
-    if (searchParams.has("team")) {
-      // A deep-linked team in the URL would keep overriding the new scope.
-      const next = new URLSearchParams(searchParams.toString());
-      next.delete("team");
-      const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname);
-    }
+
+    const next = new URLSearchParams(optimisticSearch);
+    next.delete("team");
+    router.replace(pathWithSearch(pathname, next));
     router.refresh();
   };
 
   return { status: "ready", teams, selected, switchTeam };
+}
+
+function pathWithSearch(pathname: string, searchParams: URLSearchParams): string {
+  const query = searchParams.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 /** Teams the dashboard can show: route users and account-only managers. */
