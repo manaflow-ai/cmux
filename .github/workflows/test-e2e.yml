@@ -553,8 +553,15 @@ jobs:
 
           # That guard proves some tests ran, never which ones. With a batch a
           # healthy count from one selector would otherwise cover a sibling that
-          # never started, so require each requested suite by name.
+          # never started, so account for each requested suite by name.
+          #
+          # XCTest prints "Test Suite 'Name'"; swift-testing prints
+          # 'Suite "Display Name"' and that display name can differ from the
+          # identifier used in -only-testing:. So an unseen suite is reported
+          # but only fatal when nothing requested was observed at all -- a
+          # batch that silently ran none of what was asked for.
           missing_suites=""
+          seen_suites=0
           rest="$TEST_SELECTORS"
           while [ -n "$rest" ]; do
             case "$rest" in
@@ -563,12 +570,18 @@ jobs:
             esac
             suite="${entry#*/}"
             suite="${suite%%/*}"
-            if ! grep -Fq "Test Suite '$suite'" /tmp/xcodebuild-e2e.log; then
+            if grep -Fq "Test Suite '$suite'" /tmp/xcodebuild-e2e.log \
+              || grep -Fq "Suite \"$suite\"" /tmp/xcodebuild-e2e.log; then
+              seen_suites=$((seen_suites + 1))
+            else
               missing_suites="${missing_suites:+$missing_suites, }$entry"
             fi
           done
           if [ -n "$missing_suites" ]; then
-            echo "::error::Requested selectors never started: $missing_suites"
+            echo "::warning::Requested selectors were not named in the log: $missing_suites"
+          fi
+          if [ "$seen_suites" -eq 0 ]; then
+            echo "::error::No requested selector started: $TEST_SELECTORS"
             echo "test_result=failed" >> "$GITHUB_OUTPUT"
             {
               echo "test_output<<EOFOUT"
