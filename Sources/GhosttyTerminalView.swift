@@ -8700,7 +8700,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 
         let swapPaneItem = menu.addItem(
-            withTitle: CmuxPaneSwapStrings.swapWithSession,
+            withTitle: CmuxPaneSwapStrings().swapWithSession,
             action: #selector(beginPaneSwapSelection(_:)),
             keyEquivalent: ""
         )
