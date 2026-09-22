@@ -914,6 +914,8 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
@@ -2679,6 +2681,8 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
