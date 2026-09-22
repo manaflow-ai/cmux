@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import http.server
 import json
 import os
@@ -79,7 +79,7 @@ def _profile_plist(
     return {
         "Name": name,
         "UUID": uuid,
-        "ExpirationDate": (datetime.now(timezone.utc) + timedelta(days=365)).replace(tzinfo=None),
+        "ExpirationDate": datetime(2099, 1, 1),
         "DeveloperCertificates": [FIXTURE_CERTIFICATE_DER],
         "Entitlements": {
             "application-identifier": app_id,
