@@ -24,10 +24,18 @@ INVENTORY_LANES = {"legacy", "manual"}
 SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 
 
+def runner_lanes_from_workflow_text(text: str) -> set[str]:
+    lanes: set[str] = set()
+    for line in text.splitlines():
+        executable = line.split("#", 1)[0]
+        lanes.update(RUNNER_RE.findall(executable))
+    return lanes
+
+
 def runner_lanes() -> set[str]:
     lanes: set[str] = set()
     for workflow in sorted(WORKFLOWS.glob("*.y*ml")):
-        lanes.update(RUNNER_RE.findall(workflow.read_text(encoding="utf-8")))
+        lanes.update(runner_lanes_from_workflow_text(workflow.read_text(encoding="utf-8")))
     return lanes
 
 
