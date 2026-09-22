@@ -623,6 +623,7 @@ jobs:
           # shellcheck disable=SC2016 # Xcode expands $(inherited), not this shell.
           swift_workaround_args=(
             SWIFT_ENABLE_BATCH_MODE=NO
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO
             DEBUG_INFORMATION_FORMAT=
             GCC_GENERATE_DEBUGGING_SYMBOLS=NO
             'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1 -Xfrontend -disable-sending-args-and-results-with-region-based-isolation'
