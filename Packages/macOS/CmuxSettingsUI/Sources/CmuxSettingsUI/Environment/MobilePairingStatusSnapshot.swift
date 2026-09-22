@@ -3,9 +3,8 @@ import Foundation
 /// A point-in-time view of the Mac-side iOS pairing host, shown in the Mobile
 /// settings section.
 ///
-/// Reports the actual IROH UDP port and local addresses. A saved preference
-/// takes effect at the next pairing start; pending changes are distinguished
-/// from an unavailable port that required an automatic fallback.
+/// Reports the legacy Tailscale TCP port and reachable addresses. Iroh owns a
+/// separate UDP endpoint and is not represented by the configured TCP port.
 ///
 /// The host supplies the snapshot through
 /// ``SettingsHostActions/mobilePairingStatus()`` and pushes updates through
@@ -16,14 +15,14 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     /// connections.
     public let isRunning: Bool
 
-    /// The preferred port from settings the listener tried to bind.
+    /// The configured legacy Tailscale TCP port.
     public let configuredPort: Int
 
-    /// The port the listener actually bound, or `nil` when it is not running.
+    /// The Tailscale TCP port actually bound, or `nil` when it is not running.
     public let boundPort: Int?
 
-    /// True when the listener is running on a different port than
-    /// ``configuredPort`` because the configured port could not be bound.
+    /// Retained for compatibility with older settings clients. Tailscale
+    /// binding failures do not silently fall back to another port.
     public let usesEphemeralFallback: Bool
 
     /// A saved port will take effect at the next pairing start.
@@ -39,10 +38,9 @@ public struct MobilePairingStatusSnapshot: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - isRunning: Whether the listener is bound.
-    ///   - configuredPort: The preferred port from settings.
-    ///   - boundPort: The port actually bound, or `nil` when not running.
-    ///   - usesEphemeralFallback: True when the bound port differs from the
-    ///     configured port because the configured port was unavailable.
+    ///   - configuredPort: The configured Tailscale TCP port.
+    ///   - boundPort: The Tailscale TCP port actually bound, or `nil` when not running.
+    ///   - usesEphemeralFallback: Compatibility field; always false for the TCP listener.
     ///   - activeConnectionCount: Number of connected iOS devices.
     ///   - routes: Addresses the iOS app can use to reach this Mac.
     public init(
