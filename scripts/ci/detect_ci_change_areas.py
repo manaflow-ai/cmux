@@ -631,6 +631,14 @@ def is_macos_neutral(
 ) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
         return True
+    # Backend/deploy inputs are covered by required web CI and never enter the
+    # desktop Xcode product. Keep the root config carveout narrow because
+    # config/IrohRelayPolicyProduction.xcconfig is a real macOS build input.
+    if path.startswith(("workers/", "config/iroh/")) or path in {
+        ".vercelignore",
+        "vercel.json",
+    }:
+        return True
     # CLI/ is a standalone Xcode tool target with a dedicated required lane.
     # App/shared source remains routed through app-host macOS CI.
     if path.startswith("CLI/"):
