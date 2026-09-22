@@ -354,6 +354,11 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        // The aggregate connection can stay connected while a secondary Mac
+        // reconnects. Observe exact pairing status changes for parked pushes.
+        .onChange(of: store.macConnectionStatuses) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
         .mobilePushAlertPresentation(coordinator: pushCoordinator)
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
