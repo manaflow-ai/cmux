@@ -123,6 +123,32 @@ class FocusedLauncherTests(unittest.TestCase):
                 self.assertNotEqual(self.launch(selector).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
 
+    def test_batched_filters_dispatch_one_run_against_one_compile(self):
+        result = self.launch("cmuxTests/AlphaTests", "cmuxTests/BetaTests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # One dispatch, one comma-joined filter: the workflow expands it into
+        # several -only-testing: flags and compiles once.
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/AlphaTests,cmuxTests/BetaTests")
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertEqual(self.dispatch()["record_video"], "false")
+
+    def test_batched_ui_filters_keep_video_recording(self):
+        result = self.launch("cmuxUITests/AlphaUITests", "BetaUITests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxUITests/AlphaUITests,BetaUITests")
+        self.assertEqual(self.dispatch()["record_video"], "true")
+
+    def test_rejects_batches_that_mix_targets_or_repeat_entries(self):
+        for entries in (
+            ("cmuxTests/AlphaTests", "cmuxUITests/BetaUITests"),
+            ("cmuxTests/AlphaTests", "BetaUITests"),
+            ("cmuxTests/AlphaTests", "cmuxTests/AlphaTests"),
+            ("cmuxTests/AlphaTests", "cmuxTests/"),
+        ):
+            with self.subTest(entries=entries):
+                self.assertNotEqual(self.launch(*entries).returncode, 0)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
     def test_rejects_invalid_or_missing_options(self):
         for args in (("--timeout", "0"), ("--timeout", "bad"), ("--ref",), ("--unknown",)):
             with self.subTest(args=args):
