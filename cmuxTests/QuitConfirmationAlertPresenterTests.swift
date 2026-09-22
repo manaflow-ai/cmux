@@ -124,18 +124,11 @@ struct QuitConfirmationAlertPresenterTests {
         let store = QuitConfirmationStore(defaults: defaults)
         store.setMode(.always)
 
-        #expect(
-            AppDelegate.shouldPersistQuitConfirmationSuppression(
-                response: .alertFirstButtonReturn,
-                suppressionState: .on
-            )
-        )
-        if AppDelegate.shouldPersistQuitConfirmationSuppression(
+        AppDelegate.persistQuitConfirmationSuppressionIfNeeded(
             response: .alertFirstButtonReturn,
-            suppressionState: .on
-        ) {
-            store.setMode(.never)
-        }
+            suppressionState: .on,
+            store: store
+        )
 
         #expect(store.confirmQuitMode == .never)
         #expect(
@@ -148,11 +141,10 @@ struct QuitConfirmationAlertPresenterTests {
         )
 
         store.setMode(.always)
-        #expect(
-            !AppDelegate.shouldPersistQuitConfirmationSuppression(
-                response: .alertSecondButtonReturn,
-                suppressionState: .on
-            )
+        AppDelegate.persistQuitConfirmationSuppressionIfNeeded(
+            response: .alertSecondButtonReturn,
+            suppressionState: .on,
+            store: store
         )
         #expect(store.confirmQuitMode == .always)
     }
