@@ -5,6 +5,7 @@ from collections import Counter
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +29,72 @@ class BuildGraphHealthTests(unittest.TestCase):
         self.assertEqual(
             health.classify_path("Packages/Shared/CmuxCore/Sources/CmuxCore/Bar.swift"),
             ("package", "Shared/CmuxCore"),
+        )
+
+    def test_requested_ref_drives_tree_inventory(self):
+        with mock.patch.object(
+            health,
+            "git",
+            return_value="Sources/App.swift\0Packages/macOS/CmuxGit/Foo.swift\0",
+        ) as git:
+            files = health.tracked_swift_files("abc123")
+
+        self.assertEqual(
+            files,
+            ["Sources/App.swift", "Packages/macOS/CmuxGit/Foo.swift"],
+        )
+        git.assert_called_once_with(
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            "abc123",
+            "--",
+            "*.swift",
+        )
+
+    def test_recent_window_is_anchored_to_selected_commit_time(self):
+        commit = "a" * 40
+        with mock.patch.object(
+            health,
+            "git",
+            return_value="commit:abc123\0\nSources/App.swift\0",
+        ) as git:
+            commits, touches = health.recent_touch_counts(
+                30,
+                commit,
+                30 * 24 * 60 * 60,
+            )
+
+        self.assertEqual(commits, 1)
+        self.assertEqual(touches["Sources/App.swift"], 1)
+        args = git.call_args.args
+        self.assertIn("--since=1970-01-01T00:00:00+00:00", args)
+        self.assertIn(commit, args)
+        self.assertLess(args.index("--no-renames"), args.index(commit))
+        self.assertLess(args.index(commit), args.index("--"))
+
+    def test_ref_resolution_returns_commit_and_timestamp(self):
+        commit = "b" * 40
+        with mock.patch.object(
+            health,
+            "git",
+            side_effect=[commit + "\n", "1790000000\n"],
+        ) as git:
+            resolved = health.resolve_ref("origin/main")
+
+        self.assertEqual(resolved, (commit, 1790000000))
+        self.assertEqual(
+            git.call_args_list,
+            [
+                mock.call(
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    "origin/main^{commit}",
+                ),
+                mock.call("show", "-s", "--format=%ct", commit),
+            ],
         )
 
     def test_summary_weights_recent_edits_separately_from_file_count(self):
