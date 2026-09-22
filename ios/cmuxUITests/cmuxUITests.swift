@@ -4163,6 +4163,11 @@ final class cmuxUITests: XCTestCase {
             terminalPicker.waitForExistence(timeout: 5),
             "The production workspace detail must be visible after the push tap."
         )
+        let selectedNotes = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "Notes"),
+            object: terminalPicker
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selectedNotes], timeout: 5), .completed)
         XCTAssertEqual(
             terminalPicker.value as? String,
             "Notes",
