@@ -2615,9 +2615,9 @@ jobs:
           output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
           printf '%s\n' "$output"
           if [ "$test_status" -ne 0 ] \
-            && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-            && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-            && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+            && grep -Fq 'Build complete!' <<<"$output" \
+            && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+            && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
             echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
             test_status=0
             output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
@@ -2695,9 +2695,9 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
-                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+                if grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' <<<"$output" \
+                  && ! grep -Eq 'with [1-9][0-9]* failures?' <<<"$output" \
+                  && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' <<<"$output")"; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
                   exit "$test_status"
@@ -2714,9 +2714,9 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
-                && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-                && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-                && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+                && grep -Fq 'Build complete!' <<<"$output" \
+                && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+                && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
                 output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
