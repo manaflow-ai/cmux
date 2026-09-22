@@ -2256,6 +2256,29 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Install Release helpers" in release_block
 
 
+def test_swift_package_selection_precedes_optional_tool_setup() -> None:
+    block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
+
+    select_index = block.index("      - name: Select package tests")
+    ghostty_index = block.index("      - name: Capture Ghostty revision")
+    rust_index = block.index("      - name: Install Rust")
+    unit_index = block.index("      - name: Run Swift package unit tests")
+
+    assert select_index < ghostty_index < unit_index
+    assert select_index < rust_index < unit_index
+    assert "needs_ghosttykit=true" in block
+    assert "needs_rust=true" in block
+    assert "if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}" in block
+    assert "if: ${{ steps.select.outputs.needs_rust == 'true' }}" in block
+    assert "SELECTED_PACKAGES: ${{ steps.select.outputs.selected_packages }}" in block
+    assert 'done < "$selected"' in block
+    assert block.count("python3 scripts/ci/select_package_tests.py") == 1
+
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    assert "steps.select.outputs.needs_ghosttykit" not in app_host
+    assert "steps.select.outputs.needs_rust" not in app_host
+
+
 def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     block = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
     step = "Run remote tmux mirror layout identity regression"
