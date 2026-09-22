@@ -852,11 +852,11 @@ def test_workflow_routes_linux_only_ci_workflow_edit_away_from_macos() -> None:
     assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
-def test_workflow_routes_macos_job_edit_to_every_area() -> None:
+def test_workflow_routes_top_level_macos_job_edit_as_control_plane_only() -> None:
     _, outputs = run_detect_step_for_ci_workflow_edit(
         CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: compile", "- run: compile --faster")
     )
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
