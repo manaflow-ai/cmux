@@ -35,6 +35,9 @@ public actor V2ControlService {
     var cooldowns: [String: Date] = [:]
     var retiredAttempts: [String: Int] = [:]
     var forceStackOnNextSetup = false
+    /// Allows the registration exchange that clears an owner's recoverable
+    /// revocation to finish before the cache returns to ordinary authority.
+    var recoveringRevokedEnrollment = false
     var httpMode = false
     var loaded = false
     var ticketTaskID: UUID?
@@ -113,6 +116,7 @@ public actor V2ControlService {
         let oldSocket = socket
         socket = nil
         httpMode = false
+        recoveringRevokedEnrollment = false
         runTask?.cancel()
         runTask = nil
         receiveTask?.cancel()
@@ -262,7 +266,7 @@ public actor V2ControlService {
         do {
             let reply = try await exchange(data: data, requestID: requestID, schemaID: schemaID, run: run)
             try assertCurrent(run)
-            guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+            guard !cache.authorityRevoked || recoveringRevokedEnrollment else { throw V2ControlFailure.stopped }
             let result = try JSONDecoder().decode(Response.self, from: reply)
             cooldowns.removeValue(forKey: schemaID)
             retiredAttempts.removeValue(forKey: schemaID)
@@ -276,14 +280,14 @@ public actor V2ControlService {
             if permitsHTTPRecovery(error) {
                 let reply = try await sendHTTP(data: data, requestID: requestID, schema: schemaID, run: run)
                 try assertCurrent(run)
-                guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+                guard !cache.authorityRevoked || recoveringRevokedEnrollment else { throw V2ControlFailure.stopped }
                 return try JSONDecoder().decode(Response.self, from: reply)
             }
             throw error
         } catch is URLError {
             let reply = try await sendHTTP(data: data, requestID: requestID, schema: schemaID, run: run)
             try assertCurrent(run)
-            guard !cache.authorityRevoked else { throw V2ControlFailure.stopped }
+            guard !cache.authorityRevoked || recoveringRevokedEnrollment else { throw V2ControlFailure.stopped }
             return try JSONDecoder().decode(Response.self, from: reply)
         } catch is DecodingError {
             throw V2ControlFailure.invalidWireData

@@ -217,15 +217,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     func foreground() async {
         await reconcile()
         guard isCurrent(generationToken) else { return }
-        var token = generationToken
-        if let service = controlService, (await service.snapshot()).cache.authorityRevoked {
-            // Forget deactivates the endpoint as well as the control socket.
-            // Recreate the host composition on the next foreground so the Mac
-            // can use its existing signing key with a fresh Stack bearer token.
-            requiresTransition = true
-            await transition(to: auth?.authenticatedTeamScope)
-            token = generationToken
-        }
+        let token = generationToken
         await controlService?.foreground()
         guard isCurrent(token) else { return }
         await refreshListenerState(token: token)
@@ -518,6 +510,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             guard isCurrent(token), !Task.isCancelled else { return }
         }
         if snapshot.cache.authorityRevoked {
+            if snapshot.cache.authorityRevocationRecoverable == true,
+               wantsHost, isNetworkingAllowed,
+               let scope = auth?.authenticatedTeamScope,
+               signingOutScope != scope {
+                // The Durable Object delivered the owner's Forget event while
+                // this Mac was connected. Rebuild the complete host now so
+                // the replacement control service enrolls with fresh Stack
+                // authentication instead of waiting for foreground().
+                await transition(to: scope)
+                return
+            }
             admission.invalidate()
             let oldLegacy = legacyService
             legacyService = nil

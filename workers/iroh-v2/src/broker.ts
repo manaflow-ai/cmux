@@ -35,7 +35,7 @@ export interface BrokerDependencies {
 export interface BrokerResult {
   readonly response: ControlResponse;
   readonly session?: BrokerSession;
-  readonly changed?: { revision: number; revokedDeviceRecordId?: string; permissionUserId?: string };
+  readonly changed?: { revision: number; revokedDeviceRecordId?: string; revokedDeviceRecoverable?: boolean; permissionUserId?: string };
   readonly close?: boolean;
 }
 
@@ -188,7 +188,10 @@ export class TeamBroker {
         if (!target) throw new OperationError("permission_denied", 403);
         if (target.revoked) return this.completed(request.requestId, target.revision);
         const revision = this.dependencies.store.revokeDevice(target.deviceRecordId, this.dependencies.now(), authority.userId);
-        return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: target.deviceRecordId } };
+        return { ...this.completed(request.requestId, revision), changed: {
+          revision, revokedDeviceRecordId: target.deviceRecordId,
+          revokedDeviceRecoverable: this.dependencies.store.canRecoverRevokedDevice(target.deviceRecordId),
+        } };
       }
       case "preferences.update.v1": {
         if (!await this.dependencies.canManageTeam(authority)) throw new OperationError("permission_denied", 403);
@@ -243,7 +246,10 @@ export class TeamBroker {
         const target = this.manageableDevice(session, request.deviceRecordId);
         if (target.revoked) return this.completed(request.requestId, target.revision);
         const revision = this.dependencies.store.revokeDevice(request.deviceRecordId, now, session.identity.userId);
-        return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: request.deviceRecordId } };
+        return { ...this.completed(request.requestId, revision), changed: {
+          revision, revokedDeviceRecordId: request.deviceRecordId,
+          revokedDeviceRecoverable: this.dependencies.store.canRecoverRevokedDevice(request.deviceRecordId),
+        } };
       }
       case "permission.update.v1": {
         this.manageableDevice(session, request.permission.deviceRecordId);

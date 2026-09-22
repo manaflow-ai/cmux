@@ -248,7 +248,10 @@ export class TeamControl extends DurableObject<Environment> {
         const record = broker.dependencies.store.getDevice(attachment.session.identity);
         // Broadcast revision invalidations, never another user's device record.
         if (record && change.revokedDeviceRecordId === record.deviceRecordId) {
-          await this.send(ws, { schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId, revision: change.revision });
+          await this.send(ws, {
+            schemaId: "device.revoked.v1", teamId, deviceRecordId: record.deviceRecordId,
+            revision: change.revision, recoverable: change.revokedDeviceRecoverable === true,
+          });
           this.close(ws, "device_revoked");
         } else {
           try { broker.requiredDevice(attachment.session); }

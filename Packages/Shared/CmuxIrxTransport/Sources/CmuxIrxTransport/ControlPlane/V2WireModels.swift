@@ -1264,6 +1264,7 @@ public enum V2RelayResponseSchemaID: String, Codable, Equatable, Sendable {
 public struct V2RevokedResponse: Codable, Equatable, Sendable {
     public let deliveryReceipt: V2DeliveryReceipt?
     public let deviceRecordID: String
+    public let recoverable: Bool?
     public let revision: Int
     public let schemaID: V2RevokedResponseSchemaID
     public let teamID: String
@@ -1271,14 +1272,16 @@ public struct V2RevokedResponse: Codable, Equatable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case deliveryReceipt = "deliveryReceipt"
         case deviceRecordID = "deviceRecordId"
+        case recoverable = "recoverable"
         case revision = "revision"
         case schemaID = "schemaId"
         case teamID = "teamId"
     }
 
-    public init(deliveryReceipt: V2DeliveryReceipt? = nil, deviceRecordID: String, revision: Int, schemaID: V2RevokedResponseSchemaID, teamID: String) {
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, deviceRecordID: String, recoverable: Bool? = nil, revision: Int, schemaID: V2RevokedResponseSchemaID, teamID: String) {
         self.deliveryReceipt = deliveryReceipt
         self.deviceRecordID = deviceRecordID
+        self.recoverable = recoverable
         self.revision = revision
         self.schemaID = schemaID
         self.teamID = teamID

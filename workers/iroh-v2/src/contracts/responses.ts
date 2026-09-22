@@ -58,6 +58,7 @@ export const ChangedResponseSchema = outgoing({
 });
 export const RevokedResponseSchema = outgoing({
   schemaId: z.literal("device.revoked.v1"), teamId: identifier, deviceRecordId: identifier, revision,
+  recoverable: z.boolean().optional(),
 });
 export const CompletedResponseSchema = outgoing({
   schemaId: z.literal("operation.completed.v1"), requestId: identifier, revision,
