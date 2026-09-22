@@ -166,6 +166,41 @@ class ReviewFabricTests(unittest.TestCase):
         self.assertFalse(report["passed"])
         self.assertIn("capability quorum frontier is 0/1", report["reasons"])
 
+    def test_commit_identities_must_be_lowercase_40_hex(self):
+        cases = []
+
+        bad_receipt = document([
+            run("opus", "session-opus"),
+            run("sol", "session-sol"),
+        ], head="g" * 40)
+        for item in bad_receipt["runs"]:
+            item["head_sha"] = "g" * 40
+        cases.append(bad_receipt)
+
+        bad_run = document([
+            run("opus", "session-opus", head="z" * 40),
+            run("sol", "session-sol"),
+        ])
+        cases.append(bad_run)
+
+        bad_finding = document(
+            [
+                run("opus", "session-opus"),
+                run("sol", "session-sol"),
+            ],
+            [finding("f1", "opus", head="A" * 40)],
+        )
+        cases.append(bad_finding)
+
+        for index, receipt in enumerate(cases):
+            with self.subTest(index=index):
+                report = review_fabric.evaluate(receipt, policy())
+                self.assertFalse(report["passed"])
+                self.assertTrue(
+                    any("40-hex commit SHA" in reason for reason in report["reasons"]),
+                    report["reasons"],
+                )
+
     def test_stale_head_receipts_never_count(self):
         report = review_fabric.evaluate(
             document([
