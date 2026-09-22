@@ -262,6 +262,11 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_codex_monitor_memory.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_extension_install.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -682,10 +687,6 @@ path = "tests/test_codex_feed_hooks.py"
 lane = "legacy"
 
 [[test]]
-path = "tests/test_codex_monitor_memory.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_codex_wrapper_hook_append.py"
 lane = "legacy"
 
@@ -779,7 +780,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_prune_nightly_release_assets.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
