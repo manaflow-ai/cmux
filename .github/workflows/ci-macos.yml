@@ -178,7 +178,16 @@ jobs:
               check=True, text=True, capture_output=True,
           )
           jobs = json.loads(result.stdout).get("jobs", [])
-          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          # Called through workflow_call, so the API reports this job as
+          # "<caller job id> / macOS compile admission". Match the suffix so the
+          # measurement works both reusably and on a direct dispatch.
+          admission = "macOS compile admission"
+          matches = [
+              job
+              for job in jobs
+              if (job.get("name") or "") == admission
+              or (job.get("name") or "").endswith(f" / {admission}")
+          ]
           if len(matches) != 1:
               raise SystemExit(f"expected one admission job, found {len(matches)}")
           job = matches[0]

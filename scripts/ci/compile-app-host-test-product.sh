@@ -74,9 +74,11 @@ build() {
   fi
 
   # Build the app/UI scheme first so its warning log retains the old runtime
-  # job warning-budget scope; subsequent schemes reuse the same app objects.
+  # job warning-budget scope. cmux-unit supplies both ordinary app-host tests
+  # and the serialized numeric-locale gate; their scheme product contracts are
+  # kept equivalent by tests/test_app_host_test_products.py.
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in cmux cmux-unit cmux-numeric-locale; do
+  for scheme in cmux cmux-unit; do
     xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \

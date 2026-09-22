@@ -6,6 +6,7 @@ import plistlib
 import shutil
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HELPER = Path(__file__).resolve().parents[1] / "scripts/ci/app_host_test_products.py"
@@ -29,7 +30,7 @@ class TestProductHandoff(unittest.TestCase):
         executable = products / "Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
         executable.parent.mkdir(parents=True)
         executable.write_text("binary")
-        for scheme in ("cmux", "cmux-unit", "cmux-numeric-locale"):
+        for scheme in ("cmux", "cmux-unit"):
             target = {
                 "TestHostPath": "__TESTROOT__/Debug/cmux DEV.app",
                 "TestBundlePath": "__TESTHOST__/Contents/PlugIns/cmuxTests.xctest",
@@ -59,6 +60,7 @@ class TestProductHandoff(unittest.TestCase):
         current = {**self.identity, "checkout": "/consumer/work/cmux", "developer": "/consumer/Xcode.app/Contents/Developer"}
         outputs = module.restore(self.consumer, current)
         self.assertEqual(set(outputs), {"CMUX_APP_HOST_XCTESTRUN", "CMUX_NUMERIC_LOCALE_XCTESTRUN", "CMUX_UI_XCTESTRUN"})
+        self.assertEqual(outputs["CMUX_NUMERIC_LOCALE_XCTESTRUN"], outputs["CMUX_APP_HOST_XCTESTRUN"])
         for path in outputs.values():
             value = plistlib.loads(Path(path).read_bytes())
             target = list(module.targets(value))[0]
@@ -66,6 +68,89 @@ class TestProductHandoff(unittest.TestCase):
             bundle = self.ui_bundle if "UITargetAppPath" in target else self.bundle
             self.assertEqual(target["DependentProductPaths"], [str(self.consumer / "Build/Products" / bundle)])
             self.assertTrue(Path(target["DependentProductPaths"][0]).exists())
+
+    def test_manifest_outputs_declare_numeric_locale_as_unit_alias(self):
+        self.assertEqual(
+            module.SCHEME_OUTPUTS,
+            {
+                "cmux": "CMUX_UI_XCTESTRUN",
+                "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
+            },
+        )
+        self.assertEqual(
+            module.OUTPUT_ALIASES,
+            {
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": "CMUX_APP_HOST_XCTESTRUN",
+            },
+        )
+
+    def test_numeric_locale_scheme_matches_unit_product_contract(self):
+        root = HELPER.parents[2]
+        schemes = root / "cmux.xcodeproj/xcshareddata/xcschemes"
+
+        def signature(name):
+            tree = ET.parse(schemes / f"{name}.xcscheme")
+            scheme = tree.getroot()
+            buildables = []
+            for entry in scheme.findall("./BuildAction/BuildActionEntries/BuildActionEntry"):
+                reference = entry.find("./BuildableReference")
+                self.assertIsNotNone(reference)
+                buildables.append(
+                    {
+                        "attributes": tuple(sorted(entry.attrib.items())),
+                        "reference": tuple(
+                            reference.attrib.get(key)
+                            for key in (
+                                "BlueprintIdentifier",
+                                "BuildableName",
+                                "BlueprintName",
+                                "ReferencedContainer",
+                            )
+                        ),
+                    }
+                )
+            test = scheme.find("./TestAction")
+            self.assertIsNotNone(test)
+            testables = []
+            for testable in test.findall("./Testables/TestableReference"):
+                reference = testable.find("./BuildableReference")
+                self.assertIsNotNone(reference)
+                testables.append(
+                    {
+                        "attributes": tuple(sorted(testable.attrib.items())),
+                        "reference": tuple(
+                            reference.attrib.get(key)
+                            for key in (
+                                "BlueprintIdentifier",
+                                "BuildableName",
+                                "BlueprintName",
+                                "ReferencedContainer",
+                            )
+                        ),
+                    }
+                )
+            self.assertTrue(testables)
+            macro = test.find("./MacroExpansion/BuildableReference")
+            self.assertIsNotNone(macro)
+            env = sorted(
+                (item.attrib.get("key"), item.attrib.get("value"), item.attrib.get("isEnabled"))
+                for item in test.findall("./EnvironmentVariables/EnvironmentVariable")
+            )
+            return {
+                "buildables": buildables,
+                "test_action": tuple(
+                    test.attrib.get(key)
+                    for key in ("buildConfiguration", "selectedDebuggerIdentifier", "selectedLauncherIdentifier", "shouldUseLaunchSchemeArgsEnv")
+                ),
+                "testables": testables,
+                "macro": tuple(
+                    macro.attrib.get(key)
+                    for key in ("BlueprintIdentifier", "BuildableName", "BlueprintName", "ReferencedContainer")
+                ),
+                "environment": env,
+            }
+
+        self.assertEqual(signature("cmux-unit"), signature("cmux-numeric-locale"))
 
     def test_rejects_mismatched_source_toolchain_or_architecture(self):
         self.transfer()
