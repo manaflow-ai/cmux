@@ -486,28 +486,15 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         if let surface = observation.event.surface {
             properties["event_surface"] = .int(Int(surface))
         }
-        Self.addDiagnosticInteger(observation.event.a, key: "event_a", to: &properties)
-        Self.addDiagnosticInteger(observation.event.b, key: "event_b", to: &properties)
-        Self.addDiagnosticInteger(observation.event.c, key: "event_c", to: &properties)
+        addDiagnosticInteger(observation.event.a, key: "event_a", to: &properties)
+        addDiagnosticInteger(observation.event.b, key: "event_b", to: &properties)
+        addDiagnosticInteger(observation.event.c, key: "event_c", to: &properties)
         if observation.event.code == .transportDialCancelled,
            let rawReason = observation.event.a,
            let reason = DiagnosticCancellationReason(rawValue: rawReason) {
             properties["cancellation_reason"] = .string(String(describing: reason))
         }
         return properties
-    }
-
-    /// Diagnostic event payload slots are fixed, bounded integers by contract.
-    /// Keep the guard here as a second line of defense before values leave the
-    /// client, so a future event cannot accidentally turn a slot into a large
-    /// or signed free-form payload.
-    private static func addDiagnosticInteger(
-        _ value: Int?,
-        key: String,
-        to properties: inout [String: AnalyticsValue]
-    ) {
-        guard let value, value >= 0, value <= Int(UInt32.max) else { return }
-        properties[key] = .int(value)
     }
 
     private static func phase(for code: DiagnosticEventCode) -> Phase? {
@@ -548,4 +535,17 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         guard end >= start else { return nil }
         return UInt32(clamping: Int((end - start) / 1_000_000))
     }
+}
+
+/// Diagnostic event payload slots are fixed, bounded integers by contract.
+/// Keep the guard here as a second line of defense before values leave the
+/// client, so a future event cannot accidentally turn a slot into a large
+/// or signed free-form payload.
+private func addDiagnosticInteger(
+    _ value: Int?,
+    key: String,
+    to properties: inout [String: AnalyticsValue]
+) {
+    guard let value, value >= 0, value <= Int(UInt32.max) else { return }
+    properties[key] = .int(value)
 }
