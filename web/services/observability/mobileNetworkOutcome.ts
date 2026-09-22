@@ -244,24 +244,35 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
-  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
-  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
-  const properties = candidate.properties;
+type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "failure">;
+
+function parseMobileTaskModelDiscoveryPayload(
+  properties: Record<string, unknown>,
+): MobileTaskModelDiscoveryPayload | null {
   if (properties.operation !== "model_list") return null;
   if (properties.outcome !== "success" && properties.outcome !== "failure") return null;
   const durationMs = unsignedInteger(properties.duration_ms);
   const modelCount = unsignedInteger(properties.model_count);
   const failure = optionalSetValue(properties.failure, failures);
-  const metadata = parseMetadata(properties);
-  if (durationMs === null || modelCount === null || failure === false || !metadata) return null;
+  if (durationMs === null || modelCount === null || failure === false) return null;
   if (properties.outcome === "failure" && typeof failure !== "string") return null;
   return {
-    timestamp: candidate.timestamp,
     outcome: properties.outcome,
     durationMs,
     modelCount,
     ...(typeof failure === "string" ? { failure } : {}),
+  };
+}
+
+export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const payload = parseMobileTaskModelDiscoveryPayload(candidate.properties);
+  const metadata = parseMetadata(candidate.properties);
+  if (!payload || !metadata) return null;
+  return {
+    timestamp: candidate.timestamp,
+    ...payload,
     ...(metadata.platform ? { platform: metadata.platform } : {}),
     ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
     ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
