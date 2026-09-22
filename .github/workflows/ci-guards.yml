@@ -444,6 +444,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly push throttle
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_nightly_push_throttle.py
+
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
         run: bash ./tests/test_ci_test_compilation_cache_seed.sh
