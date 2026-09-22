@@ -1132,6 +1132,14 @@ public final class MobilePushCoordinator {
             // that the target tab was deleted.
             return
         }
+        guard pending.workspaceId != nil || pending.surfaceId != nil else {
+            clearPendingDeeplink()
+            diagnosticLog?.recordAppEvent(
+                .pushDeeplinkFailed,
+                failure: .protocolViolation
+            )
+            return
+        }
         if pendingDeeplinkTimedOutID == pending.id {
             // A timeout alert pauses automatic work until the owning Mac is
             // usable again. The connection/topology hooks then resume the
@@ -1286,13 +1294,15 @@ public final class MobilePushCoordinator {
 
     private func isWorkspaceConnectionReady(_ workspace: MobileWorkspacePreview?) -> Bool {
         guard let workspace else { return false }
-        guard store?.connectionState == .connected else { return false }
         if let status = workspace.macConnectionStatus {
+            // A stamped row carries the exact Mac's liveness; a disconnected
+            // foreground aggregate must not block a ready secondary pairing.
             return status == .connected
         }
         // Unstamped rows belong to the anonymous foreground connection used by
         // legacy hosts and deterministic previews. A Mac-scoped row without a
         // structured status fails closed instead of borrowing global liveness.
+        guard store?.connectionState == .connected else { return false }
         return workspace.macDeviceID == nil
     }
 
