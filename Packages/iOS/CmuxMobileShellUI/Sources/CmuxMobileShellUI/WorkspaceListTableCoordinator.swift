@@ -279,10 +279,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
         previousConfiguration = next
 
+        if !structureChanged, emptyStateVisibilityChanged {
+            updateEmptyStateVisibility(in: tableView)
+        }
+
         guard structureChanged || !changed.isEmpty else {
-            if emptyStateVisibilityChanged {
-                updateEmptyStateVisibility(in: tableView)
-            }
             #if DEBUG
             recordPayloadApplyRoute(.noChange)
             #endif
