@@ -384,9 +384,7 @@ struct CloudDesktopAccessTests {
 
     @Test("The noVNC bridge reports a lost session, not only connect and failure")
     func desktopBridgeReportsLostSession() async throws {
-        // Latch each state the way desktopStatusBridge does. A polling wait on
-        // the main actor starves WebKit's script-message delivery, so the
-        // continuation is what actually lets the report arrive.
+        let failed = CloudLinkFirstValue<Bool>()
         let connected = CloudLinkFirstValue<Bool>()
         let reconnecting = CloudLinkFirstValue<Bool>()
         let disconnected = CloudLinkFirstValue<Bool>()
@@ -397,27 +395,37 @@ struct CloudDesktopAccessTests {
         let url = try #require(URL(string: "http://127.0.0.1:46901/vnc.html"))
         CloudDesktopConnectionObserver.install(on: webView) { _, state in
             switch state {
+            case .failed: failed.resolve(true)
             case .connected: connected.resolve(true)
             case .reconnecting: reconnecting.resolve(true)
             case .disconnected: disconnected.resolve(true)
-            case .failed: break
             }
         }
+        // Start in the error state the bridge already reports. Awaiting that
+        // first report proves the real document committed and the injected
+        // script is live, so the class changes below cannot race against the
+        // initial empty document and be thrown away with it.
         webView.loadHTMLString("""
             <!doctype html><html><body>
-            <div id="noVNC_status"></div>
+            <div id="noVNC_status" class="noVNC_open noVNC_status_error">Failed to connect</div>
             <div id="noVNC_container"></div>
             </body></html>
             """, baseURL: url)
+        #expect(await failed.result == true)
 
         _ = try await webView.evaluateJavaScript("document.documentElement.classList.add('noVNC_connected')")
         #expect(await connected.result == true)
-        _ = try await webView.evaluateJavaScript(
-            "document.documentElement.classList.remove('noVNC_connected');" +
-            "document.documentElement.classList.add('noVNC_reconnecting')"
-        )
+
+        // Clear the error status too, so the report reflects the retry rather
+        // than the stale failure the document started in.
+        _ = try await webView.evaluateJavaScript("""
+            document.documentElement.classList.remove('noVNC_connected');
+            document.getElementById('noVNC_status').className = '';
+            document.documentElement.classList.add('noVNC_reconnecting');
+            """)
         #expect(await reconnecting.result == true,
                 "A silently retrying viewer must not still read as connected")
+
         _ = try await webView.evaluateJavaScript("document.documentElement.classList.remove('noVNC_reconnecting')")
         #expect(await disconnected.result == true)
     }
