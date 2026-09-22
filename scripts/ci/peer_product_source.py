@@ -3,8 +3,11 @@
 
 The peer service exposes only HEAD/GET for one caller-supplied immutable object
 key. It never lists cache contents, exposes cache paths, or accepts writes.
-Transport is acceleration only: callers still verify the content digest and run
-the canonical product restore validator before publishing locally.
+Client requests use one monotonic deadline across underlying receives, and the
+server bounds client socket time plus concurrent requests so a slow peer falls
+through to the existing sources. Transport is acceleration only: callers still
+verify the content digest and run the canonical product restore validator before
+publishing locally.
 """
 from __future__ import annotations
 
