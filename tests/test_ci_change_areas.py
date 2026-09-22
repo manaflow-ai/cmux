@@ -2542,8 +2542,10 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
         "matrix.group == 'release' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
-    assert "PyYAML==6.0.3" in prepare_block
-    assert "bashlex==0.18" in prepare_block
+    assert "packages=(PyYAML==6.0.3)" in prepare_block
+    assert 'if [[ "${{ matrix.group }}" == "release" ]]; then' in prepare_block
+    assert "packages+=(bashlex==0.18)" in prepare_block
+    assert '"${packages[@]}"' in prepare_block
     assert block.count("actions/setup-python@") == 1
 
 
