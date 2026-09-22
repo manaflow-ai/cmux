@@ -359,7 +359,62 @@
             "$ref": "#/$defs/claim"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "disposition"
+            ],
+            "properties": {
+              "disposition": {
+                "const": "repaired"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "repair"
+            ],
+            "properties": {
+              "repair": {
+                "type": "object",
+                "required": [
+                  "attempted",
+                  "result",
+                  "after_source",
+                  "verification"
+                ],
+                "properties": {
+                  "attempted": {
+                    "const": true
+                  },
+                  "result": {
+                    "const": "fixed"
+                  },
+                  "after_source": {
+                    "$ref": "#/$defs/source"
+                  },
+                  "verification": {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/post_repair_verification"
+                      },
+                      {
+                        "properties": {
+                          "result": {
+                            "const": "passed"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "evidence": {
       "type": "object",
@@ -489,7 +544,8 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/evidence"
-          }
+          },
+          "minItems": 1
         }
       }
     }

@@ -20,6 +20,8 @@ WORKFLOW = "test-e2e.yml"
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
+PRIOR_ATTEMPT_LIMIT = 100
+PRIOR_ATTEMPT_TIMEOUT_SECONDS = 30.0
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
@@ -111,6 +113,41 @@ def cancellation_scope():
             signal.signal(signum, handler)
 
 
+def prior_attempts(commit: str, selector: str) -> list[dict]:
+    """Completed runs of this exact selector at this exact commit.
+
+    A focused run compiles the tree before it runs anything, so a red result is
+    a property of the commit, not of the attempt. Re-dispatching the same
+    selector at the same SHA spends another 10-20 macOS runner-minutes to
+    reprint the same failure. The run name carries both halves --
+    "<selector> on <runner> @ <commit> [<dispatch id>]" -- so earlier attempts
+    are findable without recording any local state.
+    """
+    try:
+        payload = output(
+            "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
+            "--event", "workflow_dispatch", "--limit", str(PRIOR_ATTEMPT_LIMIT),
+            "--json", "displayTitle,conclusion,status,url",
+            timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+        )
+    except (subprocess.SubprocessError, OSError, ValueError):
+        # The guard is an economy measure, never a gate. If the history cannot
+        # be read, dispatch as before.
+        return []
+    try:
+        runs = json.loads(payload)
+    except json.JSONDecodeError:
+        return []
+    marker = f" @ {commit} ["
+    return [
+        run for run in runs
+        if isinstance(run, dict)
+        and str(run.get("displayTitle", "")).startswith(f"{selector} on ")
+        and marker in str(run.get("displayTitle", ""))
+        and run.get("status") == "completed"
+    ]
+
+
 def find_run(
     commit: str,
     selector: str,
@@ -174,6 +211,11 @@ def main() -> int:
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="dispatch even if this selector already failed at this commit",
+    )
     args = parser.parse_args()
     if not SELECTOR.fullmatch(args.test_filter):
         parser.error("test_filter must name one suite or method, optionally prefixed with cmuxTests/ or cmuxUITests/")
@@ -196,6 +238,21 @@ def main() -> int:
         raise ValueError("GitHub did not resolve the requested revision to a full commit SHA")
     if args.ref is None and commit != requested_ref:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
+
+    if not args.force:
+        earlier = prior_attempts(commit, args.test_filter)
+        failures = [run for run in earlier if run.get("conclusion") == "failure"]
+        if failures and not any(run.get("conclusion") == "success" for run in earlier):
+            latest = failures[0]
+            raise ValueError(
+                f"{args.test_filter} already failed at {commit} "
+                f"({len(failures)} time(s)); the newest is {latest['url']}. "
+                "A focused run compiles the tree first, so the most common red "
+                "result is a compile error in the branch, not a flaky test -- "
+                "and re-running the same selector at the same commit returns the "
+                "same answer. Read that run, fix the branch, push, and dispatch "
+                "the new commit. Pass --force to dispatch anyway."
+            )
 
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and not args.test_filter.startswith("cmuxTests/")

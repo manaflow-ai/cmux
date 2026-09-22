@@ -99,7 +99,29 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["duration_ms"] == .int(1_250))
         #expect(event?.properties["transport"] == .string("iroh"))
         #expect(event?.properties["failure"] == .string("timedOut"))
-        #expect(event?.properties["event_code"] == nil)
+        #expect(event?.properties["event_code"] == .string("transportDialFailed"))
+        #expect(event?.properties["event_code_raw"] == .int(27))
+        #expect(event?.properties["event_a"] == .int(DiagnosticTransportKind.iroh.rawValue))
+        #expect(event?.properties["event_b"] == .int(DiagnosticFailureKind.timedOut.rawValue))
+        #expect(event?.properties["event_c"] == .int(7))
+    }
+
+    @Test func cancelledDialEmitsLifecycleReasonAndAttemptContext() {
+        let properties = MobileNetworkOutcomeReporter.properties(for: DiagnosticEvent(
+            code: .transportDialCancelled,
+            tNanos: 1,
+            surface: 9,
+            ms: 30_000,
+            a: DiagnosticCancellationReason.requestTimedOut.rawValue,
+            c: 42
+        ))
+
+        #expect(properties?["outcome"] == .string("cancelled"))
+        #expect(properties?["event_code"] == .string("transportDialCancelled"))
+        #expect(properties?["event_surface"] == .int(9))
+        #expect(properties?["event_a"] == .int(DiagnosticCancellationReason.requestTimedOut.rawValue))
+        #expect(properties?["event_c"] == .int(42))
+        #expect(properties?["cancellation_reason"] == .string("requestTimedOut"))
     }
 
     @Test func recoveryUsesMonotonicElapsedTime() async {
