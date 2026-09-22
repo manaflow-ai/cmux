@@ -2096,8 +2096,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
-        for task in pairedMacLoadTasks.values {
-            task.cancel()
+        for entry in pairedMacLoadTasks.values {
+            entry.task.cancel()
         }
         for task in computerVisibilityMutationTasksByID.values {
             task.cancel()
@@ -3228,7 +3228,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // view can request the same load concurrently; `loadPairedMacs()`
             // coalesces those requests so an in-flight read is never observed
             // as an empty pairing list.
-            await loadPairedMacs()
+            // Bound this startup-only wait so a stalled store cannot hold the
+            // reconnect owner indefinitely. The shared read may finish later
+            // for the UI, but this reconnect attempt remains retryable.
+            let hydrationDeadline = min(
+                runtime?.reconnectAttemptDeadlineNanoseconds ?? 30_000_000_000,
+                5_000_000_000
+            )
+            let hydration = await Self.raceAgainstDeadline(
+                nanoseconds: hydrationDeadline
+            ) { [weak self] in
+                guard let self else { return false }
+                await self.loadPairedMacs()
+                return true
+            }
+            guard hydration.value == true else {
+                finishStoredMacReconnectAttempt(generation: generation)
+                return .failed(.timedOut)
+            }
             if let result = storedMacReconnectInterruptionResult(generation: generation) {
                 return result ? .connected : .superseded
             }
@@ -3618,8 +3635,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private struct PairedMacLoadEntry {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     @ObservationIgnored private var pairedMacLoadTasks: [
-        PairedMacLoadKey: Task<Void, Never>
+        PairedMacLoadKey: PairedMacLoadEntry
     ] = [:]
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
@@ -4154,26 +4176,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let key = PairedMacLoadKey(scope)
-        if !forceRefresh, let loadTask = pairedMacLoadTasks[key] {
-            await loadTask.value
+        if !forceRefresh, let entry = pairedMacLoadTasks[key] {
+            await entry.task.value
             return
         }
         // A forced refresh represents a store mutation that happened while an
         // older read was in flight. Wait for that read, then perform the newer
         // read instead of silently returning its stale snapshot.
-        if forceRefresh, let loadTask = pairedMacLoadTasks[key] {
-            await loadTask.value
+        if forceRefresh, let entry = pairedMacLoadTasks[key] {
+            await entry.task.value
         }
-        while let loadTask = pairedMacLoadTasks[key] {
-            await loadTask.value
+        while let entry = pairedMacLoadTasks[key] {
+            await entry.task.value
         }
+        let id = UUID()
         let loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performPairedMacLoad()
         }
-        pairedMacLoadTasks[key] = loadTask
+        pairedMacLoadTasks[key] = PairedMacLoadEntry(id: id, task: loadTask)
         await loadTask.value
-        if pairedMacLoadTasks[key] != nil {
+        if pairedMacLoadTasks[key]?.id == id {
             pairedMacLoadTasks[key] = nil
         }
     }
