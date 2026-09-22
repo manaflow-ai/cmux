@@ -113,7 +113,7 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     return run_cli_args(cli_path, tokens[1:])
 
 
-def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
+def run_cli_args(cli_path: str, args: list[str], *, cwd: str | None = None) -> ProbeResult:
     env = dict(os.environ)
     for key in [
         "CMUX_SOCKET_PASSWORD",
@@ -137,6 +137,7 @@ def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
             check=False,
             timeout=5.0,
             env=env,
+            cwd=cwd,
         )
 
     return ProbeResult(
@@ -159,6 +160,7 @@ def main() -> int:
     failures: list[str] = []
     failures.extend(check_guide_contract(cli_path))
     failures.extend(check_task_help_contract(cli_path))
+    failures.extend(check_review_ledger_contract(cli_path))
     for probe in probes:
         try:
             result = run_probe(cli_path, probe)
@@ -273,6 +275,173 @@ def main() -> int:
     print(f"PASS: {len(probes)} CLI help contract probes and {len(negative_probes)} negative probes passed")
     return 0
 
+
+
+def check_review_ledger_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="cmux-review-ledger-") as tmpdir:
+        repository = Path(tmpdir) / "repo"
+        init = subprocess.run(
+            ["git", "init", "-q", str(repository)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5.0,
+        )
+        if init.returncode != 0:
+            return [f"cmux review fixture: git init failed: {init.stderr!r}"]
+
+        review_id = "aaaaaaaa-bbbbbbbb-" + ("c" * 64)
+        receipt_dir = repository / ".git" / "cmux" / "reviews"
+        receipt_dir.mkdir(parents=True)
+        receipt = {
+            "schema_version": 1,
+            "policy_version": "cmux-review/v1",
+            "repository_root": str(repository),
+            "source": {
+                "base_sha": "1" * 40,
+                "head_sha": "2" * 40,
+                "diff_sha256": "3" * 64,
+                "working_tree_dirty": True,
+            },
+            "brief": {
+                "intent": "Preserve the review ledger",
+                "requirements": [
+                    {
+                        "requirement": "Read receipts without a running app",
+                        "status": "satisfied",
+                        "evidence": ["cmux review is routed before socket connection"],
+                    }
+                ],
+                "out_of_scope_changes": [],
+                "behavior_changed": ["Local review receipts are readable from the CLI"],
+                "risk_areas": [],
+                "file_groups": [],
+                "reading_order": [],
+                "safeguards": [],
+                "coverage_gaps": [],
+            },
+            "summary": {
+                "hypotheses_investigated": 2,
+                "suppressed": 1,
+                "refuted": 0,
+                "verified": 1,
+                "human_judgment": 0,
+            },
+            "findings": [
+                {
+                    "id": "LEDGER-01",
+                    "title": "Verified finding",
+                    "severity": "P1",
+                    "claim": "A real issue exists",
+                    "failure_mode": "Example failure",
+                    "paths": ["Sources/App.swift"],
+                    "discovery_sources": ["correctness"],
+                    "challenge": {"disposition": "survives_challenge", "evidence": []},
+                    "verification": {"result": "reproduced", "evidence": []},
+                    "repair": {
+                        "attempted": True,
+                        "verification_replayed": True,
+                        "result": "fixed",
+                    },
+                    "disposition": "repaired",
+                },
+                {
+                    "id": "LEDGER-02",
+                    "title": "Suppressed nit",
+                    "severity": "P3",
+                    "claim": "Low-value issue",
+                    "failure_mode": "No meaningful failure",
+                    "paths": ["Sources/App.swift"],
+                    "discovery_sources": ["rules"],
+                    "challenge": {"disposition": "refuted", "evidence": []},
+                    "verification": {"result": "not_reproduced", "evidence": []},
+                    "repair": None,
+                    "disposition": "suppressed",
+                },
+            ],
+            "created_at": "2026-09-22T00:00:00Z",
+        }
+        (receipt_dir / f"{review_id}.json").write_text(
+            json.dumps(receipt),
+            encoding="utf-8",
+        )
+
+        cases = [
+            (
+                "list",
+                ["review", "list", "--repo", str(repository), "--json"],
+                lambda payload: (
+                    payload["repo_root"] == str(repository)
+                    and payload["reviews"][0]["id"] == review_id
+                    and payload["reviews"][0]["verified"] == 1
+                ),
+            ),
+            (
+                "show",
+                ["review", "show", "latest", "--json"],
+                lambda payload: (
+                    payload["policy_version"] == "cmux-review/v1"
+                    and payload["brief"]["requirements"][0]["status"] == "satisfied"
+                ),
+            ),
+            (
+                "findings",
+                ["review", "findings", "latest", "--json"],
+                lambda payload: (
+                    [finding["id"] for finding in payload["findings"]] == ["LEDGER-01"]
+                ),
+            ),
+            (
+                "findings --all",
+                ["review", "findings", "latest", "--all", "--json"],
+                lambda payload: (
+                    [finding["id"] for finding in payload["findings"]]
+                    == ["LEDGER-01", "LEDGER-02"]
+                ),
+            ),
+        ]
+
+        for label, args, validate in cases:
+            try:
+                result = run_cli_args(cli_path, args, cwd=str(repository))
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                failures.append(f"cmux review {label}: {exc}")
+                continue
+            if result.returncode != 0 or result.stderr:
+                failures.append(
+                    f"cmux review {label}: expected clean exit\n"
+                    f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+                )
+                continue
+            if result.socket_path in result.stdout:
+                failures.append(
+                    f"cmux review {label}: unexpectedly attempted socket access "
+                    f"{result.socket_path!r}"
+                )
+                continue
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                failures.append(f"cmux review {label}: invalid JSON: {exc}")
+                continue
+            if not validate(payload):
+                failures.append(
+                    f"cmux review {label}: unexpected payload {payload!r}"
+                )
+
+        text_result = run_cli_args(cli_path, ["review", "show"], cwd=str(repository))
+        if (
+            text_result.returncode != 0
+            or "Requirements: 1 satisfied · 0 missing · 0 uncertain" not in text_result.stdout
+            or "Findings: 1 verified · 0 human · 0 refuted · 1 suppressed" not in text_result.stdout
+        ):
+            failures.append(
+                "cmux review show: human output lost review summary\n"
+                f"stdout={text_result.stdout!r}\nstderr={text_result.stderr!r}"
+            )
+
+    return failures
 
 def check_task_help_contract(cli_path: str) -> list[str]:
     failures: list[str] = []
