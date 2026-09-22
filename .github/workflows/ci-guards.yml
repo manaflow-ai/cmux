@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [preflight, ci, app-host-execution, app-host-process, app-host-cache, release, quality-sharding, quality-runtime, quality-determinism]
+        group: [preflight, ci, app-host-execution, app-host-process, app-host-cache, release-ios, release-notary, release-tooling, quality-sharding, quality-runtime, quality-determinism]
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
@@ -65,6 +65,10 @@ jobs:
       - name: Validate app-host guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
+
+      - name: Validate release guard structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_release_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -150,7 +154,7 @@ jobs:
         run: python3 scripts/generate-cmux-config-schema.py --check
 
       - name: Set up Bun for guard tests
-        if: ${{ matrix.group == 'preflight' || matrix.group == 'release' }}
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
@@ -169,18 +173,18 @@ jobs:
         run: ./scripts/check-control-plane-types.sh
 
       - name: Set up Python 3.9 for nightly prune compatibility
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release' }}
+        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
           packages=(PyYAML==6.0.3)
-          if [[ "${{ matrix.group }}" == "release" ]]; then
+          if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
             packages+=(bashlex==0.18)
           fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
@@ -210,7 +214,7 @@ jobs:
         run: python3 tests/test_ci_fetch_complexity_base.py
 
       - name: Validate Ghostty helper cache failure handling
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
 
       - name: Validate stale run cleanup eligibility
@@ -226,7 +230,7 @@ jobs:
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
 
       - name: Validate Release check architectures
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
 
       - name: Validate the R2 cache store script
@@ -234,7 +238,7 @@ jobs:
         run: bash tests/test_ci_r2_cache.sh
 
       - name: Validate nightly prune Python compatibility
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
       - name: Validate activation benchmark scrollback sizing
@@ -242,11 +246,11 @@ jobs:
         run: python3 tests/test_perf_activation_scrollback_sizing.py
 
       - name: Validate create-dmg version pinning
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
 
       - name: Validate app bundle license compliance
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_app_bundle_license_compliance.sh
 
       - name: Validate unit-test SwiftPM retry guard
@@ -330,24 +334,28 @@ jobs:
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
       - name: Validate TestFlight notes generator
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_notes.py
 
       - name: Validate CMUX INTERNAL main-push path filter
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_main_push_filter.py
 
       - name: Validate external TestFlight group assignment helper
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_external_distribution.py
 
       - name: Validate Pro TestFlight distribution workflow
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_pro_distribution.py
 
       - name: Validate iOS App Store lane identity
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
+
+      - name: Validate tagged iOS device entitlement fallback
+        if: ${{ matrix.group == 'release-ios' }}
+        run: node --test ios/tests/tagged-device-entitlements.test.mjs
 
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -364,31 +372,31 @@ jobs:
           python3 tests/test_ci_cmux_unit_test_shard.py
 
       - name: Validate GhosttyKit checksum verification
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
       - name: Validate stalled GhosttyKit downloads resume
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_download_stall.sh
 
       - name: Validate GhosttyKit release check behavior
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_release_check.sh
 
       - name: Validate Zig install without sudo
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
       - name: Validate Zig download resume and mirror isolation
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_install_zig_ci_download_resume.sh
 
       - name: Initialize Ghostty for Zig version guard
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: git submodule update --init --depth 1 ghostty
 
       - name: Validate Ghostty Zig version synchronization
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
 
       - name: Validate bundled-resource incremental outputs
@@ -400,23 +408,23 @@ jobs:
         run: ./tests/test_ci_virtual_display_lock.sh
 
       - name: Validate nightly tag push auth
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 
       - name: Validate nightly Xcode selection
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_xcode_selection.sh
 
       - name: Validate CI Xcode selection fast path
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_xcode_selection_fast_path.sh
 
       - name: Validate resumable GitHub release publication
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
       - name: Validate universal nightly workflow
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
       - name: Validate test compilation cache seeding
@@ -424,27 +432,27 @@ jobs:
         run: bash ./tests/test_ci_test_compilation_cache_seed.sh
 
       - name: Validate cmux-tui client installation
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: bash ./tests/test_install_cmux_tui_client.sh
 
       - name: Validate nightly notarization behavior
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_nightly_dmg.sh
 
       - name: Validate Sparkle delta finalization
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_finalize_sparkle_deltas.sh
 
       - name: Validate previous nightly build fetch
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_fetch_previous_nightly_dmgs.sh
 
       - name: Validate Computer Use helper notarization behavior
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_computer_use_helper.sh
 
       - name: Validate release asset guard
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js
 
       - name: Validate CI change area filter
@@ -461,11 +469,11 @@ jobs:
           python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_r2_upload_python.sh
 
       - name: Validate release-build timeout guard
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_release_build_timeout.sh
 
       - name: Validate reusable workflow permission grants
@@ -473,35 +481,35 @@ jobs:
         run: python3 tests/test_ci_reusable_workflow_permissions.py
 
       - name: Validate release does not gate on iOS screenshot capture
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: ./tests/test_ci_release_ios_screenshots_decoupled.sh
 
       - name: Validate Sparkle monotonic guard modes
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_build_monotonic_modes.sh
 
       - name: Validate release tunnel extension identifiers
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: ./tests/test_ci_release_tunnel_identifiers.sh
 
       - name: Validate Sparkle appcast generation without previous archives
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_appcast_no_deltas.sh
 
       - name: Validate markdown viewer asset compression
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_compress_markdown_viewer_assets.sh
 
       - name: Validate release bundle stripping
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_strip_release_bundle.sh
 
       - name: Validate current GhosttyKit checksum pin
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
       - name: Validate Swift warning budget guard
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_swift_warning_budget.sh
 
       - name: Validate auxiliary window close shortcut lint
