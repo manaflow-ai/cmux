@@ -391,6 +391,116 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
     return whole, partial, env
 
 
+def check_truthful_broad_suites_leave_focused_gates(
+    generated_selectors: list[str],
+) -> int:
+    """Suites protected by strict broad accounting should run in the timed batch."""
+    import importlib.util
+
+    folded = {
+        "AgentChatFallbackTranscriptResolutionCoordinatorTests",
+        "AgentChatSessionRegistryLifecycleReviewRegressionTests",
+        "AgentRestoreLiveOwnerAdmissionTests",
+        "BackgroundPrimeStartableSurfaceTests",
+        "BrowserSystemProxyMirrorTests",
+        "BrowserViewportRuntimeTests",
+        "CLISSHSessionAttachAnchorTests",
+        "CLISendQueuedOutputTests",
+        "ClaudeHookLifecycleCleanupTests",
+        "ClaudeHookLiveDeliveryTargetTests",
+        "ClaudeHookPIDAuthenticationTests",
+        "CloudNotificationDismissParityTests",
+        "CloudWorkspaceRenameSurfaceParityTests",
+        "CmuxBundledBinPathIntegrationTests",
+        "DockNotificationAttentionTests",
+        "GhosttyOptionAsAltModsTests",
+        "HostSettingsShortcutNotificationTests",
+        "LiveAgentIndexRelevantChurnTests",
+        "MainWindowZoomPlacementTests",
+        "NotificationRowSnapshotBoundaryTests",
+        "NotificationScrollRestoreLifecycleTests",
+        "NotificationScrollRestoreRecoveryTests",
+        "PhonePushPresenceGateTests",
+        "RestoreAdmissionRetryPolicyTests",
+        "RestoredAgentShellActivityLivenessTests",
+        "SurfaceResumeAgentHookDowngradeTests",
+    }
+    spec = importlib.util.spec_from_file_location("cmux_unit_test_shard_folded", HELPER)
+    assert spec is not None and spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    focused = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
+    whole, _, _ = focused_steps_in_ci_workflow()
+    stale = sorted(folded & (focused | whole))
+    if stale:
+        print(f"FAIL: truthful broad suites still have dedicated focused ownership: {stale}")
+        return 1
+
+    discovered = {
+        selector.identifier.split("/", 2)[1]
+        for selector in helper.discover_selectors(ROOT)
+        if selector.identifier.startswith("cmuxTests/")
+    }
+    missing = sorted(folded - discovered)
+    if missing:
+        print(f"FAIL: folded suites are absent from broad shard discovery: {missing}")
+        return 1
+
+    ownership = {
+        suite: generated_selectors.count(f"-only-testing:cmuxTests/{suite}")
+        for suite in folded
+    }
+    bad_ownership = {
+        suite: count for suite, count in ownership.items() if count != 1
+    }
+    if bad_ownership:
+        print(
+            "FAIL: folded suites must have exactly one generated broad-shard owner: "
+            f"{bad_ownership}"
+        )
+        return 1
+
+    print("PASS: truthful broad suites are discovered and owned exactly once by the measured shard batch")
+    return 0
+
+
+def check_folded_fish_suite_keeps_prerequisite() -> int:
+    import re
+
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    match = re.search(
+        r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)",
+        workflow,
+    )
+    if match is None:
+        print("FAIL: app-host-unit-tests job missing")
+        return 1
+    job = match.group(1)
+    run_step = re.search(
+        r"(?ms)^      - name: Run unit tests\n(.*?)(?=^      - name: |\Z)",
+        job,
+    )
+    if run_step is None:
+        print("FAIL: Run unit tests step missing")
+        return 1
+    body = run_step.group(0)
+    required = (
+        "CmuxBundledBinPathIntegrationTests",
+        "grep -Fq",
+        "brew install fish",
+        "command -v fish",
+        "fish is required for CmuxBundledBinPathIntegrationTests",
+    )
+    missing = [needle for needle in required if needle not in body]
+    if missing:
+        print(f"FAIL: folded fish suite lost its runtime prerequisite: {missing}")
+        return 1
+    print("PASS: folded bundled-bin suite installs and requires fish only in its owning batch")
+    return 0
+
+
 def check_focused_gates_run_once() -> int:
     import importlib.util
     import re
@@ -518,12 +628,7 @@ def main() -> int:
             shard_selectors = output.read_text(encoding="utf-8").splitlines()
             repo_assigned_selectors.extend(shard_selectors)
             for focused_selector in (
-                "-only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
-                "-only-testing:cmuxTests/BrowserSystemProxyMirrorTests",
-                "-only-testing:cmuxTests/CLISSHSessionAttachAnchorTests",
-                "-only-testing:cmuxTests/CloudNotificationDismissParityTests",
                 "-only-testing:cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
-                "-only-testing:cmuxTests/GhosttyOptionAsAltModsTests",
                 "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests",
                 "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
                 "-only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
@@ -583,6 +688,12 @@ def main() -> int:
         return rc
 
     if (rc := check_reserved_workers_get_less_of_the_batch()) != 0:
+        return rc
+
+    if (rc := check_truthful_broad_suites_leave_focused_gates(repo_assigned_selectors)) != 0:
+        return rc
+
+    if (rc := check_folded_fish_suite_keeps_prerequisite()) != 0:
         return rc
 
     if (rc := check_focused_gates_run_once()) != 0:
