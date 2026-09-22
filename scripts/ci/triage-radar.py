@@ -63,7 +63,7 @@ HIGH_RISK_PATTERNS: list[tuple[re.Pattern[str], int, str]] = [
     (re.compile(r"\b(data loss|los(?:e|es|t) (?:data|session|state)|session(?:s)? (?:are )?lost)\b", re.I), 6, "data/session loss"),
     (re.compile(r"\b(wrong (?:terminal|pane|workspace|target)|route[sd]? to (?:the )?wrong)\b", re.I), 5, "wrong-target routing"),
     (re.compile(r"\b(cannot connect|can't connect|could not connect|connection fail|auth(?:entication)? fail)\b", re.I), 4, "connectivity/auth failure"),
-    (re.compile(r"\b(unusable|unresponsive|stuck)\b", re.I), 3, "unusable/stuck"),
+    (re.compile(r"\b(unusable|unresponsive|stuck|wedged)\b", re.I), 3, "unusable/stuck"),
     (re.compile(r"\b(regression|regressed|previously worked|used to work)\b", re.I), 3, "regression wording"),
 ]
 
@@ -138,15 +138,13 @@ def attention_count(item: dict[str, Any]) -> int:
 def regression_evidence(item: dict[str, Any]) -> tuple[int, list[str]]:
     title = str(item.get("title") or "")
     body = str(item.get("body") or "")
-    text = title + "\n" + body
-    score = 0
+    is_bug = "bug" in labels(item)
+    risk_text = title + ("\n" + body if is_bug else "")
+    score = 1 if is_bug else 0
     evidence: list[str] = []
 
-    if "bug" in labels(item):
-        score += 1
-
     for pattern, points, name in HIGH_RISK_PATTERNS:
-        if pattern.search(text):
+        if pattern.search(risk_text):
             score += points
             evidence.append(name)
 
@@ -313,7 +311,9 @@ def select_high_attention(
     candidates = [
         item
         for item in issues
-        if issue_number(item) not in excluded_numbers and attention_count(item) >= 3
+        if issue_number(item) not in excluded_numbers
+        and is_cluster_candidate(item)
+        and attention_count(item) >= 3
     ]
     candidates.sort(
         key=lambda item: (
