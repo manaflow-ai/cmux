@@ -127,12 +127,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
-        for changed in (
-            "scripts/ci/detect_linux_guard_changes.py",
-            "scripts/ci/workflow_guard_groups.py",
-            ".github/workflows/ci.yml",
-            ".github/workflows/ci-guards.yml",
-        ):
+        cases = {
+            "scripts/ci/detect_linux_guard_changes.py": ("ci",),
+            "scripts/ci/workflow_guard_groups.py": ("ci",),
+            ".github/workflows/ci.yml": ("ci",),
+            ".github/workflows/ci-guards.yml": GROUPS,
+        }
+        for changed, expected_groups in cases.items():
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 changed_file = root / "changed.txt"
@@ -150,8 +151,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 routed = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 groups = tuple(json.loads(routed.pop("linux_guard_test_groups")))
-                self.assertEqual(routed, dict.fromkeys(JOBS, "true"))
-                self.assertEqual(groups, GROUPS)
+                self.assertEqual(routed, {
+                    "linux_guard_tests": "true",
+                    "linux_guard_history": "false",
+                    "linux_guard_cli": "false",
+                    "linux_guard_source": "false",
+                    "ghosttykit_release": "false",
+                })
+                self.assertEqual(groups, expected_groups)
 
     def test_testflight_change_routes_only_observing_test_groups(self):
         outputs, groups = route_decision([
@@ -277,7 +284,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "linux_guard_source": "false",
             "ghosttykit_release": "false",
         })
-        self.assertEqual(groups, ("ci",))
+        self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
