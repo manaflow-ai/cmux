@@ -325,34 +325,34 @@ def parse_build_log(path: Path) -> dict[str, object]:
     last_target = ""
 
     for line in detail.splitlines():
-        target_match = re.search(r"\\(in target '([^']+)' from project", line)
+        target_match = re.search(r"\(in target '([^']+)' from project", line)
         if target_match:
             last_target = target_match.group(1)
         if line.startswith("SwiftCompile"):
             raw_compile_lines += 1
-            if re.search(r"/[^\\s]+\\.swift(?:\\s|$)", line):
+            if re.search(r"/[^\s]+\.swift(?:\s|$)", line):
                 source_compile_lines += 1
                 if last_target:
                     source_compile_by_target[last_target] = source_compile_by_target.get(last_target, 0) + 1
-        if re.search(r"(?i)\\bcache hit\\b", line):
+        if re.search(r"(?i)\bcache hit\b", line):
             cas_hits += 1
             if last_target:
                 cas_hits_by_target[last_target] = cas_hits_by_target.get(last_target, 0) + 1
-        if re.search(r"(?i)\\bcache miss\\b", line):
+        if re.search(r"(?i)\bcache miss\b", line):
             cas_misses += 1
             if last_target:
                 cas_misses_by_target[last_target] = cas_misses_by_target.get(last_target, 0) + 1
 
     def timing(name: str):
         matches = re.findall(
-            rf"(?mi)^\\s*{re.escape(name)}[^\\n|]*\\|\\s*([0-9.]+)\\s+seconds?",
+            rf"(?mi)^\s*{re.escape(name)}[^\n|]*\|\s*([0-9.]+)\s+seconds?",
             text,
         )
         return round(sum(float(x) for x in matches), 6) if matches else None
 
     def task_count(name: str):
         matches = re.findall(
-            rf"(?mi)^\\s*{re.escape(name)}\\s+\\(([0-9]+)\\s+tasks?\\)\\s*\\|",
+            rf"(?mi)^\s*{re.escape(name)}\s+\(([0-9]+)\s+tasks?\)\s*\|",
             text,
         )
         return sum(int(x) for x in matches) if matches else None
