@@ -234,6 +234,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate the scheduled main full-suite run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_full_suite.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
