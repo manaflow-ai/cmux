@@ -189,7 +189,13 @@ jobs:
               check=True, text=True, capture_output=True,
           )
           jobs = json.loads(result.stdout).get("jobs", [])
-          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          # A reusable workflow prefixes its jobs with the caller's job id, so the
+          # reported name is "macos / macOS compile admission" on every real run.
+          matches = [
+              job
+              for job in jobs
+              if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
+          ]
           if len(matches) != 1:
               raise SystemExit(f"expected one admission job, found {len(matches)}")
           job = matches[0]
