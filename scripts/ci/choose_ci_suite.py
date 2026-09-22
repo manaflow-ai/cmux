@@ -14,8 +14,10 @@ event, under the compile-only policy, without the opt-in label, gets less.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
@@ -32,16 +34,51 @@ def wants_full_suite(event_name: str, pull_request_policy: str, labels: Iterable
     return FULL_SUITE_LABEL in {label.strip() for label in labels}
 
 
+def labels_from_event(event_path: str | Path) -> list[str] | None:
+    """Read the pull request labels captured in this workflow run's event payload."""
+    try:
+        with Path(event_path).open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    pull_request = payload.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return None
+    raw_labels = pull_request.get("labels")
+    if not isinstance(raw_labels, list):
+        return None
+
+    labels: list[str] = []
+    for raw_label in raw_labels:
+        if not isinstance(raw_label, dict):
+            return None
+        name = raw_label.get("name")
+        if not isinstance(name, str):
+            return None
+        labels.append(name)
+    return labels
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--event-name", required=True)
     parser.add_argument("--pull-request-policy", default="")
-    parser.add_argument("--labels-file", help="one label per line; omit when labels could not be read")
+    label_source = parser.add_mutually_exclusive_group()
+    label_source.add_argument(
+        "--event-path",
+        help="GitHub event JSON whose pull request labels are the immutable run snapshot",
+    )
+    label_source.add_argument("--labels-file", help="one label per line; omit when labels could not be read")
     parser.add_argument("--github-output")
     args = parser.parse_args(argv)
 
     labels = None
-    if args.labels_file:
+    if args.event_path:
+        labels = labels_from_event(args.event_path)
+    elif args.labels_file:
         with open(args.labels_file, encoding="utf-8") as handle:
             labels = handle.read().splitlines()
 

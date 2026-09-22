@@ -148,7 +148,6 @@ extension V2ControlService {
     /// - Throws: A typed operation error; an uncertain mutation is not replayed automatically.
     public func updateMetadata(_ metadata: V2DeviceMetadata) async throws {
         guard let run = runID else { throw V2ControlFailure.stopped }
-        guard metadata.platform != .mac || metadata.pairingEnabled else { throw V2ControlFailure.scopeMismatch }
         guard metadata != cache.device?.descriptor.metadata else { return }
         let request = V2MetadataRequest(metadata: metadata, requestID: UUID().uuidString.lowercased(), schemaID: .deviceMetadataV1)
         let response = try await perform(request, requestID: request.requestID, schemaID: request.schemaID.rawValue, response: V2CompletedResponse.self, run: run)

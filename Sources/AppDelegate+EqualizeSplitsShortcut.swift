@@ -44,19 +44,19 @@ extension AppDelegate {
         preferredWindow: NSWindow? = nil
     ) -> Bool {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
-        let action: KeyboardShortcutSettings.Action = {
-            switch direction {
-            case .left: .resizePaneLeft
-            case .right: .resizePaneRight
-            case .up: .resizePaneUp
-            case .down: .resizePaneDown
-            }
-        }()
+        let dock: DockSplitStore?
+        switch direction {
+        case .left:
+            dock = focusedDockStoreForShortcut(action: .resizePaneLeft, preferredWindow: targetWindow)
+        case .right:
+            dock = focusedDockStoreForShortcut(action: .resizePaneRight, preferredWindow: targetWindow)
+        case .up:
+            dock = focusedDockStoreForShortcut(action: .resizePaneUp, preferredWindow: targetWindow)
+        case .down:
+            dock = focusedDockStoreForShortcut(action: .resizePaneDown, preferredWindow: targetWindow)
+        }
 
-        if let dock = focusedDockStoreForShortcut(
-            action: action,
-            preferredWindow: targetWindow
-        ) {
+        if let dock {
             dock.noteKeyboardFocusIntent(window: targetWindow)
             let didResize = dock.performShortcutCommand(.resizePane(direction))
             if !didResize { NSSound.beep() }
@@ -82,6 +82,7 @@ extension AppDelegate {
 #endif
         return didResize
     }
+
     func handlePaneSizingShortcut(event: NSEvent, equalize: Bool) -> Bool {
         if equalize {
             if performFocusedDockShortcut(
@@ -103,6 +104,19 @@ extension AppDelegate {
         ]
         for (action, direction) in paneResizeActions {
             guard matchConfiguredShortcut(event: event, action: action) else { continue }
+            let handledByDock: Bool = switch action {
+            case .resizePaneLeft:
+                performFocusedDockShortcut(.resizePane(.left), action: .resizePaneLeft, event: event)
+            case .resizePaneRight:
+                performFocusedDockShortcut(.resizePane(.right), action: .resizePaneRight, event: event)
+            case .resizePaneUp:
+                performFocusedDockShortcut(.resizePane(.up), action: .resizePaneUp, event: event)
+            case .resizePaneDown:
+                performFocusedDockShortcut(.resizePane(.down), action: .resizePaneDown, event: event)
+            default:
+                false
+            }
+            if handledByDock { return true }
             _ = performResizePaneShortcut(
                 direction: direction,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow

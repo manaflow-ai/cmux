@@ -1,5 +1,7 @@
+import CmuxFoundation
 import Darwin
 import Foundation
+import CmuxFoundation
 
 struct CmuxTopProcessArguments: Sendable {
     let arguments: [String]

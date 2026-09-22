@@ -1,5 +1,8 @@
+import CmuxFoundation
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
+import CmuxFoundation
 
 extension Workspace {
     /// Whether `restoredAgent` is verifiably still running in `panelId`; see

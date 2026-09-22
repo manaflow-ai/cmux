@@ -13,10 +13,25 @@ struct CloudBrowserAccessView<Content: View>: View {
         Group {
             if let model = state.model {
                 Group {
-                    if state.showsPage || state.failureMessage == nil { content() } else {
+                    if state.isDesktop && !state.showsPage && state.failureMessage == nil {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            message: state.error ?? model.failureMessage,
+                            message: nil,
+                            onRetry: nil
+                        )
+                    } else if state.showsPage || state.failureMessage == nil {
+                        VStack(spacing: 0) {
+                            if state.isDesktop && !state.desktopConnected && state.failureMessage == nil {
+                                ProgressView(String(localized: "cloud.display.connecting", defaultValue: "Connecting to Cloud display…"))
+                                    .controlSize(.small).padding(12)
+                                    .accessibilityIdentifier("CloudDisplayConnecting")
+                            }
+                            content()
+                        }
+                    } else {
+                        CloudBrowserConnectionCard(
+                            address: state.remoteURL?.absoluteString ?? "",
+                            message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
                                 navigateIfReady()
@@ -58,7 +73,10 @@ struct CloudBrowserAccessView<Content: View>: View {
     }
 
     private var showsNativeContent: Bool {
-        panel.cloudAccess.unavailable != nil || panel.cloudAccess.failureMessage != nil
+        let state = panel.cloudAccess
+        return state.unavailable != nil
+            || state.failureMessage != nil
+            || (state.isDesktop && !state.showsPage)
     }
 
     private func navigateIfReady() {

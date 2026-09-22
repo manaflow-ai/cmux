@@ -1473,7 +1473,7 @@ struct HermesFirstClassSupportTests {
         let approvals = try #require(allowlist["approvals"] as? [[String: Any]])
         let commands = approvals.compactMap { $0["command"] as? String }
         let cmuxCommands = commands.filter {
-            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks hermes-agent ")
+            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks enqueue hermes-agent ") || $0.contains("hooks hermes-agent ")
         }
 
         #expect(commands.count == approvals.count)
