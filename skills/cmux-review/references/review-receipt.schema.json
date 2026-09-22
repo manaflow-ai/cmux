@@ -10,6 +10,7 @@
     "policy_version",
     "repository_root",
     "source",
+    "ruleset_sha256",
     "brief",
     "summary",
     "findings",
@@ -201,6 +202,13 @@
     "created_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "ruleset_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "$defs": {
@@ -445,13 +453,6 @@
         },
         "working_tree_dirty": {
           "type": "boolean"
-        },
-        "ruleset_sha256": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]{64}$"
         }
       }
     },
