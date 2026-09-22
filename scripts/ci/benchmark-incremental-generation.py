@@ -234,11 +234,36 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
         worktree_archive,
         excludes=("./.git", "./ghostty", "./GhosttyKit.xcframework", "./.ci-source-packages"),
     )
-    dd_seconds = gzip_tar(derived, dd_archive)
+    reusable_derived_paths = [
+        Path("Build/Intermediates.noindex"),
+        Path("Build/Products/Debug"),
+        Path("ModuleCache.noindex"),
+        Path("SDKStatCaches.noindex"),
+    ]
+    missing = [str(path) for path in reusable_derived_paths if not (derived / path).exists()]
+    if missing:
+        raise SystemExit("DerivedData seed is missing reusable paths: " + ", ".join(missing))
+    started = time.monotonic()
+    tar = subprocess.Popen(
+        ["tar", "-cf", "-", "-C", str(derived), *[str(path) for path in reusable_derived_paths]],
+        stdout=subprocess.PIPE,
+    )
+    assert tar.stdout is not None
+    with dd_archive.open("wb") as stream:
+        subprocess.run(["gzip", "-1"], stdin=tar.stdout, stdout=stream, check=True)
+    tar.stdout.close()
+    code = tar.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, tar.args)
+    dd_seconds = time.monotonic() - started
 
     def du_bytes(path: Path) -> int:
         blocks = int(output("du", "-sk", str(path)).split()[0])
         return blocks * 1024
+
+    reusable_derived_disk_bytes = {
+        str(path): du_bytes(derived / path) for path in reusable_derived_paths
+    }
 
     sample = (workspace / "Sources/AppDelegate.swift").stat()
     edited = (workspace / "Sources/Mobile/MobileTerminalByteTee.swift").stat()
@@ -269,6 +294,8 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
         "generation_compress_seconds": round(worktree_seconds + dd_seconds, 6),
         "worktree_disk_bytes": du_bytes(workspace),
         "derived_data_disk_bytes": du_bytes(derived),
+        "reusable_derived_data_disk_bytes": sum(reusable_derived_disk_bytes.values()),
+        "reusable_derived_data_disk_bytes_by_path": reusable_derived_disk_bytes,
         "incremental_subset_disk_bytes": sum(incremental_sizes.values()),
         "incremental_subset_components_bytes": incremental_sizes,
     }
