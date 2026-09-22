@@ -117,7 +117,8 @@ struct MacAuthComposition {
             defaults: defaults
         )
         let includesDevAuth = Self.includesDevAuth(
-            resolvedAuthEnvironment: resolvedAuthEnvironment
+            resolvedAuthEnvironment: resolvedAuthEnvironment,
+            environment: resolvedEnvironment
         )
         let replacesStoredDevSession = includesDevAuth
             && resolvedEnvironment["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1"
@@ -249,9 +250,18 @@ struct MacAuthComposition {
     }
 
     private static func includesDevAuth(
-        resolvedAuthEnvironment: CMUXAuthEnvironment
+        resolvedAuthEnvironment: CMUXAuthEnvironment,
+        environment: [String: String]
     ) -> Bool {
-        isDebugBuild && resolvedAuthEnvironment == .development
+        guard isDebugBuild else { return false }
+        if resolvedAuthEnvironment == .development {
+            return true
+        }
+        // Production-origin DEBUG bundles used by the connectivity monitor
+        // still need deterministic sign-in. Requiring an explicit credentials
+        // file keeps this opt-in and prevents ordinary production launches
+        // from discovering or accepting ambient credentials.
+        return environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
     }
 
     nonisolated static let storedStackProjectIDKey = "cmux.auth.stackProjectID"
