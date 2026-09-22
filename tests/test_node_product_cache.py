@@ -507,6 +507,8 @@ class NodeProductCacheTests(unittest.TestCase):
                     return self.chunks.pop(0)
                 return b""
 
+            read1 = read
+
         class FakeConnection:
             def __init__(self):
                 self.timeout = 1.0
