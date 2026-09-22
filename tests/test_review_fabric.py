@@ -8,6 +8,9 @@ ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / ".github/scripts/review_fabric.py"
 POLICY = ROOT / ".github/review-fabric-policy.json"
 
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import workflow_guard_groups  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("review_fabric", SCRIPT)
 review_fabric = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = review_fabric
@@ -359,6 +362,16 @@ class ReviewFabricTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
         self.assertIn("python3 tests/test_review_fabric.py", workflow)
 
+        # The group that actually runs the contracts, read out of
+        # ci-guards.yml. Deriving it keeps this test correct if the step ever
+        # moves to another group; naming a group here would fail that refactor.
+        owners = workflow_guard_groups.direct_path_owners(workflow)
+        contract_groups = owners.get("tests/test_review_fabric.py")
+        self.assertTrue(
+            contract_groups,
+            "no group-conditioned step in ci-guards.yml runs tests/test_review_fabric.py",
+        )
+
         # #13775 made the guard routes derived rather than literal: a path now
         # reaches this suite through PATH_OWNERS or through ci-guards.yml's own
         # `run:` lines, so grepping the router for the path text says nothing
@@ -381,17 +394,16 @@ class ReviewFabricTests(unittest.TestCase):
                 # classify_test_groups falls open to every group for a path the
                 # manifest does not know, so asserting on its output alone would
                 # pass even if ownership were dropped. Assert the ownership
-                # itself: the path must be explicitly owned by preflight, which
-                # is the group that runs tests/test_review_fabric.py.
-                owners = _groups_for_path(path)
+                # itself, against the group ci-guards.yml says runs the
+                # contracts rather than a group name pinned here.
+                routed = _groups_for_path(path)
                 self.assertIsNotNone(
-                    owners, f"{path} has no guard-group owner; routing fell open"
+                    routed, f"{path} has no guard-group owner; routing fell open"
                 )
-                self.assertIn(
-                    "preflight",
-                    owners,
-                    f"editing {path} must select the preflight guard group, "
-                    "which is where tests/test_review_fabric.py runs",
+                self.assertTrue(
+                    contract_groups & set(routed),
+                    f"{path} does not route the group that runs the review fabric "
+                    f"contracts: routed={sorted(routed)} contracts={sorted(contract_groups)}",
                 )
 
 
