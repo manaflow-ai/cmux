@@ -109,6 +109,27 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
         self.assertNotIn("inputs.ref || github.ref", workflow)
 
+    def test_dev_fleet_python_changes_skip_preflight_grab_bag(self):
+        cases = {
+            "scripts/benchmark-dev-fleet-warm-slots.py": ("python-syntax", "dev-fleet"),
+            "scripts/dev-fleet-warm-slot.py": ("python-syntax", "dev-fleet"),
+            "tests/test_benchmark_dev_fleet_warm_slots.py": (
+                "python-syntax", "dev-fleet", "quality-determinism"
+            ),
+            "tests/test_dev_fleet_warm_slot.py": (
+                "python-syntax", "dev-fleet", "quality-determinism"
+            ),
+        }
+        expected_routes = {
+            name: "true" if name == "linux_guard_tests" else "false"
+            for name in JOBS
+        }
+        for path, expected_groups in cases.items():
+            with self.subTest(path=path):
+                routes, groups = route_decision([path])
+                self.assertEqual(routes, expected_routes)
+                self.assertEqual(groups, expected_groups)
+
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
