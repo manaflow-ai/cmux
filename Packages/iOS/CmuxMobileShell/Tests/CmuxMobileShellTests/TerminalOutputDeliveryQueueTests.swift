@@ -966,7 +966,8 @@ private func waitForReplayRequestCount(
     #expect(queue.enqueue(second) == nil)
     #expect(queue.pendingCount == 2)
 
-    let batched = try #require(queue.completeInFlight())
+    let completed = queue.completeInFlight()
+    let batched = try #require(completed)
     #expect(String(decoding: batched.bytes, as: UTF8.self) == "first-second")
     #expect(batched.endSequence == 12)
     #expect(queue.pendingCount == 0)

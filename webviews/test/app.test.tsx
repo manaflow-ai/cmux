@@ -58,6 +58,30 @@ test("App renders the React-owned shell without starting a patch fetch for statu
   expect(fetched).toBe(false);
 });
 
+test("patch-file viewer keeps its configured title when repo context is present", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          repoRoot: "/tmp/repo",
+          sourceLabel: "git branch",
+          statusMessage: "Rendered diff",
+          title: "cmux diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  await waitFor(() => dom?.window.document.title === "cmux diff");
+  expect(dom.window.document.title).toBe("cmux diff");
+});
+
 test("custom-scheme pending pages wait for native navigation without HTTP polling", () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/opening.html");
   let fetched = false;
@@ -142,18 +166,20 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
         payload: {
           capabilityToken: "0123456789abcdef",
           pendingReplacement: true,
+          repoRoot: "/tmp/repo",
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+          sourceLabel: "git branch",
           sourceOptions: [
             { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
             { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
             { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
           ],
           repoOptions: [
-            { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
-            { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+            { label: "repo", message: "/tmp/repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
+            { label: "other-repo", message: "/tmp/other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
           ],
           statusMessage: "Loading diff",
-          title: "Diff",
+          title: "Branch diff",
           transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
         },
       }}
@@ -162,6 +188,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   );
 
   await waitFor(() => dom?.window.document.body.dataset.streamFileCount === "0");
+  await waitFor(() => dom?.window.document.title === "Branch diff — repo");
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
   await waitFor(() => commentRequests.length === 1);
   expect(commentRequests[0].params.repoRoot).toBe("/tmp/repo");
@@ -169,9 +196,12 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   expect(fetched).toEqual(["cmux-diff-viewer://0123456789abcdef/diff-session.patch"]);
   expect(requests.filter((request) => request.method === "sessionClose")).toHaveLength(0);
   const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
+  expect(repoSelect.title).toBe("/tmp/repo");
   repoSelect.value = "/tmp/other-repo";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
+  await waitFor(() => dom?.window.document.title === "Branch diff — other-repo");
+  expect(repoSelect.title).toBe("/tmp/other-repo");
   dom.window.document.getElementById("options-button")?.click();
   await waitFor(() => Boolean(copyGitApplyButton()));
   copyGitApplyButton()?.click();

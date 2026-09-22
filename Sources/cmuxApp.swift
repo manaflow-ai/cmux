@@ -197,7 +197,12 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
-                computersActions: devices.settingsActions
+                computersActions: devices.settingsActions,
+                runComputerUseOnboardingAction: { startingPoint in
+                    AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
+                        startingAt: startingPoint
+                    )
+                }
             ),
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
@@ -207,6 +212,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        TerminalController.shared.prepareControlHandleRegistryForLaunch(defaults: defaults)
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
             defaults: defaults
         )
