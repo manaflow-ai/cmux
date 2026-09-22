@@ -216,6 +216,16 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
 
     sample = (workspace / "Sources/AppDelegate.swift").stat()
     edited = (workspace / "Sources/Mobile/MobileTerminalByteTee.swift").stat()
+    incremental_paths = {
+        "intermediates": derived / "Build/Intermediates.noindex",
+        "debug_products": derived / "Build/Products/Debug",
+        "module_cache": derived / "ModuleCache.noindex",
+        "sdk_stat_caches": derived / "SDKStatCaches.noindex",
+    }
+    incremental_sizes = {
+        name: du_bytes(path) if path.exists() else 0
+        for name, path in incremental_paths.items()
+    }
     payload = {
         "workspace": str(workspace.resolve()),
         "derived_data": str(derived.resolve()),
@@ -233,6 +243,8 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
         "generation_compress_seconds": round(worktree_seconds + dd_seconds, 6),
         "worktree_disk_bytes": du_bytes(workspace),
         "derived_data_disk_bytes": du_bytes(derived),
+        "incremental_subset_disk_bytes": sum(incremental_sizes.values()),
+        "incremental_subset_components_bytes": incremental_sizes,
     }
     metrics.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     print("CMUX_CANARY_ARCHIVE=" + json.dumps(payload, sort_keys=True), flush=True)
