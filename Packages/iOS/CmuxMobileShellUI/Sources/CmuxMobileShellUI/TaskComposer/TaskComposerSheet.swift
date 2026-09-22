@@ -777,7 +777,8 @@ struct TaskComposerSheet: View {
             connectionIdentity: store.taskModelConnectionIdentity(
                 macDeviceID: selectedMacDeviceID,
                 instanceTag: selectedMacInstanceTag
-            )
+            ),
+            connectionState: store.connectionState
         )
     }
 
@@ -829,18 +830,34 @@ struct TaskComposerSheet: View {
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
-            await store.refreshTaskModels(
-                provider: provider,
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            ) { result in
+            // A model probe is optional capability discovery. A transient
+            // transport failure must not strand an open composer on its error
+            // pill, so give the same request owner a few bounded retries while
+            // the connection recovery path settles.
+            for attempt in 0..<3 {
+                await store.refreshTaskModels(
+                    provider: provider,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ) { result in
+                    guard !Task.isCancelled,
+                          modelRefreshOperationID == operationID,
+                          modelRefreshID == refreshID else { return }
+                    displayedModels = result.models
+                    displayedDefaultModel = result.defaultModel
+                    displayedModelError = result.error
+                    reconcileSelectedEffort()
+                }
                 guard !Task.isCancelled,
                       modelRefreshOperationID == operationID,
                       modelRefreshID == refreshID else { return }
-                displayedModels = result.models
-                displayedDefaultModel = result.defaultModel
-                displayedModelError = result.error
-                reconcileSelectedEffort()
+                guard displayedModelError == .hostUnavailable,
+                      attempt < 2 else { break }
+                do {
+                    try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
+                } catch {
+                    return
+                }
             }
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,

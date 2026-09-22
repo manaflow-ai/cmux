@@ -9,6 +9,7 @@ internal import Foundation
 /// source for Sentry's incident policy and the on-device logs.
 public final class MobileNetworkOutcomeReporter: Sendable {
     public static let eventName = "ios_connectivity_latency"
+    public static let taskModelEventName = "ios_task_model_discovery"
 
     private enum Phase: String, Hashable, Sendable {
         case endpointStart = "endpoint_start"
@@ -90,6 +91,12 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     /// Queues one diagnostic event without blocking the diagnostic event tap.
     public func ingest(_ event: DiagnosticEvent) {
+        if event.code == .appFeatureAction,
+           let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
+           let properties = Self.taskModelProperties(for: kind, event: event) {
+            emitter.capture(Self.taskModelEventName, properties)
+            return
+        }
         guard Self.mayObserve(event.code) else { return }
         let emitter = self.emitter
         state.enqueue(event) { observation in
@@ -100,6 +107,36 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public func flush() async {
         await state.drain()
         await emitter.flush()
+    }
+
+    private static func taskModelProperties(
+        for kind: DiagnosticAppEventKind,
+        event: DiagnosticEvent
+    ) -> [String: AnalyticsValue]? {
+        let outcome: String
+        switch kind {
+        case .taskModelListLoadSucceeded:
+            outcome = "success"
+        case .taskModelListLoadFailed:
+            outcome = "failure"
+        default:
+            return nil
+        }
+        var properties: [String: AnalyticsValue] = [
+            "operation": .string("model_list"),
+            "outcome": .string(outcome),
+        ]
+        if let duration = event.ms {
+            properties["duration_ms"] = .int(Int(duration))
+        }
+        if let count = event.c {
+            properties["model_count"] = .int(Int(count))
+        }
+        let failure = DiagnosticEventPresentation().failureKind(of: event)
+        if let failure, failure != .none {
+            properties["failure"] = .string(DiagnosticEventPresentation().name(failure))
+        }
+        return properties
     }
 
     /// Builds a terminal latency payload for an event that already carries a
