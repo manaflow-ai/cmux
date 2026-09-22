@@ -89,8 +89,13 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/cmux.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+// AI agents can modify Config/cmux.entitlements to add capabilities.
+// Keep the app and notification-extension selectors separate so tagged Debug
+// device signing can omit an unsupported capability without changing simulator
+// or Release/TestFlight defaults.
+CMUX_APP_CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements
+CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
 
 // ==========================================
 // Pairing URL scheme (exact bundle)
