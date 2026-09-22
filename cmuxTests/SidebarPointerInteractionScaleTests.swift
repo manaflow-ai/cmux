@@ -369,7 +369,12 @@ final class SidebarIssue8373StressTests {
         // Expand the fixture from five groups to twenty-five. The first 20
         // workspaces were grouped by mountSidebar; group another 80 in fixed
         // chunks so collapse/expand and reorder repeatedly alter visible rows.
-        let additionalGroupCandidates = Array(harness.tabManager.tabs.dropFirst(20).prefix(80).map(\.id))
+        let additionalGroupCandidates = Array(
+            harness.tabManager.tabs
+                .filter { $0.groupId == nil }
+                .prefix(80)
+                .map(\.id)
+        )
         for start in stride(from: 0, to: additionalGroupCandidates.count, by: 4) {
             let end = min(start + 4, additionalGroupCandidates.count)
             _ = harness.tabManager.createWorkspaceGroup(
