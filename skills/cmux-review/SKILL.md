@@ -1,0 +1,262 @@
+---
+name: cmux-review
+description: "Adversarial code review workflow for agent-written changes: build a change map, run independent discovery, suppress low-value noise, challenge credible findings, gather executable evidence, and produce a compact review receipt. Use before opening a PR, after substantial agent edits, or when re-reviewing a repair."
+---
+
+# cmux Review
+
+Review code to reduce developer attention, not to maximize comment count.
+
+> Spend compute freely on investigation; spend developer attention reluctantly.
+
+The final output should be small enough that every surfaced finding deserves attention.
+
+## Start
+
+1. Resolve the repository root with `git rev-parse --show-toplevel`.
+2. Resolve a comparison base:
+   - use the base supplied by the user when present;
+   - otherwise prefer `origin/main` when available;
+   - fall back to the repository's default branch or the merge base implied by the current task.
+3. Capture:
+   - base commit;
+   - current HEAD;
+   - working-tree status;
+   - changed files;
+   - diff stat;
+   - full diff.
+4. If cmux is available, set the current workspace to review while the run is active:
+
+```bash
+cmux workspace status set review
+```
+
+Keep the review read-only through discovery and challenge.
+
+## 1. Build a review brief
+
+Before looking for defects, explain the change.
+
+Produce:
+
+- **Intent** — the requested behavior, using the current task when available.
+- **Behavior changed** — concrete observable or ownership/lifecycle changes.
+- **Risk areas** — security, persistence, concurrency, lifecycle, API compatibility, data loss, performance, UI state, etc.
+- **Logical file groups** — files that implement one behavior together.
+- **Suggested reading order** — start with the core behavior, then callers/consumers, then tests.
+- **Existing safeguards** — relevant tests, guards, invariants, type constraints, authorization checks, or validation.
+- **Missing coverage** — important paths with no obvious executable check.
+
+Keep this brief useful even when the review finds zero defects.
+
+## 2. Independent discovery
+
+Prefer independent reviewer contexts.
+
+When the agent runtime supports subagents or fresh review sessions, run at least two discovery passes without showing them each other's findings. Give initial reviewers:
+
+- task/intent;
+- base and head source state;
+- diff;
+- repository instructions and review rules;
+- relevant code/tests they retrieve themselves.
+
+Avoid feeding the author's conversational justification into initial discovery. Fresh reviewers should evaluate the result rather than inherit the reasoning that produced it.
+
+Suggested roles:
+
+### Correctness reviewer
+
+Look for concrete regressions, broken edge cases, lifecycle errors, races, stale state, incorrect assumptions, missing cleanup, bad error handling, and data-loss paths.
+
+### Impact reviewer
+
+Trace changed APIs and state across callers, consumers, persistence, tests, configuration, and platform boundaries. Look beyond changed lines.
+
+### Repository-rules reviewer
+
+Apply repo-local guidance such as `AGENTS.md`, `CLAUDE.md`, and `.github/review-bot-rules/`.
+
+If only one reviewer context is available, run these as separate passes and clear previous candidate findings from the prompt between passes where practical.
+
+## 3. Triage before challenge
+
+Normalize candidate findings into one list and merge semantic duplicates.
+
+Each candidate needs:
+
+- id;
+- title;
+- severity;
+- claim;
+- affected code;
+- failure mode;
+- discovery source(s);
+- proposed verification.
+
+Severity guidance:
+
+- **P0** — catastrophic/security-critical/data-loss issue requiring immediate attention.
+- **P1** — likely serious production regression, authorization failure, corruption, crash, or major correctness bug.
+- **P2** — real defect with bounded impact.
+- **P3** — low-impact issue, maintainability concern, style, or speculative improvement.
+
+Default publication policy:
+
+- P0/P1: challenge and verify aggressively.
+- P2: continue when the claim is concrete and evidence looks obtainable.
+- P3: suppress from the main report unless the user explicitly asks for exhaustive review.
+
+A vague concern is a hypothesis, not a finding.
+
+## 4. Challenge credible findings
+
+For every candidate that survives triage, run an adversarial pass whose job is to prove the claim wrong.
+
+The challenger should:
+
+- trace the relevant call/data/state path;
+- search for guards and invariants;
+- inspect nearby and cross-file behavior;
+- inspect existing tests;
+- identify assumptions in the reviewer claim;
+- construct counterexamples.
+
+Disposition:
+
+- `refuted` — concrete code or behavior defeats the claim;
+- `survives_challenge` — the claim remains plausible after adversarial inspection;
+- `uncertain` — competing interpretations remain.
+
+Record the challenger evidence even for refuted findings. Refutations are useful training/eval data.
+
+## 5. Verify with executable evidence
+
+For findings that survive challenge, seek the cheapest convincing evidence.
+
+Prefer, in roughly this order:
+
+1. existing focused test;
+2. build/typecheck/lint/static checker;
+3. minimal deterministic reproduction;
+4. targeted temporary regression test;
+5. runtime trace or UI automation;
+6. broader integration test.
+
+A verification result is one of:
+
+- `reproduced`;
+- `supported_static`;
+- `not_reproduced`;
+- `blocked`;
+- `human_judgment`.
+
+Never convert a failed attempt to reproduce into proof that the code is safe. Record what was attempted.
+
+Avoid leaving generated tests or scratch files in the working tree unless they are genuinely valuable additions. Use temp files, disposable worktrees, or a checkpoint/fork for destructive experiments.
+
+## 6. Repair only after evidence
+
+When the user requested repair, or the workflow explicitly allows it:
+
+1. create a checkpoint before mutation when cmux Vault is available;
+2. repair one verified finding at a time;
+3. prefer the smallest change that removes the demonstrated failure;
+4. rerun the exact verification that established the defect;
+5. review the repair delta in a fresh context;
+6. cap autonomous repair loops at two attempts per finding.
+
+Useful cmux primitives:
+
+```bash
+cmux vault checkpoint --name "pre-review-repair"
+cmux vault checkpoints --agent <agent> --session <session>
+cmux vault fork --agent <agent> --session <session> --checkpoint <id> --open
+```
+
+If the exact Vault identifiers are unavailable, preserve the current Git state through a normal worktree/branch workflow instead of guessing.
+
+## 7. Persist a review receipt
+
+Store the receipt outside source control.
+
+Use:
+
+```bash
+git rev-parse --git-path cmux/reviews
+```
+
+Create the directory if needed. Name receipts with a stable source-state identifier, for example:
+
+```text
+<base-short>-<head-short>-<diff-hash>.json
+```
+
+The receipt should conform to:
+
+`skills/cmux-review/references/review-receipt.schema.json`
+
+The receipt records source identity, policy version, review brief, candidate counts, findings, evidence, and dispositions. It is a local artifact under Git metadata and must never be added to source control.
+
+Compute the diff hash from the exact reviewed patch. For working-tree review, include staged and unstaged state in the reviewed patch and record `working_tree_dirty: true`.
+
+A later review of the same source state may reuse a receipt only when the relevant policy/ruleset identity also matches. New source changes require re-evaluating affected findings and dependencies.
+
+## 8. Final report
+
+Lead with the review brief, then the surviving findings.
+
+Preferred ending:
+
+```text
+Review complete
+
+12 hypotheses investigated
+8 refuted or suppressed
+3 verified/repaired
+1 needs human judgment
+```
+
+For each surfaced finding, show evidence rather than an opaque confidence percentage:
+
+```text
+AUTH-03 · P1 · cross-tenant access possible
+
+Discovery       2 independent reviewers
+Challenge       survived
+Call path       verified
+Existing guard  none found
+Reproduction    reproduced
+Repair          available
+```
+
+If no credible findings survive:
+
+```text
+No verified defects found in this review.
+```
+
+Then state the strongest verification actually performed and any important coverage gaps.
+
+## Existing cmux review inputs
+
+Human comments saved in the diff viewer can be inspected with:
+
+```bash
+cmux comments list --json
+```
+
+Treat these as candidate findings or reviewer intent. Verify them through the same protocol instead of assuming they are correct.
+
+Repository review rules under `.github/review-bot-rules/` are evidence-bearing policy inputs. A PR that edits review rules should be reviewed against the base-branch version of those rules.
+
+## Hard rules
+
+- Keep independent discovery independent.
+- Deduplicate before spending verification compute.
+- Prefer reproducible behavior over model consensus.
+- Keep style/nits out of the primary report by default.
+- Preserve failed and refuted hypotheses in the receipt.
+- Re-run the original verification after a repair.
+- Review the repair from a fresh context.
+- Never commit review receipts, scratch repro artifacts, or generated logs.
