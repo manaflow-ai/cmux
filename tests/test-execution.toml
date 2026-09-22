@@ -727,6 +727,10 @@ path = "tests/test_indexnow_notification.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_ios_testflight_assignment_after_upload.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_iroh_monitor_simulator_plan.py"
 lane = "legacy"
 
