@@ -1,4 +1,4 @@
-import { MagicLinkSignIn, StackHandler } from "@hexclave/next";
+import { StackHandler } from "@hexclave/next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
@@ -7,6 +7,7 @@ import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
+import { ClientMagicLinkSignIn } from "../stack-handler-client";
 
 // Stack Auth owns this catch-all route and reads its URL before it can render.
 // Keep authentication reliable instead of withholding it behind an empty
@@ -51,7 +52,7 @@ export default async function StackHandlerPage(
         <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
           use your cmux account email. we’ll send a one-time code.
         </p>
-        <MagicLinkSignIn />
+        <ClientMagicLinkSignIn />
       </section>
     </main>
   ) : (
