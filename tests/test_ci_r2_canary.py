@@ -104,16 +104,6 @@ class PreflightTests(unittest.TestCase):
         self.run_mode('delete-worker')
         self.assertEqual(self.calls, [(f'workers/scripts/{self.resource}?force=true', 'DELETE', None)])
 
-    def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
-        workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
-        delete_step = workflow.split("name: Remove only the canary's artifact copy", 1)[1]
-        delete_step = delete_step.split('name: Remove an empty bucket created by this run', 1)[0]
-        self.assertIn('for attempt in 1 2 3 4; do', delete_step)
-        self.assertIn('wrangler r2 object delete "$key" --remote', delete_step)
-        self.assertIn('sleep "$((attempt * 5))"', delete_step)
-        self.assertIn('exit 1', delete_step)
-
-
     def test_secret_cleanup_ignores_absent_secrets(self):
         def missing_secret(path, method='GET', value=None):
             self.calls.append((path, method, value))
@@ -144,7 +134,10 @@ class PreflightTests(unittest.TestCase):
         self.assertIn('timeout-minutes: 20', canary)
         transport = (ROOT / '.github/workflows/ci-artifact-transport.yml').read_text()
         push = transport.split('  push:', 1)[1].split('\n\npermissions:', 1)[0]
-        self.assertIn('- .github/workflows/ci.yml', push)
+        # The app-host lane that consumes these artifacts lives in
+        # ci-macos.yml since #13405, so that is the workflow whose pushes
+        # must re-validate transport.
+        self.assertIn('- .github/workflows/ci-macos.yml', push)
 
     def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
         workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
