@@ -109,6 +109,7 @@ extension CMUXCLI {
     private struct ReviewReceipt {
         let id: String
         let payload: [String: Any]
+        let createdAtDate: Date
 
         var createdAt: String {
             payload["created_at"] as? String ?? ""
@@ -201,7 +202,7 @@ extension CMUXCLI {
     private func reviewValidateReceiptPayload(
         _ payload: [String: Any],
         fileName: String
-    ) throws {
+    ) throws -> Date {
         func invalid(_ detail: String) -> CLIError {
             CLIError(message: String.localizedStringWithFormat(
                 String(
@@ -253,7 +254,7 @@ extension CMUXCLI {
         try reviewValidateBrief(brief, invalid: invalid)
 
         guard let createdAt = reviewNonemptyString(payload["created_at"]),
-              ISO8601DateFormatter().date(from: createdAt) != nil else {
+              let createdAtDate = ISO8601DateFormatter().date(from: createdAt) else {
             throw invalid("created_at must be an ISO-8601 timestamp")
         }
 
@@ -323,6 +324,8 @@ extension CMUXCLI {
               investigated >= findings.count else {
             throw invalid("summary.hypotheses_investigated is smaller than retained findings")
         }
+
+        return createdAtDate
     }
 
     private func reviewValidateBrief(
@@ -709,19 +712,23 @@ extension CMUXCLI {
                     file.lastPathComponent
                 ))
             }
-            try reviewValidateReceiptPayload(payload, fileName: file.lastPathComponent)
+            let createdAtDate = try reviewValidateReceiptPayload(
+                payload,
+                fileName: file.lastPathComponent
+            )
 
             receipts.append(ReviewReceipt(
                 id: file.deletingPathExtension().lastPathComponent,
-                payload: payload
+                payload: payload,
+                createdAtDate: createdAtDate
             ))
         }
 
         receipts.sort {
-            if $0.createdAt == $1.createdAt {
+            if $0.createdAtDate == $1.createdAtDate {
                 return $0.id > $1.id
             }
-            return $0.createdAt > $1.createdAt
+            return $0.createdAtDate > $1.createdAtDate
         }
         return ReviewLedger(repoRoot: repoRoot, receipts: receipts)
     }
