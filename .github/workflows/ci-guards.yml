@@ -117,6 +117,12 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate dev-fleet warm-slot lifecycle
+        if: ${{ matrix.group == 'preflight' }}
+        run: |
+          python3 tests/test_dev_fleet_warm_slot.py
+          python3 tests/test_benchmark_dev_fleet_warm_slots.py
+
       - name: Test review fabric contracts
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_review_fabric.py

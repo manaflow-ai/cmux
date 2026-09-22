@@ -28,6 +28,7 @@ from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
+CLEANUP_TERM_GRACE_SECONDS = 1.0
 IDENTIFIER_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
 )
@@ -293,6 +294,8 @@ class Layout:
         self.checkout_locks = machine / "checkout-locks"
         self.events = machine / "events.jsonl"
         self.events_lock = machine / "events.lock"
+        self.cleanup_lock = machine / "cold-cleanup.lock"
+        self.retired_cold_tasks = self.cache / "retired-cold-tasks"
 
 
 @contextlib.contextmanager
@@ -308,6 +311,254 @@ def locked(path: Path, blocking: bool = True) -> Iterator[None]:
         finally:
             stream.close()
 
+
+def cold_task_generation_id(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 32
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("cold task generation id must be 32 lowercase hex characters")
+    return value
+
+
+def cold_task_root(layout: Layout, generation_id: str) -> Path:
+    return layout.cache / "cold-tasks" / cold_task_generation_id(generation_id)
+
+
+def retired_cold_task_root(layout: Layout, generation_id: str) -> Path:
+    return layout.retired_cold_tasks / cold_task_generation_id(generation_id)
+
+
+def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
+    try:
+        generation = cold_task_generation_id(generation_id)
+    except ValueError:
+        return {"status": "invalid_identity"}
+
+    active = cold_task_root(layout, generation)
+    retired = retired_cold_task_root(layout, generation)
+    if retired.exists():
+        return {
+            "status": "already_retired" if not active.exists() else "conflict",
+            "cold_task_generation_id": generation,
+        }
+    if not active.exists():
+        return {"status": "absent", "cold_task_generation_id": generation}
+
+    layout.retired_cold_tasks.mkdir(parents=True, exist_ok=True)
+    try:
+        os.replace(active, retired)
+    except OSError:
+        event(
+            layout,
+            "cold_task_retirement_deferred",
+            cold_task_generation_id=generation,
+            reason="rename_failed",
+        )
+        return {
+            "status": "deferred",
+            "reason": "rename_failed",
+            "cold_task_generation_id": generation,
+        }
+
+    event(layout, "cold_task_retired", cold_task_generation_id=generation)
+    return {"status": "retired", "cold_task_generation_id": generation}
+
+
+def _wait_cleanup_process(
+    proc: subprocess.Popen,
+    preempt_fd: int | None,
+) -> bool:
+    """Wait for cleanup completion while allowing foreground work to preempt it."""
+    if preempt_fd is None:
+        proc.wait()
+        return False
+
+    done_read, done_write = os.pipe()
+    waiter_error: list[BaseException] = []
+
+    def wait_for_exit() -> None:
+        try:
+            proc.wait()
+        except BaseException as error:
+            waiter_error.append(error)
+        finally:
+            with contextlib.suppress(OSError):
+                os.write(done_write, b"1")
+            with contextlib.suppress(OSError):
+                os.close(done_write)
+
+    waiter = threading.Thread(
+        target=wait_for_exit,
+        name="cmux-cold-cleanup-waiter",
+        daemon=True,
+    )
+    waiter.start()
+    try:
+        while True:
+            ready, _, _ = select.select([done_read, preempt_fd], [], [])
+            if done_read in ready:
+                with contextlib.suppress(OSError):
+                    os.read(done_read, 1)
+                waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return False
+            if preempt_fd in ready and consume_preempt(preempt_fd):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGTERM)
+                waiter.join(CLEANUP_TERM_GRACE_SECONDS)
+                if waiter.is_alive():
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return True
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(done_read)
+
+
+def cleanup_retired_cold_tasks(
+    layout: Layout,
+    *,
+    preempt_fd: int | None = None,
+    max_generations: int = 1,
+) -> dict[str, Any]:
+    """Reclaim bounded retired cold-task generations outside foreground locks."""
+    if max_generations <= 0 or max_generations > 32:
+        return {
+            "status": "failed",
+            "reason": "invalid_cleanup_budget",
+            "reclaimed": 0,
+        }
+    try:
+        cleanup_lock = locked(layout.cleanup_lock, blocking=False)
+        cleanup_lock.__enter__()
+    except BlockingIOError:
+        return {"status": "deferred", "reason": "cleanup_already_running", "reclaimed": 0}
+
+    reclaimed = 0
+    failures: list[dict[str, str]] = []
+    attempts = 0
+    try:
+        if not layout.retired_cold_tasks.exists():
+            return {"status": "idle", "reclaimed": 0}
+
+        try:
+            retired_entries = layout.retired_cold_tasks.iterdir()
+        except OSError:
+            event(
+                layout,
+                "cold_task_cleanup_failed",
+                reason="retired_namespace_unreadable",
+            )
+            return {
+                "status": "failed",
+                "reason": "retired_namespace_unreadable",
+                "reclaimed": 0,
+            }
+
+        try:
+            for root in retired_entries:
+                if reclaimed >= max_generations or attempts >= 32:
+                    break
+                try:
+                    cold_task_generation_id(root.name)
+                except ValueError:
+                    continue
+
+                attempts += 1
+                generation = root.name
+                try:
+                    proc = subprocess.Popen(
+                        ["/bin/rm", "-rf", str(root)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_launch_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    preempted = _wait_cleanup_process(proc, preempt_fd)
+                except (OSError, RuntimeError) as error:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_wait_failed",
+                    }
+                    failures.append(failure)
+                    event(
+                        layout,
+                        "cold_task_cleanup_failed",
+                        **failure,
+                        detail=str(error),
+                    )
+                    continue
+
+                if preempted:
+                    event(
+                        layout,
+                        "cold_task_cleanup_preempted",
+                        cold_task_generation_id=generation,
+                    )
+                    result: dict[str, Any] = {
+                        "status": "preempted",
+                        "reclaimed": reclaimed,
+                        "cold_task_generation_id": generation,
+                    }
+                    if failures:
+                        result["failures"] = failures
+                    return result
+
+                if proc.returncode != 0 or root.exists():
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                reclaimed += 1
+                event(layout, "cold_task_reclaimed", cold_task_generation_id=generation)
+        except OSError:
+            event(
+                layout,
+                "cold_task_cleanup_failed",
+                reason="retired_namespace_unreadable",
+            )
+            if not failures:
+                return {
+                    "status": "failed",
+                    "reason": "retired_namespace_unreadable",
+                    "reclaimed": reclaimed,
+                }
+            failures.append({"reason": "retired_namespace_unreadable"})
+
+        result = {
+            "status": "reclaimed" if reclaimed else ("failed" if failures else "idle"),
+            "reclaimed": reclaimed,
+        }
+        if failures:
+            result["failures"] = failures
+            if not reclaimed:
+                result["reason"] = failures[0]["reason"]
+                if "cold_task_generation_id" in failures[0]:
+                    result["cold_task_generation_id"] = failures[0][
+                        "cold_task_generation_id"
+                    ]
+        return result
+    finally:
+        cleanup_lock.__exit__(None, None, None)
 
 def checkout_lock_path(layout: Layout, checkout: Path) -> Path:
     """Return one machine-local lock path for a physical checkout."""
@@ -652,6 +903,7 @@ def run_native(
     preemptible: bool,
     low_priority: bool,
     preempt_fd: int | None = None,
+    cold_task_generation_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute one native build with durable launch and event-driven cancellation."""
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -686,6 +938,8 @@ def run_native(
         "started_at": started_iso,
         "command_identity": command_identity,
     }
+    if cold_task_generation_id is not None:
+        inflight["cold_task_generation_id"] = cold_task_generation_id
     atomic_json(layout.inflight, inflight)
 
     preexec = None
@@ -896,6 +1150,11 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
             return {"status": "deferred", "reason": "foreground_waiting"}
         else:
             gate.__exit__(None, None, None)
+
+        cleanup = cleanup_retired_cold_tasks(layout, preempt_fd=preempt_fd, max_generations=1)
+        if cleanup.get("status") == "preempted":
+            return {"status": "deferred", "reason": "foreground_waiting_during_cleanup"}
+
         try:
             slot_lock = warm_slot_lock(layout, checkout)
             slot_lock.__enter__()
@@ -1222,6 +1481,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
             match = "exact" if warm_distance == 0 else "near" if warm_distance is not None else "cold"
             fallback_reason = None if use_warm else p["reason"]
 
+            cold_generation: str | None = None
             if use_warm:
                 derived = Path(str(gen["derived_data_path"]))
                 try:
@@ -1235,7 +1495,8 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     switch_exact(checkout, args.target)
                 except RuntimeError as error:
                     return {"status": "cold_fallback_required", "reason": str(error), "plan": p}
-                derived = layout.cache / "cold-tasks" / f"{closed_identifier(args.task_id, 'task id', 160)}-{uuid.uuid4().hex[:10]}" / "DerivedData"
+                cold_generation = uuid.uuid4().hex
+                derived = cold_task_root(layout, cold_generation) / "DerivedData"
 
             tag = args.tag or f"task-{args.task_id[:24]}"
             argv = build_command(checkout, tag, args.command)
@@ -1248,6 +1509,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 reserved_generation_id=reserved_generation,
                 match_class=match,
                 fallback_reason=fallback_reason,
+                cold_task_generation_id=cold_generation,
             ):
                 before_bytes = disk_bytes(layout.cache) if args.measure_disk else None
                 build_started = time.time()
@@ -1255,6 +1517,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     layout, checkout, argv, env,
                     layout.logs / f"task-{log_token(closed_identifier(args.task_id, 'task id', 160))}-{int(build_started)}.log",
                     f"task:{args.task_id}", False, False, None,
+                    cold_task_generation_id=cold_generation,
                 )
                 receipt = {
                     "schema_version": SCHEMA,
@@ -1273,6 +1536,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     "fallback_reason": fallback_reason,
                     "reservation_lease_id": active_lease_id,
                     "reserved_generation_id": reserved_generation,
+                    "cold_task_generation_id": cold_generation,
                     "warmer_in_flight_at_task_known": warmer_at_known,
                     "toolchain": p["toolchain"],
                     "toolchain_fingerprint": p["toolchain_fingerprint"],
@@ -1290,6 +1554,14 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     receipt["build_input_fingerprint"] = input_fingerprint(checkout, args.target)
                 except (OSError, subprocess.SubprocessError, ValueError):
                     receipt["build_input_fingerprint"] = None
+
+                if cold_generation is not None:
+                    if receipt["outcome"] == "recovery_required":
+                        retirement = {"status": "deferred_recovery_required"}
+                    else:
+                        retirement = retire_cold_task(layout, cold_generation)
+                    receipt["cold_cache_retirement"] = retirement["status"]
+
                 if args.receipt:
                     atomic_json(args.receipt, receipt)
                 atomic_json(layout.slot / "last-task-receipt.json", receipt)
@@ -1347,13 +1619,14 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
         with locked(layout.slot_lock, blocking=False):
             unreadable_inflight = False
             try:
+                recovery_lease = read_json(layout.lease) or {}
+            except (OSError, ValueError, json.JSONDecodeError):
+                recovery_lease = {}
+            try:
                 inflight = read_json(layout.inflight)
             except (OSError, ValueError, json.JSONDecodeError):
                 unreadable_inflight = True
-                try:
-                    backup_lease = read_json(layout.lease) or {}
-                except (OSError, ValueError, json.JSONDecodeError):
-                    backup_lease = {}
+                backup_lease = recovery_lease
                 backup_run = backup_lease.get("native_run_id")
                 backup_group = backup_lease.get("native_process_group")
                 if backup_run and backup_run != args.run_id:
@@ -1376,9 +1649,27 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                     pid = lease.get("pid")
                     if isinstance(pid, int) and pid > 0 and same_process(pid, lease.get("process_identity")):
                         return {"status": "blocked", "reason": "lease_owner_alive", "pid": pid}
+                    cold_retirement = None
+                    if lease.get("kind") == "task" and lease.get("cold_task_generation_id") is not None:
+                        cold_retirement = retire_cold_task(layout, lease.get("cold_task_generation_id"))
                     layout.lease.unlink(missing_ok=True)
-                    event(layout, "stale_active_lease_recovered", lease_id=lease.get("lease_id"), kind=lease.get("kind"))
-                    return {"status": "recovered", "reason": "stale_active_lease", "cold_lineage_required": False}
+                    event(
+                        layout,
+                        "stale_active_lease_recovered",
+                        lease_id=lease.get("lease_id"),
+                        lease_kind=lease.get("kind"),
+                        cold_cache_retirement=(
+                            cold_retirement.get("status") if cold_retirement is not None else None
+                        ),
+                    )
+                    result = {
+                        "status": "recovered",
+                        "reason": "stale_active_lease",
+                        "cold_lineage_required": False,
+                    }
+                    if cold_retirement is not None:
+                        result["cold_cache_retirement"] = cold_retirement["status"]
+                    return result
                 return {"status": "clear", "reason": "no_inflight"}
             if inflight.get("run_id") != args.run_id:
                 return {"status": "blocked", "reason": "run_id_mismatch", "expected_run_id": inflight.get("run_id")}
@@ -1390,8 +1681,20 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
             except (OSError, ValueError, json.JSONDecodeError):
                 record = None
             quarantine(layout, record, "interrupted_native_run")
+
+            cold_generation = inflight.get("cold_task_generation_id")
+            if cold_generation is None:
+                cold_generation = recovery_lease.get("cold_task_generation_id")
+            cold_retirement = (
+                retire_cold_task(layout, cold_generation)
+                if cold_generation is not None
+                else None
+            )
+
             layout.recovery.mkdir(parents=True, exist_ok=True)
             recovered = {**inflight, "recovered_at": now_iso(), "recovery": "quarantined_cold_lineage_required"}
+            if cold_retirement is not None:
+                recovered["cold_cache_retirement"] = cold_retirement["status"]
             atomic_json(layout.recovery / f"{args.run_id}.json", recovered)
             layout.inflight.unlink(missing_ok=True)
             layout.lease.unlink(missing_ok=True)
@@ -1402,14 +1705,20 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                 run_id=args.run_id,
                 ambiguous_child_launch=ambiguous,
                 unreadable_inflight=unreadable_inflight,
+                cold_cache_retirement=(
+                    cold_retirement.get("status") if cold_retirement is not None else None
+                ),
             )
-            return {
+            result = {
                 "status": "recovered",
                 "run_id": args.run_id,
                 "cold_lineage_required": True,
                 "ambiguous_child_launch": ambiguous,
                 "unreadable_inflight": unreadable_inflight,
             }
+            if cold_retirement is not None:
+                result["cold_cache_retirement"] = cold_retirement["status"]
+            return result
     except BlockingIOError:
         return {"status": "blocked", "reason": "slot_leased"}
 
@@ -1506,6 +1815,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--machine-state", type=Path, required=True)
     p.add_argument("--slot", type=slot_id, required=True)
     p.add_argument("--run-id", required=True)
+
+    p = sub.add_parser("cleanup")
+    p.add_argument("--machine-state", type=Path, required=True)
+    p.add_argument("--slot", type=slot_id, required=True)
+    p.add_argument("--max-generations", type=int, default=1)
     return parser
 
 
@@ -1530,6 +1844,13 @@ def main() -> int:
         return emit(release_reservation(args))
     if args.action == "recover":
         return emit(recover(args))
+    if args.action == "cleanup":
+        return emit(
+            cleanup_retired_cold_tasks(
+                Layout(args.machine_state.resolve(), args.slot),
+                max_generations=args.max_generations,
+            )
+        )
     raise AssertionError(args.action)
 
 
