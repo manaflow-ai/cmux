@@ -60,6 +60,7 @@ extension RightSidebarMode {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    var devicesModel: DevicesPanelViewModel? = nil
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -459,26 +460,12 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
-                if let store = AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        defaultMachineStore: store,
-                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
-                        tabManager: tabManager
-                    )
-#if DEBUG
-                    .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
-#endif
-                } else {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
-                        tabManager: tabManager
-                    )
-#if DEBUG
-                    .environment(\.cloudSidebarDebugSettings, AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugSettings)
-#endif
-                }
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    devicesModel: devicesModel,
+                    tabManager: tabManager
+                )
             case .customSidebar:
                 customSidebarPanel
             }

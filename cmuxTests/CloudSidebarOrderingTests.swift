@@ -36,6 +36,18 @@ struct CloudSidebarOrderingTests {
         #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty && fixture.provider.projected.isEmpty)
         #expect(fixture.provider.refreshCount == 0)
     }
+
+    @Test("An organization pin committed by another entrypoint repaints the right sidebar immediately")
+    func externalPinCommitRepaintsImmediately() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let folder = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.id == fixture.folderID("ws_2") })
+        #expect(fixture.catalog.sidebarOrganization.perform(.pin, id: folder.id, nodes: fixture.nodes()))
+        let current = try #require(outline.item(atRow: outline.row(forItem: folder)) as? CloudTreeNode)
+        #expect(current.isPinned)
+    }
     @Test("Pins and relative moves survive reconnect, restart, and renamed duplicate titles")
     func preferencesSurviveFreshSnapshots() throws {
         let fixture = CloudSidebarOrderingFixture()
@@ -185,6 +197,7 @@ final class CloudSidebarOrderingFixture {
                 promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { nil },
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}

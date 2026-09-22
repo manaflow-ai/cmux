@@ -86,11 +86,13 @@ extension ContentView {
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
     static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
-    static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
+    static func commandPaletteCloudCommandContributions(
+        isAuthenticated: Bool? = nil
+    ) -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
         guard CloudMachinesFeature.isEnabled,
-              AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true else { return [] }
+              isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true) else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -155,7 +157,7 @@ extension ContentView {
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
-            _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
                 debugSource: "palette.cloud.newMachine"
             )

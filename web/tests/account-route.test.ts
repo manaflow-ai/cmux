@@ -6,6 +6,7 @@ import {
   accountDeletionTombstones,
   accountMutationLeases,
   cloudOrganizations,
+  cloudRuntimes,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -2110,6 +2111,28 @@ describe("account deletion route", () => {
       "account.delete.partial_after_destructive_cleanup",
       "Error: Personal cloud VM provider teardown or creation is still pending for 1 row",
     );
+  });
+
+  test("deletes detached runtimes by owner even when no machine rows remain", async () => {
+    transactionSelectResults = [[]];
+    const response = await DELETE(accountDeletionRequest());
+    expect(response.status).toBe(200);
+    const deletion = deletedWhere.find(({ table }) => table === cloudRuntimes);
+    expect(deletion).toBeDefined();
+    expect(conditionColumnNames(deletion?.condition)).toEqual(["owner_team_id"]);
+  });
+
+  test("runtime cleanup uses durable ownership rather than machine billing scope", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000768",
+      billingTeamId: ACCOUNT_USER_ID,
+      providerVmId: null,
+      status: "destroyed",
+    }]];
+    const response = await DELETE(accountDeletionRequest());
+    expect(response.status).toBe(200);
+    const deletion = deletedWhere.find(({ table }) => table === cloudRuntimes);
+    expect(conditionColumnNames(deletion?.condition)).toEqual(["owner_team_id"]);
   });
 
   test("deletes destroyed personal VM rows after provider teardown completed", async () => {

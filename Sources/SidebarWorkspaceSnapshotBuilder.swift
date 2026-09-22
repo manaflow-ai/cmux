@@ -73,6 +73,10 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
         var taskStatusInput = SidebarWorkspaceTaskStatusSnapshot()
+        var deviceWorkspaceLabel: String? = nil
+
+        var remoteWorkspaceBadgeLabel: String? { deviceWorkspaceLabel ?? cloudWorkspaceLabel }
+        var remoteWorkspaceBadgeSymbol: String { deviceWorkspaceLabel == nil ? "cloud" : "desktopcomputer" }
 
         func accessibilityLabel(index: Int, workspaceCount: Int) -> String {
             let position = String(
@@ -81,7 +85,7 @@ struct SidebarWorkspaceSnapshotBuilder {
             )
             let cloudDirectory = cloudWorkspaceLabel == nil ? nil
                 : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
-            return [position, cloudWorkspaceLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
+            return [position, remoteWorkspaceBadgeLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
     }
 }

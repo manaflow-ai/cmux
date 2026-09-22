@@ -14,6 +14,7 @@ import SwiftUI
 /// primary line and dot switch to presence (green = the Mac is online and worth
 /// tapping), and the workspace count is dropped (it is stale while disconnected).
 struct MacComputerRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     /// How the row behaves and which status it leads with.
     enum Style {
         /// Computers screen: navigation to the detail view, phone-connection dot.
@@ -169,15 +170,15 @@ struct MacComputerRow: View {
     /// Mac. A row with no remembered version warns until its first hello
     /// records the build version in the durable overlay.
     private var listAuthEntry: MobileMacListAuthState.Entry {
-        MobileMacListAuthState.shared.compatibilityEntry(
+        listAuthState?.compatibilityEntry(
             pairingID: computer.id,
             routes: computer.routes
-        )
+        ) ?? .init(status: "unknown", revoked: false, isFresh: false)
     }
 
     private var showsListAuthWarning: Bool {
         hasVersionGateWarning
-            || (MobileMacListAuthState.shared.hasSnapshot && listAuthEntry.isOutdated)
+            || ((listAuthState?.hasSnapshot == true) && listAuthEntry.isOutdated)
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the

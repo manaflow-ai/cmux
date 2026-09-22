@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
@@ -11,6 +12,7 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    case computers
     case app
     case terminal
     case textBox
@@ -39,10 +41,22 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
         case .account: return String(localized: "settings.section.account", defaultValue: "Account")
+        case .computers: return String(localized: "settings.section.computers", defaultValue: "Computers")
         case .app: return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
@@ -69,6 +83,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var symbolName: String {
         switch self {
         case .account: return "person.crop.circle"
+        case .computers: return "desktopcomputer"
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
@@ -97,6 +112,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
+        case .computers: return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"

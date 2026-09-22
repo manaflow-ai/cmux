@@ -25,6 +25,12 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Start cache restore measurement
+      id: receipt-clock
+      continue-on-error: true
+      shell: bash
+      run: echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
+
     # The provider store only answers its own runners, so a job that lands
     # anywhere else keeps reading the GitHub store.
     - name: Restore from the GitHub store
@@ -59,3 +65,24 @@ runs:
           if [ -n "$prefix" ]; then prefixes+=("$prefix"); fi
         done <<< "$CACHE_RESTORE_KEYS"
         "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" restore "$CACHE_PATH" "$CACHE_KEY" ${prefixes[@]+"${prefixes[@]}"}
+
+    - name: Report cache restore evidence
+      id: receipt
+      if: always()
+      # Observability cannot change restore behavior or hide a failed action.
+      continue-on-error: true
+      shell: bash
+      env:
+        CACHE_STARTED_NS: ${{ steps.receipt-clock.outputs.started_ns }}
+        CACHE_REQUESTED_BACKEND: ${{ inputs.backend }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_GITHUB_OUTCOME: ${{ steps.github.outcome }}
+        CACHE_GITHUB_HIT: ${{ steps.github.outputs.cache-hit }}
+        CACHE_GITHUB_MATCHED: ${{ steps.github.outputs.cache-matched-key }}
+        CACHE_WARP_OUTCOME: ${{ steps.warp.outcome }}
+        CACHE_WARP_HIT: ${{ steps.warp.outputs.cache-hit }}
+        CACHE_WARP_MATCHED: ${{ steps.warp.outputs.cache-matched-key }}
+        CACHE_R2_OUTCOME: ${{ steps.r2.outcome }}
+        CACHE_R2_HIT: ${{ steps.r2.outputs.cache-hit }}
+        CACHE_R2_MATCHED: ${{ steps.r2.outputs.cache-matched-key }}
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"
