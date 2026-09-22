@@ -125,6 +125,7 @@ APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
 BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationService", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
+BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
@@ -727,6 +728,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/upload-testflight.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        "ios/Config/NotificationService.entitlements",
         "scripts/lib/verify-ios-release-origins.sh",
     ):
         source = ROOT / relative

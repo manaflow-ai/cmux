@@ -71,10 +71,12 @@ verify_ipa_aps_environment_production() {
       rm -rf "$workdir"
       return 1
     fi
+    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
     extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
     extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
-    if [[ -z "$extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
-      echo "error: signed notification extension has incomplete entitlements (application-identifier='${extension_app_id:-<absent>}', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
       plutil -p "$extension_ent" >&2 || true
       rm -rf "$workdir"
       return 1
@@ -1355,20 +1357,43 @@ PY
       if [[ -f "$IOS_DIR/Config/NotificationService.entitlements" ]]; then
         "$PLISTBUDDY" -c "Merge $IOS_DIR/Config/NotificationService.entitlements" "$extension_entitlements" >/dev/null || true
       fi
-      python3 - "$extension_entitlements" "$extension_profile_entitlements" "$DEVELOPMENT_TEAM.$extension_id" <<'PY'
+      python3 - "$extension_entitlements" "$extension_profile_entitlements" "$IOS_DIR/Config/NotificationService.entitlements" "$DEVELOPMENT_TEAM" "$extension_id" <<'PY'
 import plistlib
 import sys
 
-merged_path, profile_path, exact_group = sys.argv[1:]
+merged_path, profile_path, configured_path, team_id, extension_id = sys.argv[1:]
 with open(merged_path, "rb") as handle:
     merged = plistlib.load(handle)
 with open(profile_path, "rb") as handle:
     profile = plistlib.load(handle)
+with open(configured_path, "rb") as handle:
+    configured = plistlib.load(handle)
 for key in list(merged):
     if key not in profile:
         del merged[key]
-if "keychain-access-groups" in profile:
-    merged["keychain-access-groups"] = [exact_group]
+
+def expand(value):
+    host_id = extension_id.removesuffix(".NotificationService")
+    return value.replace("$(AppIdentifierPrefix)", team_id + ".").replace(
+        "$(CMUX_HOST_BUNDLE_IDENTIFIER)", host_id
+    )
+
+profile_groups = profile.get("keychain-access-groups", [])
+configured_groups = [expand(value) for value in configured.get("keychain-access-groups", [])]
+for group in configured_groups:
+    if not any(
+        authorized == group
+        or (authorized.endswith(".*") and group.startswith(authorized[:-1]))
+        for authorized in profile_groups
+    ):
+        raise SystemExit(
+            f"configured keychain group {group} is not authorized by the "
+            f"extension provisioning profile"
+        )
+if configured_groups:
+    # Use the extension's configured shared group, after validating it against
+    # the profile. Never claim a wildcard or invent an extension-only group.
+    merged["keychain-access-groups"] = list(dict.fromkeys(configured_groups))
 with open(merged_path, "wb") as handle:
     plistlib.dump(merged, handle)
 PY
