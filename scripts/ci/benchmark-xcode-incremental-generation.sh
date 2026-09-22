@@ -255,12 +255,19 @@ PY
 
 compress_paths() {
   local label="$1" archive="$2"; shift 2
-  local started finished seconds raw_bytes archive_bytes
+  local started finished seconds raw_bytes archive_bytes path
+  local -a relative_paths=()
   raw_bytes="$(bytes_for "$@")"
+  for path in "$@"; do
+    case "$path" in
+      "$root"/*) relative_paths+=("${path#"$root"/}") ;;
+      *) echo "refusing to archive path outside $root: $path" >&2; return 1 ;;
+    esac
+  done
   started="$(now)"
   (
     cd "$root"
-    /usr/bin/tar -cf - "${@/#$root\//}" | zstd -q -T0 -3 -o "$archive"
+    /usr/bin/tar -cf - "${relative_paths[@]}" | zstd -q -T0 -3 -o "$archive"
   )
   finished="$(now)"
   seconds="$(elapsed "$started" "$finished")"
