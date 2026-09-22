@@ -664,8 +664,8 @@ final class HostSettingsActions: SettingsHostActions {
     ) -> MobilePairingStatusSnapshot {
         let routes = Array(Set(status.localSocketAddresses)).sorted().compactMap { address -> MobilePairingRoute? in
             guard let socket = splitSocketAddress(address) else { return nil }
-            return MobilePairingRoute(id: "iroh-local:" + address,
-                kindLabel: routeKindLabel(.iroh), host: socket.host, port: socket.port)
+            return MobilePairingRoute(id: "tailscale:" + address,
+                kindLabel: routeKindLabel(.tailscale), host: socket.host, port: socket.port)
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
@@ -678,7 +678,7 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    /// Splits an observed local IROH socket (`203.0.113.7:58465` or
+    /// Splits an observed Tailscale socket (`100.64.0.7:58465` or
     /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
     /// renders, or `nil` for anything else. Internal for unit tests.
     nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
