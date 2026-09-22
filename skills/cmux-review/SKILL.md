@@ -240,6 +240,8 @@ The receipt records source identity, policy version, review brief, candidate cou
 
 The top-level `source` is the exact code state against which discovery, challenge, and pre-repair verification ran. Use full Git object ids; never abbreviate `base_sha`, `head_sha`, or `tree_sha`.
 
+`repository_id` binds Git object identities to the repository they came from. Prefer a credential-free provider identity such as `github:owner/repo` when it can be recovered safely. For a local-only or unrecognized remote, use a local opaque identifier derived from the canonical Git common-dir path rather than storing a credential-bearing remote URL.
+
 `tree_sha` is the canonical candidate-content identity. For a clean commit, use its tree object. For a working tree, snapshot the full candidate with a temporary Git index so staged, unstaged, and non-ignored untracked files all participate without mutating the real index:
 
 ```bash
@@ -263,7 +265,7 @@ A later review of the same source state may reuse a receipt only when the releva
 
 Any source change creates a new review coordinate. A repair does not upgrade the pre-repair receipt into a clean review of the repaired patch. After successful post-repair verification, run a fresh clean-room review against `repair.after_source` and persist a separate receipt for that source. Keep the earlier receipt as prior-head evidence for continuity, false-positive evaluation, and repair provenance.
 
-The exact reviewed disposition is reusable only for its exact candidate coordinate. Exact reuse starts from matching `base_sha + tree_sha`; `head_sha` is lineage metadata, and a byte-identical tree should not be re-reviewed solely because the commit object changed. Historical claims may still be useful after the source moves, but they require explicit applicability/refresh reasoning instead of silent inheritance.
+The exact reviewed disposition is reusable only for its exact candidate coordinate. Exact reuse starts from matching `repository_id + base_sha + tree_sha`; `head_sha` is lineage metadata, and a byte-identical tree should not be re-reviewed solely because the commit object changed. Historical claims may still be useful after the source moves, but they require explicit applicability/refresh reasoning instead of silent inheritance.
 
 ## 8. Final report
 
