@@ -222,8 +222,27 @@ import Testing
         #expect(directory.devices.count == 2)
         #expect(directory.inboundPeers?.map(\.device.deviceRecordID) == ["inbound-2", "inbound-3"])
         #expect(directory.inboundPeers?.map(\.permissionExpiresAt) == [now + 3602, now + 3603])
+        #expect(directory.rules == ["cmux.mac-peer-inbound.v1"])
         #expect(await socket.directoryRevisions == [nil, 2, nil, 3])
         #expect(await service.snapshot().cache.directory?.revision == 3)
+        #expect(await service.snapshot().cache.directory?.rules == ["cmux.mac-peer-inbound.v1"])
+        await service.stop()
+    }
+
+    @Test func directoryRulesSurviveRevocationProjection() async throws {
+        let backend = V2TestBackend(now: now)
+        let service = try service(backend: backend)
+        await service.start()
+        _ = try await ready(service)
+        let directory = try await service.refreshDirectory()
+        #expect(directory.rules == ["cmux.mac-peer-inbound.v1"])
+        let socket = await backend.currentSocket()
+        let events = await service.events()
+        try await socket.push(V2RevokedResponse(deviceRecordID: "other-device", revision: 2, schemaID: .deviceRevokedV1, teamID: "team"))
+        for await state in events where state.cache.directory?.revision == 2 {
+            #expect(state.cache.directory?.rules == ["cmux.mac-peer-inbound.v1"])
+            break
+        }
         await service.stop()
     }
 

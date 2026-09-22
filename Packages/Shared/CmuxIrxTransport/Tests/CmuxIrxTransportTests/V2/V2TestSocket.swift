@@ -77,10 +77,10 @@ actor V2TestSocket: V2ControlSocket {
                     permissionExpiresAt: now + 3600 + step)
                 try push(V2DirectoryResponse(directory: V2Directory(devices: [record], inboundPeers: [inbound], issuedAt: now,
                     nextCursor: next, permissionExpiresAt: now + 3600, relayURLs: [], revision: revision,
-                    teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+                    rules: ["cmux.mac-peer-inbound.v1"], teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
                 return
             }
-            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
+            try push(V2DirectoryResponse(directory: V2Directory(devices: [record], issuedAt: now, nextCursor: nil, permissionExpiresAt: now + 3600, relayURLs: ["https://relay.example.com/"], revision: directoryRevision, rules: ["cmux.mac-peer-inbound.v1"], teamID: device.identity.teamID), requestID: header.requestId, schemaID: .directoryResultV1))
         case "device.metadata.v1":
             lastMetadataRequestID = header.requestId
             if failNextMetadataReply {
