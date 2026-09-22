@@ -23167,15 +23167,7 @@ struct CMUXCLI {
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
-        for (key, value) in context {
-            rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
-        }
-        rendered = rendered.replacingOccurrences(
-            of: "#\\{[^}]+\\}",
-            with: "",
-            options: .regularExpression
-        )
+        let rendered = tmuxRenderFormatContent(format, context: context)
         let trimmed = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
     }
@@ -30625,11 +30617,14 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
+                let userInput = autoreleasepool {
+                    readCodexTranscriptUserInput(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        excluding: publishedUserInputCallIds
+                    )
+                }
+                if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
@@ -30639,11 +30634,14 @@ struct CMUXCLI {
                     )
                 }
 
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
+                let failureResult = autoreleasepool {
+                    readCodexTranscriptFailure(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        requireTerminalCompletion: true
+                    )
+                }
+                switch failureResult {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,

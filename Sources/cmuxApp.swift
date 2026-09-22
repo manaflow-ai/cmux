@@ -197,7 +197,12 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService,
-                computersActions: devices.settingsActions
+                computersActions: devices.settingsActions,
+                runComputerUseOnboardingAction: { startingPoint in
+                    AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
+                        startingAt: startingPoint
+                    )
+                }
             ),
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
