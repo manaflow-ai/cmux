@@ -7,6 +7,8 @@ that takes effect on the next workflow run.
 Linux uses Blacksmith. macOS uses Blacksmith cloud runners, with the
 self-hosted Tart fleet described below carrying specific lanes as they are
 qualified. WarpBuild is paid overflow and is not a steady state for any lane.
+Non-urgent macOS work runs on free GitHub-hosted runners through the
+background lane described below.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
@@ -30,6 +32,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_STREAMED_VALIDATION` | `ios-streamed-validate.yml`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-26` and `blacksmith-6vcpu-macos-15` respectively |
+| `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
 
 ## Lanes
 
@@ -62,6 +65,46 @@ also asserts that no workflow names a Warp label as a literal anywhere.
 Because forks cannot see repository variables, a fork pull request resolves
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` to empty and lands on the Blacksmith
 fallback. That is the same runner it used before those variables existed.
+
+## Background lane
+
+`MACOS_RUNNER_BACKGROUND` moves macOS work that nobody is waiting on off the
+shared macOS pool. Every other macOS job shares one Blacksmith pool (with paid
+Warp as overflow), and pull request CI queues on it for 30-60+ minutes at peak.
+The repository is public, so standard GitHub-hosted macOS runners are free with
+unlimited minutes (about five concurrent jobs, 3-core M1, 7 GB RAM). They are
+slower per job, which is fine for work that is not on a merge path.
+
+A job belongs in the lane only if all of these hold:
+
+- it is dispatch-only, scheduled, or runs after merge; never `pull_request`,
+  `pull_request_target`, `merge_group`, or `workflow_call` (the guard enforces
+  this per workflow);
+- it fits 3 cores and 7 GB: scripts, a single package, a Rust or Zig build,
+  uploads; not a full app or app-host XCTest build;
+- it is not a timing benchmark or incremental-build probe, whose numbers only
+  compare on the same hardware;
+- it does not need a GUI console session.
+
+Members today: `build-ghosttykit.yml` (Xcode from the image default, Zig
+xcframework build), and the two macOS Rust legs of `cmux-tui-artifacts.yml`
+and `cmux-tui-nightly.yml` (passed as `macos_runner` to
+`cmux-tui-build-package.yml`; release and merge-gate callers keep their own
+runner).
+
+The fallback is `macos-15`, never `macos-26`: the self-hosted fleet carries a
+`macos-26` label and GitHub prefers a matching self-hosted runner. The
+`macos-15` image ships Xcode 26.3 (macOS 26.2 SDK) next to its 16.4 default, so
+jobs that pin `CMUX_CI_XCODE_APP_MACOS_15` resolve there too.
+
+An admin can repoint the whole lane with one variable edit, for example back
+to Blacksmith if GitHub's macOS queue is ever the slower one:
+
+```bash
+gh variable set MACOS_RUNNER_BACKGROUND --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
+```
+
+Leaving it unset is the intended state.
 
 ## Persistent compile-admission pilot
 
@@ -233,7 +276,11 @@ for targeted fleet validation. These choices are available only through
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
 asserts that no job pins a bare GitHub-hosted runner (`ubuntu-*` / `macos-NN`):
 every job must route through a runner repo variable so the overflow switch stays
-a single variable flip. It also asserts every paid macOS job references
+a single variable flip. A GitHub-hosted macOS label may appear only as the
+`MACOS_RUNNER_BACKGROUND` fallback (`vars.MACOS_RUNNER_BACKGROUND || 'macos-15'`)
+in a workflow with no pull request, merge-queue or `workflow_call` trigger,
+apart from the pinned macOS 14 / Intel compatibility legs in
+`ci-macos-compat.yml` and `relay-publish-npm.yml`. It also asserts every paid macOS job references
 `vars.MACOS_RUNNER_*` or a Blacksmith/Warp/Depot label so it can never silently
 fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 `depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in
