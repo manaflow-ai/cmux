@@ -176,7 +176,17 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func refreshComputerUsePermissions() async {
-        _ = await computerUseRuntimeService.refreshHelperStatus()
+        let status = await computerUseRuntimeService.refreshHelperStatus()
+        guard
+            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
+            computerUseRuntimeService.permissionStatusIsKnown,
+            status.accessibility,
+            status.screenRecording,
+            computerUseRuntimeService.onboardingRequiresCompletion
+        else {
+            return
+        }
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func computerUseAccessibilityGranted() -> Bool {
