@@ -63,6 +63,25 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
+  while IFS= read -r -d '' extension_app; do
+    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
+    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+      plutil -p "$extension_ent" >&2 || true
+      rm -rf "$workdir"
+      return 1
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
   rm -rf "$workdir"
   return 0
 }
@@ -362,8 +381,9 @@ of relying on bundle-id lookup. Apple ID credentials keep using altool.
 
 Options:
   --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
-                            path. appstore uploads the production App Store
-                            build and skips TestFlight notes/group assignment.
+                            path. appstore uploads the production bundle to its
+                            TestFlight lane and sets the changelog notes without
+                            assigning a beta group.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -651,6 +671,15 @@ PRODUCTION_RUNTIME_BUILD_ARGS=(
 NOTES_AUDIENCE="internal"
 [[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
 
+# Both beta and the official com.cmux.app upload are TestFlight lanes. The
+# production marketing version has its own independent sequence, so its notes
+# use the current changelog entry without requiring that entry's version to
+# equal the production version.
+TESTFLIGHT_NOTES_LANE=0
+[[ "$LANE" == "beta" || "$LANE" == "appstore" ]] && TESTFLIGHT_NOTES_LANE=1
+NOTES_VERSION_GUARD=1
+[[ "$LANE" == "appstore" ]] && NOTES_VERSION_GUARD=0
+
 # Stamp the lane's marketing version at archive time. Release.xcconfig defaults
 # to the beta value for normal TestFlight builds, but the App Store lane shares
 # the same Xcode configuration and must override MARKETING_VERSION explicitly so
@@ -725,12 +754,10 @@ fi
 # deterministic local error (missing ios/CHANGELOG.md, empty audience block) fails
 # fast here instead of being discovered only AFTER the build is already uploaded
 # (where the notes step is non-fatal). This validate-only call contacts NO network
-# and needs no ASC credentials. The version-match check (changelog top == the
-# build's marketing version) happens later for a reused --archive-path / post-build,
-# where the actual marketing version is known. Skipped when there is no upload to
-# annotate (--export-only), notes are turned off (--skip-notes), or notes come from
-# a commit range (range-notes mode) rather than the changelog.
-if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+# and needs no ASC credentials. Skipped when there is no upload to annotate
+# (--export-only), notes are turned off (--skip-notes), or notes come from a commit
+# range (range-notes mode) rather than the changelog.
+if [[ "$TESTFLIGHT_NOTES_LANE" -eq 1 && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only --audience "$NOTES_AUDIENCE"; then
     echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes to upload without notes." >&2
     exit 1
@@ -999,21 +1026,28 @@ if ! find "$ARCHIVE_PATH/dSYMs" -maxdepth 1 -type d -name '*.dSYM' -print -quit 
   exit 1
 fi
 
-# Now that the archive exists, its marketing version (CFBundleShortVersionString)
-# is the version testers will see. Re-run the notes preflight WITH that version so
-# a deterministic mismatch (changelog top is 1.0.3 but the archived build is 1.0.0)
-# fails BEFORE the export/upload, not after (when the notes step is non-fatal and
-# would just ship an opaque build). Skipped for --export-only / --skip-notes. If the
-# archive's version is unreadable, the lane version guard above fails closed
-# before this notes-specific check.
+# For beta, the archived marketing version (CFBundleShortVersionString) must
+# match the changelog entry before export/upload, so a build never gets notes for
+# the wrong beta version. The official com.cmux.app lane has an independent
+# production version stream and validates the changelog structure without this
+# equality check. Skipped for --export-only / --skip-notes. If the archive's
+# version is unreadable, the lane version guard above fails closed before this
+# notes-specific check.
 # Skipped in range-notes mode: the notes come from the commit range, not the
 # changelog, and --auto-version intentionally stamps a version the changelog would
 # not match.
-if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
+if [[ "$TESTFLIGHT_NOTES_LANE" -eq 1 && "$EXPORT_ONLY" -ne 1 && "$SKIP_NOTES" -ne 1 && "$RANGE_NOTES_MODE" -ne 1 ]]; then
   if [[ "$ARCHIVE_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
-    if ! "$SCRIPT_DIR/set-testflight-notes.sh" --validate-only \
-        --audience "$NOTES_AUDIENCE" --expect-marketing-version "$ARCHIVE_MARKETING_VERSION"; then
-      echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+    NOTES_VALIDATE_ARGS=(--validate-only --audience "$NOTES_AUDIENCE")
+    if [[ "$NOTES_VERSION_GUARD" -eq 1 ]]; then
+      NOTES_VALIDATE_ARGS+=(--expect-marketing-version "$ARCHIVE_MARKETING_VERSION")
+    fi
+    if ! "$SCRIPT_DIR/set-testflight-notes.sh" "${NOTES_VALIDATE_ARGS[@]}"; then
+      if [[ "$NOTES_VERSION_GUARD" -eq 1 ]]; then
+        echo "error: ios/CHANGELOG.md top entry does not match the archived marketing version $ARCHIVE_MARKETING_VERSION (see above); refusing to upload a build whose What to Test notes would be for the wrong version. Update ios/CHANGELOG.md, or pass --skip-notes." >&2
+      else
+        echo "error: TestFlight What to Test notes preflight failed (see above). Fix ios/CHANGELOG.md before uploading, or pass --skip-notes." >&2
+      fi
       exit 1
     fi
   fi
@@ -1054,11 +1088,15 @@ else
   plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
     EXTENSION_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.NotificationService"
-    EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    if [[ "$LANE" == "appstore" ]]; then
+      EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    else
+      EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    fi
     if [[ -z "$EXTENSION_PROFILE_NAME" ]]; then
-      echo "error: manual App Store export needs IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME for $EXTENSION_BUNDLE_IDENTIFIER" >&2
+      echo "error: manual beta/App Store export needs a provisioning profile name for $EXTENSION_BUNDLE_IDENTIFIER" >&2
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
@@ -1114,10 +1152,10 @@ fi
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
-# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
-# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
-# static), so only the top-level .app is signed; there is no nested code to
-# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# Inc."), which is present for local/fleet-archive beta cuts. The app's static
+# frameworks are stripped, while each embedded NotificationService.appex is
+# signed separately with its own profile before the top-level app is sealed.
+# Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
 # "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
 # fleet would put distribution material on shared Macs.
 if [[ "$SIGNING" == "manual" ]]; then
@@ -1283,6 +1321,87 @@ PY
     "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
       "$RESIGN_APP/Info.plist"
     echo "Patched CMUXKeychainAccessGroup -> $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  fi
+
+  # NotificationService.appex is a separately signed code bundle. The export
+  # profile mapping above makes Xcode embed its profile, but the manual beta
+  # path still has to sign the extension after exporting the unsigned archive.
+  # Signing only the container app leaves the extension with no entitlements,
+  # which App Store Connect rejects as error 90166.
+  if [[ -d "$RESIGN_APP/PlugIns" ]]; then
+    while IFS= read -r -d '' extension_app; do
+      extension_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+      if [[ -z "$extension_id" ]]; then
+        echo "error: notification extension is missing CFBundleIdentifier: $extension_app" >&2
+        exit 1
+      fi
+      extension_profile="$extension_app/embedded.mobileprovision"
+      if [[ ! -f "$extension_profile" ]]; then
+        echo "error: extension $extension_id has no embedded provisioning profile; refusing to upload unsigned extension code" >&2
+        exit 1
+      fi
+
+      extension_profile_plist="$RESIGN_DIR/${extension_id}.profile.plist"
+      extension_profile_entitlements="$RESIGN_DIR/${extension_id}.profile-entitlements.plist"
+      extension_entitlements="$RESIGN_DIR/${extension_id}.entitlements.plist"
+      security cms -D -i "$extension_profile" > "$extension_profile_plist" || {
+        echo "error: could not decode extension provisioning profile for $extension_id" >&2
+        exit 1
+      }
+      plutil -extract Entitlements xml1 -o "$extension_profile_entitlements" "$extension_profile_plist"
+      if codesign -d --entitlements :- --xml "$extension_app" > "$extension_entitlements" 2>/dev/null; then
+        "$PLISTBUDDY" -c "Merge $extension_profile_entitlements" "$extension_entitlements" >/dev/null || true
+      else
+        cp "$extension_profile_entitlements" "$extension_entitlements"
+      fi
+      if [[ -f "$IOS_DIR/Config/NotificationService.entitlements" ]]; then
+        "$PLISTBUDDY" -c "Merge $IOS_DIR/Config/NotificationService.entitlements" "$extension_entitlements" >/dev/null || true
+      fi
+      python3 - "$extension_entitlements" "$extension_profile_entitlements" "$IOS_DIR/Config/NotificationService.entitlements" "$DEVELOPMENT_TEAM" "$extension_id" <<'PY'
+import plistlib
+import sys
+
+merged_path, profile_path, configured_path, team_id, extension_id = sys.argv[1:]
+with open(merged_path, "rb") as handle:
+    merged = plistlib.load(handle)
+with open(profile_path, "rb") as handle:
+    profile = plistlib.load(handle)
+with open(configured_path, "rb") as handle:
+    configured = plistlib.load(handle)
+for key in list(merged):
+    if key not in profile:
+        del merged[key]
+
+def expand(value):
+    host_id = extension_id.removesuffix(".NotificationService")
+    return value.replace("$(AppIdentifierPrefix)", team_id + ".").replace(
+        "$(CMUX_HOST_BUNDLE_IDENTIFIER)", host_id
+    )
+
+profile_groups = profile.get("keychain-access-groups", [])
+configured_groups = [expand(value) for value in configured.get("keychain-access-groups", [])]
+for group in configured_groups:
+    if not any(
+        authorized == group
+        or (authorized.endswith(".*") and group.startswith(authorized[:-1]))
+        for authorized in profile_groups
+    ):
+        raise SystemExit(
+            f"configured keychain group {group} is not authorized by the "
+            f"extension provisioning profile"
+        )
+if configured_groups:
+    # Use the extension's configured shared group, after validating it against
+    # the profile. Never claim a wildcard or invent an extension-only group.
+    merged["keychain-access-groups"] = list(dict.fromkeys(configured_groups))
+with open(merged_path, "wb") as handle:
+    plistlib.dump(merged, handle)
+PY
+      plutil -lint "$extension_entitlements" >/dev/null
+      codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$extension_entitlements" --timestamp "$extension_app"
+      codesign --verify --strict --verbose=2 "$extension_app"
+      echo "re-signed nested extension $extension_id with its embedded profile entitlements"
+    done < <(find "$RESIGN_APP/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0)
   fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
@@ -1571,21 +1690,21 @@ fi
 # Audience: --external uses the External audience; the default internal cut uses
 # the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
 # actually shipped (post-guard, or the reused archive's embedded version).
-if [[ "$LANE" != "beta" ]]; then
+if [[ "$TESTFLIGHT_NOTES_LANE" -ne 1 ]]; then
   echo "note: lane '$LANE' is not a TestFlight lane; skipping TestFlight What to Test notes" >&2
 elif [[ "$SKIP_NOTES" -eq 1 ]]; then
   echo "note: --skip-notes set; not setting TestFlight What to Test notes" >&2
 elif [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "${ASC_API_KEY_PATH:-}" && -z "${ASC_API_KEY_P8_BASE64:-}" ) ]]; then
   echo "note: no ASC API key (JWT) available; skipping TestFlight What to Test notes (set ASC_API_KEY_ID/ASC_API_ISSUER_ID/ASC_API_KEY_PATH, or run ios/scripts/set-testflight-notes.sh later)" >&2
 else
-  # The local preconditions (changelog present, audience block non-empty, top
-  # version == the archived marketing version) were already enforced FATALLY before
-  # the upload. This post-upload step is the ONLY non-fatal part: it just performs
-  # the App Store Connect mutation, which can legitimately fail transiently (build
-  # still processing past the timeout, network/API hiccup) without that meaning the
+  # The local preconditions (changelog present, audience block non-empty, and the
+  # beta-only version match) were already enforced FATALLY before the upload.
+  # This post-upload step is the ONLY non-fatal part: it just performs the App
+  # Store Connect mutation, which can legitimately fail transiently (build still
+  # processing past the timeout, network/API hiccup) without that meaning the
   # release is broken. The binary is already on TestFlight; the notes can be
   # re-applied later. NOTES_AUDIENCE was set early. Re-read the archived marketing
-  # version so the mutation still carries the version-match guard.
+  # version for the beta guard when applicable.
   NOTES_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
   # In range-notes mode the notes come from the commit range (not the changelog),
   # so pass them via --notes and skip the changelog version-match
@@ -1596,6 +1715,7 @@ else
   # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
+  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (production version stream)"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     # Keep generator stderr on the CI transcript (its fallback/unreachable-base
     # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup
@@ -1614,7 +1734,7 @@ else
     else
       NOTES_SOURCE_DESC="auto-generated notes (no previous beta; fallback)"
     fi
-  elif [[ "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+  elif [[ "$NOTES_VERSION_GUARD" -eq 1 && "$NOTES_MARKETING_VERSION" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
     NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
   echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ${NOTES_SOURCE_DESC}" >&2

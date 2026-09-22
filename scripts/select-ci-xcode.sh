@@ -66,17 +66,12 @@ select_developer_dir() {
   fi
   export DEVELOPER_DIR="$selected_dir"
 
-  # Also point the *system* xcode-select default at the selected toolchain. Tools
-  # that ignore DEVELOPER_DIR resolve `xcodebuild` via the xcode-select default,
-  # notably Apple's `/usr/bin/git` shim (`xcodebuild -find git`). The xctest host
-  # spawns git subprocesses that do NOT inherit our DEVELOPER_DIR, so on runner VMs
-  # whose default is the old Xcode symlink, `git` runs the old `xcodebuild`, which
-  # dlopen()s a libxcodebuildLoader ABI-incompatible with the newer-Xcode-built test
-  # host and crashes ("Symbol not found"), failing git-shell-out tests
-  # (e.g. ExtensionWorktreePrototypeTests) before they can assert - nondeterministic
-  # per which VM a shard lands on. Aligning the default removes that divergence.
-  # Best-effort: never hard-fail a runner that disallows the switch.
-  if xcode-select -s "$selected_dir" 2>/dev/null; then
+  # Ordinary CI also aligns the system xcode-select default because some app-host
+  # subprocesses ignore DEVELOPER_DIR. Shared-machine semantic workloads must not
+  # mutate that host-global selector, so their reviewed environment sets the skip.
+  if [[ "${CMUX_CI_SKIP_XCODE_SELECT:-0}" == "1" ]]; then
+    echo "Skipping host-global xcode-select update; DEVELOPER_DIR is pinned for this workload"
+  elif xcode-select -s "$selected_dir" 2>/dev/null; then
     echo "xcode-select default -> $selected_dir"
   elif command -v sudo >/dev/null 2>&1 && sudo -n xcode-select -s "$selected_dir" 2>/dev/null; then
     echo "xcode-select default (via sudo) -> $selected_dir"

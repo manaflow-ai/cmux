@@ -226,6 +226,10 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
+        if let status = terminalPanel(for: surfaceId)?.deviceAttachment {
+            status.retry()
+            return true
+        }
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections), CloudMachinesFeature.offMainIsEnabled() else { return false }
         // An optimistic pane whose creation failed replays its own request.
         if retryReservedCloudTerminalPane(surfaceId: surfaceId) { return true }
