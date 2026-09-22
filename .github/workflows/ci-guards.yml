@@ -439,6 +439,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
 
+      - name: Validate iOS screenshot capture fail-fast
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_screenshot_capture_guard.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
