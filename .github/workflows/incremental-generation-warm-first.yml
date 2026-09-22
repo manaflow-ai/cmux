@@ -1,0 +1,85 @@
+name: Incremental generation warm-first replay
+
+on:
+  push:
+    branches:
+      - incgen-canary-warm-first-20260921
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  BASE_SHA: e6e057975a84b3fef58e4b6fe2e1c9a5b8a37bb1
+  CANDIDATE_SHA: 4ada184626c26958547f447d6fc06861801dfd70
+  SEED_RUN_ID: "35671585731"
+  CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+  CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+  CMUX_SKIP_ZIG_BUILD: "1"
+
+jobs:
+  warm-first:
+    name: Warm generation A to B
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 40
+    steps:
+      - name: Checkout replay harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Ensure zstd
+        run: command -v zstd >/dev/null || brew install zstd
+
+      - name: Download seed metrics
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incgen-seed-metrics-${{ env.SEED_RUN_ID }}
+          path: ${{ runner.temp }}/incgen-artifacts
+          run-id: ${{ env.SEED_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Download generation A
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incgen-generation-${{ env.SEED_RUN_ID }}
+          path: ${{ runner.temp }}/incgen-artifacts
+          run-id: ${{ env.SEED_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Download support A
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: incgen-support-${{ env.SEED_RUN_ID }}
+          path: ${{ runner.temp }}/incgen-artifacts
+          run-id: ${{ env.SEED_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Restore A generation, advance to B, build
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/incgen-artifacts
+        run: |
+          set -euo pipefail
+          bash ./scripts/ci/benchmark-xcode-incremental-generation.sh \
+            warm-only "$BASE_SHA" "$CANDIDATE_SHA" "$ARTIFACT_DIR"
+
+      - name: Upload warm-first metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incgen-warm-first-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/incgen-artifacts/results.jsonl
+            ${{ runner.temp }}/incgen-artifacts/mtime-results.jsonl
+            ${{ runner.temp }}/incgen-artifacts/environment.txt
+            ${{ runner.temp }}/incgen-artifacts/*.log.zst
+          if-no-files-found: warn
+          retention-days: 1
+          compression-level: 0
