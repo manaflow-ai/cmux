@@ -2,7 +2,10 @@ name: iOS TestFlight (CMUX INTERNAL)
 
 on:
   # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
+  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
+  # iOS-relevant commits are pending or the oldest is
+  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
   # Manual dispatch remains available for intentional rebuilds.
   schedule:
     # Check current main for a cmux INTERNAL upload every 20 minutes.
@@ -49,7 +52,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 360
     outputs:
-      should_build: ${{ steps.decide.outputs.should_build }}
+      # The batch step, when it runs, has the last word on scheduled INTERNAL
+      # polls; every other run keeps the decide script's answer.
+      should_build: ${{ steps.batch.outputs.should_build || steps.decide.outputs.should_build }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
       variant: ${{ steps.decide.outputs.variant }}
     steps:
@@ -417,6 +422,57 @@ jobs:
                 [{ data: 'reason', header: true }, reason],
               ])
               .write();
+
+      # Batch scheduled INTERNAL polls: on a busy day nearly every 20-minute
+      # poll finds an iOS-relevant merge, and each upload is a cold Release
+      # archive on the macOS pool PR CI shares. Runs only when the rules above
+      # already chose to upload against a known prior upload; manual dispatch
+      # and the twice-daily DEMO lane are never batched.
+      - name: Check out the upload batching policy
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Commits and trees only: the batch counts first-parent commits and
+          # their changed paths, which never needs file contents.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github/workflows/ios-testflight.yml
+            ios/scripts/fetch-testflight-notes-history.sh
+            scripts/ci/ios_upload_batch_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Batch INTERNAL uploads by iOS commit count and age
+        id: batch
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LAST_UPLOADED_SHA: ${{ steps.decide.outputs.last_uploaded_sha }}
+          MIN_COMMITS: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS }}
+          MAX_AGE_MINUTES: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES }}
+        run: |
+          set -euo pipefail
+          ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
+          python3 scripts/ci/ios_upload_batch_decision.py \
+            --event "$EVENT_NAME" \
+            --base "$LAST_UPLOADED_SHA" \
+            --paths-from-workflow .github/workflows/ios-testflight.yml \
+            --min-commits "$MIN_COMMITS" \
+            --max-age-minutes "$MAX_AGE_MINUTES" \
+            --default-min-commits 5 \
+            --default-max-age-minutes 180 \
+            --output-name should_build \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
 
   upload:
     name: Upload to TestFlight

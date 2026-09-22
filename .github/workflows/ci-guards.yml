@@ -487,6 +487,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
 
+      - name: Validate iOS upload batching
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_batching.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
