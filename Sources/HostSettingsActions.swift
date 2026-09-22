@@ -21,8 +21,8 @@ final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
-    private var runComputerUseOnboardingAction:
-        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
+    private let runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -56,11 +56,14 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
-        computersActions: ComputersSettingsActions? = nil
+        computersActions: ComputersSettingsActions? = nil,
+        runComputerUseOnboardingAction:
+            @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
         self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
 
@@ -176,7 +179,17 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func refreshComputerUsePermissions() async {
-        _ = await computerUseRuntimeService.refreshHelperStatus()
+        let status = await computerUseRuntimeService.refreshHelperStatus()
+        guard
+            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
+            computerUseRuntimeService.permissionStatusIsKnown,
+            status.accessibility,
+            status.screenRecording,
+            computerUseRuntimeService.onboardingRequiresCompletion
+        else {
+            return
+        }
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func computerUseAccessibilityGranted() -> Bool {
@@ -205,12 +218,6 @@ final class HostSettingsActions: SettingsHostActions {
 
     func openComputerUseScreenRecordingSettings() {
         runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func setRunComputerUseOnboardingAction(
-        _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
-    ) {
-        runComputerUseOnboardingAction = action
     }
 
     func openConfigInExternalEditor() {

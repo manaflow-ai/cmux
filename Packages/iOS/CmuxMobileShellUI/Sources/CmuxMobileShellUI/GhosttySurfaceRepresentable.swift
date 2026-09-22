@@ -513,9 +513,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     }
                 }
             )
-            // Drive every output chunk into the libghostty surface. Ending this
-            // task terminates the stream, which unregisters the surface and
-            // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            // Drive every output chunk into the libghostty surface. The output
+            // stream owns delivery only; this coordinator's presentation owns
+            // the sticky viewport lease and releases it explicitly on teardown.
             outputTaskGeneration &+= 1
             let taskGeneration = outputTaskGeneration
             let ownerID = UUID()
@@ -539,7 +539,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(
                     surfaceID: surfaceID,
-                    ownerID: ownerID
+                    ownerID: ownerID,
+                    releaseViewportOnTermination: false
                 ) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }

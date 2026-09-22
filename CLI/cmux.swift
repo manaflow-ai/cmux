@@ -5192,6 +5192,13 @@ struct CMUXCLI {
             )
             return
         }
+        if command == "review" {
+            try runReviewNamespace(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
 
         let browserAvailabilityArgs = commandArgs.filter { $0 != "--json" }
         if command == "disable-browser" ||
@@ -18068,6 +18075,8 @@ struct CMUXCLI {
             return Self.todoUsage
         case "comments":
             return Self.commentsUsage
+        case "review":
+            return Self.reviewUsage
         case "vault":
             return Self.vaultUsage
         case "ai-accounts":
@@ -23046,19 +23055,14 @@ struct CMUXCLI {
         paneId: String,
         client: SocketClient
     ) throws -> String {
-        let payload = try client.sendV2(
-            method: "pane.surfaces",
-            params: ["workspace_id": workspaceId, "pane_id": paneId]
-        )
-        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
-           let id = selected["id"] as? String {
-            return id
+        guard let surfaceID = try tmuxSelectedSurfaceIdIfPresent(
+            workspaceId: workspaceId,
+            paneId: paneId,
+            client: client
+        ) else {
+            throw CLIError(message: "Pane has no surface to target")
         }
-        if let first = surfaces.first?["id"] as? String {
-            return first
-        }
-        throw CLIError(message: "Pane has no surface to target")
+        return surfaceID
     }
 
     private func tmuxStoredStartCommand(
@@ -23195,15 +23199,7 @@ struct CMUXCLI {
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
-        for (key, value) in context {
-            rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
-        }
-        rendered = rendered.replacingOccurrences(
-            of: "#\\{[^}]+\\}",
-            with: "",
-            options: .regularExpression
-        )
+        let rendered = tmuxRenderFormatContent(format, context: context)
         let trimmed = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
     }
@@ -23280,7 +23276,7 @@ struct CMUXCLI {
                 return (try? tmuxCanonicalSurfaceId(surfaceId, workspaceId: canonicalWorkspaceId, client: client)) ?? surfaceId
             }
             if let resolvedPaneId {
-                return try tmuxSelectedSurfaceId(
+                return try tmuxSelectedSurfaceIdIfPresent(
                     workspaceId: canonicalWorkspaceId,
                     paneId: resolvedPaneId,
                     client: client
@@ -26514,6 +26510,9 @@ struct CMUXCLI {
             let panes = payload["panes"] as? [[String: Any]] ?? []
             let containerFrame = payload["container_frame"] as? [String: Any]
             for pane in panes {
+                // Empty persisted Dock panes are valid cmux state but have no
+                // targetable tmux surface, so omit them from the tmux projection.
+                guard tmuxPaneHasTargetableSurface(pane) else { continue }
                 guard let paneId = pane["id"] as? String else { continue }
                 var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
                 tmuxEnrichContextWithGeometry(&context, pane: pane, containerFrame: containerFrame)
@@ -30650,11 +30649,14 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
+                let userInput = autoreleasepool {
+                    readCodexTranscriptUserInput(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        excluding: publishedUserInputCallIds
+                    )
+                }
+                if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
@@ -30664,11 +30666,14 @@ struct CMUXCLI {
                     )
                 }
 
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
+                let failureResult = autoreleasepool {
+                    readCodexTranscriptFailure(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        requireTerminalCompletion: true
+                    )
+                }
+                switch failureResult {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,

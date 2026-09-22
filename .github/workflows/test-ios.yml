@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
@@ -73,14 +73,58 @@ jobs:
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      target_sha: ${{ steps.target.outputs.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout workflow revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
+          ref: ${{ github.ref }}
+          # Manual dispatch only needs this workflow revision. Preserve full
+          # history automatically if pull_request routing is re-enabled later,
+          # because that path computes a merge base below.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
           submodules: false
+
+      - name: Resolve requested revision
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          target_sha="$DEFAULT_SHA"
+          if [ -n "$REQUESTED_REF" ]; then
+            target_sha="$(python3 - "$GITHUB_REPOSITORY" "$REQUESTED_REF" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          repository, requested_ref = sys.argv[1:3]
+          encoded_ref = urllib.parse.quote(requested_ref, safe="")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/commits/{encoded_ref}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          print(payload["sha"])
+          PY
+          )"
+          fi
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Unable to resolve iOS test ref to a full commit SHA"
+            exit 1
+          fi
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved iOS test revision: $target_sha"
 
       - name: Detect iOS changes
         id: detect
@@ -120,7 +164,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: false
 
@@ -175,7 +219,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: false
 
@@ -332,7 +376,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: recursive
 

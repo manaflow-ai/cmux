@@ -129,7 +129,6 @@ import UIKit
         coordinator.attach(to: tableView)
 
         workspace.previewText = "Agent finished: PR opened"
-        workspace.hasUnread = true
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
         #expect(
