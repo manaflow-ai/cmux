@@ -1333,11 +1333,12 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
-def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
+def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     caller = workflow_job_block("macos")
 
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
     for route in (
@@ -1353,6 +1354,9 @@ def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
     assert "      actions: read" in caller
     assert "      contents: read" in caller
     assert "      pull-requests: read" in caller
+
+    assert "needs.static-preflight.result == 'success'" in caller
+    assert "needs.linux-preflight.result" not in caller
 
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     assert "needs.changes" not in admission
