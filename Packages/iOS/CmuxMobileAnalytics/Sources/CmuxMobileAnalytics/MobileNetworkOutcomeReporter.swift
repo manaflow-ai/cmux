@@ -483,7 +483,9 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         }
         properties["event_code"] = .string(presentation.name(observation.event.code))
         properties["event_code_raw"] = .int(Int(observation.event.code.rawValue))
-        if let surface = observation.event.surface {
+        if let surface = observation.event.surface,
+           Int(surface) >= 0,
+           Int(surface) <= Int(UInt32.max) {
             properties["event_surface"] = .int(Int(surface))
         }
         // Bound diagnostic slots before they leave the client.
