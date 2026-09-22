@@ -18,5 +18,10 @@ jobs:
           persist-credentials: false
       - name: Validate benchmark harness
         run: |
-          python3 -m py_compile scripts/ci/benchmark-incremental-generation.py tests/test_ci_incremental_generation_canary.py
+          python3 -m py_compile \
+            scripts/ci/benchmark-incremental-generation.py \
+            scripts/ci/summarize-incremental-generation.py \
+            tests/test_ci_incremental_generation_canary.py \
+            tests/test_ci_incremental_generation_summary.py
           python3 tests/test_ci_incremental_generation_canary.py
+          python3 tests/test_ci_incremental_generation_summary.py
