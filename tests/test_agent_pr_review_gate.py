@@ -121,7 +121,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIs(greptile["statusCheck"], True)
 
         template = (root / ".github/pull_request_template.md").read_text(encoding="utf-8")
-        self.assertIn("@greptile-apps review", template)
+        self.assertIn("@greptileai review", template)
         self.assertNotIn("@greptileai review", template)
         self.assertIn("agent-pr-review-required", template)
         self.assertIn("requests Greptile automatically", template)
@@ -151,7 +151,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             if path.startswith("issues/42/comments"):
                 return [{
                     "user": {"login": "github-actions[bot]"},
-                    "body": f"{marker}\n@greptile-apps review",
+                    "body": f"{marker}\n@greptileai review",
                     "created_at": "2026-01-01T00:00:00Z",
                     "updated_at": "2026-01-01T00:00:00Z",
                 }]
@@ -184,7 +184,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             (
                 "POST",
                 "issues/42/comments",
-                {"body": f"{marker}\n@greptile-apps review"},
+                {"body": f"{marker}\n@greptileai review"},
             ),
         )
 
@@ -192,7 +192,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             with self.subTest(actor=actor):
                 pr["comments"]["nodes"] = [{
                     "author": {"login": actor},
-                    "body": f"{marker}\n@greptile-apps review",
+                    "body": f"{marker}\n@greptileai review",
                     "createdAt": "2026-01-01T00:00:00Z",
                     "updatedAt": "2026-01-01T00:00:00Z",
                 }]
@@ -221,7 +221,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             (
                 "POST",
                 "issues/42/comments",
-                {"body": f"{marker}\n@greptile-apps review"},
+                {"body": f"{marker}\n@greptileai review"},
             ),
         )
 
@@ -232,7 +232,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             head=head,
             comments=[{
                 "author": {"login": "agent-author"},
-                "body": f"{marker}\n@greptile-apps review",
+                "body": f"{marker}\n@greptileai review",
                 "createdAt": "2026-01-01T00:00:00Z",
                 "updatedAt": "2026-01-01T00:00:00Z",
             }],
@@ -244,7 +244,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
         rest.assert_called_once_with(
             "POST",
             "issues/42/comments",
-            {"body": f"{marker}\n@greptile-apps review"},
+            {"body": f"{marker}\n@greptileai review"},
         )
 
     def test_request_greptile_review_skips_running_or_completed_review(self):
