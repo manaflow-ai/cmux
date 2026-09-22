@@ -20,6 +20,7 @@ import socket
 import ssl
 import stat
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -33,6 +34,8 @@ MAX_PEERS = 8
 MAX_OBJECT_BYTES = 20 * 1024**3
 DEFAULT_LOOKUP_TIMEOUT_SECONDS = 5.0
 DEFAULT_TRANSFER_TIMEOUT_SECONDS = 180.0
+DEFAULT_SERVER_CLIENT_TIMEOUT_SECONDS = 30.0
+DEFAULT_SERVER_MAX_ACTIVE_REQUESTS = 16
 OBJECT_PATH_PREFIX = "/v1/objects/"
 OBJECT_KEY_RE = re.compile(r"[a-f0-9]{64}")
 
@@ -221,11 +224,35 @@ def _connection(source: PeerSource, timeout: float) -> tuple[http.client.HTTPSCo
         http.client.HTTPSConnection(
             host,
             port,
-            timeout=max(0.1, timeout),
+            timeout=max(0.001, timeout),
             context=ssl.create_default_context(),
         ),
         parsed.netloc,
     )
+
+
+def _request_deadline(timeout: float) -> float:
+    """Return one absolute deadline for the full peer HTTP request."""
+    return time.monotonic() + max(0.1, timeout)
+
+
+def _remaining_timeout(deadline: float) -> float:
+    """Return time left before deadline or fail the peer request."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise PeerUnavailable("peer request deadline exceeded")
+    return max(0.001, remaining)
+
+
+def _arm_connection_deadline(
+    connection: http.client.HTTPSConnection,
+    deadline: float,
+) -> None:
+    """Apply the remaining absolute deadline to connect/read/write socket work."""
+    remaining = _remaining_timeout(deadline)
+    connection.timeout = remaining
+    if connection.sock is not None:
+        connection.sock.settimeout(remaining)
 
 
 def probe_http(
@@ -237,8 +264,10 @@ def probe_http(
 ) -> PeerAvailability | None:
     if not OBJECT_KEY_RE.fullmatch(object_key):
         return None
-    connection, authority = _connection(source, timeout)
+    deadline = _request_deadline(timeout)
+    connection, authority = _connection(source, _remaining_timeout(deadline))
     try:
+        _arm_connection_deadline(connection, deadline)
         connection.request(
             "HEAD",
             OBJECT_PATH_PREFIX + object_key,
@@ -248,8 +277,12 @@ def probe_http(
                 "Accept": "application/octet-stream",
             },
         )
+        _arm_connection_deadline(connection, deadline)
         response = connection.getresponse()
-        response.read()
+        while True:
+            _arm_connection_deadline(connection, deadline)
+            if not response.read(64 * 1024):
+                break
         if response.status == 404:
             return None
         if response.status != 200:
@@ -280,9 +313,11 @@ def transfer_http(
 ) -> None:
     if not OBJECT_KEY_RE.fullmatch(object_key) or not 0 < size <= MAX_OBJECT_BYTES:
         raise PeerUnavailable("peer transfer request is invalid")
-    connection, authority = _connection(source, timeout)
+    deadline = _request_deadline(timeout)
+    connection, authority = _connection(source, _remaining_timeout(deadline))
     copied = 0
     try:
+        _arm_connection_deadline(connection, deadline)
         connection.request(
             "GET",
             OBJECT_PATH_PREFIX + object_key,
@@ -292,9 +327,13 @@ def transfer_http(
                 "Accept": "application/octet-stream",
             },
         )
+        _arm_connection_deadline(connection, deadline)
         response = connection.getresponse()
         if response.status != 200:
-            response.read()
+            while True:
+                _arm_connection_deadline(connection, deadline)
+                if not response.read(64 * 1024):
+                    break
             raise PeerUnavailable(f"peer fetch returned HTTP {response.status}")
         try:
             declared = int(response.getheader("Content-Length", "0"))
@@ -304,6 +343,7 @@ def transfer_http(
             raise PeerUnavailable("peer fetch size changed after probe")
         with target.open("xb") as output:
             while True:
+                _arm_connection_deadline(connection, deadline)
                 chunk = response.read(min(1024 * 1024, size - copied + 1))
                 if not chunk:
                     break
@@ -535,11 +575,47 @@ class PeerHTTPServer(ThreadingHTTPServer):
         store: cache.Store,
         token: str,
         drain_marker: Path | None,
-    ):
+        client_timeout_seconds: float = DEFAULT_SERVER_CLIENT_TIMEOUT_SECONDS,
+        max_active_requests: int = DEFAULT_SERVER_MAX_ACTIVE_REQUESTS,
+    ) -> None:
+        if client_timeout_seconds <= 0:
+            raise ValueError("peer client timeout must be positive")
+        if max_active_requests <= 0:
+            raise ValueError("peer active request limit must be positive")
         super().__init__(address, handler)
         self.store = store
         self.peer_token = token
         self._drain_marker = drain_marker
+        self.client_timeout_seconds = client_timeout_seconds
+        self.max_active_requests = max_active_requests
+        self._request_slots = threading.BoundedSemaphore(max_active_requests)
+
+    def get_request(self):
+        request, client_address = super().get_request()
+        try:
+            request.settimeout(self.client_timeout_seconds)
+            if isinstance(request, ssl.SSLSocket):
+                request.do_handshake()
+            return request, client_address
+        except BaseException:
+            request.close()
+            raise
+
+    def process_request(self, request, client_address) -> None:
+        if not self._request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
 
     def draining(self) -> bool:
         return _draining(self._drain_marker)
@@ -554,11 +630,17 @@ def serve(args: argparse.Namespace) -> None:
         store=store,
         token=token,
         drain_marker=args.drain_marker.resolve() if args.drain_marker else None,
+        client_timeout_seconds=args.client_timeout_seconds,
+        max_active_requests=args.max_active_requests,
     )
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(args.cert.resolve(), args.key.resolve())
-    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.socket = context.wrap_socket(
+        server.socket,
+        server_side=True,
+        do_handshake_on_connect=False,
+    )
     try:
         server.serve_forever()
     finally:
@@ -578,6 +660,16 @@ def main() -> None:
     serve_parser.add_argument("--key", type=Path, required=True)
     serve_parser.add_argument("--token-file", type=Path, required=True)
     serve_parser.add_argument("--drain-marker", type=Path)
+    serve_parser.add_argument(
+        "--client-timeout-seconds",
+        type=float,
+        default=DEFAULT_SERVER_CLIENT_TIMEOUT_SECONDS,
+    )
+    serve_parser.add_argument(
+        "--max-active-requests",
+        type=int,
+        default=DEFAULT_SERVER_MAX_ACTIVE_REQUESTS,
+    )
     args = parser.parse_args()
 
     if args.command == "serve":
