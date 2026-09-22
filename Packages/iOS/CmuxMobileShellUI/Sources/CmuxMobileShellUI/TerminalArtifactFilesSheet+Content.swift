@@ -2,6 +2,7 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import SwiftUI
+import UIKit
 
 extension TerminalArtifactFilesSheet {
     var scopePicker: some View {
@@ -571,31 +572,35 @@ extension TerminalArtifactFilesSheet {
     private static let sessionTopTolerance: CGFloat = 1
 
     private var galleryControls: some View {
-        HStack(spacing: 12) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(ChatArtifactGalleryFilter.allCases, id: \.self) { filter in
-                        Button {
-                            galleryFilter = filter
-                        } label: {
-                            Text(filterTitle(filter))
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(galleryFilter == filter ? Color.white : Color.primary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(
-                                    galleryFilter == filter
-                                        ? Color.accentColor
-                                        : Color(uiColor: .secondarySystemBackground),
-                                    in: Capsule()
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(galleryFilter == filter ? .isSelected : [])
+        HorizontalEdgeFadePillBar(
+            contentInsets: UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 12),
+            accessibilityIdentifier: "TerminalArtifactGalleryFilterScroller"
+        ) {
+            EmptyView()
+        } pills: {
+            HStack(spacing: 8) {
+                ForEach(ChatArtifactGalleryFilter.allCases, id: \.self) { filter in
+                    Button {
+                        galleryFilter = filter
+                    } label: {
+                        Text(filterTitle(filter))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(galleryFilter == filter ? Color.white : Color.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(
+                                galleryFilter == filter
+                                    ? Color.accentColor
+                                    : Color(uiColor: .secondarySystemBackground),
+                                in: Capsule()
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(galleryFilter == filter ? .isSelected : [])
                 }
             }
-
+            .fixedSize()
+        } trailing: {
             TerminalArtifactGallerySortMenu(
                 value: TerminalArtifactGallerySortMenuValue(sort: gallerySort),
                 actions: TerminalArtifactGallerySortMenuActions(
@@ -604,6 +609,7 @@ extension TerminalArtifactFilesSheet {
             )
             .equatable()
         }
+        .frame(height: 44)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
