@@ -336,7 +336,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // unread, or chip tick while agents stream. Re-configure visible
             // changed cells in place; offscreen rows pick up the new payload
             // from `configuredItemsByID` when they dequeue.
-            let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
+            let visibleIndexPaths = Set(tableView.indexPathsForVisibleRows ?? [])
+            let changedIndexPaths = changedToApply.compactMap { item -> IndexPath? in
+                guard let indexPath = dataSource.indexPath(for: item),
+                      visibleIndexPaths.contains(indexPath) else { return nil }
+                return indexPath
+            }
             if !changedIndexPaths.isEmpty {
                 UIView.performWithoutAnimation {
                     tableView.reconfigureRows(at: changedIndexPaths)
@@ -354,13 +359,29 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 appliedItems = next.items
             }
 
+            // An offscreen row will be measured when it is dequeued. Drop its
+            // stale cached height without asking UIKit to instantiate or lay
+            // out a cell during the current scroll frame.
+            for item in changedToApply where changedRowHeightIDs.contains(item.id) {
+                heightCache.remove(rowID: item.id)
+            }
+
             // Exact heights and UIKit's cached native swipe actions require a
             // reload. Content-only changes (including timestamps) keep the cell.
             let reloadIDs = changedRowHeightIDs.union(nativeActionReloadIDs)
+            let visibleIndexPaths = Set(tableView.indexPathsForVisibleRows ?? [])
             let reloadPaths = changedToApply.filter { reloadIDs.contains($0.id) }
-                .compactMap { dataSource.indexPath(for: $0) }
+                .compactMap { item -> IndexPath? in
+                    guard let indexPath = dataSource.indexPath(for: item),
+                          visibleIndexPaths.contains(indexPath) else { return nil }
+                    return indexPath
+                }
             let reconfigurePaths = changedToApply.filter { !reloadIDs.contains($0.id) }
-                .compactMap { dataSource.indexPath(for: $0) }
+                .compactMap { item -> IndexPath? in
+                    guard let indexPath = dataSource.indexPath(for: item),
+                          visibleIndexPaths.contains(indexPath) else { return nil }
+                    return indexPath
+                }
             if !reloadPaths.isEmpty {
                 tableView.reloadRows(at: reloadPaths, with: .none)
             }
