@@ -88,7 +88,7 @@ extension ContentView {
             tabManager.triggerFocusFlash()
         }
         registry.register(commandId: "palette.swapWithSession") {
-            if !PaneSwapSelectionController.beginFocused(in: tabManager) {
+            if !PaneSwapSelectionController().beginFocused(in: tabManager) {
                 NSSound.beep()
             }
         }
