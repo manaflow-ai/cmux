@@ -176,6 +176,7 @@ def warm(
         [
             "warm", "--machine-state", str(state), "--slot", slot,
             "--checkout", str(checkout), "--target", target,
+            "--measure-disk",
             *command_tail(command),
         ],
         env=env,
@@ -199,6 +200,7 @@ def task(
     argv = [
         "task-run", "--machine-state", str(state), "--slot", slot,
         "--checkout", str(checkout), "--target", target, "--task-id", task_id,
+        "--measure-disk",
     ]
     if known_at is not None:
         argv += ["--known-at", str(known_at)]
