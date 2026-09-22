@@ -1,7 +1,7 @@
 #if os(iOS) && DEBUG
 import CmuxMobileSupport
 
-private enum PushTabNavigationPreviewTargetState: Equatable {
+enum PushTabNavigationPreviewTargetState: Equatable {
     case home
     case connected
     case missingTab

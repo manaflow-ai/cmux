@@ -67,6 +67,24 @@ extension MobileShellComposite {
             && workspaceListConnectionStatus == .connected
     }
 
+    /// Whether a complete, connected workspace snapshot is available for the
+    /// exact Mac app instance that produced a push payload. This remains true
+    /// for an authoritative empty workspace list, so deletion can be reported.
+    public func isWorkspaceListAuthoritative(
+        forMacDeviceID macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        guard workspaceListIsAuthoritative else { return false }
+        let key: MacPairingKey
+        if let macDeviceID, !macDeviceID.isEmpty {
+            key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        } else {
+            guard instanceTag?.isEmpty != false else { return false }
+            key = .anonymousForeground
+        }
+        return workspacesByMac[key]?.status == .connected
+    }
+
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
     /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
     /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac

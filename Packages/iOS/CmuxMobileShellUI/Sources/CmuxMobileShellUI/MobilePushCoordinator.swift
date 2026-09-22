@@ -118,6 +118,7 @@ public final class MobilePushCoordinator {
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
+    @ObservationIgnored private var pendingDeeplinkTimedOutID: UUID?
     @ObservationIgnored private var pendingDeeplinkRecheckTask: Task<Void, Never>?
     /// Set when a tapped terminal is proven unavailable after the connection
     /// is ready. It remains observable so a cold-launch tap can present the
@@ -1035,6 +1036,7 @@ public final class MobilePushCoordinator {
         diagnosticLog?.recordAppEvent(.pushTapped)
         tabUnavailableAlert = nil
         pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkTimedOutID = nil
         pendingDeeplink = PendingDeeplink(
             id: UUID(),
             workspaceId: workspaceId,
@@ -1061,6 +1063,7 @@ public final class MobilePushCoordinator {
     /// Mac connection. The original target remains parked until it resolves.
     public func retryPendingDeeplink() {
         tabUnavailableAlert = nil
+        pendingDeeplinkTimedOutID = nil
         schedulePendingDeeplinkRecheck()
         applyPendingDeeplinkIfReady()
     }
@@ -1123,6 +1126,7 @@ public final class MobilePushCoordinator {
     /// ``workspacesDidChange()``.
     private func applyPendingDeeplinkIfReady() {
         guard let pending = pendingDeeplink else { return }
+        guard pendingDeeplinkTimedOutID != pending.id else { return }
         guard let store else {
             // A cold-launch tap remains parked until the shell mounts. There
             // is no authoritative Mac snapshot yet, so expiry cannot prove
@@ -1250,6 +1254,7 @@ public final class MobilePushCoordinator {
 
     private func clearPendingDeeplink() {
         pendingDeeplink = nil
+        pendingDeeplinkTimedOutID = nil
         pendingDeeplinkRecheckTask?.cancel()
         pendingDeeplinkRecheckTask = nil
     }
@@ -1268,8 +1273,8 @@ public final class MobilePushCoordinator {
             guard let self,
                   self.pendingDeeplink?.id == pendingID else { return }
             self.pendingDeeplinkRecheckTask = nil
+            self.pendingDeeplinkTimedOutID = pendingID
             self.presentConnectionUnavailableAlert()
-            self.applyPendingDeeplinkIfReady()
         }
     }
 
@@ -1289,25 +1294,10 @@ public final class MobilePushCoordinator {
         for pending: PendingDeeplink,
         store: CMUXMobileShellStore
     ) -> Bool {
-        guard store.workspaceListIsAuthoritative else { return false }
-        guard let macDeviceID = pending.macDeviceId, !macDeviceID.isEmpty else {
-            return pending.macInstanceTag?.isEmpty != false
-        }
-        let targetPairing = MacPairingKey(
-            macDeviceID: macDeviceID,
+        store.isWorkspaceListAuthoritative(
+            forMacDeviceID: pending.macDeviceId,
             instanceTag: pending.macInstanceTag
         )
-        // A global aggregate can be healthy while the push's Mac is still
-        // offline or absent. Treat absence as authoritative only after at
-        // least one connected row proves that this exact pairing published a
-        // current snapshot.
-        return store.workspaces.contains { workspace in
-            guard let workspaceMacDeviceID = workspace.macDeviceID else { return false }
-            return MacPairingKey(
-                macDeviceID: workspaceMacDeviceID,
-                instanceTag: workspace.macInstanceTag
-            ) == targetPairing && workspace.macConnectionStatus == .connected
-        }
     }
 
     private func pendingConnectionIsUsable(
