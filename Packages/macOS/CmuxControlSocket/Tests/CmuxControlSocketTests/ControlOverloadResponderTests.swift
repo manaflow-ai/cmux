@@ -24,9 +24,13 @@ private final class RejectedClient {
         }
     }
 
-    /// Reads until the peer closes or `timeout` elapses; a bounded poll of
-    /// the real EOF condition, not a fixed sleep.
-    func readUntilEOF(timeout: TimeInterval = 5) -> String {
+    /// Reads until the peer closes: returns everything received and whether
+    /// EOF was actually observed. The poll returns the instant the responder
+    /// closes; the bound only stops a broken responder from hanging the
+    /// suite and is generous because libdispatch runs the responder's
+    /// source-cancellation handlers on a utility queue that a loaded runner
+    /// can starve for seconds.
+    func readUntilEOF(timeout: TimeInterval = 30) -> (text: String, sawEOF: Bool) {
         var collected = [UInt8]()
         let deadline = Date().addingTimeInterval(timeout)
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -41,19 +45,14 @@ private final class RejectedClient {
                 collected.append(contentsOf: buffer[0..<count])
                 continue
             }
-            if count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR) {
-                break
+            if count == 0 {
+                return (String(decoding: collected, as: UTF8.self), true)
+            }
+            if count < 0, errno != EAGAIN, errno != EINTR {
+                return (String(decoding: collected, as: UTF8.self), true)
             }
         }
-        return String(decoding: collected, as: UTF8.self)
-    }
-
-    var peerClosed: Bool {
-        var descriptor = pollfd(fd: clientEnd, events: Int16(POLLIN | POLLHUP), revents: 0)
-        guard poll(&descriptor, 1, 0) > 0 else { return false }
-        if descriptor.revents & Int16(POLLHUP) != 0 { return true }
-        var probe: UInt8 = 0
-        return Darwin.recv(clientEnd, &probe, 1, MSG_PEEK) == 0
+        return (String(decoding: collected, as: UTF8.self), false)
     }
 
     deinit {
@@ -121,8 +120,9 @@ struct ControlOverloadResponderTests {
         responder.reject(socket: client.serverEnd, reason: .poolSaturated)
 
         let reply = client.readUntilEOF()
+        #expect(reply.sawEOF)
         let object = try #require(
-            JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
+            JSONSerialization.jsonObject(with: Data(reply.text.utf8)) as? [String: Any]
         )
         #expect(object["ok"] as? Bool == false)
         #expect(object["id"] as? String == "req-7")
@@ -133,7 +133,6 @@ struct ControlOverloadResponderTests {
         #expect(data["retryable"] as? Bool == true)
         #expect(data["retry_after_ms"] as? Int == 250)
         #expect(data["reason"] as? String == "pool_saturated")
-        #expect(client.peerClosed)
 
         #expect(await recorder.nextRejection() == ControlOverloadRejection(
             reason: .poolSaturated, replied: true, activeReplies: 0
@@ -150,7 +149,8 @@ struct ControlOverloadResponderTests {
         responder.reject(socket: client.serverEnd, reason: .pendingExpired)
 
         let reply = client.readUntilEOF()
-        #expect(reply == "ERROR: overloaded retry_after_ms=250 reason=pending_expired\n")
+        #expect(reply.sawEOF)
+        #expect(reply.text == "ERROR: overloaded retry_after_ms=250 reason=pending_expired\n")
         #expect(await recorder.nextRejection()?.replied == true)
     }
 
@@ -164,8 +164,8 @@ struct ControlOverloadResponderTests {
         // The read deadline is the responder's own bounded wait for the
         // client's first line; the test only waits on the resulting close.
         let reply = client.readUntilEOF()
-        #expect(reply.isEmpty)
-        #expect(client.peerClosed)
+        #expect(reply.sawEOF)
+        #expect(reply.text.isEmpty)
         #expect(await recorder.nextRejection() == ControlOverloadRejection(
             reason: .poolSaturated, replied: false, activeReplies: 0
         ))
@@ -179,8 +179,9 @@ struct ControlOverloadResponderTests {
 
         responder.reject(socket: client.serverEnd, reason: .preauthorizationSaturated)
 
-        #expect(client.readUntilEOF().isEmpty)
-        #expect(client.peerClosed)
+        let reply = client.readUntilEOF()
+        #expect(reply.sawEOF)
+        #expect(reply.text.isEmpty)
         #expect(recorder.all == [
             ControlOverloadRejection(reason: .preauthorizationSaturated, replied: false, activeReplies: 0),
         ])
