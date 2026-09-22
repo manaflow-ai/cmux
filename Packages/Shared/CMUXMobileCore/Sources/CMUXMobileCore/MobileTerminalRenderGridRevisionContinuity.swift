@@ -71,9 +71,19 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         _ frame: MobileTerminalRenderGridFrame,
         delivered: Self?
     ) -> Verdict {
-        // NOTE: pre-fix behavior for the red half of the regression pair:
-        // every non-admissible frame is treated as chain corruption.
-        admits(frame, delivered: delivered) ? .admit : .chainBreak
+        // Staleness is decidable only inside one epoch (revisions are
+        // monotonic per epoch and restart across epochs) and only for frames
+        // that carry a real identity. Everything else keeps the binary
+        // behavior, including cross-epoch frames (fail closed) and legacy
+        // epochless producers (history chain remains their only guard).
+        if let delivered,
+           !frame.renderEpoch.isEmpty,
+           frame.renderRevision > 0,
+           frame.renderEpoch == delivered.renderEpoch,
+           frame.renderRevision <= delivered.renderRevision {
+            return .stale
+        }
+        return admits(frame, delivered: delivered) ? .admit : .chainBreak
     }
 
     /// Whether `frame` may patch on top of the delivered state.
