@@ -1831,6 +1831,15 @@ final class TerminalOffscreenStartupTests: XCTestCase {
 #endif
 
     private func waitForMobileHostRoutesForTesting() async -> Bool {
+        let routes = MobileHostPublicStatusCache.snapshot()
+        if !routes.contains(where: { $0.id == "debug_loopback" }),
+           let route = try? CmxAttachRoute(
+               id: "debug_loopback", kind: .debugLoopback,
+               endpoint: .hostPort(host: "127.0.0.1", port: 58465), priority: 0
+           ) {
+            MobileHostPublicStatusCache.update(routes: routes + [route])
+            return true
+        }
         for _ in 0..<200 {
             let response = await TerminalController.shared.mobileHostHandleRPC(
                 MobileHostRPCRequest(
@@ -3289,6 +3298,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -3347,6 +3358,8 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
 
         let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
         contentView.addSubview(otherResponder)
@@ -3433,6 +3446,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -3680,6 +3694,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         hostedView.frame = contentView.bounds
         hostedView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()

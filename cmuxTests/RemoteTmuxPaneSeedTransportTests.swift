@@ -807,7 +807,7 @@ import Testing
         // arrives, so a seed against that grid would be delivered on the spot.
         // Publish a larger pane grid than any surface here has applied; the
         // retention under test exists for exactly that lag.
-        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7, 8])
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7, 8], columns: 600, rows: 600)
 
         sessionMirror.routeSeed(
             paneId: 7,

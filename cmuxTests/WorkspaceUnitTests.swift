@@ -507,6 +507,22 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        let defaults = UserDefaults.standard
+        let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previousFeed = defaults.object(forKey: feedKey)
+        let previousDock = defaults.object(forKey: dockKey)
+        defer {
+            if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
+            else { defaults.removeObject(forKey: feedKey) }
+            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
+            else { defaults.removeObject(forKey: dockKey) }
+        }
+        // Positional defaults are intentionally derived from the visible tab
+        // bar. Make the beta-only tabs visible so this test exercises the
+        // complete five-action mapping rather than the disabled-tab fallback.
+        defaults.set(true, forKey: feedKey)
+        defaults.set(true, forKey: dockKey)
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
@@ -4950,6 +4966,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             rightPanel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             leftPanel.hostedView.layoutSubtreeIfNeeded()
@@ -4961,7 +4978,6 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             appDelegate.noteMainPanelKeyboardFocusIntent(
                 workspaceId: workspace.id, panelId: leftPanel.id, in: window
             )
-            FocusSurfaceBroadcaster.shared.flush()
 
             var firstResponderFeedbackCount = 0
             leftPanel.hostedView.setFocusHandler {

@@ -438,7 +438,7 @@ struct SurfaceCatalogTests {
         let directories: [String?] = ["/Users/remote", "/Users/remote/project", nil]
         for directory in directories {
             resource.detail = directory
-            catalog.replaceResources([resource], on: machine, from: provider)
+            catalog.replaceResources([resource], on: machine, info: provider.info, from: provider)
 
             let snapshot = catalog.snapshot
             let presented = try #require(snapshot.resources.first { $0.id == resource.id })

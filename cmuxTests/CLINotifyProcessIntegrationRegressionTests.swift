@@ -5479,8 +5479,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "surface.create")
             let params = payload["params"] as? [String: Any] ?? [:]
+            if method == "surface.ssh_session_attach.resolve" {
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId, "workspace_ref": "workspace:1"]
+                )
+            }
+            XCTAssertEqual(method, "surface.create")
             XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
@@ -5535,7 +5544,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-        XCTAssertEqual(state.snapshot().count, 1)
+        XCTAssertEqual(state.snapshot().count, 2)
     }
 
     func testSSHPTYAttachRequireExistingPassesBridgeFlag() throws {

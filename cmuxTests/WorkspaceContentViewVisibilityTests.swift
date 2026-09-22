@@ -220,9 +220,9 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
-        for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        for _ in 0..<7 {
+            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
@@ -249,19 +249,19 @@ final class WorkspaceContentViewVisibilityTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
-
         await Self.drainMainRunLoop(for: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
-
         counts.reset()
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,

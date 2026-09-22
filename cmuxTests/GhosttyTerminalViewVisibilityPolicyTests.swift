@@ -489,7 +489,9 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         // Native size publication also waits for AppKit's display/layout
         // turn. Main-queue barriers alone do not drive that turn in an async test.
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
+        // The portal's settled commit waits through AppKit's display/layout
+        // turn; hosted CI can need several turns after the anchor write.
+        let deadline = clock.now.advanced(by: .seconds(5))
         while (try terminalSize()).width >= initialTerminalSize.width,
               clock.now < deadline {
             window.displayIfNeeded()

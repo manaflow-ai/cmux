@@ -780,12 +780,8 @@ final class MachinesPanelModelTests: XCTestCase {
         catalog.register(provider)
         XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
 
-        XCTAssertThrowsError(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)) { error in
-            XCTAssertEqual(
-                error as? SurfaceCatalogError,
-                .destinationNotFound("workspace ws_legacy on legacy-group-test has no projectable resources")
-            )
-        }
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
+        XCTAssertEqual(group.placements.map(\.resource), [resource.id])
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {

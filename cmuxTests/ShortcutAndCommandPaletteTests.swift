@@ -860,7 +860,10 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
 
         let visibleCommandIds = visibleAuthCommandIds(context)
 
-        XCTAssertEqual(visibleCommandIds, [ContentView.commandPaletteAuthSignOutCommandId])
+        XCTAssertEqual(visibleCommandIds, [
+            ContentView.commandPaletteAuthSignOutCommandId,
+            ContentView.commandPaletteAuthTeamPickerCommandId,
+        ])
     }
 
     func testWorkingAuthContextHidesSignInAndSignOutCommands() {

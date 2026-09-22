@@ -8483,6 +8483,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitSerializesPasteboardRunsAcrossSurfaces() throws {
 #if DEBUG
         try withPreservedGeneralPasteboard {
+            // A previous app-host batch may have been interrupted while a
+            // pasteboard lane was awaiting its fake read. Start this isolated
+            // cross-surface ordering check from an empty debug runner.
+            TextBoxSubmit.debugResetForTesting()
             let firstSurface = FakeTextBoxSubmitSurface()
             let secondSurface = FakeTextBoxSubmitSurface()
             let pasteboard = NSPasteboard.general

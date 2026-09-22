@@ -13538,7 +13538,9 @@ struct CMUXCLI {
     ) -> String {
         let retryText = String(
             localized: "cli.vm.sshInfo.retry.status",
-            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
+            defaultValue: retryDelaySeconds <= 0
+                ? "Retrying now (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
+                : "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
         )
         let errorText = String(describing: error)
         if Self.isLocalCloudVMServiceUnreachable(errorText),

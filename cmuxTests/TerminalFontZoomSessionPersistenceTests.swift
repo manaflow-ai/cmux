@@ -1005,12 +1005,10 @@ struct TerminalFontZoomSessionPersistenceTests {
 
         let firstMirrorPanel = try #require(mirror.panel(forPane: 11))
         let secondMirrorPanel = try #require(mirror.panel(forPane: 22))
-        firstMirrorPanel.surface.recordCurrentFontSizeLineage(
-            TerminalFontSizeLineage(basePoints: 6, isExplicitOverride: true)
-        )
-        secondMirrorPanel.surface.recordCurrentFontSizeLineage(
-            TerminalFontSizeLineage(basePoints: 4, isExplicitOverride: true)
-        )
+        // Manual-I/O panes already have a runtime: adjust the live font, not
+        // only its durable cache, which the next live snapshot replaces.
+        #expect(firstMirrorPanel.surface.adjustFontSize(byRuntimePoints: -1))
+        #expect(secondMirrorPanel.surface.adjustFontSize(byRuntimePoints: -3))
 
         #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 3)
         #expect(outerPanel.surface.fontSizeLineageSnapshot()?.basePoints == 7)
