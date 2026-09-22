@@ -271,6 +271,8 @@ class ReuseProducts(TestProductHandoff):
             "config/iroh/managed-relay-catalog.json",
             "vercel.json",
             ".vercelignore",
+            "cmux-browser/src/main.ts",
+            "daemon/remote/cmd/cmuxd-remote/cli.go",
         ):
             self.assertFalse(identity.reaches_product(path), path)
         self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
