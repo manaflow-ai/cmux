@@ -80,6 +80,9 @@ RUNS_PER_PAGE = 100
 # One `created:` query never returns more than this, whatever the page cap
 # says, so a window busier than this has to be asked for in slices.
 RUNS_PER_QUERY_CAP = 1000
+# One reason per kind, not per slice: 22 capped slices used to print the
+# same sentence 22 times and push the numbers off the screen.
+CAPPED_SLICE_REASON = "some slices hit the 1000-run API cap; raise CI_HEALTH_WINDOW_SLICES to see the rest"
 
 # Thresholds that turn a number into an action. docs/ci/health-report.md says
 # what each one means and what to do when it trips.
@@ -158,8 +161,12 @@ def slice_windows(window: Window, count: int) -> list[Window]:
 
 
 def auto_slices(window_hours: int) -> int:
-    """One slice per hour, which keeps each query under the per-query cap here."""
-    return max(1, min(MAX_WINDOW_SLICES, window_hours))
+    """Half-hour slices, which is what stays under the per-query cap here.
+
+    Measured on this repo: an hourly slice hit the 1000-run cap in 22 of 24
+    hours, because a busy hour creates more than a thousand runs on its own.
+    """
+    return max(1, min(MAX_WINDOW_SLICES, window_hours * 2))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -857,8 +864,11 @@ def render_report(
         f"Generated {now.strftime('%Y-%m-%d %H:%M UTC')} for `{repo}`._"
     )
     if current.partial or previous.partial:
-        reasons = "; ".join(dict.fromkeys(list(current.partial) + list(previous.partial)))
-        lines += ["", f"> **Partial data.** {reasons}. Numbers below cover only what was fetched."]
+        lines += [
+            "",
+            f"> **Partial data.** {summarize_partial(current.partial, previous.partial)} "
+            "Numbers below cover only what was fetched.",
+        ]
     lines.append("")
 
     lines.append("### Headline vs previous window")
@@ -1007,6 +1017,19 @@ def render_report(
     return "\n".join(lines) + "\n"
 
 
+def summarize_partial(*reason_groups: Sequence[str]) -> str:
+    """Distinct reasons, each with how many times it happened."""
+    counts: dict[str, int] = {}
+    for reasons in reason_groups:
+        for reason in reasons:
+            counts[reason] = counts.get(reason, 0) + 1
+    parts = [
+        reason if count == 1 else f"{reason} ({count} slices)"
+        for reason, count in counts.items()
+    ]
+    return "; ".join(parts) + "."
+
+
 def replace_generated(body: str, generated: str) -> str:
     """Swap the generated section, leaving any human text around it alone."""
     if body.count(START_MARKER) != 1 or body.count(END_MARKER) != 1:
@@ -1105,10 +1128,7 @@ class GitHub:
                 # The API will not paginate past this however many pages we ask
                 # for, so the rest of this slice is unreachable, not absent.
                 capped = True
-                partial.append(
-                    f"{window.label()} hit the {RUNS_PER_QUERY_CAP}-run API cap; "
-                    "raise CI_HEALTH_WINDOW_SLICES to see the rest"
-                )
+                partial.append(CAPPED_SLICE_REASON)
                 break
         else:
             capped = True

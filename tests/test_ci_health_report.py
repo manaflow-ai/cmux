@@ -357,10 +357,11 @@ class SliceTests(unittest.TestCase):
         self.assertEqual(report.slice_windows(CURRENT_WINDOW, 1), [CURRENT_WINDOW])
         self.assertEqual(report.slice_windows(CURRENT_WINDOW, 0), [CURRENT_WINDOW])
 
-    def test_the_default_is_one_slice_per_hour_of_the_window(self):
-        self.assertEqual(report.auto_slices(6), 6)
-        self.assertEqual(report.auto_slices(24), 24)
-        self.assertEqual(report.auto_slices(1), 1)
+    def test_the_default_slices_are_half_hours(self):
+        # An hourly slice hit the 1000-run cap in 22 of 24 measured hours.
+        self.assertEqual(report.auto_slices(6), 12)
+        self.assertEqual(report.auto_slices(24), 48)
+        self.assertEqual(report.auto_slices(1), 2)
         # The cap keeps a long window from turning into hundreds of queries.
         self.assertEqual(report.auto_slices(500), report.MAX_WINDOW_SLICES)
 
@@ -440,6 +441,14 @@ class RenderTests(unittest.TestCase):
         text = report.render_report(partial, self.previous, repo=REPO, now=NOW, api_calls=7)
         self.assertIn("**Partial data.**", text)
         self.assertIn("rate limited on runs", text)
+
+    def test_a_repeated_partial_reason_is_counted_not_repeated(self):
+        banner = report.summarize_partial(
+            [report.CAPPED_SLICE_REASON] * 22, [report.CAPPED_SLICE_REASON, "rate limited"]
+        )
+        self.assertEqual(banner.count(report.CAPPED_SLICE_REASON), 1)
+        self.assertIn("(23 slices)", banner)
+        self.assertIn("rate limited", banner)
 
     def test_a_pipe_in_a_job_name_cannot_break_the_table(self):
         rows = report.job_rows(
