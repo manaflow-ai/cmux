@@ -160,6 +160,7 @@ jobs:
         run: python3 scripts/generate-cmux-config-schema.py --check
 
       - name: Set up Bun for guard tests
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
@@ -178,14 +179,25 @@ jobs:
         run: ./scripts/check-control-plane-types.sh
 
       - name: Set up Python 3.9 for nightly prune compatibility
-        if: ${{ matrix.group != 'preflight' }}
+        if: ${{ matrix.group == 'release-tooling' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.9"
 
-      - name: Install workflow guard Python dependencies
-        if: ${{ matrix.group != 'preflight' }}
-        run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
+      - name: Prepare workflow guard Python dependencies
+        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-tooling' }}
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
+          packages=(PyYAML==6.0.3)
+          if [[ "${{ matrix.group }}" == "release-tooling" ]]; then
+            packages+=(bashlex==0.18)
+          fi
+          "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            "${packages[@]}"
+          echo "$RUNNER_TEMP/workflow-guard-venv/bin" >> "$GITHUB_PATH"
 
       - name: Validate Blacksmith Testbox broker trust boundary
         if: ${{ matrix.group == 'ci' }}
