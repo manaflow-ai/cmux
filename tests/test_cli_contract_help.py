@@ -333,7 +333,18 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                     "id": "LEDGER-01",
                     "title": "Verified finding",
                     "severity": "P1",
-                    "claim": "A real issue exists",
+                    "claims": [
+                        {
+                            "kind": "inferred",
+                            "message": "A real issue exists",
+                            "evidence": [],
+                        },
+                        {
+                            "kind": "proven",
+                            "message": "The example failure reproduced",
+                            "evidence": [],
+                        },
+                    ],
                     "failure_mode": "Example failure",
                     "paths": ["Sources/App.swift"],
                     "discovery_sources": ["correctness"],
@@ -350,7 +361,13 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                     "id": "LEDGER-02",
                     "title": "Suppressed nit",
                     "severity": "P3",
-                    "claim": "Low-value issue",
+                    "claims": [
+                        {
+                            "kind": "inferred",
+                            "message": "Low-value issue",
+                            "evidence": [],
+                        }
+                    ],
                     "failure_mode": "No meaningful failure",
                     "paths": ["Sources/App.swift"],
                     "discovery_sources": ["rules"],
