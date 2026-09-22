@@ -298,6 +298,7 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             "schema_version": 1,
             "policy_version": "cmux-review/v1",
             "repository_root": str(repository),
+            "ruleset_sha256": None,
             "source": {
                 "base_sha": "1" * 40,
                 "head_sha": "2" * 40,
