@@ -411,6 +411,10 @@ path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_test_execution_registry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
@@ -528,6 +532,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_e2e.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sync_test_wiring.py"
 lane = "linux-guard"
 
 [[test]]
@@ -704,6 +712,10 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_cmux_browser_skill.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_settings_jsonc.py"
 lane = "linux-guard"
 
 [[test]]
