@@ -371,8 +371,12 @@ def cleanup_retired_cold_tasks(
     preempt_fd: int | None = None,
     max_generations: int = 1,
 ) -> dict[str, Any]:
-    if max_generations <= 0:
-        return {"status": "idle", "reclaimed": 0}
+    if max_generations <= 0 or max_generations > 32:
+        return {
+            "status": "failed",
+            "reason": "invalid_cleanup_budget",
+            "reclaimed": 0,
+        }
     try:
         cleanup_lock = locked(layout.cleanup_lock, blocking=False)
         cleanup_lock.__enter__()
@@ -385,7 +389,24 @@ def cleanup_retired_cold_tasks(
             return {"status": "idle", "reclaimed": 0}
 
         candidates: list[Path] = []
-        for path in sorted(layout.retired_cold_tasks.iterdir(), key=lambda item: item.name):
+        try:
+            retired_entries = sorted(
+                layout.retired_cold_tasks.iterdir(),
+                key=lambda item: item.name,
+            )
+        except OSError:
+            event(
+                layout,
+                "cold_task_cleanup_failed",
+                reason="retired_namespace_unreadable",
+            )
+            return {
+                "status": "failed",
+                "reason": "retired_namespace_unreadable",
+                "reclaimed": 0,
+            }
+
+        for path in retired_entries:
             try:
                 cold_task_generation_id(path.name)
             except ValueError:
