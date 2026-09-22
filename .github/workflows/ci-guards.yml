@@ -104,6 +104,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_release_sdk_lane.sh
 
+      - name: Validate build-only reload keeps the tagged app bundle
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_build_only_keeps_tagged_app.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -119,6 +123,10 @@ jobs:
       - name: Validate Localizable.xcstrings catalog structure
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
+
+      - name: Validate .xcstrings merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_xcstrings.py
 
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
@@ -434,6 +442,10 @@ jobs:
       - name: Validate TestFlight upload argument expansion
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
+
+      - name: Validate iOS screenshot capture fail-fast
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_screenshot_capture_guard.py
 
       - name: Validate TestFlight assignment after a post-upload failure
         if: ${{ matrix.group == 'release-ios' }}
