@@ -59,8 +59,12 @@ if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
+if ! grep -Fq 'cron: "47 * * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must keep an hourly :47 UTC tick so a quiet main still publishes its newest revision"
+  exit 1
+fi
+if grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: the daily 08:47 UTC publish schedule is superseded by the hourly :47 tick and must not fire a second event"
   exit 1
 fi
 
@@ -107,8 +111,8 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')" "$WORKFLOW_FILE"; then
-  echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 * * * *')" "$WORKFLOW_FILE"; then
+  echo "FAIL: manual runs and the hourly publish schedule must sign, notarize, and publish Nightly"
   exit 1
 fi
 
@@ -533,7 +537,7 @@ job_if() {
     in_job && /^    if: / { print; exit }
   ' "$WORKFLOW_FILE"
 }
-PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 * * * *')"
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
@@ -546,7 +550,7 @@ fi
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
 for expected in \
-  "const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || (nightlySha !== headSha && !coalesced));" \
   "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
@@ -573,8 +577,8 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
+# Only the six-hour cache warmup may replace an older scheduled run. The hourly
+# :47 publication schedule and all push/manual lanes must stay serialized so
 # a newer publication cannot cancel an earlier candidate or race its aliases.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
@@ -607,5 +611,104 @@ for cache_workflow in "$WORKFLOW_FILE"; do
     exit 1
   fi
 done
+
+# --- Publish coalescing window -------------------------------------------
+#
+# Main takes roughly 210 commits a day, but an installed NIGHTLY polls its
+# Sparkle feed once an hour (UpdateSettings.scheduledCheckInterval), so a
+# publish superseded inside that hour is never offered to any install. The
+# `decide` job holds a main build until the commit the channel last published
+# is at least CI_NIGHTLY_MIN_PUBLISH_INTERVAL_MINUTES old. These assertions
+# pin the wiring, then execute the real decision script against a frozen clock
+# so the rule cannot regress into a no-op.
+for expected in \
+  "MIN_PUBLISH_INTERVAL_MINUTES: \${{ vars.CI_NIGHTLY_MIN_PUBLISH_INTERVAL_MINUTES || '60' }}" \
+  'const minPublishIntervalMinutes = Number(process.env.MIN_PUBLISH_INTERVAL_MINUTES);' \
+  'const published = await github.rest.repos.getCommit({owner, repo, ref: nightlySha});' \
+  'coalesced = publishedCommitAgeMinutes >= 0 &&' \
+  'publishedCommitAgeMinutes < minPublishIntervalMinutes;'; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: the nightly publish coalescing window is missing: $expected"
+    exit 1
+  fi
+done
+
+if ! grep -Fq "isMainRef && !forceBuild && !buildOnly && !seedOnly && nightlySha && nightlySha !== headSha &&" "$WORKFLOW_FILE"; then
+  echo "FAIL: the publish window must be scoped to main and must never delay a forced, build-only, seed, or rc/** run"
+  exit 1
+fi
+
+DECIDE_HARNESS="$(mktemp)"
+trap 'rm -f "$DECIDE_HARNESS"' EXIT
+python3 - "$WORKFLOW_FILE" "$DECIDE_HARNESS" <<'PY'
+import sys
+import yaml
+
+workflow, out = sys.argv[1], sys.argv[2]
+script = yaml.safe_load(open(workflow))["jobs"]["decide"]["steps"][0]["with"]["script"]
+harness = """
+const scenario = JSON.parse(process.env.SCENARIO);
+const NOW = Date.parse('2026-09-22T12:00:00Z');
+Date.now = () => NOW;
+const outputs = {};
+const core = {setOutput: (k, v) => { outputs[k] = v; },
+  summary: {addHeading(){return this}, addTable(){return this}, async write(){}}};
+const context = {repo: {owner: 'manaflow-ai', repo: 'cmux'}, ref: scenario.ref, sha: 'head-sha'};
+const github = {rest: {
+  git: {getRef: async () => ({data: {object: {type: 'commit', sha: 'published-sha'}}})},
+  repos: {getCommit: async () => {
+    if (scenario.lookupFails) throw new Error('simulated API failure');
+    return {data: {commit: {committer: {date: new Date(NOW - scenario.ageMinutes * 60000).toISOString()}}}};
+  }},
+}};
+(async () => { SCRIPT; console.log(JSON.stringify(outputs)); })()
+  .catch((error) => { console.error(error); process.exit(1); });
+"""
+open(out, "w").write(harness.replace("SCRIPT", script))
+PY
+
+decide_should_build() {
+  SCENARIO="$1" FORCE_BUILD="${2:-false}" FAST_BUILD=false BUILD_ONLY=false SEED_ONLY=false \
+    COLD_CACHE=false MIN_PUBLISH_INTERVAL_MINUTES="${3:-60}" \
+    node "$DECIDE_HARNESS" | tail -n 1 |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["should_build"])'
+}
+
+# A push 10 minutes after the last published commit folds into the next build.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":10}')" != "false" ]; then
+  echo "FAIL: a main revision pushed inside the publish window must coalesce into the next build"
+  exit 1
+fi
+# Once the window has elapsed, main's newest revision publishes.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":61}')" != "true" ]; then
+  echo "FAIL: main's newest revision must publish once the publish window has elapsed"
+  exit 1
+fi
+# The window is measured at run start, so a quiet main publishes its last
+# revision on the next tick instead of waiting for another merge.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":180}')" != "true" ]; then
+  echo "FAIL: a quiet main must still publish its newest unpublished revision"
+  exit 1
+fi
+# A release-candidate push is never delayed.
+if [ "$(decide_should_build '{"ref":"refs/heads/rc/1.2.3","ageMinutes":1}')" != "true" ]; then
+  echo "FAIL: an rc/** push must build per push, independent of the nightly publish window"
+  exit 1
+fi
+# A forced dispatch is never delayed.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":1}' true)" != "true" ]; then
+  echo "FAIL: a forced dispatch must bypass the publish window"
+  exit 1
+fi
+# The window fails open: a lookup failure publishes rather than withholding.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":1,"lookupFails":true}')" != "true" ]; then
+  echo "FAIL: an unreadable last-published commit must publish rather than silently withhold the revision"
+  exit 1
+fi
+# Setting the repository variable to 0 turns the window off entirely.
+if [ "$(decide_should_build '{"ref":"refs/heads/main","ageMinutes":1}' false 0)" != "true" ]; then
+  echo "FAIL: CI_NIGHTLY_MIN_PUBLISH_INTERVAL_MINUTES=0 must restore a build per push"
+  exit 1
+fi
 
 echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

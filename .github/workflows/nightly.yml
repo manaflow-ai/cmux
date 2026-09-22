@@ -8,7 +8,11 @@ name: Nightly macOS build
 # only ever advances within its own channel. Everything channel-specific is
 # resolved once in `decide`; every later job reads it from there.
 on:
-  # Publish every changed main revision, while keeping the scheduled cache warm.
+  # Publish main's newest revision on a coalescing window, while keeping the
+  # scheduled cache warm. Every push to main is still a publication candidate;
+  # `decide` holds the build until the commit NIGHTLY last published is at
+  # least CI_NIGHTLY_MIN_PUBLISH_INTERVAL_MINUTES old, and the hourly :47 tick
+  # publishes main's newest revision when the pushes stop.
   # Publish every push to a release-candidate branch as the RC channel.
   push:
     branches:
@@ -16,7 +20,7 @@ on:
       - "rc/**"
   schedule:
     - cron: "17 */6 * * *"
-    - cron: "47 8 * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -58,7 +62,7 @@ on:
 concurrency:
   # A six-hour cache warmup must not wait behind a publishing nightly build or
   # hold one behind a saturated runner pool. Only that schedule gets a separate
-  # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
+  # group, and a newer tick may replace the older warmup. The hourly :47 UTC
   # publishing schedule, pushes, manual full runs, fast dogfood runs, and
   # build-only measurements retain their existing serialization rules.
   # Keep scheduled and manually requested cache seeds in different groups. A
@@ -112,6 +116,7 @@ jobs:
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
           SEED_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_only && 'true' || 'false' }}
           COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
+          MIN_PUBLISH_INTERVAL_MINUTES: ${{ vars.CI_NIGHTLY_MIN_PUBLISH_INTERVAL_MINUTES || '60' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -216,7 +221,41 @@ jobs:
               }
             }
 
-            const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            // Coalescing window on main. Merges land every few minutes, but an
+            // installed NIGHTLY polls its Sparkle feed once an hour
+            // (UpdateSettings.scheduledCheckInterval), so a publish superseded
+            // inside that hour is never offered to any install. Hold the next
+            // build until the commit this channel last published is at least
+            // MIN_PUBLISH_INTERVAL_MINUTES old and let the intermediate pushes
+            // fold into it. The age is measured at run start, not between
+            // commits, so a main that goes quiet still publishes its last
+            // revision on the next push or the hourly :47 tick instead of
+            // waiting for another merge. The workflow concurrency group
+            // serializes main, so a queued run re-reads the tag after the
+            // running publish moved it and cannot double-publish a window.
+            // `force`, build-only, cache seeding, and every rc/** push bypass
+            // the window: a release candidate still builds per push.
+            const minPublishIntervalMinutes = Number(process.env.MIN_PUBLISH_INTERVAL_MINUTES);
+            let publishedCommitAgeMinutes = null;
+            let coalesced = false;
+            if (isMainRef && !forceBuild && !buildOnly && !seedOnly && nightlySha && nightlySha !== headSha &&
+                Number.isFinite(minPublishIntervalMinutes) && minPublishIntervalMinutes > 0) {
+              try {
+                const published = await github.rest.repos.getCommit({owner, repo, ref: nightlySha});
+                const publishedAt = Date.parse(published.data.commit.committer.date);
+                if (Number.isFinite(publishedAt)) {
+                  publishedCommitAgeMinutes = Math.floor((Date.now() - publishedAt) / 60000);
+                  coalesced = publishedCommitAgeMinutes >= 0 &&
+                    publishedCommitAgeMinutes < minPublishIntervalMinutes;
+                }
+              } catch (error) {
+                // Fail open. A lookup failure publishes the revision rather
+                // than silently withholding it until the next tick.
+                console.log(`could not read the last published commit date: ${error.message}`);
+              }
+            }
+
+            const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || (nightlySha !== headSha && !coalesced));
             const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
@@ -230,6 +269,9 @@ jobs:
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
                 [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'publish window (min)', header: true}, String(minPublishIntervalMinutes)],
+                [{data: 'published commit age (min)', header: true}, publishedCommitAgeMinutes === null ? '(not measured)' : String(publishedCommitAgeMinutes)],
+                [{data: 'coalesced into next build', header: true}, String(coalesced)],
                 [{data: 'should build', header: true}, String(shouldBuild)],
                 [{data: 'should publish', header: true}, String(shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
@@ -548,7 +590,7 @@ jobs:
 
   build-nightly-ghostty-cli-helper:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 * * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
@@ -607,7 +649,7 @@ jobs:
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 * * * *')
     # Full runs match the cache warmer and stable release lane. Fast branch
     # dogfood always uses the dedicated Blacksmith image. A repository-wide
     # runner override may point at a slower shared builder, which defeats the
@@ -930,7 +972,7 @@ jobs:
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 * * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
@@ -1434,7 +1476,7 @@ jobs:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 * * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
