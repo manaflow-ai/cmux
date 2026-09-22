@@ -82,8 +82,10 @@ cmux_ios_tagged_device_app_group_fallback_allowed() {
 cmux_ios_device_build_failed_for_app_group_entitlement() {
   local log_path="$1"
 
-  grep -Fq "com.apple.security.application-groups" "$log_path" \
-    && grep -Eiq "Provisioning profile .*doesn.t match the entitlements file" "$log_path"
+  # Require the App Group key and the profile-mismatch wording in the same
+  # diagnostic line. Separate greps over the full log can misclassify an
+  # unrelated entitlement mismatch when App Groups appear elsewhere in output.
+  grep -Eiq "Provisioning profile .*doesn.t match the entitlements file.*com\\.apple\\.security\\.application-groups" "$log_path"
 }
 
 # Derive fallback entitlements from the checked-in Debug entitlement files at

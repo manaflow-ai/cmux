@@ -120,12 +120,17 @@ test("tagged Debug API-key signing can retry without the App Group", () => {
   const allowed = fallbackAllowed("Debug", "asc-api-key", true);
   assert.equal(allowed.status, 0, allowed.stderr);
 
-  const mismatch = detectsAppGroupProfileMismatch(
+  for (const logBody of [
     "error: Provisioning profile \"iOS Team Provisioning Profile: dev.cmux.ios.fresh\" " +
       "doesn't match the entitlements file's value for the " +
       "com.apple.security.application-groups entitlement.\n",
-  );
-  assert.equal(mismatch.status, 0, mismatch.stderr);
+    "error: Provisioning profile \"iOS Team Provisioning Profile: dev.cmux.ios.fresh\" " +
+      "failed qualification checks: Profile doesn't match the entitlements file's value for the " +
+      "com.apple.security.application-groups entitlement.\n",
+  ]) {
+    const mismatch = detectsAppGroupProfileMismatch(logBody);
+    assert.equal(mismatch.status, 0, mismatch.stderr);
+  }
 
   const { result, tempRoot } = renderFallbackEntitlements();
   try {
@@ -175,10 +180,15 @@ test("App Group fallback is narrow and preserves capable signing paths", () => {
     );
   }
 
-  const unrelated = detectsAppGroupProfileMismatch(
+  for (const logBody of [
     "error: Provisioning profile has expired.\n",
-  );
-  assert.notEqual(unrelated.status, 0);
+    "note: requested entitlement com.apple.security.application-groups\n" +
+      "error: Provisioning profile \"dev\" doesn't match the entitlements file's value for the " +
+      "com.apple.developer.networking.networkextension entitlement.\n",
+  ]) {
+    const unrelated = detectsAppGroupProfileMismatch(logBody);
+    assert.notEqual(unrelated.status, 0);
+  }
 
   for (const entitlements of [appEntitlements, extensionEntitlements]) {
     assert.match(entitlements, /com\.apple\.security\.application-groups/u);

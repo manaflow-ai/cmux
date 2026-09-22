@@ -1513,23 +1513,26 @@ pr_concurrency_cancels_superseded_runs() {
 check_ios_only_tests_stay_under_ios() {
   # ios/** is explicitly macOS-neutral in detect_ci_change_areas.py. Keep new
   # iOS-only tests there. One historical file predates this rule; freeze it
-  # byte-for-byte so editing it cannot silently select macOS again.
+  # byte-for-byte so editing or deleting it cannot silently select macOS again.
   local legacy_rel="scripts/lib/ios-tagged-device-entitlements.test.mjs"
   local legacy_blob="3d47fca8fa3515d3fd74538a5618e31864dab973"
-  local file rel current_blob
+  local legacy_path="$ROOT_DIR/$legacy_rel"
+  local file rel
   local misplaced=""
+
+  if [ ! -f "$legacy_path" ]; then
+    echo "FAIL: $legacy_rel is frozen because deleting it triggers macOS compile admission; keep it and put replacements under ios/tests/"
+    return 1
+  fi
+  if [ "$(git -C "$ROOT_DIR" hash-object "$legacy_path")" != "$legacy_blob" ]; then
+    echo "FAIL: $legacy_rel is frozen because edits there trigger macOS compile admission; put the replacement under ios/tests/"
+    return 1
+  fi
 
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     rel="${file#"$ROOT_DIR/"}"
-    if [ "$rel" = "$legacy_rel" ]; then
-      current_blob="$(git -C "$ROOT_DIR" hash-object "$file")"
-      if [ "$current_blob" != "$legacy_blob" ]; then
-        echo "FAIL: $legacy_rel is frozen because edits there trigger macOS compile admission; put the replacement under ios/tests/"
-        return 1
-      fi
-      continue
-    fi
+    [ "$rel" = "$legacy_rel" ] && continue
     misplaced="${misplaced}${misplaced:+$'\n'}$rel"
   done < <(find "$ROOT_DIR/scripts/lib" -maxdepth 1 -type f -name 'ios-*.test.mjs' -print 2>/dev/null || true)
 
