@@ -1387,11 +1387,11 @@ check_persistent_compile_router() {
     printf 'permissions=%s\n' "$admission_permissions"
     exit 1
   fi
-  if printf '%s\n' "$admission_block" | grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write'; then
+  if grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write' <<<"$admission_block"; then
     echo "FAIL: PR-side persistent observation must not receive Actions write authority"
     exit 1
   fi
-  if printf '%s\n' "$admission_block" | grep -Fq -- '- persistent-mac-compile-route'; then
+  if grep -Fq -- '- persistent-mac-compile-route' <<<"$admission_block"; then
     echo "FAIL: macOS admission must not depend on a persistent route job"
     exit 1
   fi
@@ -1414,7 +1414,7 @@ check_persistent_compile_router() {
     echo "FAIL: hosted admission observer must contain exactly one route-helper invocation"
     exit 1
   fi
-  if printf '%s\n' "$observer_step" | grep -Eq -- '--(queue|execution)-seconds'; then
+  if grep -Eq -- '--(queue|execution)-seconds' <<<"$observer_step"; then
     echo "FAIL: ready-only hosted observation must not carry wait budgets"
     exit 1
   fi
