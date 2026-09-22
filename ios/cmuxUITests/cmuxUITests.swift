@@ -11758,7 +11758,13 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
             XCTAssertTrue(finish.waitForExistence(timeout: 5))
+            let statusLine = app.descendants(matching: .any)[
+                "MobileWorkspaceConnectionStatusLine"
+            ]
+            XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
+            XCTAssertEqual(statusLine.label, "Reconnecting…")
             XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
             // Emit an empty-list update before the pending refresh completes.
             app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
             XCTAssertTrue(app.descendants(matching: .any)[
@@ -11811,26 +11817,13 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         record("retry-action-result", "Tapped Retry twice. The production empty-state button invoked the supplied async refresh action on each tap. Preview refresh generation advanced from 0 to 1 to 2, and Retry was enabled after each completion. This fixture does not connect to a real Mac.")
 
         guide.tap()
-        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15))
-        // A fresh simulator can show Safari's first-launch introduction.
-        let continueButton = safari.buttons["Continue"]
-        if continueButton.waitForExistence(timeout: 3) { continueButton.tap() }
-        let startBrowsing = safari.buttons["Start Browsing"]
-        if startBrowsing.exists { startBrowsing.tap() }
-        let address = safari.textFields.firstMatch
-        XCTAssertTrue(address.waitForExistence(timeout: 15))
-        capture("setup-guide-opened-in-safari", in: safari)
-        address.tap()
-        let fullAddress = safari.textFields.firstMatch
-        let expectedURL = NSPredicate { _, _ in
-            let value = fullAddress.value as? String ?? ""
-            return value.contains("cmux.com/docs/ios") && value.contains("#setup")
-        }
-        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
-            predicate: expectedURL, object: nil
-        )], timeout: 10), .completed)
-        record("setup-guide-link-result", "Tapped Set Up cmux iOS. Safari opened: \(fullAddress.value as? String ?? "")")
-        capture("setup-guide-destination-url", in: safari)
+        let docs = app.descendants(matching: .any)["MobileDocsSafariView"]
+        XCTAssertTrue(docs.waitForExistence(timeout: 10))
+        XCTAssertEqual(docs.value as? String, "https://cmux.com/docs/ios#setup")
+        capture("setup-guide-opened-in-native-safari-sheet", in: app)
+        record(
+            "setup-guide-sheet-result",
+            "Tapped See Docs. cmux presented its native SFSafariViewController sheet for https://cmux.com/docs/ios#setup."
+        )
     }
 }

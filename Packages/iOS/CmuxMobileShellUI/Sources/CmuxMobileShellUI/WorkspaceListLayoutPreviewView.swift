@@ -682,6 +682,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                     performPreviewRefresh()
                 }
             },
+            isRecoveringWorkspaceList: model.refreshIsWaiting,
             renameWorkspace: reorderEnabled ? { id, newName in
                 if let index = model.workspaces.firstIndex(where: { $0.id == id }) {
                     model.workspaces[index].name = newName
