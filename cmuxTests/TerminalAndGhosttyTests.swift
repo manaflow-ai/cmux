@@ -5018,24 +5018,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
-        let legacyContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
             "Changing the scroll view style alone should leave the terminal grid unchanged until the scroller-style observer runs"
         )
 
+        // Scroller presence is a function of the scroller style (#12918): under
+        // the overlay style a surface without scrollback carries no scroller, so
+        // the scroll view reserves nothing until the observer re-evaluates
+        // presence for the legacy style. Expect the gutter AppKit reserves for a
+        // legacy scroller rather than snapshotting the content width before the
+        // product has applied that choice.
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         XCTAssertTrue(
             waitUntil(description: "legacy terminal scrollbar geometry") {
                 scrollView.scrollerStyle == .legacy &&
+                    scrollView.hasVerticalScroller &&
+                    scrollView.contentSize.width < initialContentWidth &&
                     hostedView.debugPendingSurfaceSize().map {
-                        abs($0.width - legacyContentWidth) <= 0.5
+                        abs($0.width - scrollView.contentSize.width) <= 0.5
                     } == true
             }
         )
 
         let preservedLegacyContentWidth = scrollView.contentSize.width
+        let legacyScrollerWidth = NSScroller.scrollerWidth(
+            for: scrollView.verticalScroller?.controlSize ?? .regular,
+            scrollerStyle: .legacy
+        )
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         XCTAssertGreaterThanOrEqual(
             initialContentWidth,
@@ -5044,7 +5055,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         XCTAssertEqual(
             preservedLegacyContentWidth,
-            legacyContentWidth,
+            initialContentWidth - legacyScrollerWidth,
             accuracy: 0.5,
             "Preferred scroller style changes should preserve the system's legacy scrollbar choice"
         )
@@ -5528,7 +5539,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The overlay mounts through a deferred main-actor task; wait for it like the
+        // sibling mount tests instead of assuming a fixed run-loop spin drained it.
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
