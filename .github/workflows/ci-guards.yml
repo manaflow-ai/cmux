@@ -120,6 +120,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
 
+      - name: Validate .xcstrings merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_xcstrings.py
+
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
