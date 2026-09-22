@@ -10,7 +10,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from test_execution_registry import load_registry
+# Tests load this file through importlib, which does not add its directory
+# to sys.path the way running it as a script does.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from test_execution_registry import load_registry  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
