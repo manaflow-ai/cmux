@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import errno
 import fcntl
 import hashlib
 import json
@@ -332,39 +333,182 @@ def retired_cold_task_root(layout: Layout, generation_id: str) -> Path:
     return layout.retired_cold_tasks / cold_task_generation_id(generation_id)
 
 
-def cache_directory_state(layout: Layout, directory: Path, *, create: bool) -> str:
-    """Validate a fixed slot-cache directory chain without following symlinks."""
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
+_PATH_CONFUSION_ERRNOS = {errno.ELOOP, errno.ENOTDIR}
+
+
+def _directory_error_state(error: OSError) -> str:
+    return "path_confusion" if error.errno in _PATH_CONFUSION_ERRNOS else "unavailable"
+
+
+def _open_cache_directory_fd(
+    layout: Layout,
+    directory: Path,
+    *,
+    create: bool,
+) -> tuple[str, int | None]:
+    """Open a fixed slot-cache directory chain without following symlinks."""
     try:
         relative = directory.relative_to(layout.cache)
     except ValueError:
-        return "path_confusion"
+        return "path_confusion", None
 
-    chain = [layout.machine / "slots", layout.slot, layout.cache]
-    current = layout.cache
-    for part in relative.parts:
-        current = current / part
-        chain.append(current)
+    try:
+        current_fd = os.open(layout.machine, _DIRECTORY_OPEN_FLAGS)
+    except FileNotFoundError:
+        return "absent", None
+    except OSError as error:
+        return _directory_error_state(error), None
 
-    for path in chain:
-        while True:
-            try:
-                info = path.lstat()
-            except FileNotFoundError:
-                if not create:
-                    return "absent"
+    try:
+        for component in ("slots", layout.slot_id, "cache", *relative.parts):
+            while True:
                 try:
-                    path.mkdir()
-                except FileExistsError:
-                    continue
-                except OSError:
-                    return "unavailable"
+                    child_fd = os.open(
+                        component,
+                        _DIRECTORY_OPEN_FLAGS,
+                        dir_fd=current_fd,
+                    )
+                    break
+                except FileNotFoundError:
+                    if not create:
+                        os.close(current_fd)
+                        return "absent", None
+                    try:
+                        os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                    except FileExistsError:
+                        continue
+                    except OSError as error:
+                        os.close(current_fd)
+                        return _directory_error_state(error), None
+                except OSError as error:
+                    os.close(current_fd)
+                    return _directory_error_state(error), None
+            os.close(current_fd)
+            current_fd = child_fd
+        return "ready", current_fd
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(current_fd)
+        raise
+
+
+def _same_directory(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _directory_entry_state(
+    parent_fd: int,
+    name: str,
+) -> tuple[str, os.stat_result | None]:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return "absent", None
+    except OSError as error:
+        return _directory_error_state(error), None
+    if not stat.S_ISDIR(info.st_mode):
+        return "path_confusion", info
+    return "ready", info
+
+
+def _open_child_directory_fd(
+    parent_fd: int,
+    name: str,
+) -> tuple[str, int | None, os.stat_result | None]:
+    state, before = _directory_entry_state(parent_fd, name)
+    if state != "ready" or before is None:
+        return state, None, before
+    try:
+        child_fd = os.open(name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return "absent", None, None
+    except OSError as error:
+        return _directory_error_state(error), None, None
+    after = os.fstat(child_fd)
+    if not _same_directory(before, after):
+        os.close(child_fd)
+        return "path_confusion", None, None
+    return "ready", child_fd, after
+
+
+def _directory_bytes_fd(directory_fd: int) -> int:
+    total = 0
+    for name in os.listdir(directory_fd):
+        try:
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISDIR(info.st_mode):
+            state, child_fd, _ = _open_child_directory_fd(directory_fd, name)
+            if state == "absent":
                 continue
-            except OSError:
-                return "unavailable"
-            break
+            if state != "ready" or child_fd is None:
+                raise OSError(errno.ELOOP, "directory changed during byte measurement", name)
+            try:
+                total += _directory_bytes_fd(child_fd)
+            finally:
+                os.close(child_fd)
+        else:
+            total += int(info.st_size)
+    return total
+
+
+def _remove_tree_contents_fd(directory_fd: int) -> None:
+    """Recursively empty one already-open directory without pathname traversal."""
+    for name in os.listdir(directory_fd):
+        try:
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+
         if not stat.S_ISDIR(info.st_mode):
-            return "path_confusion"
-    return "ready"
+            try:
+                os.unlink(name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            continue
+
+        state, child_fd, opened = _open_child_directory_fd(directory_fd, name)
+        if state == "absent":
+            continue
+        if state != "ready" or child_fd is None or opened is None:
+            raise OSError(errno.ELOOP, "directory changed during cleanup", name)
+        try:
+            _remove_tree_contents_fd(child_fd)
+            try:
+                current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(current.st_mode) or not _same_directory(opened, current):
+                raise OSError(errno.ELOOP, "directory changed during cleanup", name)
+            os.rmdir(name, dir_fd=directory_fd)
+        finally:
+            os.close(child_fd)
+
+
+def _launch_cleanup_worker(
+    generation_fd: int,
+    generation: str,
+) -> subprocess.Popen:
+    del generation  # correlation is for tests/logging; authority is the inherited fd.
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "_cleanup-generation",
+            "--directory-fd",
+            str(generation_fd),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        pass_fds=(generation_fd,),
+    )
 
 
 def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
@@ -374,52 +518,19 @@ def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
         return {"status": "invalid_identity"}
 
     active_namespace = layout.cache / "cold-tasks"
-    active = cold_task_root(layout, generation)
-    retired = retired_cold_task_root(layout, generation)
-
-    retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=False)
-    if retired_state in {"path_confusion", "unavailable"}:
-        reason = "retired_namespace_path_confusion" if retired_state == "path_confusion" else "retired_namespace_unavailable"
-        event(
-            layout,
-            "cold_task_retirement_deferred",
-            cold_task_generation_id=generation,
-            reason=reason,
+    active_state, active_fd = _open_cache_directory_fd(
+        layout,
+        active_namespace,
+        create=False,
+    )
+    if active_state == "absent":
+        return {"status": "absent", "cold_task_generation_id": generation}
+    if active_state != "ready" or active_fd is None:
+        reason = (
+            "active_namespace_path_confusion"
+            if active_state == "path_confusion"
+            else "active_namespace_unavailable"
         )
-        return {
-            "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
-            "reason": reason,
-            "cold_task_generation_id": generation,
-        }
-
-    retired_info = None
-    if retired_state == "ready":
-        try:
-            retired_info = retired.lstat()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            return {
-                "status": "deferred",
-                "reason": "retired_generation_unreadable",
-                "cold_task_generation_id": generation,
-            }
-        if retired_info is not None and not stat.S_ISDIR(retired_info.st_mode):
-            event(
-                layout,
-                "cold_task_retirement_deferred",
-                cold_task_generation_id=generation,
-                reason="retired_generation_path_confusion",
-            )
-            return {
-                "status": "invalid_namespace",
-                "reason": "retired_generation_path_confusion",
-                "cold_task_generation_id": generation,
-            }
-
-    active_state = cache_directory_state(layout, active_namespace, create=False)
-    if active_state in {"path_confusion", "unavailable"}:
-        reason = "active_namespace_path_confusion" if active_state == "path_confusion" else "active_namespace_unavailable"
         event(
             layout,
             "cold_task_retirement_deferred",
@@ -432,19 +543,53 @@ def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
             "cold_task_generation_id": generation,
         }
 
-    active_info = None
-    if active_state == "ready":
-        try:
-            active_info = active.lstat()
-        except FileNotFoundError:
-            pass
-        except OSError:
+    retired_fd: int | None = None
+    try:
+        retired_state, retired_fd = _open_cache_directory_fd(
+            layout,
+            layout.retired_cold_tasks,
+            create=True,
+        )
+        if retired_state != "ready" or retired_fd is None:
+            reason = (
+                "retired_namespace_path_confusion"
+                if retired_state == "path_confusion"
+                else "retired_namespace_unavailable"
+            )
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason=reason,
+            )
             return {
-                "status": "deferred",
-                "reason": "active_generation_unreadable",
+                "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
+                "reason": reason,
                 "cold_task_generation_id": generation,
             }
-        if active_info is not None and not stat.S_ISDIR(active_info.st_mode):
+
+        active_generation_state, _ = _directory_entry_state(active_fd, generation)
+        retired_generation_state, _ = _directory_entry_state(retired_fd, generation)
+
+        if retired_generation_state == "path_confusion":
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="retired_generation_path_confusion",
+            )
+            return {
+                "status": "invalid_namespace",
+                "reason": "retired_generation_path_confusion",
+                "cold_task_generation_id": generation,
+            }
+        if retired_generation_state == "unavailable":
+            return {
+                "status": "deferred",
+                "reason": "retired_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
+        if active_generation_state == "path_confusion":
             event(
                 layout,
                 "cold_task_retirement_deferred",
@@ -456,47 +601,66 @@ def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
                 "reason": "active_generation_path_confusion",
                 "cold_task_generation_id": generation,
             }
+        if active_generation_state == "unavailable":
+            return {
+                "status": "deferred",
+                "reason": "active_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
 
-    if retired_info is not None:
-        return {
-            "status": "already_retired" if active_info is None else "conflict",
-            "cold_task_generation_id": generation,
-        }
-    if active_info is None:
-        return {"status": "absent", "cold_task_generation_id": generation}
+        if retired_generation_state == "ready":
+            return {
+                "status": "already_retired" if active_generation_state == "absent" else "conflict",
+                "cold_task_generation_id": generation,
+            }
+        if active_generation_state == "absent":
+            return {"status": "absent", "cold_task_generation_id": generation}
 
-    retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=True)
-    if retired_state != "ready":
-        reason = "retired_namespace_path_confusion" if retired_state == "path_confusion" else "retired_namespace_unavailable"
-        event(
-            layout,
-            "cold_task_retirement_deferred",
-            cold_task_generation_id=generation,
-            reason=reason,
-        )
-        return {
-            "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
-            "reason": reason,
-            "cold_task_generation_id": generation,
-        }
+        try:
+            os.rename(
+                generation,
+                generation,
+                src_dir_fd=active_fd,
+                dst_dir_fd=retired_fd,
+            )
+        except OSError:
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="rename_failed",
+            )
+            return {
+                "status": "deferred",
+                "reason": "rename_failed",
+                "cold_task_generation_id": generation,
+            }
 
-    try:
-        os.replace(active, retired)
-    except OSError:
-        event(
-            layout,
-            "cold_task_retirement_deferred",
-            cold_task_generation_id=generation,
-            reason="rename_failed",
-        )
-        return {
-            "status": "deferred",
-            "reason": "rename_failed",
-            "cold_task_generation_id": generation,
-        }
+        post_state, _ = _directory_entry_state(retired_fd, generation)
+        if post_state != "ready":
+            reason = (
+                "retired_generation_path_confusion"
+                if post_state == "path_confusion"
+                else "retired_generation_unreadable"
+            )
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason=reason,
+            )
+            return {
+                "status": "invalid_namespace" if post_state == "path_confusion" else "deferred",
+                "reason": reason,
+                "cold_task_generation_id": generation,
+            }
 
-    event(layout, "cold_task_retired", cold_task_generation_id=generation)
-    return {"status": "retired", "cold_task_generation_id": generation}
+        event(layout, "cold_task_retired", cold_task_generation_id=generation)
+        return {"status": "retired", "cold_task_generation_id": generation}
+    finally:
+        os.close(active_fd)
+        if retired_fd is not None:
+            os.close(retired_fd)
 
 
 def _wait_cleanup_process(
@@ -587,11 +751,16 @@ def cleanup_retired_cold_tasks(
     reclaimed = 0
     failures: list[dict[str, str]] = []
     attempts = 0
+    retired_fd: int | None = None
     try:
-        retired_state = cache_directory_state(layout, layout.retired_cold_tasks, create=False)
+        retired_state, retired_fd = _open_cache_directory_fd(
+            layout,
+            layout.retired_cold_tasks,
+            create=False,
+        )
         if retired_state == "absent":
             return finished({"status": "idle", "reclaimed": 0})
-        if retired_state != "ready":
+        if retired_state != "ready" or retired_fd is None:
             reason = (
                 "retired_namespace_path_confusion"
                 if retired_state == "path_confusion"
@@ -601,43 +770,47 @@ def cleanup_retired_cold_tasks(
             return finished({"status": "failed", "reason": reason, "reclaimed": 0})
 
         try:
-            retired_entries = layout.retired_cold_tasks.iterdir()
+            retired_entries = sorted(os.listdir(retired_fd))
         except OSError:
-            event(
-                layout,
-                "cold_task_cleanup_failed",
-                reason="retired_namespace_unreadable",
-            )
+            event(layout, "cold_task_cleanup_failed", reason="retired_namespace_unreadable")
             return finished({
                 "status": "failed",
                 "reason": "retired_namespace_unreadable",
                 "reclaimed": 0,
             })
 
-        try:
-            for root in retired_entries:
-                if reclaimed >= max_generations or attempts >= 32:
-                    break
-                try:
-                    cold_task_generation_id(root.name)
-                except ValueError:
-                    continue
+        for generation in retired_entries:
+            if reclaimed >= max_generations or attempts >= 32:
+                break
+            try:
+                cold_task_generation_id(generation)
+            except ValueError:
+                continue
 
-                attempts += 1
-                generation = root.name
+            attempts += 1
+            generation_state, generation_fd, generation_info = _open_child_directory_fd(
+                retired_fd,
+                generation,
+            )
+            if generation_state == "absent":
+                continue
+            if generation_state != "ready" or generation_fd is None or generation_info is None:
+                failure = {
+                    "cold_task_generation_id": generation,
+                    "reason": (
+                        "cleanup_generation_path_confusion"
+                        if generation_state == "path_confusion"
+                        else "cleanup_generation_unreadable"
+                    ),
+                }
+                failures.append(failure)
+                event(layout, "cold_task_cleanup_failed", **failure)
+                continue
+
+            try:
                 try:
-                    root_info = root.lstat()
-                except FileNotFoundError:
-                    continue
+                    candidate_bytes = _directory_bytes_fd(generation_fd) if measure_bytes else 0
                 except OSError:
-                    failure = {
-                        "cold_task_generation_id": generation,
-                        "reason": "cleanup_generation_unreadable",
-                    }
-                    failures.append(failure)
-                    event(layout, "cold_task_cleanup_failed", **failure)
-                    continue
-                if not stat.S_ISDIR(root_info.st_mode):
                     failure = {
                         "cold_task_generation_id": generation,
                         "reason": "cleanup_generation_path_confusion",
@@ -645,14 +818,9 @@ def cleanup_retired_cold_tasks(
                     failures.append(failure)
                     event(layout, "cold_task_cleanup_failed", **failure)
                     continue
-                candidate_bytes = disk_bytes(root) if measure_bytes else 0
+
                 try:
-                    proc = subprocess.Popen(
-                        ["/bin/rm", "-rf", str(root)],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
+                    proc = _launch_cleanup_worker(generation_fd, generation)
                 except OSError:
                     failure = {
                         "cold_task_generation_id": generation,
@@ -693,7 +861,32 @@ def cleanup_retired_cold_tasks(
                         result["failures"] = failures
                     return finished(result)
 
-                if proc.returncode != 0 or root.exists():
+                if proc.returncode != 0:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                current_state, current_info = _directory_entry_state(retired_fd, generation)
+                if (
+                    current_state != "ready"
+                    or current_info is None
+                    or not _same_directory(generation_info, current_info)
+                ):
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_generation_path_confusion",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    os.rmdir(generation, dir_fd=retired_fd)
+                except OSError:
                     failure = {
                         "cold_task_generation_id": generation,
                         "reason": "cleanup_failed",
@@ -710,19 +903,8 @@ def cleanup_retired_cold_tasks(
                     cold_task_generation_id=generation,
                     reclaimed_bytes=candidate_bytes if measure_bytes else None,
                 )
-        except OSError:
-            event(
-                layout,
-                "cold_task_cleanup_failed",
-                reason="retired_namespace_unreadable",
-            )
-            if not failures:
-                return finished({
-                    "status": "failed",
-                    "reason": "retired_namespace_unreadable",
-                    "reclaimed": reclaimed,
-                })
-            failures.append({"reason": "retired_namespace_unreadable"})
+            finally:
+                os.close(generation_fd)
 
         result = {
             "status": "reclaimed" if reclaimed else ("failed" if failures else "idle"),
@@ -733,12 +915,13 @@ def cleanup_retired_cold_tasks(
             if not reclaimed:
                 result["reason"] = failures[0]["reason"]
                 if "cold_task_generation_id" in failures[0]:
-                    result["cold_task_generation_id"] = failures[0][
-                        "cold_task_generation_id"
-                    ]
+                    result["cold_task_generation_id"] = failures[0]["cold_task_generation_id"]
         return finished(result)
     finally:
+        if retired_fd is not None:
+            os.close(retired_fd)
         cleanup_lock.__exit__(None, None, None)
+
 
 def checkout_lock_path(layout: Layout, checkout: Path) -> Path:
     """Return one machine-local lock path for a physical checkout."""
@@ -2082,6 +2265,9 @@ def make_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="recursively count reclaimed bytes; intended for benchmarks/diagnostics",
     )
+
+    p = sub.add_parser("_cleanup-generation", help=argparse.SUPPRESS)
+    p.add_argument("--directory-fd", type=int, required=True)
     return parser
 
 
@@ -2089,6 +2275,15 @@ def main() -> int:
     args = make_parser().parse_args()
     if getattr(args, "command", None) and args.command and args.command[0] == "--":
         args.command = args.command[1:]
+    if args.action == "_cleanup-generation":
+        try:
+            info = os.fstat(args.directory_fd)
+            if not stat.S_ISDIR(info.st_mode):
+                return 1
+            _remove_tree_contents_fd(args.directory_fd)
+            return 0
+        except (OSError, RuntimeError):
+            return 1
     if args.action == "classify":
         print(json.dumps(classify(args.checkout.resolve(), args.from_commit, args.to_commit), indent=2, sort_keys=True))
         return 0
