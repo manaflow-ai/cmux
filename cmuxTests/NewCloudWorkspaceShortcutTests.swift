@@ -295,7 +295,8 @@ final class NewCloudWorkspaceShortcutTests {
         let menu = try #require(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
         let rows = builtInMenuRows(menu)
         #expect(rows.prefix(2).map(\.action) == [.newTerminal, .newCloudWorkspace])
-        #expect(rows[1].item.keyEquivalent == "y")
+        let cloudRow = try #require(rows.dropFirst().first)
+        #expect(cloudRow.item.keyEquivalent == "y")
     }
 
     // MARK: Shared action path

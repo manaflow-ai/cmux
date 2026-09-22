@@ -1753,7 +1753,10 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// publish them: SSH (22), the cmux-tui daemon (1337), the VNC server
     /// (5901) and its noVNC front end (6901, the Desktop surface), and the
     /// image's internal 8080 listener.
-    static let internalPorts: Set<Int> = [22, 1337, 5901, 6901, 8080]
+    /// Guest display slots use these private RFB/noVNC ports; they are owned by
+    /// the display catalog and must never become generic forwarded-port rows.
+    static let internalPorts: Set<Int> = [22, 1337, 8080]
+    static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
     static let desktopPort = 6901
 
@@ -1778,17 +1781,9 @@ struct CmuxTuiSnapshotParser: Sendable {
             lifecycle: .running,
             agent: nil,
             remoteWorkspace: nil,
-            port: desktopPort,
+            port: key == SurfaceResourceID.desktopDisplayKey ? desktopPort : nil,
             url: directURL
         )
-    }
-
-    /// The machine's display list after a snapshot: a display the daemon's workspaces point
-    /// at (carrying its views) replaces the bare pool entry of the same id; every other
-    /// resource passes through. Pure, so the provider's refresh stays a straight line.
-    static func mergingDisplays(pool: [SurfaceResource], parsed: [SurfaceResource]) -> [SurfaceResource] {
-        let pointed = Set(parsed.filter { $0.kind == .display }.map(\.id))
-        return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
     /// A forwarded port, shown as a browser resource. `directURL`, when

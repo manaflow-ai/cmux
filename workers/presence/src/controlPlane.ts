@@ -1000,10 +1000,8 @@ export class ControlPlaneCore {
     // session while trying to recover.
     for (const candidate of this.deps.sockets()) {
       const candidateAttachment = candidate.getAttachment();
-      // The Cloudflare adapter recreates the transport wrapper while
-      // enumerating hibernating sockets, so wrapper identity is not stable.
-      // The session id is assigned at accept time and is the stable identity
-      // for this connection.
+      // The DO recreates wrappers after hibernation and on each enumeration.
+      // The authenticated session attachment, not wrapper identity, owns the socket.
       if (candidateAttachment?.sessionId === attachment.sessionId) continue;
       if (!candidateAttachment?.helloed
         || candidateAttachment.endpointId !== payload.endpointId) continue;

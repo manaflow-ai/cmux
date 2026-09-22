@@ -169,7 +169,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution {
         reportedShellState = (
             workspaceID,

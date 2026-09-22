@@ -49,7 +49,9 @@ DOWNLOAD_URL="${GHOSTTYKIT_URL:-https://github.com/manaflow-ai/ghostty/releases/
 DOWNLOAD_RETRIES="${GHOSTTYKIT_DOWNLOAD_RETRIES:-30}"
 DOWNLOAD_RETRY_DELAY="${GHOSTTYKIT_DOWNLOAD_RETRY_DELAY:-20}"
 DOWNLOAD_CONNECT_TIMEOUT="${GHOSTTYKIT_DOWNLOAD_CONNECT_TIMEOUT:-10}"
-DOWNLOAD_MAX_TIME="${GHOSTTYKIT_DOWNLOAD_MAX_TIME:-300}"
+# CI's release mirror can sustain a healthy but slow transfer; keep a bounded
+# timeout while allowing the pinned archive to finish on a busy runner.
+DOWNLOAD_MAX_TIME="${GHOSTTYKIT_DOWNLOAD_MAX_TIME:-900}"
 # A connection that stays under this rate for this long is dropped and the
 # transfer resumes on a new one. Without it a crawling connection is held until
 # DOWNLOAD_MAX_TIME and then restarted from zero, so it can never finish.

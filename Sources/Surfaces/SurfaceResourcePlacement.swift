@@ -20,4 +20,3 @@ struct SurfaceResourcePlacement: Hashable, Codable, Sendable {
         self.remoteTabID = remoteView?.tabID ?? remoteTabID
     }
 }
-
