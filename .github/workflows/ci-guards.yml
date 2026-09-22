@@ -295,6 +295,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
 
+      - name: Validate the R2 cache census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_census.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |
