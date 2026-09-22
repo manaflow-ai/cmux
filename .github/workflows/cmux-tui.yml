@@ -466,24 +466,28 @@ jobs:
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
+      # The sentinels select tests with --workspace, not -p cmux-tui-core.
+      # A -p build resolves a narrower feature set, so the workspace
+      # `cargo test` below would compile cmux-tui-core, ghostty-vt and their
+      # dependencies a second time (about 4 minutes on Linux).
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          cargo test --workspace --lib
           journal_hooks::tests::unix_hook_tree_kills_a_descendant_that_created_a_new_session
           -- --exact
 
       - name: focused macOS journal process-fence tests
         if: inputs.mode == 'focused' && runner.os == 'macOS'
         working-directory: cmux-tui
-        run: cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_
+        run: cargo test --workspace --lib unix_process_scope::tests::mac_process_scope_
 
       - name: focused journal writer shutdown test
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: >-
-          cargo test -p cmux-tui-core --lib
+          cargo test --workspace --lib
           journal_ingress::tests::shutdown_returns_when_an_admitted_commit_stays_blocked
           -- --exact
 
@@ -491,13 +495,13 @@ jobs:
         if: inputs.mode == 'focused'
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib \
+          cargo test --workspace --lib \
             journal_ingress::tests::shutdown_closes_admission_while_a_terminal_producer_waits_for_space \
             -- --exact
-          cargo test -p cmux-tui-core --lib \
+          cargo test --workspace --lib \
             journal_checkpoint::tests::replaying_an_old_producer_put_keeps_the_current_validator \
             -- --exact
-          cargo test -p cmux-tui-core --test browser_runtime \
+          cargo test --workspace --test browser_runtime \
             socket_browser_attach_streams_frames_input_and_cell_pixels \
             -- --exact
 
