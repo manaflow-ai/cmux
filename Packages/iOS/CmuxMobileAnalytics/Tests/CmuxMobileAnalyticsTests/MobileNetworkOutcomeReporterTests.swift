@@ -8,6 +8,33 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
 }
 
 @Suite struct MobileNetworkOutcomeReporterTests {
+    @Test func taskModelFailureEmitsAxiomDiagnostic() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1_000_000_000,
+            ms: 850,
+            a: DiagnosticAppEventKind.taskModelListLoadFailed.rawValue,
+            b: DiagnosticFailureKind.hostUnreachable.rawValue,
+            c: 0
+        ))
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.name == MobileNetworkOutcomeReporter.taskModelEventName)
+        #expect(event?.properties["operation"] == .string("model_list"))
+        #expect(event?.properties["outcome"] == .string("failure"))
+        #expect(event?.properties["duration_ms"] == .int(850))
+        #expect(event?.properties["failure"] == .string("hostUnreachable"))
+    }
+
     @Test func transportDialCompletionEmitsLatencyOnly() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(
