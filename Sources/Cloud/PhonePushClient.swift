@@ -616,7 +616,7 @@ final class PhonePushClient {
         guard !identity.accountID.isEmpty,
               let macDeviceID = payload.macDeviceId,
               let macBuildID = Bundle.main.bundleIdentifier,
-              let macKey = try? PhonePushKeyStore.current(
+              let macKey = try? PhonePushKeyMaterial.current(
                   bundleID: Bundle.main.bundleIdentifier ?? "cmux"
               ) else { return nil }
         let recipients = trustedRecipients(
@@ -642,7 +642,7 @@ final class PhonePushClient {
                 macBuildID: macBuildID
             ).body
             let encrypted = try recipients.map { recipient in
-                try PhonePushCrypto.encrypt(
+                try PhonePushCrypto().encrypt(
                     plaintext: plaintext,
                     tuple: PhonePushDeviceTuple(
                         accountID: identity.accountID,
@@ -705,7 +705,7 @@ final class PhonePushClient {
                 macInstanceTag: payload.macInstanceTag,
                 macBuildID: macBuildID
             )
-            guard let pinned = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else {
+            guard let pinned = PhonePushPeerKeyStore().pinnedDescriptor(for: tuple) else {
                 return false
             }
             return pinned.keyID == recipient.keyID

@@ -1482,6 +1482,28 @@ trap reload_finalize EXIT
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
+# Managed profiles already supply their own SourcePackages path. Warm that
+# exact path from local seeds before resolution; cache warming never downloads
+# on the reload path, and populated native state is never replaced.
+if [[ "${GITHUB_ACTIONS:-false}" != "true" && -n "${CMUX_SOURCE_PACKAGES_DIR:-}" && "${CMUX_LOCAL_CACHE_PREFLIGHT:-1}" == "1" ]]; then
+  CACHE_PREFLIGHT_RECEIPT="${RELOAD_LOG}.cache.json"
+  if python3 "$PWD/scripts/local-build-cache-preflight.py" \
+      --local-only --source-packages-dir "$CMUX_SOURCE_PACKAGES_DIR" --receipt "$CACHE_PREFLIGHT_RECEIPT"; then
+    if python3 - "$CACHE_PREFLIGHT_RECEIPT" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as stream:
+    verified = json.load(stream).get("ghosttykit", {}).get("verified_install") is True
+raise SystemExit(0 if verified else 1)
+PY
+    then
+      export CMUX_GHOSTTYKIT_PREPROVISIONED=1
+    fi
+  else
+    echo "==> Build cache preflight unavailable; using normal dependency setup."
+  fi
+fi
+
 # CI can verify/download the xcframework before deciding whether Zig is needed.
 # Fail closed if that caller assertion is inconsistent with the checkout.
 if [[ "${CMUX_GHOSTTYKIT_PREPROVISIONED:-0}" == "1" ]]; then
@@ -1538,16 +1560,29 @@ fi
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+SWIFT_OTHER_FLAGS='$(inherited)'
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
   XCODEBUILD_ARGS+=(SWIFT_ENABLE_BATCH_MODE=NO)
   XCODEBUILD_ARGS+=(DEBUG_INFORMATION_FORMAT=)
   XCODEBUILD_ARGS+=(GCC_GENERATE_DEBUGGING_SYMBOLS=NO)
-  # shellcheck disable=SC2016 # Xcode expands $(inherited), not this shell.
-  XCODEBUILD_ARGS+=('OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1')
+  SWIFT_OTHER_FLAGS+=" -Xllvm -aarch64-enable-global-isel-at-O=-1"
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
+fi
+if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
+  SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=1
+  echo "==> Swift incremental diagnostics enabled for this reload"
+  # These Swift driver diagnostics report scheduling/rebuild decisions and job
+  # lifecycle without changing the incremental dependency decision itself.
+  SWIFT_OTHER_FLAGS+=" -v -driver-show-incremental -driver-show-job-lifecycle -driver-time-compilation"
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
+else
+  SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=0
+fi
+if [[ "$SWIFT_OTHER_FLAGS" != '$(inherited)' ]]; then
+  XCODEBUILD_ARGS+=("OTHER_SWIFT_FLAGS=$SWIFT_OTHER_FLAGS")
 fi
 XCODEBUILD_ARGS+=(build)
 
@@ -1762,6 +1797,16 @@ fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 
+if [[ "${SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE:-0}" -eq 1 ]]; then
+  incremental_receipt="${RELOAD_LOG}.incremental.json"
+  if python3 "$SCRIPT_DIR/ci/swift_incremental_diagnostics.py" \
+      --log "$RELOAD_LOG" --output "$incremental_receipt"; then
+    echo "==> Swift incremental diagnostics: $incremental_receipt"
+  else
+    echo "==> Swift incremental diagnostics parser failed; raw evidence remains in $RELOAD_LOG" >&2
+  fi
+fi
+
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
@@ -1913,6 +1958,7 @@ else
   fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
+"$PWD/scripts/install-coderouter-client.sh" "$APP_PATH"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi

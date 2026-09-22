@@ -768,14 +768,11 @@ struct SimulatorPanelIntegrationTests {
             )
             let event = try controlSimulatorPointerEvent(touch, geometry: geometry)
             #expect(event.phase == .moved)
-            // Orientation transforms include 1 - coordinate; decimal
-            // coordinates need not have identical binary representations.
-            let tolerance = 1e-12
-            #expect(abs(event.primary.x - primary.x) <= tolerance)
-            #expect(abs(event.primary.y - primary.y) <= tolerance)
-            let actualSecondary = try #require(event.secondary)
-            #expect(abs(actualSecondary.x - secondary.x) <= tolerance)
-            #expect(abs(actualSecondary.y - secondary.y) <= tolerance)
+            #expect(abs(event.primary.x - primary.x) < 1e-12)
+            #expect(abs(event.primary.y - primary.y) < 1e-12)
+            let secondaryPoint = try #require(event.secondary)
+            #expect(abs(secondaryPoint.x - secondary.x) < 1e-12)
+            #expect(abs(secondaryPoint.y - secondary.y) < 1e-12)
             #expect(event.edge == edge)
         }
     }

@@ -34,6 +34,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     private let establish: Establish
     private let onClose: OnClose?
+    private let permitsIO: @Sendable () async -> Bool
     private let closeCode: IrxCloseCode
     private var pair: (IrxConnection, IrxLaneStream)?
     private var lastConnection: IrxConnection?
@@ -44,14 +45,24 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     /// Creates a control-lane transport, optionally releasing its owner claim
     /// when the lane closes.
+    ///
+    /// - Parameters:
+    ///   - closeCode: Local termination reason when the owner closes the transport.
+    ///   - establish: Factory returning an admitted connection and control lane.
+    ///   - onClose: Optional callback releasing the connection's owner claim.
+    ///   - permitsIO: Revalidates the account and lease before each write. Refusal
+    ///     closes the transport before it sends bytes. Defaults to unrestricted
+    ///     writes for callers that enforce authorization at their RPC boundary.
     public init(
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
-        onClose: OnClose? = nil
+        onClose: OnClose? = nil,
+        permitsIO: @escaping @Sendable () async -> Bool = { true }
     ) {
         self.closeCode = closeCode
         self.establish = establish
         self.onClose = onClose
+        self.permitsIO = permitsIO
     }
 
     /// Wraps an already-established pair (host side).
@@ -89,6 +100,10 @@ public actor IrxControlByteTransport: CmxByteTransport {
 
     public func send(_ data: Data) async throws {
         let (_, lane) = try await establishedPair()
+        guard await permitsIO(), !isClosed else {
+            await close()
+            throw IrxConnectionError.closed(nil)
+        }
         do {
             try await lane.writer.write(data)
             try Task.checkCancellation()
