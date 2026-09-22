@@ -725,10 +725,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// errors.
     static let remoteListingUnsupportedToolsStatus: Int32 = 3
 
-    /// The pre-timestamp listing: POSIX `ls` with type suffixes. Used only when
-    /// the dated script reports ``remoteListingUnsupportedToolsStatus``.
+    /// The pre-timestamp listing: POSIX `ls` with `-p`, which marks only
+    /// directories (a trailing `/`). `-F` would also suffix executables and
+    /// symlinks with `*`/`@`/`=`/`|`, and stripping those would corrupt names
+    /// that legitimately end in one of them. Used only when the dated script
+    /// reports ``remoteListingUnsupportedToolsStatus``.
     static func legacyListingCommand(path: String, showHidden: Bool) -> String {
-        let lsFlags = showHidden ? "-1paFA" : "-1paF"
+        let lsFlags = showHidden ? "-1pa" : "-1p"
         return "ls \(lsFlags) \(shellSingleQuote(path)) 2>/dev/null"
     }
 
@@ -746,14 +749,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let isDir = entry.hasSuffix("/")
             let name = isDir ? String(entry.dropLast()) : entry
             guard showHidden || !name.hasPrefix(".") else { return nil }
-            // Strip type indicators from -F flag (*, @, =, |) for files
-            let cleanName: String
-            if !isDir, let last = name.last, "*@=|".contains(last) {
-                cleanName = String(name.dropLast())
-            } else {
-                cleanName = name
-            }
-            return FileExplorerEntry(name: cleanName, path: normalizedPath + cleanName, isDirectory: isDir)
+            return FileExplorerEntry(name: name, path: normalizedPath + name, isDirectory: isDir)
         }
     }
 
