@@ -383,6 +383,11 @@ struct CloudPlacementCoordinatorTests {
         // graph install; an empty view list means the move must project a
         // fresh tab rather than move a stale one.
         catalog.upsert(term, from: provider)
+        // The daemon's projection reply is fenced by its mutation cursor
+        // (`CmuxTuiSnapshotParser.placedTab` requires one). When the lane drains it
+        // reconciles against the installed graph above, which predates the new tab;
+        // the cursor is what keeps that older graph from clearing the new tab ID.
+        provider.projectCursor = CloudVMCursor(generation: "g", revision: 21)
         catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: stateSnapshot, machine: Self.machine))
         catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
