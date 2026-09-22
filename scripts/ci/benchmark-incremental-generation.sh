@@ -79,7 +79,7 @@ clone_source() {
   rm -rf "$destination"
   git clone --quiet --filter=blob:none --no-checkout "$origin" "$destination"
   git -C "$destination" -c advice.detachedHead=false checkout --quiet --detach "$ref"
-  git -C "$destination" submodule update --quiet --init vendor/bonsplit
+  git -C "$destination" submodule update --quiet --init --recursive
 }
 
 materialize_ghosttykit() {
