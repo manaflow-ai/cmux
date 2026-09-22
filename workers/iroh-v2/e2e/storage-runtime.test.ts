@@ -44,8 +44,11 @@ test("workerd SQLite persists registration and keeps one challenge/receipt slot"
   expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-1", issuedAt: 2001, now: 2001 } })).status).toBe(200);
   expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-1", issuedAt: 2001, now: 2001 } })).status).toBe(500);
   expect((await post("/revoke", { deviceRecordId: commit.body.device.deviceRecordId, now: 2002, actorUserId: "u1" })).status).toBe(200);
-  expect((await post("/register", { input: { descriptor, challengeId: "c2", nonceHash: "n2", payloadHash: "p2", requestId: "r1", requestHash: "h1", now: 2002 } })).status).toBe(500);
-  expect((await post("/revision", {})).body.revision).toBe(2);
+  expect((await post("/issue", { identity, issue: { challengeId: "c-recover", nonceHash: "n-recover", payloadHash: "p-recover", expiresAt: 4000, issuedAt: 3000 } })).status).toBe(200);
+  const recovery = await post("/register", { input: { descriptor, challengeId: "c-recover", nonceHash: "n-recover", payloadHash: "p-recover", requestId: "r-recover", requestHash: "h-recover", now: 3001 } });
+  expect(recovery.status).toBe(200);
+  expect(recovery.body.device.revoked).toBe(false);
+  expect((await post("/revision", {})).body.revision).toBe(3);
 });
 
 test("failed enrollment leaves its challenge available for retry", async () => {
