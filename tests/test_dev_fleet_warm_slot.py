@@ -938,5 +938,106 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(result["reason"], "state_unreadable")
 
 
+    def test_event_journal_bounds_growth_without_fsync(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        max_bytes = 1024
+        with (
+            mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", max_bytes),
+            mock.patch.object(warm_slot.os, "fsync", side_effect=AssertionError("telemetry must not fsync")),
+        ):
+            for index in range(500):
+                warm_slot.event(layout, "high_rate", index=index, payload="x" * 64)
+
+        retained = []
+        paths = [layout.events_archive, layout.events]
+        for path in paths:
+            self.assertTrue(path.exists())
+            self.assertLessEqual(path.stat().st_size, max_bytes + 512)
+            for line in path.read_text().splitlines():
+                retained.append(json.loads(line))
+        self.assertEqual(retained[-1]["index"], 499)
+        self.assertLessEqual(sum(path.stat().st_size for path in paths), 2 * (max_bytes + 512))
+
+    def test_event_journal_repairs_partial_tail_before_rotation(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        complete = json.dumps({"event": "kept", "index": 1}, sort_keys=True) + "\n"
+        layout.events.write_bytes(complete.encode() + b'{"event":"partial"')
+
+        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", len(complete.encode()) + 1):
+            warm_slot.event(layout, "after_crash", index=2)
+
+        self.assertEqual(layout.events_archive.read_text(), complete)
+        current = [json.loads(line) for line in layout.events.read_text().splitlines()]
+        self.assertEqual([row["event"] for row in current], ["after_crash"])
+        self.assertEqual(current[0]["index"], 2)
+
+    def test_event_journal_recovers_archive_only_and_recreates_after_deletion(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        archived = json.dumps({"event": "before_crash"}, sort_keys=True) + "\n"
+        layout.events_archive.write_text(archived)
+
+        warm_slot.event(layout, "after_restart")
+        self.assertEqual(layout.events_archive.read_text(), archived)
+        self.assertEqual(json.loads(layout.events.read_text())["event"], "after_restart")
+
+        layout.events.unlink()
+        layout.events_archive.unlink()
+        warm_slot.event(layout, "after_deletion")
+        self.assertEqual(json.loads(layout.events.read_text())["event"], "after_deletion")
+
+    def test_event_journal_concurrent_high_rate_appends_are_complete(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        threads = []
+        workers = 8
+        per_worker = 50
+
+        def append(worker: int) -> None:
+            for index in range(per_worker):
+                warm_slot.event(layout, "concurrent", worker=worker, index=index)
+
+        for worker in range(workers):
+            thread = threading.Thread(target=append, args=(worker,))
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+
+        rows = [json.loads(line) for line in layout.events.read_text().splitlines()]
+        self.assertEqual(len(rows), workers * per_worker)
+        self.assertEqual(
+            {(row["worker"], row["index"]) for row in rows},
+            {(worker, index) for worker in range(workers) for index in range(per_worker)},
+        )
+
+    def test_event_journal_retries_partial_os_writes(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        real_write = os.write
+
+        def partial_write(fd, data):
+            chunk = bytes(data[:max(1, len(data) // 2)])
+            return real_write(fd, chunk)
+
+        with mock.patch.object(warm_slot.os, "write", side_effect=partial_write):
+            warm_slot.event(layout, "partial_write", index=7)
+
+        row = json.loads(layout.events.read_text())
+        self.assertEqual(row["event"], "partial_write")
+        self.assertEqual(row["index"], 7)
+
+    def test_event_journal_drops_row_larger_than_retention_budget(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", 64):
+            warm_slot.event(layout, "oversized", payload="x" * 128)
+        self.assertFalse(layout.events.exists())
+
+    def test_event_io_failure_is_observational(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with mock.patch.object(warm_slot, "_append_event_line", side_effect=OSError("telemetry unavailable")):
+            warm_slot.event(layout, "dropped")
+
+
 if __name__ == "__main__":
     unittest.main()
