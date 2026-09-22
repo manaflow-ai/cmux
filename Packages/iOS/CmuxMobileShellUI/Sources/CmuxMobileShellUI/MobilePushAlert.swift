@@ -4,12 +4,7 @@ import Foundation
 /// A user-facing result for a notification tap that could not navigate.
 public struct MobilePushTabUnavailableAlert: Identifiable, Equatable, Sendable {
         /// The kind of recovery action the alert offers.
-        public enum Kind: Equatable, Sendable {
-            /// The requested workspace or terminal no longer exists.
-            case tabUnavailable
-            /// The Mac connection did not become usable before the retry window elapsed.
-            case connectionUnavailable
-        }
+        public typealias Kind = MobilePushTabUnavailableAlertKind
 
         /// Stable identity used by SwiftUI alert presentation.
         public let id: UUID
@@ -23,8 +18,4 @@ public struct MobilePushTabUnavailableAlert: Identifiable, Equatable, Sendable {
         }
 }
 
-public extension MobilePushCoordinator {
-    /// The alert type exposed by the push coordinator.
-    typealias TabUnavailableAlert = MobilePushTabUnavailableAlert
-}
 #endif

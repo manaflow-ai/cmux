@@ -65,6 +65,8 @@ private actor MobilePushSingleFlight<Value: Sendable> {
 @MainActor
 @Observable
 public final class MobilePushCoordinator {
+    /// The alert type exposed by the push coordinator.
+    public typealias TabUnavailableAlert = MobilePushTabUnavailableAlert
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
     private let diagnosticLog: DiagnosticLog?
