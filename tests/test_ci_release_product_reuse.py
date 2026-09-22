@@ -4,11 +4,11 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-CI = (ROOT / ".github/workflows/ci.yml").read_text()
+MACOS = (ROOT / ".github/workflows/ci-macos.yml").read_text()
 GUARDS = (ROOT / ".github/workflows/ci-guards.yml").read_text()
 
 
-def job(name: str, workflow: str = CI) -> str:
+def job(name: str, workflow: str = MACOS) -> str:
     match = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", workflow)
     assert match, f"missing job {name}"
     return match.group(0)
