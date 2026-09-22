@@ -62,6 +62,9 @@ jobs:
       # validation instead of allowing a compiler failure to masquerade as a
       # transport verdict.
       CMUX_SWIFT_FRONTEND_WORKAROUND: "1"
+      # Branch-only #13474 verification: CI lacks the shared cmuxterm-hq
+      # checkout, while this gate already injects staging API and broker URLs.
+      CMUX_DEV_BACKEND_MODE: "local"
     strategy:
       fail-fast: false
       # The three app-backed modes share one staging account. Serial execution
