@@ -414,9 +414,11 @@ struct TerminalComposerView: View {
             isPresented: $isPickerPresented,
             selection: $pickerSelection,
             maxSelectionCount: Self.maxAttachmentCount,
-            // Keep the library picker open to videos and future Photos media.
-            // Images are optimized; every other asset is staged as a file.
-            matching: nil
+            // Explicitly include both image and video assets. On some iOS
+            // versions an unset filter still opens the picker in its image
+            // collection, which hides videos even though the transfer type
+            // accepts them. Images are optimized; videos are staged as files.
+            matching: .any(of: [.images, .videos])
         )
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }

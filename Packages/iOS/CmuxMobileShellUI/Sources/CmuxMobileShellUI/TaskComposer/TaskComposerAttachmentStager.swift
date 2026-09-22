@@ -142,6 +142,9 @@ struct ImportedPhotoLibraryFile: Transferable, Sendable {
         FileRepresentation(importedContentType: .image) { received in
             try importFile(received)
         }
+        FileRepresentation(importedContentType: .video) { received in
+            try importFile(received)
+        }
         FileRepresentation(importedContentType: .movie) { received in
             try importFile(received)
         }
