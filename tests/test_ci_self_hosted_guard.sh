@@ -1301,9 +1301,9 @@ check_persistent_compile_router() {
     in_on && /^[^[:space:]]/ { exit }
     in_on && NF { print }
   ' "$PERSISTENT_ROUTER_FILE")"
-  expected_trigger=$'  workflow_run:\n    workflows: [CI]\n    types: [in_progress]'
+  expected_trigger=$'  workflow_run:\n    workflows: [CI]\n    types: [requested]'
   if [ "$trigger_block" != "$expected_trigger" ]; then
-    echo "FAIL: persistent Mac router must contain only workflow_run(in_progress) for CI"
+    echo "FAIL: persistent Mac router must contain only workflow_run(requested) for CI"
     exit 1
   fi
 

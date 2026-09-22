@@ -96,7 +96,9 @@ def reaches_product(path: str) -> bool:
         return True
     if path.startswith("scripts/ci/"):
         return False
-    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "cmux-tui/")):
+    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/")):
+        return False
+    if path in {".vercelignore", "vercel.json"}:
         return False
     if path.startswith("webviews/") and not path.startswith("webviews/src/agent-session/"):
         return False

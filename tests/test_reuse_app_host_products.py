@@ -266,6 +266,14 @@ class ReuseProducts(TestProductHandoff):
 
         self.assertFalse(identity.reaches_product(".github/workflows/ci-macos.yml"))
         self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
+        for path in (
+            "workers/presence/src/index.ts",
+            "config/iroh/managed-relay-catalog.json",
+            "vercel.json",
+            ".vercelignore",
+        ):
+            self.assertFalse(identity.reaches_product(path), path)
+        self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 

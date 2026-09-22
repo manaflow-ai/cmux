@@ -226,6 +226,20 @@ def test_changelog_runs_web_validation() -> None:
 
 def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+    assert_areas(
+        [
+            "workers/presence/src/index.ts",
+            "config/iroh/managed-relay-catalog.json",
+            "vercel.json",
+            ".vercelignore",
+        ],
+        macos=False,
+        web=True,
+    )
+
+
+def test_macos_config_stays_macos_relevant() -> None:
+    assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
@@ -918,6 +932,15 @@ def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
     assert "    paths:" not in workflow
+
+
+def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    expected = (
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' "
+        "&& github.event.action != 'labeled' && github.event.action != 'unlabeled' }}"
+    )
+    assert expected in workflow
 
     fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
     assert "  workflow_dispatch: {}" in fallback
@@ -1699,6 +1722,27 @@ def test_web_workflow_pins_every_bun_setup_version() -> None:
         assert '          bun-version: "1.3.14"' in setup_tail
 
 
+def test_every_setup_bun_step_declares_a_version() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    action = "oven-sh/setup-bun@"
+    found = 0
+
+    for workflow_path in sorted(workflows.glob("*.yml")):
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            if action not in line:
+                continue
+            found += 1
+            tail = lines[index + 1:index + 7]
+            assert any("bun-version:" in candidate for candidate in tail), (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                "setup-bun must declare an explicit bun-version",
+            )
+
+    assert found >= 20, "setup-bun inventory unexpectedly disappeared"
+
+
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
 
@@ -1812,6 +1856,24 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "inputs.source_identity_valid" in admission
     assert "inputs.source_tree" in admission
     assert "inputs.source_parent1" in admission
+
+
+def test_macos_admission_waits_for_pull_request_debounce() -> None:
+    debounce = workflow_job_block("macos-debounce")
+    assert "    needs: changes" in debounce
+    assert "github.event_name == 'pull_request'" in debounce
+    assert "needs.changes.outputs.macos != 'false'" in debounce
+    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180'" in debounce
+    assert "macos" not in debounce.split("runs-on:", 1)[1].split("\n", 1)[0]
+    assert '[ "$current" != "$HEAD_SHA" ]' in debounce
+
+    caller = workflow_job_block("macos")
+    assert "      - macos-debounce" in caller
+    assert (
+        "(needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped')"
+        in caller
+    )
+    assert "      - macos-debounce" in workflow_job_block("ci-status")
 
 
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
