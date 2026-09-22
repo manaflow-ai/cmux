@@ -46,6 +46,19 @@ def native_command(seconds=0.0, code=0):
     return [sys.executable, "-c", program]
 
 
+def derived_data_command(code=0):
+    program = (
+        "import os,sys;"
+        "from pathlib import Path;"
+        "p=Path(os.environ['CMUX_DERIVED_DATA']);"
+        "p.mkdir(parents=True, exist_ok=True);"
+        "(p/'fixture.bin').write_bytes(b'x'*4096);"
+        "print('SwiftCompile fixture', flush=True);"
+        f"sys.exit({code})"
+    )
+    return [sys.executable, "-c", program]
+
+
 class WarmSlotTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -476,6 +489,142 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(result["receipt"]["match_class"], "cold")
         self.assertTrue(result["receipt"]["cold_fallback"])
         self.assertIn("cold-tasks", result["receipt"]["derived_data_path"])
+
+    def test_settled_cold_task_is_retired_then_reclaimed(self):
+        result = self.task(
+            self.base,
+            task_id="cold-retire",
+            command=derived_data_command(),
+        )
+        receipt = result["receipt"]
+        generation = receipt["cold_task_generation_id"]
+        self.assertRegex(generation, r"^[0-9a-f]{32}$")
+        self.assertEqual(receipt["cold_cache_retirement"], "retired")
+
+        active = self.state / "slots/slot/cache/cold-tasks" / generation
+        retired = self.state / "slots/slot/cache/retired-cold-tasks" / generation
+        self.assertFalse(active.exists())
+        self.assertTrue((retired / "DerivedData/fixture.bin").exists())
+
+        cleanup = self.call(
+            "cleanup",
+            "--machine-state", str(self.state),
+            "--slot", "slot",
+            "--max-generations", "1",
+        )
+        self.assertEqual(cleanup["status"], "reclaimed")
+        self.assertEqual(cleanup["reclaimed"], 1)
+        self.assertFalse(retired.exists())
+
+    def test_warmer_reclaims_retired_cold_task_before_background_build(self):
+        result = self.task(
+            self.base,
+            task_id="cold-auto-reap",
+            command=derived_data_command(),
+        )
+        generation = result["receipt"]["cold_task_generation_id"]
+        retired = self.state / "slots/slot/cache/retired-cold-tasks" / generation
+        self.assertTrue(retired.exists())
+
+        warmed = self.warm(self.base)
+        self.assertEqual(warmed["status"], "warmed")
+        self.assertFalse(retired.exists())
+
+    def test_recovery_retires_exact_durable_cold_generation(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.slot.mkdir(parents=True, exist_ok=True)
+        generation = "a" * 32
+        active = warm_slot.cold_task_root(layout, generation)
+        (active / "DerivedData").mkdir(parents=True)
+        (active / "DerivedData/fixture.bin").write_bytes(b"x")
+        warm_slot.atomic_json(layout.inflight, {
+            "schema_version": 1,
+            "run_id": "cold-recovery",
+            "operation": "task:cold-recovery",
+            "process_group": 2147483647,
+            "cold_task_generation_id": generation,
+        })
+
+        recovered = self.call(
+            "recover",
+            "--machine-state", str(self.state),
+            "--slot", "slot",
+            "--run-id", "cold-recovery",
+        )
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertEqual(recovered["cold_cache_retirement"], "retired")
+        self.assertFalse(active.exists())
+        self.assertTrue(warm_slot.retired_cold_task_root(layout, generation).exists())
+
+    def test_cold_retirement_rejects_untrusted_identity(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        outside = self.root / "must-survive"
+        outside.mkdir()
+        marker = outside / "marker"
+        marker.write_text("keep")
+        result = warm_slot.retire_cold_task(layout, "../must-survive")
+        self.assertEqual(result["status"], "invalid_identity")
+        self.assertEqual(marker.read_text(), "keep")
+
+    def test_cleanup_budget_is_bounded_and_unknown_entries_are_preserved(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        unknown = layout.retired_cold_tasks / "operator-data"
+        unknown.mkdir(parents=True)
+        marker = unknown / "marker"
+        marker.write_text("keep")
+
+        result = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=33,
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "invalid_cleanup_budget")
+        self.assertEqual(marker.read_text(), "keep")
+
+        valid = warm_slot.retired_cold_task_root(layout, "c" * 32)
+        valid.mkdir(parents=True)
+        (valid / "fixture.bin").write_bytes(b"x")
+        result = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=1,
+        )
+        self.assertEqual(result["status"], "reclaimed")
+        self.assertFalse(valid.exists())
+        self.assertEqual(marker.read_text(), "keep")
+
+    def test_background_cleanup_yields_to_foreground_signal(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        generation = "b" * 32
+        retired = warm_slot.retired_cold_task_root(layout, generation)
+        retired.mkdir(parents=True)
+        (retired / "fixture.bin").write_bytes(b"x")
+
+        class FakeCleanup:
+            pid = 2147483647
+            returncode = None
+
+            def poll(self):
+                return None
+
+            def wait(self, timeout=None):
+                self.returncode = -signal.SIGTERM
+                return self.returncode
+
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, b"1")
+            with mock.patch.object(warm_slot.subprocess, "Popen", return_value=FakeCleanup()):
+                result = warm_slot.cleanup_retired_cold_tasks(
+                    layout,
+                    preempt_fd=read_fd,
+                    max_generations=1,
+                )
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
+
+        self.assertEqual(result["status"], "preempted")
+        self.assertTrue(retired.exists())
 
     def test_same_checkout_serializes_different_slots(self):
         slow = native_command(seconds=1.5)
