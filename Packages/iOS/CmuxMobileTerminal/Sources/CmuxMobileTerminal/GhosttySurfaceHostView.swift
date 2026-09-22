@@ -466,6 +466,10 @@ public final class GhosttySurfaceHostView: UIView {
                 isVisible: transition.isVisible(in: self)
             )
             surfaceView.setHostedKeyboardTransitionActive(false)
+            releasePresentationForKeyboardHide()
+            UIView.performWithoutAnimation {
+                self.layoutIfNeeded()
+            }
             return
         }
         let targetHeight = max(0, transition.overlap(in: self))
@@ -516,6 +520,13 @@ public final class GhosttySurfaceHostView: UIView {
         )
         keyboardTransitionGeneration &+= 1
         let generation = keyboardTransitionGeneration
+        if surfaceView.hostedAltScreenActive,
+           !surfaceView.useLegacyTerminalSizing,
+           targetHeight + 0.5 < previousKeyboardHeight {
+            holdPresentationForAlternateScreenKeyboardHide()
+        } else {
+            releasePresentationForKeyboardHide()
+        }
         guard hostOwnsDockSeat else {
             // The system guide moves the dock inside UIKit's own keyboard
             // transaction. Its matching did notification, rather than a
@@ -535,13 +546,6 @@ public final class GhosttySurfaceHostView: UIView {
             // first, so the new leg starts every owned layer from one edge
             // (the #10006 reversal contract the iOS 27 seat shipped with).
             rebaseInterruptedKeyboardLegFromLiveFrames()
-        }
-        if surfaceView.hostedAltScreenActive,
-           !surfaceView.useLegacyTerminalSizing,
-           targetHeight + 0.5 < previousKeyboardHeight {
-            holdPresentationForAlternateScreenKeyboardHide()
-        } else {
-            releasePresentationForKeyboardHide()
         }
         keyboardTransitionActive = true
         dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
