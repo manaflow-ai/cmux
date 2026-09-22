@@ -6,6 +6,7 @@ on:
   # path filter would let ordinary Swift changes merge with only ci-status from
   # the fallback workflow without validating the app.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   merge_group:
   workflow_dispatch:
     inputs:
@@ -230,23 +231,21 @@ jobs:
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
       # the repository variable CI_PULL_REQUEST_SUITE is "compile-only". Under
-      # that policy the "full-ci" label opts one pull request back in. Labels are
-      # read live so a re-run sees a label added after the push.
+      # that policy the "full-ci" label opts one pull request back in. Labels
+      # come from this run's event payload, so a rerun replays the same label
+      # snapshot; labeled/unlabeled events above create a fresh run instead.
       - name: Choose the macOS suite for this run
         id: suite
         env:
           EVENT_NAME: ${{ github.event_name }}
           PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE }}
-          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          args=(--event-name "$EVENT_NAME" --pull-request-policy "$PULL_REQUEST_POLICY" --github-output "$GITHUB_OUTPUT")
-          labels="$RUNNER_TEMP/pull-request-labels.txt"
-          if [ -n "$PULL_REQUEST_NUMBER" ] && gh api "repos/$GITHUB_REPOSITORY/issues/$PULL_REQUEST_NUMBER/labels" --paginate --jq '.[].name' > "$labels"; then
-            args+=(--labels-file "$labels")
-          fi
-          python3 scripts/ci/choose_ci_suite.py "${args[@]}"
+          python3 scripts/ci/choose_ci_suite.py \
+            --event-name "$EVENT_NAME" \
+            --pull-request-policy "$PULL_REQUEST_POLICY" \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Route Linux guard suites
         id: linux_guards
