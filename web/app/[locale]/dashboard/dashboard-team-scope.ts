@@ -76,13 +76,18 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const selected = selectedTeam(teams, data.selectedTeamId, searchParams.get("team"));
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
-    if (team.id === selected.id) return;
+    const currentCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
+    if (
+      (pendingSwitches.current === 0 && team.id === selected.id)
+      || (pendingSwitches.current > 0 && currentCatalog.selectedTeamId === team.id)
+    ) {
+      return;
+    }
 
     nextSwitchId.current += 1;
     const operationId = nextSwitchId.current;
     activeSwitchId.current = operationId;
 
-    const currentCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
     if (pendingSwitches.current === 0) {
       confirmedSwitchState.current = {
         catalog: currentCatalog,
@@ -104,7 +109,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     optimisticSearch.set("team", team.id);
     router.replace(pathWithSearch(pathname, optimisticSearch));
 
-    const persist = switchPersistenceTail.current.then(async () => {
+    const persistRequest = async () => {
       const cancellation = new AbortController();
       const timeout = setTimeout(
         () => cancellation.abort(new Error("Team switch timed out")),
@@ -135,7 +140,10 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
       };
       confirmedSwitchState.current = nextConfirmed;
       return nextConfirmed;
-    });
+    };
+    const persist = pendingSwitches.current === 1
+      ? persistRequest()
+      : switchPersistenceTail.current.then(persistRequest);
     switchPersistenceTail.current = persist.then(
       () => undefined,
       () => undefined,
