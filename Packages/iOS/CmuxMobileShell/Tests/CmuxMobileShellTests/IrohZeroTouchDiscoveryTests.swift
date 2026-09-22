@@ -741,9 +741,34 @@ struct IrohZeroTouchDiscoveryTests {
         let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
         let fixture = try await makeFixture(
             discovery: discovery,
-            reportedDeviceID: "mac-a"
+            reportedDeviceID: "mac-a",
+            legacyGlobalMethod: .tailscale
         )
         defer { fixture.cleanup() }
+        let legacyRoute = try CmxAttachRoute(
+            id: "tailscale-mac-b",
+            kind: .tailscale,
+            endpoint: .hostPort(
+                host: "100.64.0.2",
+                port: CmxMobileDefaults.defaultHostPort
+            ),
+            priority: 10
+        )
+        try await fixture.store.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Legacy Tailscale Mac",
+            routes: [legacyRoute],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            now: Self.fixedNow
+        )
+        try await fixture.store.setConnectionMethod(
+            macDeviceID: "mac-b",
+            instanceTag: "stable",
+            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            stackUserID: "user-1"
+        )
         let scope = try #require(
             await fixture.shell.currentScopeSnapshot(userID: "user-1")
         )
@@ -780,7 +805,8 @@ struct IrohZeroTouchDiscoveryTests {
         discovery: any MobileIrohMacDiscovering,
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
-        rateLimitedRouteIDs: Set<String> = []
+        rateLimitedRouteIDs: Set<String> = [],
+        legacyGlobalMethod: MobileConnectionMethod? = nil
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -810,9 +836,18 @@ struct IrohZeroTouchDiscoveryTests {
             personalIrohDiscovery: discovery,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(
-                suiteName: "iroh-zero-touch-\(UUID().uuidString)"
-            )!
+            pairingHintDefaults: {
+                let defaults = UserDefaults(
+                    suiteName: "iroh-zero-touch-\(UUID().uuidString)"
+                )!
+                if let legacyGlobalMethod {
+                    defaults.set(
+                        legacyGlobalMethod.rawValue,
+                        forKey: MobileConnectionMethodStore.methodKey
+                    )
+                }
+                return defaults
+            }()
         )
         return ZeroTouchFixture(
             shell: shell,
