@@ -153,7 +153,10 @@ test("physical-device signing rejects partial ASC credentials instead of changin
   }
 
   assert.match(reload, /if \[\[ "\$RELOAD_DEVICE" -eq 1 \]\]; then/u);
-  assert.match(reload, /if \[\[ ! -r "\$ASC_API_KEY_PATH" \]\]; then/u);
+  assert.match(
+    reload,
+    /if \[\[ ! -f "\$ASC_API_KEY_PATH" \|\| ! -r "\$ASC_API_KEY_PATH" \]\]; then/u,
+  );
 });
 
 test("tagged Debug API-key signing can retry without the App Group", () => {

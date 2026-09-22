@@ -595,8 +595,8 @@ if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
     exit 2
   fi
   if [[ "$DEVICE_SIGNING_BACKEND" == "asc-api-key" ]]; then
-    if [[ ! -r "$ASC_API_KEY_PATH" ]]; then
-      echo "error: ASC_API_KEY_PATH is not readable: $ASC_API_KEY_PATH" >&2
+    if [[ ! -f "$ASC_API_KEY_PATH" || ! -r "$ASC_API_KEY_PATH" ]]; then
+      echo "error: ASC_API_KEY_PATH must be a readable file: $ASC_API_KEY_PATH" >&2
       exit 2
     fi
     XCODE_AUTH_ARGS=(
