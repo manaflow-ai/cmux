@@ -280,6 +280,14 @@ def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -
         )
     remove_restored_submodule_worktrees(workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
+
+    # The seed build normalizes tracked mtimes from blob IDs before Xcode sees
+    # them. Reapply that exact deterministic signature after archive restore,
+    # because common tar implementations can round source mtimes. This happens
+    # while the index still describes generation A; the subsequent checkout to
+    # B rewrites only files whose Git blobs changed.
+    normalize_tracked_mtimes(workspace)
+
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
     if status:
         raise SystemExit("restored worktree differs from recorded seed before transition:\n" + status)
