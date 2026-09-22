@@ -75,11 +75,19 @@ def normalize_tracked_mtimes(workspace: Path, metrics: Path | None = None) -> No
 
 
 def source_fresh(workspace: Path, base: str, target: str, metrics: Path) -> None:
+    started = time.monotonic()
     fetch_pair(workspace, base, target)
     run(["git", "reset", "--hard", target], cwd=workspace)
     run(["git", "clean", "-ffd"], cwd=workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
-    record_source_metrics(workspace, base, target, "fresh-checkout", metrics)
+    record_source_metrics(
+        workspace,
+        base,
+        target,
+        "fresh-checkout",
+        metrics,
+        source_transition_seconds=time.monotonic() - started,
+    )
 
 
 def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -> None:
@@ -95,6 +103,7 @@ def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -
     # Bind HEAD/index to the archived source without rewriting working files.
     run(["git", "reset", "--mixed", base], cwd=workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
+    candidate_transition_seconds = time.monotonic() - transition_started
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
     if status:
         raise SystemExit("restored worktree differs from recorded seed before transition:\n" + status)
@@ -113,13 +122,16 @@ def source_restored(
     started = time.monotonic()
     run(["tar", "-xzf", archive, "-C", workspace])
     extract_seconds = time.monotonic() - started
+    rebind_started = time.monotonic()
     init_restored_repo(workspace, repo_url, base, target)
+    rebind_seconds = time.monotonic() - rebind_started
 
     sample = workspace / "Sources/AppDelegate.swift"
     edited = workspace / "Sources/Mobile/MobileTerminalByteTee.swift"
     before_sample = sample.stat().st_mtime_ns
     before_edited = edited.stat().st_mtime_ns
 
+    transition_started = time.monotonic()
     if synthetic_merge:
         env = os.environ.copy()
         env.update({
@@ -150,6 +162,9 @@ def source_restored(
         "target": resolved_target,
         "workspace": str(workspace.resolve()),
         "worktree_extract_seconds": round(extract_seconds, 6),
+        "git_rebind_seconds": round(rebind_seconds, 6),
+        "candidate_transition_seconds": round(candidate_transition_seconds, 6),
+        "source_transition_seconds": round(extract_seconds + rebind_seconds + candidate_transition_seconds, 6),
         "sample_unchanged_mtime_ns_before": before_sample,
         "sample_unchanged_mtime_ns_after": sample.stat().st_mtime_ns,
         "sample_unchanged_device": sample.stat().st_dev,
@@ -167,12 +182,22 @@ def source_restored(
     print("CMUX_CANARY_SOURCE=" + json.dumps(payload, sort_keys=True), flush=True)
 
 
-def record_source_metrics(workspace: Path, base: str, target: str, mode: str, metrics: Path) -> None:
+def record_source_metrics(
+    workspace: Path,
+    base: str,
+    target: str,
+    mode: str,
+    metrics: Path,
+    source_transition_seconds: float | None = None,
+) -> None:
     payload = {
         "mode": mode,
         "base": base,
         "target": target,
         "workspace": str(workspace.resolve()),
+        "source_transition_seconds": (
+            round(source_transition_seconds, 6) if source_transition_seconds is not None else None
+        ),
         "head": output("git", "rev-parse", "HEAD", cwd=workspace),
         "tree": output("git", "rev-parse", "HEAD^{tree}", cwd=workspace),
     }
