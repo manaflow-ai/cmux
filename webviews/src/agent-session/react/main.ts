@@ -382,6 +382,7 @@ function SessionSurface({
       return;
     }
     if (currentInput !== state.input) {
+      inputRevisionRef.current += 1;
       dispatch({ type: "setInput", input: currentInput });
     }
     if (submitRoutedCommand(currentInput)) {
