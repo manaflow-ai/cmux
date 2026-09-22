@@ -8317,6 +8317,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         setForegroundWorkspaceState(workspaces: workspaces, groups: groups, merge: false)
     }
 
+    /// DEBUG-only preview seam: simulate the foreground Mac becoming
+    /// unreachable with reconnect attempts exhausted (the retained-workspace
+    /// "Disconnected" state), without a live connection to tear down. Drives
+    /// the same state the real outage path lands in: the shell disconnected,
+    /// the foreground status unavailable, and the retained rows stamped
+    /// unavailable so the workspace detail blocks input.
+    public func simulateForegroundMacUnavailableForPreview() {
+        suppressNextConnectionOutageEdge = true
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        markSecondaryMacUnavailable(foregroundMacKey)
+    }
+
     /// Test seam: seed the full per-Mac workspace source of truth so aggregation
     /// edge cases can be tested without opening live secondary transports.
     func setWorkspaceStatesForTesting(
