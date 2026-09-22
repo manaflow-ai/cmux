@@ -145,6 +145,24 @@ class ProductPublicationTests(unittest.TestCase):
         self.assertNotIn(".ci-source-packages", str(job))
         self.assertNotIn("Cache Swift packages", names)
         self.assertNotIn("Resolve Swift packages", names)
+        for setup_name in (
+            "Capture Ghostty revision",
+            "Cache GhosttyKit.xcframework",
+            "Download pre-built GhosttyKit.xcframework",
+            "Install Rust",
+        ):
+            self.assertNotIn(setup_name, names)
+        self.assertNotIn("GhosttyKit.xcframework", str(job))
+        self.assertNotIn("install-rust-ci.sh", str(job))
+
+        checkout_steps = [
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkout_steps), 2)
+        for step in checkout_steps:
+            self.assertNotIn("submodules", step.get("with", {}))
 
         for step in steps:
             run = step.get("run", "")
