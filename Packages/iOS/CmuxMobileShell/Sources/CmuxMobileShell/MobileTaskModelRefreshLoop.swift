@@ -20,15 +20,18 @@ public struct MobileTaskModelRefreshLoop: Sendable {
         shouldContinue: @escaping @MainActor () -> Bool = { true },
         refresh: @escaping @MainActor () async -> MobileTaskModelRefreshOutcome,
         sleep: @escaping @MainActor (Duration) async throws -> Void = { duration in
-            try await Task.sleep(for: duration)
+            // Model discovery has no host push signal, so the composer owns a
+            // bounded polling delay while it remains open. ContinuousClock
+            // keeps this wait monotonic; tests inject an immediate clock.
+            try await ContinuousClock().sleep(for: duration)
         }
     ) async {
         var attempt = 0
         // Do not add an attempt or deadline cap here. The composer contract
         // requires recovery to continue for the entire time it remains open;
-        // only a typed permanent outcome or owner cancellation may end this
-        // loop. The capped delay is the request-rate bound while the Mac or
-        // provider is unavailable.
+        // only the owner cancellation check or a typed permanent outcome may
+        // end this loop. The capped delay is the request-rate bound while the
+        // Mac or provider is unavailable.
         while !Task.isCancelled, shouldContinue() {
             switch await refresh() {
             case .succeeded, .stopped:
