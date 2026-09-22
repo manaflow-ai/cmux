@@ -8,6 +8,13 @@ the pull request's checkout would run that pull request's code.
 The two check steps are compared whole. A list of forbidden shell forms
 (`|| true`, `|| ( true )`, `set +e`, ...) can always be extended by one more
 form; an exact step cannot be weakened without this test changing with it.
+
+The pull-request check is also allowed to be skipped when the pull request
+changes no file under web/, because the tree it would read is then identical to
+the base whose baseline it is compared against. That decision has to be made
+from the base branch without reading the candidate, so the step producing it is
+checked here too: it may only run for pull_request_target, must not check
+anything out, and must reach its conclusion through the API alone.
 """
 
 from __future__ import annotations
@@ -28,7 +35,7 @@ BUN = 'bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 EXPECTED_CHECKS = [
     {
         "name": "Check pull-request or merge-group source with trusted policy",
-        "if": "github.event_name != 'push'",
+        "if": "github.event_name != 'push' && steps.web-changes.outputs.skip != 'true'",
         "working-directory": "trusted/web",
         "run": (
             "set -euo pipefail\n"
@@ -71,7 +78,38 @@ def main() -> int:
     if job.get("continue-on-error"):
         print("FAIL: the complexity job must not continue on error")
         return 1
-    checks = [step for step in job["steps"] if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
+    steps = job["steps"]
+    detectors = [step for step in steps if step.get("id") == "web-changes"]
+    if len(detectors) != 1:
+        print("FAIL: the trusted workflow must have exactly one web-changes detection step")
+        return 1
+    detect = detectors[0]
+    if detect.get("if") != "github.event_name == 'pull_request_target'":
+        print("FAIL: web-change detection must only run for pull_request_target")
+        return 1
+    if "uses" in detect or "checkout" in str(detect.get("run", "")):
+        print("FAIL: web-change detection must not check out any tree")
+        return 1
+    if "github.event.pull_request" in str(detect.get("run", "")):
+        print("FAIL: web-change detection must not interpolate pull-request fields into its script")
+        return 1
+    if "--paginate" not in str(detect.get("run", "")):
+        print("FAIL: web-change detection must read every page of the pull request's files")
+        return 1
+    # The gate has to be the detector's own output, and it has to fail open:
+    # anything other than a positive "skip" still runs the check.
+    gate = "steps.web-changes.outputs.skip != 'true'"
+    guarded = [step for step in steps if gate in str(step.get("if", ""))]
+    if len(guarded) < 6:
+        print("FAIL: the expensive trusted steps must all be gated on the web-change detector")
+        return 1
+    if detect["if"].startswith("$") or any(
+        "outputs.skip ==" in str(step.get("if", "")) for step in steps
+    ):
+        print("FAIL: the web-change gate must fail open, skipping only on an explicit skip=true")
+        return 1
+
+    checks = [step for step in steps if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
     if checks != EXPECTED_CHECKS:
         print(
             "FAIL: the complexity check steps changed. They must run from trusted/web, start Bun with "

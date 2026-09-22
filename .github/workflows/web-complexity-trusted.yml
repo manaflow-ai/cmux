@@ -41,7 +41,45 @@ jobs:
       CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
       CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
+      - name: Require GitHub-hosted runner
+        if: runner.environment != 'github-hosted'
+        run: |
+          set -euo pipefail
+          echo "::error::Web complexity requires a GitHub-hosted runner"
+          exit 1
+
+      # Web complexity is a property of web/. A pull request that changes no
+      # file under web/ presents the same web tree as its base, and the base is
+      # where the baseline it would be compared against comes from, so the
+      # answer is already known. This decides that from the base branch, over
+      # the API, before any tree is fetched: it reads no candidate bytes and
+      # runs no candidate code. Anything unexpected leaves the full check.
+      - name: Detect web changes in the pull request
+        id: web-changes
+        if: github.event_name == 'pull_request_target'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          files="$RUNNER_TEMP/pull-request-files.txt"
+          if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename' > "$files"; then
+            echo "Could not list the pull request's files; running the full check."
+            exit 0
+          fi
+          if [ ! -s "$files" ]; then
+            echo "The pull request reports no files; running the full check."
+            exit 0
+          fi
+          if grep -q '^web/' "$files"; then
+            echo "The pull request changes web/; running the full check."
+            exit 0
+          fi
+          echo "The pull request changes no file under web/, so its web complexity equals its base's."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted policy revision
+        if: ${{ steps.web-changes.outputs.skip != 'true' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
@@ -50,14 +88,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require GitHub-hosted runner
-        if: runner.environment != 'github-hosted'
-        run: |
-          set -euo pipefail
-          echo "::error::Web complexity requires a GitHub-hosted runner"
-          exit 1
-
       - name: Verify trusted checkout
+        if: ${{ steps.web-changes.outputs.skip != 'true' }}
         run: |
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -66,11 +98,13 @@ jobs:
           [[ -f trusted/web/oxlint-complexity-baseline.txt ]]
 
       - name: Setup Bun
+        if: ${{ steps.web-changes.outputs.skip != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.14"
 
       - name: Install trusted web tooling
+        if: ${{ steps.web-changes.outputs.skip != 'true' }}
         working-directory: trusted/web
         run: bun install --frozen-lockfile
 
@@ -80,12 +114,13 @@ jobs:
       # --config needs the = form: given a separate argument, Bun runs the config
       # file as the script, exits 0, and the check never happens.
       - name: Create empty trusted Bun config
+        if: ${{ steps.web-changes.outputs.skip != 'true' }}
         run: |
           set -euo pipefail
           : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 
       - name: Checkout pull-request or merge-group source
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.web-changes.outputs.skip != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ env.CANDIDATE_REPOSITORY }}
@@ -95,7 +130,7 @@ jobs:
           persist-credentials: false
 
       - name: Check pull-request or merge-group source with trusted policy
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.web-changes.outputs.skip != 'true'
         working-directory: trusted/web
         run: |
           set -euo pipefail
