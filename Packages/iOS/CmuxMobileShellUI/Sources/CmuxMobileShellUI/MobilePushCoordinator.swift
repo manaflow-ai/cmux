@@ -1327,7 +1327,10 @@ public final class MobilePushCoordinator {
     }
 
     private func presentTabUnavailableAlert() {
-        guard tabUnavailableAlert == nil else { return }
+        guard tabUnavailableAlert?.kind != .tabUnavailable else { return }
+        // A reconnect can turn a previously timed-out tap into a definitive
+        // missing-tab result. Replace the stale connection prompt with the
+        // authoritative outcome so the user sees the actual next step.
         tabUnavailableAlert = TabUnavailableAlert(kind: .tabUnavailable)
         diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .endpointUnavailable)
         analytics.capture("ios_push_deeplink_failed", ["reason": .string("tab_unavailable")])
