@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read and optionally gate the review obligations for an opted-in agent PR."""
+"""Request automated review and optionally gate review obligations for a PR."""
 from __future__ import annotations
 
 import datetime as dt
@@ -165,10 +165,7 @@ def greptile_check_running(head: str) -> bool:
 
 
 def request_greptile_review(pr: dict[str, Any]) -> str:
-    """Post at most one trusted Greptile review request for each opted-in PR head."""
-    if OPT_IN_MARKER not in str(pr.get("body") or ""):
-        return "not-opted-in"
-
+    """Post at most one trusted Greptile review request for each PR head."""
     head = str(pr.get("headRefOid") or "")
     number = int(pr.get("number") or 0)
     if not head or not number:
