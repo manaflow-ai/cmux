@@ -14789,7 +14789,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return streamToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
+    private func unregisterTerminalOutput(
+        surfaceID: String,
+        streamToken: UUID,
+        releaseViewport: Bool
+    ) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
@@ -14846,8 +14850,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalUnmounted,
             correlationID: surfaceID
         )
-        // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
-        clearTerminalViewport(surfaceID: surfaceID)
+        if releaseViewport {
+            // Ownerless and release-gate streams keep the historical contract:
+            // ending the stream means the viewer lease ended too. Mounted UI
+            // streams pass false here because UIKit/output-consumer churn is a
+            // narrower lifetime than presentation ownership.
+            clearTerminalViewport(surfaceID: surfaceID)
+        }
     }
 
     /// The output byte stream for a terminal surface.
@@ -14872,6 +14881,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         ownerID: UUID?
     ) -> AsyncStream<MobileTerminalOutputChunk> {
+        terminalOutputStream(
+            surfaceID: surfaceID,
+            ownerID: ownerID,
+            releaseViewportOnTermination: true
+        )
+    }
+
+    /// Opens an owner-aware output stream with explicit viewport-lease
+    /// termination semantics.
+    ///
+    /// Mounted UIKit consumers set `releaseViewportOnTermination` to false:
+    /// their stream can end during a temporary window detach or bounded
+    /// consumer restart while the presentation still owns the sticky viewport
+    /// report. Presentation teardown releases that report explicitly through
+    /// `clearTerminalViewport(surfaceID:)`.
+    public func terminalOutputStream(
+        surfaceID: String,
+        ownerID: UUID?,
+        releaseViewportOnTermination: Bool
+    ) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
             let streamToken = registerTerminalOutput(
                 surfaceID: surfaceID,
@@ -14882,7 +14911,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 Task { @MainActor in
                     self?.unregisterTerminalOutput(
                         surfaceID: surfaceID,
-                        streamToken: streamToken
+                        streamToken: streamToken,
+                        releaseViewport: releaseViewportOnTermination
                     )
                 }
             }
