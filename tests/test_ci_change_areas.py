@@ -1998,8 +1998,12 @@ def test_guard_bun_setup_runs_only_for_groups_that_execute_bun() -> None:
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight' }}" in setup_block
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release' }}" in setup_block
     assert block.count("setup-bun@") == 1
+    # The release group executes test_ios_testflight_main_push_filter.py, whose
+    # decision harness launches Bun. Do not remove release from this condition
+    # just because the direct command is Python.
+    assert "test_ios_testflight_main_push_filter.py" in block
 
 
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
