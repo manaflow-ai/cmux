@@ -41,6 +41,7 @@ type PushBodyOptions = {
   expirationEpochSeconds?: number;
   targetNamespace?: string;
   targetNamespaces?: readonly string[];
+  keyIDs?: readonly string[];
   macDeviceId?: string;
   macInstanceTag?: string;
   installationIDs?: readonly string[];
@@ -494,6 +495,7 @@ describe("notifications push route", () => {
         body: JSON.stringify(pushBody({
           correlationId: "f8f18b05-cf10-46be-8bba-c5ea468efabc",
           installationIDs: ["release-installation", "internal-installation"],
+          keyIDs: ["ios-push-key-1", "ios-push-key-2"],
           targetNamespaces: ["com.cmux.app", "dev.cmux.app.internal"],
         })),
       }),
