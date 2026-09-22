@@ -238,7 +238,9 @@ The receipt should conform to:
 
 The receipt records source identity, policy version, review brief, candidate counts, findings, evidence, and dispositions. It is a local artifact under Git metadata and must never be added to source control.
 
-The top-level `source` is the exact state against which discovery, challenge, and pre-repair verification ran. Use full Git object ids; never abbreviate `base_sha` or `head_sha`. Compute the diff hash from the exact reviewed patch. For working-tree review, include staged and unstaged state in the reviewed patch and record `working_tree_dirty: true`.
+The top-level `source` is the exact code state against which discovery, challenge, and pre-repair verification ran. Use full Git object ids; never abbreviate `base_sha` or `head_sha`. Compute the diff hash from the exact reviewed patch, including non-ignored untracked files. For working-tree review, include staged and unstaged state and record `working_tree_dirty: true`.
+
+Keep review-policy identity separate from code identity. `policy_version` identifies this review protocol; top-level `ruleset_sha256` hashes the exact repository guidance/rule bundle supplied to reviewers, or is `null` when no repository rule bundle was supplied. Do not put the ruleset hash inside `source`.
 
 A successful repair crosses into a new source state. Record that state as `repair.after_source` and record the replay of the original discriminator under `repair.verification`. Do not let post-repair evidence inherit the pre-repair source coordinate implicitly.
 
