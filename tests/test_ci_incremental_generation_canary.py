@@ -314,10 +314,19 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             git(repo, "config", "user.name", "Canary Test")
             git(repo, "config", "user.email", "canary@example.invalid")
             (repo / "Sources" / "Mobile").mkdir(parents=True)
-            (repo / "Sources/AppDelegate.swift").write_text("let a = 1\\n")
+            app_delegate = repo / "Sources/AppDelegate.swift"
+            app_delegate.write_text("let a = 1\\n")
             (repo / "Sources/Mobile/MobileTerminalByteTee.swift").write_text("let b = 1\\n")
+            tracked_resource = repo / "Resources/ghostty/themes/example"
+            tracked_resource.parent.mkdir(parents=True)
+            tracked_resource.write_text("theme\\n")
+            (repo / ".gitignore").write_text("ignored.bin\\n")
             git(repo, "add", ".")
             git(repo, "commit", "-qm", "seed")
+            ignored = repo / "ignored.bin"
+            ignored.write_bytes(b"ignored")
+            exact_mtime = 1_600_000_000_123_456_789
+            os.utime(app_delegate, ns=(exact_mtime, exact_mtime))
 
             derived = root / "derived"
             for relative in (
@@ -334,6 +343,17 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             out = root / "archive"
             metrics = root / "metrics.json"
             bench.archive_generation(repo, derived, out, metrics)
+
+            with tarfile.open(out / "worktree.tar.gz", "r:gz") as archive:
+                source_members = {member.name: member for member in archive.getmembers()}
+            self.assertIn("Sources/AppDelegate.swift", source_members)
+            self.assertIn("Resources/ghostty/themes/example", source_members)
+            self.assertNotIn("ignored.bin", source_members)
+            self.assertEqual(
+                source_members["Sources/AppDelegate.swift"].pax_headers.get("mtime"),
+                "1600000000.123456789",
+            )
+
             with tarfile.open(out / "derived-data.tar.gz", "r:gz") as archive:
                 names = set(archive.getnames())
             self.assertTrue(any(name.startswith("Build/Intermediates.noindex") for name in names))
