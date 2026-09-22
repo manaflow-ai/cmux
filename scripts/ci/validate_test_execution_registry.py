@@ -10,8 +10,13 @@ it is somebody else's oversight, and failing here would turn every open pull
 request red for a reason its author cannot fix.
 
 Everything a pull request can only break by editing the registry itself --
-malformed entries, unknown fields, duplicate registrations, entries pointing
-at files that no longer exist, lanes no workflow runs -- stays a hard failure.
+malformed entries, unknown fields, entries pointing at files that no longer
+exist, lanes no workflow runs -- stays a hard failure.
+
+Duplicate registrations sit between the two. Two pull requests that each
+register the same test merge cleanly into a duplicate nobody wrote, so a
+duplicate already present on the base branch warns and one this branch
+introduces fails.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ from pathlib import Path
 # to sys.path the way running it as a script does.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_execution_registry import load_registry  # noqa: E402
+from test_execution_registry import load_registry, parse_registry  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,27 +131,65 @@ def merge_base(base_sha: str, root: Path = ROOT) -> str | None:
     return result.stdout.strip() or None
 
 
-def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
-    """Test files this branch adds, relative to the merge base with `base_sha`.
+def comparison_point(base_sha: str, root: Path = ROOT) -> str:
+    """Where to diff this branch from.
 
-    `git diff --diff-filter=A <merge-base> HEAD` is `<base_sha>...HEAD`. When
-    the clone is too shallow for a merge base -- CI fetches the base commit at
-    depth 1 -- fall back to diffing the base commit itself, which still names
-    only files this branch has and the base branch does not.
+    `git merge-base <base_sha> HEAD` is the `<base_sha>...HEAD` base. When the
+    clone is too shallow for a merge base -- CI fetches the base commit at
+    depth 1 -- fall back to the base commit itself, which still names only
+    files this branch has and the base branch does not.
     """
-    point = merge_base(base_sha, root) or base_sha
+    return merge_base(base_sha, root) or base_sha
+
+
+def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
+    """Test files this branch adds, relative to the merge base with `base_sha`."""
     output = subprocess.check_output(
-        ["git", "diff", "--name-only", "--diff-filter=A", point, "HEAD", "--", "tests"],
+        [
+            "git",
+            "diff",
+            "--name-only",
+            "--diff-filter=A",
+            comparison_point(base_sha, root),
+            "HEAD",
+            "--",
+            "tests",
+        ],
         cwd=root,
         text=True,
     )
     return {line.strip() for line in output.splitlines() if TEST_PATH_RE.fullmatch(line.strip())}
 
 
+def duplicated_paths(entries: list[dict[str, object]]) -> set[str]:
+    counts = Counter(
+        str(entry["path"]) for entry in entries if isinstance(entry.get("path"), str)
+    )
+    return {path for path, count in counts.items() if count != 1}
+
+
+def base_duplicated_paths(base_sha: str, root: Path = ROOT) -> set[str]:
+    """Paths already registered twice on the base branch.
+
+    Two pull requests that each register the same test merge cleanly and land a
+    duplicate nobody wrote, so a duplicate this branch did not create is not
+    this branch's failure. `tests/test_sync_test_wiring.py` reached main this
+    way through #13738 and #13739.
+    """
+    point = comparison_point(base_sha, root)
+    text = subprocess.check_output(
+        ["git", "show", f"{point}:tests/test-execution.toml"],
+        cwd=root,
+        text=True,
+    )
+    return duplicated_paths(parse_registry(text, f"{point}:tests/test-execution.toml"))
+
+
 def validate(
     root: Path = ROOT,
     base_sha: str = "",
     added: set[str] | None = None,
+    base_duplicates: set[str] | None = None,
 ) -> tuple[list[str], list[str], Counter[str]]:
     """Return (hard errors, warnings, lane counts) for the registry under `root`."""
     manifest = root / "tests" / "test-execution.toml"
@@ -195,8 +238,21 @@ def validate(
         paths.append(path)
         by_path[path] = entry
 
-    for path, count in Counter(paths).items():
-        if count != 1:
+    if base_duplicates is None and base_sha:
+        try:
+            base_duplicates = base_duplicated_paths(base_sha, root)
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            warnings.append(f"could not read the base registry at {base_sha}: {error}")
+    already_duplicated = base_duplicates or set()
+
+    for path in sorted(path for path, count in Counter(paths).items() if count != 1):
+        if path in already_duplicated:
+            warnings.append(
+                f"{path}: registered more than once. The duplicate is already on the base "
+                "branch, so this is a warning and does not fail the build. Delete one of "
+                "its [[test]] blocks in tests/test-execution.toml."
+            )
+        else:
             errors.append(f"{path}: registered more than once")
 
     # A stale entry can only be produced by the pull request that deletes or

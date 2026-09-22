@@ -113,8 +113,35 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         )
         errors, _, _ = validator.validate(root, added=set())
 
-        self.assertTrue(any("registered more than once" in error for error in errors), errors)
         self.assertTrue(any("manual tests require a reason" in error for error in errors), errors)
+
+    def test_duplicate_this_branch_introduces_fails(self) -> None:
+        root = self.make_root(
+            tests=["test_kept.py"],
+            registry=self.kept_registry() + "\n" + self.kept_registry().partition("\n\n")[2],
+        )
+        errors, _, _ = validator.validate(root, added=set(), base_duplicates=set())
+
+        self.assertTrue(
+            any("tests/test_kept.py: registered more than once" in error for error in errors),
+            errors,
+        )
+
+    def test_duplicate_already_on_the_base_branch_only_warns(self) -> None:
+        """#13738 and #13739 each registered tests/test_sync_test_wiring.py."""
+        root = self.make_root(
+            tests=["test_kept.py"],
+            registry=self.kept_registry() + "\n" + self.kept_registry().partition("\n\n")[2],
+        )
+        errors, warnings, _ = validator.validate(
+            root, added=set(), base_duplicates={"tests/test_kept.py"}
+        )
+
+        self.assertEqual(errors, [])
+        self.assertTrue(
+            any("tests/test_kept.py: registered more than once" in warning for warning in warnings),
+            warnings,
+        )
 
     def test_dead_lane_fails_even_for_an_unrelated_branch(self) -> None:
         root = self.make_root(
