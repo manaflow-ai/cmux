@@ -246,10 +246,13 @@ extension SurfaceCatalog {
         let refreshedIDs = Set(refreshed.map(\.id))
         let previousIDs = Set(previous.map(\.id))
         let projectedResourceIDs = Set(projections.map(\.resource))
+        let displayPortsOwned = machineInfo(for: machine)?.hasDesktop == true
+            || previous.contains { $0.kind == .display }
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
         where candidate.id.isForwardedPort
             && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
+            && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(candidate.id.forwardedPort ?? -1))
             && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
@@ -264,13 +267,20 @@ extension CmuxTuiSurfaceProvider {
     /// Converts one port-probe result into a complete scan. A non-zero exit is
     /// incomplete (the command or transport was unavailable); a successful
     /// header-only listing is authoritative and intentionally returns `[]`.
-    nonisolated static func ports(from result: VMExecResult, privateAddress: String? = nil) -> [Int]? {
+    nonisolated static func ports(
+        from result: VMExecResult,
+        privateAddress: String? = nil,
+        displayPortsOwned: Bool = false
+    ) -> [Int]? {
         guard result.exitCode == 0 else { return nil }
         return CmuxTuiSnapshotParser.reachableListeningPorts(
             fromSocketListing: result.stdout,
             privateAddress: privateAddress
         )
-            .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0) }
+            .filter {
+                !CmuxTuiSnapshotParser.internalPorts.contains($0)
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
+            }
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.
@@ -282,13 +292,15 @@ extension CmuxTuiSurfaceProvider {
         machine: SurfaceMachineID,
         scannedPorts: [Int]?,
         previousResources: [SurfaceResource],
-        privateAddress: String?
+        privateAddress: String?,
+        displayPortsOwned: Bool = false
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
                     $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
+                        && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
                 }
                 .map { ($0.id, $0) }
         )
@@ -309,6 +321,7 @@ extension CmuxTuiSurfaceProvider {
         return scannedPorts
             .filter { (port: Int) in
                 (1...65_535).contains(port) && seen.insert(port).inserted
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(port))
             }
             .sorted(by: <)
             .map { (port: Int) -> SurfaceResource in
