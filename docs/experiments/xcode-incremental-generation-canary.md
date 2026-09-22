@@ -38,6 +38,24 @@ The relocation arms quantify path dependence instead of inferring it from a fail
 
 Each row records build wall time; SwiftCompile task count; Xcode Build Timing Summary time for SwiftCompile and SwiftEmitModule; compilation-CAS hit and miss mentions separately from incremental tasks; worktree and DerivedData disk bytes; compressed archive bytes; compression, upload, download, and extraction time; exact paths; source mtime/device/inode diagnostics; and Xcode/SDK identity.
 
+## Decision matrix
+
+Interpret the changed-source arms in this order:
+
+- Restored worktree + DD fails to reduce incremental tasks: reject the hypothesis.
+- Restored worktree wins, and fresh checkout + blob-normalized mtimes matches its
+  task count and wall time: prefer the normalized DD-only path. It removes the
+  source archive and its transfer/security surface.
+- Restored worktree wins materially over normalized mtimes: retain the worktree
+  generation and treat the difference as evidence that Xcode needs additional
+  source identity/state beyond per-blob mtime.
+- Either warm arm wins build wall but loses after download/extract plus previous
+  generation compression/upload: stop before production CI and reduce the DD
+  state set/transport cost first.
+- A relocation arm that loses while the fixed-path arm wins makes absolute path
+  part of generation identity; it is a compatibility miss, not a recoverable
+  warm hit.
+
 ## Break-even
 
 For a revision after the seed, define F as fresh-checkout build wall time, W as restored-generation build wall time, D as generation download plus extraction, P as compression plus upload charged to the previous successful revision, and S as source-generation restore/transition overhead.
