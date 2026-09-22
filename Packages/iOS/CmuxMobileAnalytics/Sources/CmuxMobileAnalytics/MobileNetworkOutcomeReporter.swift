@@ -486,9 +486,15 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         if let surface = observation.event.surface {
             properties["event_surface"] = .int(Int(surface))
         }
-        addDiagnosticInteger(observation.event.a, key: "event_a", to: &properties)
-        addDiagnosticInteger(observation.event.b, key: "event_b", to: &properties)
-        addDiagnosticInteger(observation.event.c, key: "event_c", to: &properties)
+        // Bound diagnostic slots before they leave the client.
+        for (key, slot) in [
+            ("event_a", observation.event.a),
+            ("event_b", observation.event.b),
+            ("event_c", observation.event.c),
+        ] {
+            guard let slot, slot >= 0, slot <= Int(UInt32.max) else { continue }
+            properties[key] = .int(slot)
+        }
         if observation.event.code == .transportDialCancelled,
            let rawReason = observation.event.a,
            let reason = DiagnosticCancellationReason(rawValue: rawReason) {
@@ -535,17 +541,4 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         guard end >= start else { return nil }
         return UInt32(clamping: Int((end - start) / 1_000_000))
     }
-}
-
-/// Diagnostic event payload slots are fixed, bounded integers by contract.
-/// Keep the guard here as a second line of defense before values leave the
-/// client, so a future event cannot accidentally turn a slot into a large
-/// or signed free-form payload.
-private func addDiagnosticInteger(
-    _ value: Int?,
-    key: String,
-    to properties: inout [String: AnalyticsValue]
-) {
-    guard let value, value >= 0, value <= Int(UInt32.max) else { return }
-    properties[key] = .int(value)
 }
