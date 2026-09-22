@@ -31,7 +31,7 @@ if not VM_ID:
             pass
         if VM_ID:
             break
-PUBLISH_URL = os.environ.get("CMUX_WORKSPACE_PUBLISH_URL", ${JSON.stringify(`https://${vmEdgeAliasDomain()}/api/vm/workspace-snapshot`)})
+PUBLISH_URL = os.environ.get("CMUX_WORKSPACE_PUBLISH_URL", ${JSON.stringify(`https://${vmEdgeAliasDomain()}/api/vm/reflection/workspace-snapshot`)})
 AUTH = ${JSON.stringify(`Bearer ${VM_PLACEHOLDER_API_KEY}`)}
 CA = "/usr/local/share/ca-certificates/freestyle-tls.crt"
 EVENTS = {"workspace-added", "workspace-closed", "workspace-renamed", "workspace-moved", "tab-added", "tab-closed", "tab-renamed", "tree-changed"}
