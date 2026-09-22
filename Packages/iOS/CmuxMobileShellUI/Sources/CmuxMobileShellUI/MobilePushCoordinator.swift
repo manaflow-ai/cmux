@@ -1126,12 +1126,18 @@ public final class MobilePushCoordinator {
     /// ``workspacesDidChange()``.
     private func applyPendingDeeplinkIfReady() {
         guard let pending = pendingDeeplink else { return }
-        guard pendingDeeplinkTimedOutID != pending.id else { return }
         guard let store else {
             // A cold-launch tap remains parked until the shell mounts. There
             // is no authoritative Mac snapshot yet, so expiry cannot prove
             // that the target tab was deleted.
             return
+        }
+        if pendingDeeplinkTimedOutID == pending.id {
+            // A timeout alert pauses automatic work until the owning Mac is
+            // usable again. The connection/topology hooks then resume the
+            // original tap without requiring a second notification tap.
+            guard pendingConnectionIsUsable(pending, store: store) else { return }
+            pendingDeeplinkTimedOutID = nil
         }
         guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
             clearPendingDeeplink()
