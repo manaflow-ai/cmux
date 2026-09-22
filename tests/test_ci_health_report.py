@@ -99,6 +99,19 @@ class JobRowTests(unittest.TestCase):
         self.assertEqual(label, "macos+self-hosted")
         self.assertNotEqual(label, report.runner_label({"labels": ["macos"]}))
 
+    def test_a_per_run_dispatch_name_does_not_split_a_workflow(self):
+        # cmux's focused-test dispatches name each run after the test class,
+        # runner and SHA, which grouped by run name buries the real cost.
+        runs = [
+            {"path": ".github/workflows/dispatch-focused-test.yml",
+             "name": "cmuxTests/FooTests on blacksmith-6vcpu-macos-15 @ abc123 [branch-a]"},
+            {"path": ".github/workflows/dispatch-focused-test.yml",
+             "name": "cmuxTests/BarTests on blacksmith-6vcpu-macos-15 @ def456 [branch-b]"},
+        ]
+        self.assertEqual(
+            {report.workflow_name(run) for run in runs}, {"dispatch-focused-test.yml"}
+        )
+
     def test_a_job_with_no_labels_does_not_crash_the_report(self):
         self.assertEqual(report.runner_label({}), "unknown")
 
@@ -109,11 +122,11 @@ class MinutesTests(unittest.TestCase):
 
     def test_minutes_by_workflow_split_by_conclusion(self):
         cells = report.aggregate_minutes(self.rows, lambda row: row.workflow)
-        ci = cells["CI"]
+        ci = cells["ci.yml"]
         self.assertAlmostEqual(ci.minutes["cancelled"], 42.0)
         self.assertAlmostEqual(ci.minutes["failure"], 90.0)
         self.assertAlmostEqual(ci.minutes["success"], 92.0)
-        self.assertAlmostEqual(cells["Nightly"].total, 58.0)
+        self.assertAlmostEqual(cells["nightly.yml"].total, 58.0)
 
     def test_minutes_by_job_and_by_label_agree_on_the_total(self):
         by_job = report.aggregate_minutes(self.rows, lambda row: (row.workflow, row.job))
@@ -127,7 +140,7 @@ class MinutesTests(unittest.TestCase):
 
     def test_top_cells_orders_by_minutes_burned(self):
         top = report.top_cells(report.aggregate_minutes(self.rows, lambda row: row.workflow), 2)
-        self.assertEqual([key for key, _ in top], ["CI", "Nightly"])
+        self.assertEqual([key for key, _ in top], ["ci.yml", "nightly.yml"])
 
     def test_run_conclusions_are_counted_per_bucket(self):
         counts = report.count_by_bucket(load("window.json")["runs"])
@@ -212,13 +225,13 @@ class WastePatternTests(unittest.TestCase):
 
     def test_a_workflow_whose_runs_are_all_skipped_is_surfaced(self):
         skipped = report.mostly_skipped_workflows(self.fixture["runs"], min_runs=5)
-        self.assertEqual([item.workflow for item in skipped], ["Docs channels shim"])
+        self.assertEqual([item.workflow for item in skipped], ["docs-channels.yml"])
         self.assertEqual(skipped[0].runs, 6)
         self.assertAlmostEqual(skipped[0].ratio, 1.0)
 
     def test_a_busy_workflow_that_actually_runs_is_not_surfaced(self):
         self.assertNotIn(
-            "CI",
+            "ci.yml",
             [item.workflow for item in report.mostly_skipped_workflows(self.fixture["runs"], min_runs=1)],
         )
 
@@ -227,14 +240,14 @@ class WastePatternTests(unittest.TestCase):
 
     def test_both_shapes_of_unchanged_tree_rerun_are_counted(self):
         reruns = {(item.workflow, item.head_sha): item for item in report.unchanged_tree_reruns(self.fixture["runs"])}
-        second_run = reruns[("CI", "aaa1aaa1aaa1")]
+        second_run = reruns[("ci.yml", "aaa1aaa1aaa1")]
         self.assertEqual((second_run.runs, second_run.retries), (2, 0))
-        attempt = reruns[("Nightly", "eee5eee5eee5")]
+        attempt = reruns[("nightly.yml", "eee5eee5eee5")]
         self.assertEqual((attempt.runs, attempt.retries), (1, 1))
 
     def test_a_single_first_attempt_run_is_not_a_rerun(self):
         keys = {(item.workflow, item.head_sha) for item in report.unchanged_tree_reruns(self.fixture["runs"])}
-        self.assertNotIn(("CI", "bbb2bbb2bbb2"), keys)
+        self.assertNotIn(("ci.yml", "bbb2bbb2bbb2"), keys)
 
     def test_fork_jobs_and_their_uncached_minutes_are_totalled(self):
         jobs, minutes = report.fork_runs_without_cache(self.rows)
@@ -257,7 +270,7 @@ class SamplingTests(unittest.TestCase):
         chosen = report.choose_job_runs(
             self.runs, per_workflow=1, total_cap=2, linux_only_paths=linux_only
         )
-        self.assertNotIn("Docs channels shim", [report.workflow_name(run) for run in chosen])
+        self.assertNotIn("docs-channels.yml", [report.workflow_name(run) for run in chosen])
 
     def test_the_total_cap_is_never_exceeded(self):
         self.assertEqual(len(report.choose_job_runs(self.runs, per_workflow=9, total_cap=3)), 3)
@@ -398,7 +411,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("42 API calls, nothing cached", self.text)
 
     def test_the_waste_patterns_reach_the_output(self):
-        self.assertIn("Docs channels shim", self.text)
+        self.assertIn("docs-channels.yml", self.text)
         self.assertIn("macOS / app-host tests", self.text)
         self.assertIn("Reruns of an unchanged tree", self.text)
         self.assertIn("Fork pull requests (no cache access):", self.text)

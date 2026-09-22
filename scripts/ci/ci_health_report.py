@@ -174,7 +174,18 @@ def run_conclusion(run: Mapping[str, Any]) -> str:
 
 
 def workflow_name(run: Mapping[str, Any]) -> str:
-    return str(run.get("name") or run.get("path") or "unknown")
+    """The workflow a run belongs to -- not the name that run gave itself.
+
+    `name` is the *run* name, and a dispatch can set it per run: this repo's
+    focused-test dispatches put a test class, a runner label and a SHA in it.
+    Grouping minutes by that splits one workflow across hundreds of one-run
+    rows and buries whatever is actually expensive, so identity comes from the
+    workflow file, with the name kept only as a fallback.
+    """
+    path = str(run.get("path") or "")
+    if path:
+        return path.rsplit("/", 1)[-1]
+    return str(run.get("name") or "unknown")
 
 
 def is_fork_run(run: Mapping[str, Any], repo: str) -> bool:
