@@ -85,7 +85,7 @@ Ordered by blast radius times likelihood.
 | 20 | `docs/ci-runners.md` | the 43 `vars.*` names used in workflows | 16 undocumented, including `LINUX_RUNNER` and all nine `MACOS_RUNNER_*`, while `actionlint.yaml` and the self-hosted guard both point operators here as the source of truth | nobody | Yes. Grep `vars\.` across workflows |
 | 21 | `scripts/ci/run_python_test_lane.py:18-19` vs `validate_test_execution_registry.py:27-28` | `{"legacy","manual"}` and `{"cmux-cli","fish"}`, verbatim in both | the registry validates a lane the runner then rejects at execution time | offending PR, late | Yes. Both already import `test_execution_registry.py` |
 | 22 | `tests/test_ci_change_areas.py:25-54` `GUARD_ROUTE_JOBS` vs `tests/test_ci_linux_guard_routing.py:34-40` `JOBS` | each other, and the job ids in three workflows | a new `ci-web.yml` job is never exercised by the aggregation test | fails open | Yes. Both files already parse the workflows |
-| 23 | `tests/test_ci_app_host_pipe_capture.py:12-15` `WORKFLOWS` vs `tests/test_ci_app_host_home_isolation.py:14-21` | two different hand-picked workflow subsets for overlapping invariants | a third workflow launching app-host `xcodebuild` is simply not scanned | fails open | Yes. Scan all of `.github/workflows/` |
+| 23 | `tests/test_ci_app_host_pipe_capture.py:12-15` `WORKFLOWS` vs `tests/test_ci_app_host_home_isolation.py:14-21` | two different hand-picked workflow subsets for overlapping invariants | **already drifted**: the app-host jobs moved to `ci-macos.yml` and the list did not follow, so the guard scanned 1 step and 31 went unchecked | fails open, silently | Yes — **implemented**, see below |
 | 24 | `scripts/ci/select_package_tests.py:27-45` `GLOBAL_INPUTS`, `:49-71` `UNRELATED_PREFIXES` | 17 exact paths and the repo's top-level directories | a missing `GLOBAL_INPUTS` entry fails open; a new top-level directory fails closed | mixed | Partially. `UNRELATED_PREFIXES` is `ls` of the root minus `Packages/` |
 | 25 | `scripts/ci/web_subareas.py:56-184` + `emit()` + `ci-web.yml:25-31` `outputs:` | the field names are written out six times | adding a web subarea needs six edits; missing one means the job never runs | fails open | Yes for the `emit`/`outputs` half (`dataclasses.fields`) |
 | 26 | `scripts/ghosttykit-checksums.txt` | the `ghostty` submodule pointer | a bump without a row fails the GhosttyKit download once merged | everyone | Partially. The checksum must be measured; "does a row exist for the current SHA" is derivable |
@@ -111,6 +111,11 @@ paths twice and is currently in sync — the not-yet-drifted twin of row 4.
   `vars.` reads now carry the value the repository sets, and
   `tests/test_ci_repo_variable_defaults.py` scans the workflows rather than a
   list of known-good sites.
+- **Row 23 — scan every workflow for app-host capture** (#13780). The
+  pipe-capture guard named `ci.yml` and `test-e2e.yml`; the app-host jobs moved
+  to `ci-macos.yml` and the list did not follow, so it checked one step and
+  reported success while 31 went unscanned. It now asks the directory, and an
+  empty result is an error.
 
 ## Not implemented, and what it would take
 
