@@ -93,6 +93,16 @@ Reuse scripts/ci/product_input_identity.py for app-host identity, but compare it
 
 The producer PR head SHA must be an ancestor of or equal to the current PR head SHA. A force push onto unrelated history is therefore a compatibility miss. The synthetic merge source SHA itself may differ and need not be an ancestor of the next synthetic merge, because the base branch can advance between PR runs; record the exact seed merge tree and exact candidate merge tree independently. The seed commit may differ from the candidate commit. Unknown identity fields fail closed to a cold compile.
 
+## Source archive boundary for the worktree arm
+
+A worktree generation archives only Git-tracked entries owned by the
+superproject. Gitlinks are skipped and submodules are rehydrated from their
+recorded commits. Ignored and untracked files never enter the source artifact.
+The experimental writer uses PAX mtime headers and also re-applies the seed's
+deterministic blob-derived mtimes before the candidate transition. This keeps
+tracked resources such as `Resources/ghostty/**` while excluding mutable
+submodule worktrees and arbitrary ignored PR output.
+
 ## Untrusted-state threat model
 
 Mutable incremental generations never cross PR boundaries. Fork or otherwise untrusted generations are scoped to one PR lineage, execute only on disposable macOS runners with no repository secrets, and are never restored on persistent trusted fleet hosts.
