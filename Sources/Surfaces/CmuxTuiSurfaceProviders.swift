@@ -1261,16 +1261,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// The noVNC URL uses only the VM private address. The private network is
-    /// the access check, so no public preview token or endpoint is required.
-    nonisolated static func privateDesktopURL(privateAddress: String) -> String {
-        let base = CmuxInternalHostnames().directPortURL(
-            privateAddress: privateAddress,
-            port: CmuxTuiSnapshotParser.desktopPort
-        )
-        return "\(base)/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
-    }
-
     /// Turn a VM-local browser URL into the same URL on the VM private address.
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
@@ -1295,7 +1285,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var updated = resource
         switch resource.kind {
         case .display:
-            updated.url = privateDesktopURL(privateAddress: privateAddress)
+            // Each guest display keeps its own noVNC port; one without a
+            // discovered port has no target rather than aliasing display 1.
+            updated.url = resource.port.map { privateDesktopURL(privateAddress: privateAddress, port: $0) }
         case .browser:
             if resource.id.key.hasPrefix("port:"), let port = resource.port {
                 updated.url = CmuxInternalHostnames().directPortURL(

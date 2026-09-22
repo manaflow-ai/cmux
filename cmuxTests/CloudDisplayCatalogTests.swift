@@ -24,7 +24,7 @@ struct CloudDisplayCatalogTests {
     func creationRetryKeepsRequestIdentity() async throws {
         var creates: [String] = []
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             creates.append(command)
             if creates.count == 1 { throw URLError(.networkConnectionLost) }
             return .init(exitCode: 0, stdout: created, stderr: "")
@@ -43,7 +43,7 @@ struct CloudDisplayCatalogTests {
         let started = CloudLinkFirstValue<Bool>()
         let response = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
             _ = await response.result
             return .init(exitCode: 0, stdout: created, stderr: "")
@@ -101,7 +101,7 @@ struct CloudDisplayCatalogTests {
         let started = CloudLinkFirstValue<Bool>()
         let cancelled = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
             do {
                 try await Task.sleep(for: .seconds(60))
@@ -192,6 +192,22 @@ struct CloudDisplayCatalogTests {
         let second = try #require(resources.first { $0.id == pointer.id })
         #expect(second.port == 6902 && second.url == pool[1].url)
         #expect(second.remoteViews == pointer.remoteViews)
+    }
+
+    /// Every guest command first runs `list` as a readiness probe (#13196,
+    /// 178d35e5da), so only the final action line tells a creation apart.
+    private static func isCreate(_ command: String) -> Bool {
+        command.contains("\"$path\" create --request-id ")
+    }
+
+    @Test("Every guest command probes readiness; only creation carries a request ID")
+    func guestCommandShape() {
+        let request = UUID()
+        let create = CloudGuestDisplayScript.command(action: "create", requestID: request)
+        let list = CloudGuestDisplayScript.command(action: "list")
+        #expect(create.contains("\"$path\" list > /dev/null 2>&1 || exit 1"))
+        #expect(create.contains("\"$path\" create --request-id \(request.uuidString.lowercased())"))
+        #expect(Self.isCreate(create) && !Self.isCreate(list))
     }
 
     private func decode(_ raw: String) throws -> CloudGuestDisplaySnapshot {

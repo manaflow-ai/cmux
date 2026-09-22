@@ -286,10 +286,20 @@ struct CloudPortOpenRegressionTests {
         LISTEN 0 128 0.0.0.0:6901 0.0.0.0:*
         LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
         """
+        let scan = VMExecResult(exitCode: 0, stdout: bindings, stderr: "")
+        // #13196 (178d35e5da) scoped the RFB/noVNC range to machines whose
+        // display catalog owns it; SSH and the daemon are always filtered.
         #expect(CmuxTuiSurfaceProvider.ports(
-            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
-            privateAddress: "10.16.179.6"
+            from: scan,
+            privateAddress: "10.16.179.6",
+            displayPortsOwned: true
         ) == [3000])
+        // Without a desktop, 6901 is an ordinary reachable listener; the
+        // loopback-only 5901 is still unreachable over the private address.
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: scan,
+            privateAddress: "10.16.179.6"
+        ) == [3000, 6901])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
