@@ -5396,8 +5396,11 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_precmd
-            repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+            # precmd reports the prompt state and kicks the port scan from two
+            # independent background children. Wait for the kick itself, not
+            # for whichever line lands first.
+            repeat 200; do
+              /usr/bin/grep -q 'surface.ports_kick' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
@@ -5541,8 +5544,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_prompt_command
-            for _cmux_i in $(seq 1 20); do
-              [ -s "\(logPath.path)" ] && break
+            # The prompt hook may send other relay RPCs from separate background
+            # children. Wait for the kick itself, not for whichever line lands first.
+            for _cmux_i in $(seq 1 200); do
+              /usr/bin/grep -q 'surface.ports_kick' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
