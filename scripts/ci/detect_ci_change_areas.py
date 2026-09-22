@@ -252,7 +252,28 @@ def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], fro
     return not any(path.startswith(reference) for reference in macos)
 
 
+SHARED_WEB_WORKFLOW_EXACT = frozenset({
+    "scripts/benchmark-diff-viewer.sh",
+    "scripts/build-diff-sidecar.sh",
+    "scripts/generate-diff-sidecar-types.sh",
+    "scripts/install-rust-ci.sh",
+    "scripts/run-diff-sidecar-cargo.sh",
+    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
+    "Sources/Panels/DiffSidecarBridge.swift",
+})
+
+SHARED_WEB_WORKFLOW_PREFIXES = (
+    "Native/DiffSidecar/",
+    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
+)
+
+
 def is_web_change(path: str) -> bool:
+    # The diff-sidecar validation lives in ci-web.yml even for native-only
+    # inputs. Mark those inputs web-routed explicitly so ordinary macOS changes
+    # do not need to wake the reusable web workflow.
+    if path in SHARED_WEB_WORKFLOW_EXACT or path.startswith(SHARED_WEB_WORKFLOW_PREFIXES):
+        return True
     if path.startswith(
         (
             "web/",
@@ -655,6 +676,19 @@ def is_test_only_source(path: str) -> bool:
     return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
 
 
+RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
+    # Runtime script contents are copied into the app bundle; changing them does
+    # not exercise Swift/Release compilation. Their focused regression suite is
+    # the useful signal, so avoid paying for a universal app build.
+    "Resources/bin/open",
+    "tests/test_open_wrapper.py",
+})
+
+
+def is_release_build_neutral(path: str) -> bool:
+    return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
+
+
 def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
@@ -708,7 +742,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
         if is_macos_change(path, macos_ios_packages):
             macos = True
-            if not is_test_only_source(path):
+            if not is_release_build_neutral(path):
                 release_build = True
 
     return ChangeAreas(
