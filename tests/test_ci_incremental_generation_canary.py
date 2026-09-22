@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,27 @@ def git(repo: Path, *args: str) -> str:
 
 
 class IncrementalGenerationCanaryTests(unittest.TestCase):
+    def test_xcodebuild_wrapper_adds_timing_summary_without_recursing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            realbin = root / "realbin"
+            realbin.mkdir()
+            capture = root / "args.txt"
+            fake = realbin / "xcodebuild"
+            fake.write_text(
+                "#!/bin/bash\n"
+                "printf '%s\\n' \"$@\" > \"$CAPTURE\"\n"
+            )
+            fake.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": str(realbin)}):
+                wrapper, env = bench.make_xcodebuild_wrapper(root / "wrapper-root")
+            env["CAPTURE"] = str(capture)
+            subprocess.run([str(wrapper), "build-for-testing", "foo"], check=True, env=env)
+            args = capture.read_text().splitlines()
+            self.assertEqual(args, ["build-for-testing", "foo", "-showBuildTimingSummary"])
+
+            subprocess.run([str(wrapper), "-version"], check=True, env=env)
+            self.assertEqual(capture.read_text().splitlines(), ["-version"])
     def test_parse_build_log_keeps_incremental_and_cas_evidence_separate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log = Path(directory) / "cmux-build.log"
