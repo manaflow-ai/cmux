@@ -157,7 +157,7 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
     in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
@@ -177,6 +177,17 @@ check_e2e_runner_fallbacks() {
 
   if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
+    exit 1
+  fi
+
+  # The Tart identity gate, the run name and the SwiftPM cache key all decide
+  # things about "the runner this job uses". If any of them reads a different
+  # repository variable than runs-on, the gate can be skipped on a Tart VM, or
+  # demanded on a runner that is not one.
+  runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
+  if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
+    echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
+    printf '  %s\n' $runner_vars
     exit 1
   fi
 
