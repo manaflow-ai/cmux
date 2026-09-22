@@ -1,0 +1,73 @@
+name: Review fabric observe
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  issue_comment:
+    types: [created, edited, deleted]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: review-fabric-observe-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  observe:
+    name: review-fabric-observe
+    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request != null }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      # This listener handles untrusted PR events with trusted repository code.
+      # It never checks out or executes the pull-request head.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Capture provider-neutral GitHub review receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REVIEW_BOTS: ${{ vars.AGENT_REVIEW_BOTS || 'coderabbitai,greptile-apps' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/review-fabric
+          python3 .github/scripts/github_review_receipt.py             > artifacts/review-fabric/github-review-receipt.json
+
+      - name: Evaluate review fabric policy in shadow mode
+        id: evaluate
+        run: |
+          set -uo pipefail
+          set +e
+          python3 .github/scripts/review_fabric.py             --input artifacts/review-fabric/github-review-receipt.json             --json             > artifacts/review-fabric/evaluation.json
+          policy_exit=$?
+          set -e
+          echo "policy_exit=$policy_exit" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Review fabric shadow evaluation"
+            echo
+            echo "Policy exit: `$policy_exit`"
+            echo
+            echo "```json"
+            cat artifacts/review-fabric/evaluation.json
+            echo "```"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Shadow mode records the verdict without making it authoritative.
+          exit 0
+
+      - name: Preserve review fabric receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: review-fabric-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.run_id }}
+          path: artifacts/review-fabric/
+          if-no-files-found: error
