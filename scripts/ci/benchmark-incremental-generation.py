@@ -52,10 +52,25 @@ def _archive_member_path(raw: str) -> PurePosixPath:
     return PurePosixPath(*parts)
 
 
-def _resolved_symlink_target(name: PurePosixPath, raw_target: str) -> PurePosixPath:
+def _resolved_symlink_target(
+    name: PurePosixPath,
+    raw_target: str,
+    *,
+    allowed_absolute_root: Path | None = None,
+) -> PurePosixPath:
     target = PurePosixPath(raw_target)
     if target.is_absolute():
-        raise SystemExit(f"archive symlink is absolute: {name} -> {raw_target}")
+        if allowed_absolute_root is None:
+            raise SystemExit(f"archive symlink is absolute: {name} -> {raw_target}")
+        root = allowed_absolute_root.resolve()
+        resolved = Path(raw_target).resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            raise SystemExit(
+                f"archive absolute symlink escapes expected root: {name} -> {raw_target}"
+            )
+        return target
     combined = name.parent.joinpath(target)
     stack: list[str] = []
     for part in combined.parts:
@@ -75,10 +90,12 @@ def validate_tar_archive(
     *,
     max_members: int = 1_000_000,
     max_regular_bytes: int = 40 * 1024 * 1024 * 1024,
+    allowed_absolute_symlink_root: Path | None = None,
 ) -> dict[str, int]:
     members: list[tuple[tarfile.TarInfo, PurePosixPath]] = []
     symlinks: set[PurePosixPath] = set()
     regular_bytes = 0
+    absolute_symlink_count = 0
     with tarfile.open(archive, "r:gz") as stream:
         for index, member in enumerate(stream):
             if index >= max_members:
@@ -89,7 +106,13 @@ def validate_tar_archive(
             if member.isdev() or member.isfifo():
                 raise SystemExit(f"archive special file rejected: {member.name}")
             if member.issym():
-                _resolved_symlink_target(name, member.linkname)
+                _resolved_symlink_target(
+                    name,
+                    member.linkname,
+                    allowed_absolute_root=allowed_absolute_symlink_root,
+                )
+                if PurePosixPath(member.linkname).is_absolute():
+                    absolute_symlink_count += 1
                 symlinks.add(name)
             elif member.isfile():
                 regular_bytes += member.size
@@ -104,7 +127,11 @@ def validate_tar_archive(
         if any(parent in symlinks for parent in parents if str(parent) != "."):
             raise SystemExit(f"archive entry traverses symlink parent: {member.name}")
 
-    return {"member_count": len(members), "regular_bytes": regular_bytes}
+    return {
+        "member_count": len(members),
+        "regular_bytes": regular_bytes,
+        "absolute_symlink_count": absolute_symlink_count,
+    }
 
 
 def configured_submodule_paths(workspace: Path) -> list[str]:
@@ -466,7 +493,10 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
 def extract_derived(archive: Path, derived: Path, metrics: Path) -> None:
     wipe(derived)
     started = time.monotonic()
-    archive_stats = validate_tar_archive(archive)
+    archive_stats = validate_tar_archive(
+        archive,
+        allowed_absolute_symlink_root=derived.resolve(),
+    )
     run(["tar", "-xzf", archive, "-C", derived])
     seconds = time.monotonic() - started
     payload = {
@@ -475,6 +505,7 @@ def extract_derived(archive: Path, derived: Path, metrics: Path) -> None:
         "archive_bytes": archive.stat().st_size,
         "archive_member_count": archive_stats["member_count"],
         "archive_regular_bytes": archive_stats["regular_bytes"],
+        "archive_absolute_symlink_count": archive_stats["absolute_symlink_count"],
     }
     metrics.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     print("CMUX_CANARY_DD_RESTORE=" + json.dumps(payload, sort_keys=True), flush=True)
