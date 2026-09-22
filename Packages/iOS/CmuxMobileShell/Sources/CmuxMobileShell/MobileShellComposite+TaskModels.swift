@@ -2,16 +2,6 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
 
-private struct MobileTaskModelHostRefreshResult: Sendable {
-    let result: MobileTaskModelListResult?
-    let outcome: MobileTaskModelRefreshOutcome
-}
-
-private enum MobileTaskModelRefreshEvent: Sendable {
-    case host(MobileTaskModelHostRefreshResult)
-    case backend(MobileTaskModelListResult?)
-}
-
 private struct MobileTaskModelRequestContext {
     enum Owner {
         case foreground(generation: UUID)
@@ -418,7 +408,7 @@ extension MobileShellComposite {
                         outcome: outcome
                     )
                 } catch {
-                    let outcome = MobileTaskModelRefreshOutcome.classify(error)
+                    let outcome = MobileTaskModelRefreshOutcome(classifying: error)
                     return MobileTaskModelHostRefreshResult(
                         result: MobileTaskModelListResult(
                             models: [],

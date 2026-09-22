@@ -13,34 +13,45 @@ public enum MobileTaskModelRefreshOutcome: Equatable, Sendable {
     /// Classifies only failures with a clear permanent outcome as terminal.
     /// Unknown errors remain retryable so a transient transport or provider
     /// issue cannot strand an open composer.
-    public static func classify(_ error: any Error) -> Self {
+    public init(classifying error: any Error) {
         if error is CancellationError {
-            return .stopped(.cancelled)
+            self = .stopped(.cancelled)
+            return
         }
         if let error = error as? MobileShellConnectionError {
             switch error {
             case .authorizationFailed:
-                return .stopped(.authorizationRequired)
+                self = .stopped(.authorizationRequired)
+                return
             case .accountMismatch:
-                return .stopped(.accountMismatch)
+                self = .stopped(.accountMismatch)
+                return
             case .insecureManualRoute:
-                return .stopped(.unsupported)
+                self = .stopped(.unsupported)
+                return
             case .attachTicketExpired:
-                return .stopped(.authorizationRequired)
+                self = .stopped(.authorizationRequired)
+                return
             case .rpcError(let code, _):
                 switch code?.lowercased() {
                 case "method_not_found", "unknown_method", "unsupported_method":
-                    return .stopped(.unsupported)
+                    self = .stopped(.unsupported)
+                    return
                 case "capability_disabled", "feature_disabled":
-                    return .stopped(.disabled)
+                    self = .stopped(.disabled)
+                    return
                 case "unauthorized", "forbidden":
-                    return .stopped(.authorizationRequired)
+                    self = .stopped(.authorizationRequired)
+                    return
                 case "account_mismatch":
-                    return .stopped(.accountMismatch)
+                    self = .stopped(.accountMismatch)
+                    return
                 case "invalid_params":
-                    return .stopped(.invalidRequest)
+                    self = .stopped(.invalidRequest)
+                    return
                 case "cancelled":
-                    return .stopped(.cancelled)
+                    self = .stopped(.cancelled)
+                    return
                 default:
                     break
                 }
@@ -50,7 +61,7 @@ public enum MobileTaskModelRefreshOutcome: Equatable, Sendable {
                 break
             }
         }
-        return .retry(DiagnosticFailureKind.classify(error))
+        self = .retry(DiagnosticFailureKind.classify(error))
     }
 
     /// Maps a terminal decision to the bounded failure vocabulary used by the

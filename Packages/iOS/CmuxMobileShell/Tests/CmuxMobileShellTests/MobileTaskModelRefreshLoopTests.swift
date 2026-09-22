@@ -70,7 +70,7 @@ import CmuxMobileShellModel
             .rpcError("request_timeout", "fixture"),
             .rpcError("unknown_new_error", "fixture"),
         ] {
-            guard case .retry = MobileTaskModelRefreshOutcome.classify(error) else {
+            guard case .retry = MobileTaskModelRefreshOutcome(classifying: error) else {
                 Issue.record("Temporary or unknown error stopped discovery")
                 continue
             }
@@ -78,19 +78,19 @@ import CmuxMobileShellModel
     }
 
     @Test func onlyExplicitPermanentErrorsStopRetries() {
-        #expect(MobileTaskModelRefreshOutcome.classify(
+        #expect(MobileTaskModelRefreshOutcome(classifying:
             MobileShellConnectionError.rpcError("method_not_found", "fixture")
         ) == .stopped(.unsupported))
-        #expect(MobileTaskModelRefreshOutcome.classify(
+        #expect(MobileTaskModelRefreshOutcome(classifying:
             MobileShellConnectionError.rpcError("capability_disabled", "fixture")
         ) == .stopped(.disabled))
-        #expect(MobileTaskModelRefreshOutcome.classify(
+        #expect(MobileTaskModelRefreshOutcome(classifying:
             MobileShellConnectionError.authorizationFailed("fixture")
         ) == .stopped(.authorizationRequired))
-        #expect(MobileTaskModelRefreshOutcome.classify(
+        #expect(MobileTaskModelRefreshOutcome(classifying:
             MobileShellConnectionError.accountMismatch("fixture")
         ) == .stopped(.accountMismatch))
-        #expect(MobileTaskModelRefreshOutcome.classify(
+        #expect(MobileTaskModelRefreshOutcome(classifying:
             MobileShellConnectionError.rpcError("invalid_params", "fixture")
         ) == .stopped(.invalidRequest))
     }

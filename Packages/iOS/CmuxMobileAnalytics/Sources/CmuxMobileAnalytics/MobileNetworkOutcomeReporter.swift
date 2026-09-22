@@ -36,13 +36,23 @@ private func taskModelProperties(
     default:
         modelCount = event.c ?? 0
     }
+    let requestDurationMilliseconds: Int
+    switch kind {
+    case .taskModelListRetryScheduled:
+        // The event's duration slot carries the backoff for this phase. The
+        // request duration is unavailable here, so keep latency histograms
+        // honest instead of treating the sleep as network work.
+        requestDurationMilliseconds = 0
+    default:
+        requestDurationMilliseconds = Int(event.ms ?? 0)
+    }
     var properties: [String: AnalyticsValue] = [
         "operation": .string("model_list"),
         "outcome": .string(outcome),
         // Transport failures can precede a catalog result. The ingress
         // requires this field even when discovery produced no models.
         "model_count": .int(modelCount),
-        "duration_ms": .int(Int(event.ms ?? 0)),
+        "duration_ms": .int(requestDurationMilliseconds),
     ]
     if let surface = event.surface {
         // This is the existing process-local correlation handle. It lets

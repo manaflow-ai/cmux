@@ -24,10 +24,11 @@ public struct MobileTaskModelRefreshLoop: Sendable {
         }
     ) async {
         var attempt = 0
-        // The composer contract requires recovery to continue for the entire
-        // time it remains open. Only a typed permanent outcome or owner
-        // cancellation may end this loop; the capped delay prevents a hot
-        // request loop while the Mac or provider is unavailable.
+        // Do not add an attempt or deadline cap here. The composer contract
+        // requires recovery to continue for the entire time it remains open;
+        // only a typed permanent outcome or owner cancellation may end this
+        // loop. The capped delay is the request-rate bound while the Mac or
+        // provider is unavailable.
         while !Task.isCancelled, shouldContinue() {
             switch await refresh() {
             case .succeeded, .stopped:
