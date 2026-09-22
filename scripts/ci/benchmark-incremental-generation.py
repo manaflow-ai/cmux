@@ -121,8 +121,12 @@ def source_restored(
         "worktree_extract_seconds": round(extract_seconds, 6),
         "sample_unchanged_mtime_ns_before": before_sample,
         "sample_unchanged_mtime_ns_after": sample.stat().st_mtime_ns,
+        "sample_unchanged_device": sample.stat().st_dev,
+        "sample_unchanged_inode": sample.stat().st_ino,
         "edited_mtime_ns_before": before_edited,
         "edited_mtime_ns_after": edited.stat().st_mtime_ns,
+        "edited_device": edited.stat().st_dev,
+        "edited_inode": edited.stat().st_ino,
         "unchanged_mtime_preserved": before_sample == sample.stat().st_mtime_ns,
         "edited_mtime_changed": before_edited != edited.stat().st_mtime_ns,
         "head": output("git", "rev-parse", "HEAD", cwd=workspace),
@@ -162,6 +166,9 @@ def gzip_tar(source: Path, destination: Path, excludes=()) -> float:
 
 
 def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Path) -> None:
+    status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
+    if status:
+        raise SystemExit("refusing to archive a dirty seed worktree:\n" + status)
     outdir.mkdir(parents=True, exist_ok=True)
     worktree_archive = outdir / "worktree.tar.gz"
     dd_archive = outdir / "derived-data.tar.gz"
@@ -176,9 +183,17 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
         blocks = int(output("du", "-sk", str(path)).split()[0])
         return blocks * 1024
 
+    sample = (workspace / "Sources/AppDelegate.swift").stat()
+    edited = (workspace / "Sources/Mobile/MobileTerminalByteTee.swift").stat()
     payload = {
         "workspace": str(workspace.resolve()),
         "derived_data": str(derived.resolve()),
+        "sample_unchanged_mtime_ns": sample.st_mtime_ns,
+        "sample_unchanged_device": sample.st_dev,
+        "sample_unchanged_inode": sample.st_ino,
+        "edited_seed_mtime_ns": edited.st_mtime_ns,
+        "edited_seed_device": edited.st_dev,
+        "edited_seed_inode": edited.st_ino,
         "worktree_archive_bytes": worktree_archive.stat().st_size,
         "derived_data_archive_bytes": dd_archive.stat().st_size,
         "generation_archive_bytes": worktree_archive.stat().st_size + dd_archive.stat().st_size,
