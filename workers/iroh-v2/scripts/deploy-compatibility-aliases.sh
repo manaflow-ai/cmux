@@ -11,11 +11,11 @@ for pair in \
   "cmux-iroh-v2-development:cmux-v2-development"; do
   old_name="${pair%%:*}"
   canonical_name="${pair##*:}"
-  config="$(mktemp "${TMPDIR:-/tmp}/cmux-v2-alias.XXXXXX.jsonc")"
-  trap 'rm -f "$config"' EXIT
+  config_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-v2-alias.XXXXXX")"
+  config="$config_dir/wrangler.jsonc"
   cat >"$config" <<JSON
 {
-  "$schema": "$(pwd)/node_modules/wrangler/config-schema.json",
+  "\$schema": "$(pwd)/node_modules/wrangler/config-schema.json",
   "name": "$old_name",
   "main": "$(pwd)/aliases/index.ts",
   "compatibility_date": "2026-09-10",
@@ -26,6 +26,4 @@ for pair in \
 JSON
   echo "Deploying compatibility alias: $old_name -> $canonical_name"
   bunx wrangler deploy --config "$config"
-  rm -f "$config"
-  trap - EXIT
- done
+done
