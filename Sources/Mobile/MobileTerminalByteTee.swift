@@ -4,6 +4,7 @@ import Foundation
 import OSLog
 import os
 
+// Incremental-generation canary: comment-only app-target source delta.
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
     category: "mobile-terminal-byte-tee"
