@@ -434,30 +434,41 @@ jobs:
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
           scripts/ci/compile-app-host-test-product.sh build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
+          status=$?
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Generate Xcode build metrics receipt
         id: build-metrics
-        if: steps.hosted-compile.outcome == 'success'
+        if: always() && !cancelled() && steps.hosted-compile.outcome != 'skipped'
         continue-on-error: true
+        env:
+          HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
+          HOSTED_COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/build_metrics.py "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            --output "$RUNNER_TEMP/xcode-build-metrics.json" \
-            --compile-seconds "${{ steps.hosted-compile.outputs.seconds }}" \
+          args=(
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+            --output "$RUNNER_TEMP/xcode-build-metrics.json"
+            --compile-outcome "$HOSTED_COMPILE_OUTCOME"
             --summary "$GITHUB_STEP_SUMMARY"
+          )
+          if [ -n "$HOSTED_COMPILE_SECONDS" ]; then
+            args+=(--compile-seconds "$HOSTED_COMPILE_SECONDS")
+          fi
+          python3 scripts/ci/build_metrics.py "${args[@]}"
 
       - name: Upload Xcode build metrics receipt
-        if: steps.build-metrics.outcome == 'success'
+        if: always() && !cancelled() && steps.build-metrics.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
