@@ -40,7 +40,7 @@ On each `pull_request_target` head event, the trusted workflow requests Greptile
 for every PR, independent of whether the PR opted into the blocking review gate.
 It first checks for a current Greptile review, an in-progress Greptile check, or
 its own per-head request marker. When none exists it posts exactly one
-`@greptile review` request for that head. Only `github-actions[bot]` markers
+`@greptileai review` request for that head. Only `github-actions[bot]` markers
 suppress a repeat, so a PR author cannot forge the request state. The opt-in
 marker controls enforcement, not whether automated review is requested.
 
