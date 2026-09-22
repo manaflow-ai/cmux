@@ -10,6 +10,7 @@ from pathlib import Path
 import select
 import shutil
 import signal
+import stat
 import statistics
 import subprocess
 import sys
@@ -466,6 +467,8 @@ def cold_generation_count(state_root: Path, namespace: str) -> int:
     count = 0
     for root in state_root.glob(f"*/slots/*/cache/{namespace}"):
         try:
+            if not stat.S_ISDIR(root.lstat().st_mode):
+                continue
             entries = root.iterdir()
         except OSError:
             continue
