@@ -116,7 +116,11 @@ extension BrowserPanel {
     }
 
     /// Apply proxy credentials before the first request, with no system-network fallback.
-    func prepareCloudBrowserNavigation() {
+    /// A navigation that loads a new desktop document mints a fresh identity
+    /// first, so reports from the previous document are ignored even when
+    /// WebKit keeps the same view and URL.
+    func prepareCloudBrowserNavigation(beginningDesktopDocument: Bool = false) {
+        if beginningDesktopDocument, cloudAccess.isDesktop { _ = cloudAccess.beginDesktopNavigationIdentity() }
         guard let endpoint = cloudAccess.model?.browserProxy,
               let address = cloudAccess.model?.target.host else { return }
         if endpoint != cloudBrowserProxyEndpoint {
