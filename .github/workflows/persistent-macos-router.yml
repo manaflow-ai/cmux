@@ -4,9 +4,15 @@ run-name: persistent-mac-router-${{ github.event.workflow_run.id }}-${{ github.e
 # `requested` fires once, when the CI run record is created. `in_progress`
 # fires again every time a CI job starts, so one CI run used to create about
 # five extra router runs that the condition on the route job then skipped.
-# `requested` carries everything the router needs: the run id and attempt that
-# name the route request artifact exist as soon as the run record does, and the
-# wait in the route job covers the interval until CI publishes it.
+# `requested` carries what the router reads: the run id and attempt that name
+# the route request artifact exist as soon as the run record does, and the wait
+# in the route job covers the interval until CI publishes it.
+#
+# The documented cost is that `requested` is not delivered when a workflow is
+# re-run. Re-running all of CI therefore publishes a route request that nothing
+# collects, and that attempt compiles on a hosted runner — the same path taken
+# whenever no trusted request is published. Re-running only failed jobs was
+# already inert here, because the attempt's request artifact is never republished.
 on:
   workflow_run:
     workflows: [CI]
@@ -21,9 +27,14 @@ concurrency:
 jobs:
   route:
     name: Route persistent Mac compile
-    if: ${{ github.event.workflow_run.event == 'pull_request' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') }}
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # The wait below may use 600s, and the dispatch step that follows bounds
+    # itself by CI_PERSISTENT_MAC_QUEUE_SECONDS + CI_PERSISTENT_MAC_EXECUTION_SECONDS,
+    # which persistent_mac_route.py admits up to 600s in total. 15 minutes no
+    # longer covers both, and being killed between dispatch and the cancel
+    # handler would leave an owned Mac compiling for nothing.
+    timeout-minutes: 25
     permissions:
       actions: write
       contents: read
@@ -54,8 +65,11 @@ jobs:
           ci_finished=false
           polls=0
           while :; do
-            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/artifacts?name=$name&per_page=100")"
-            count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("artifacts", [])))' <<<"$payload")"
+            # There is no second notification to fall back on, and the old
+            # trigger's repeat events used to replace a router run that had
+            # died on a transient error. Treat a failed read as "not yet".
+            payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CI_RUN_ID/artifacts?name=$name&per_page=100" 2>/dev/null || true)"
+            count="$(python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("artifacts", [])))' <<<"$payload" 2>/dev/null || echo 0)"
             if [ "$count" -gt 1 ]; then
               echo "multiple persistent route request artifacts found" >&2
               exit 1
