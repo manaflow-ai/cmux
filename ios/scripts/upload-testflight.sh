@@ -929,7 +929,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
       -allowProvisioningUpdates \
-      "${XCODE_AUTH_ARGS[@]}" \
+      ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
@@ -1108,7 +1108,7 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates \
-  "${XCODE_AUTH_ARGS[@]}" \
+  ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
   | tee "$OUT_DIR/export.log"
 
 IPA_PATH="$EXPORT_PATH/cmux.ipa"
@@ -1744,7 +1744,7 @@ else
        --build-number "$SHIPPED_BUILD_NUMBER" \
        --audience "$NOTES_AUDIENCE" \
        --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-       "${NOTES_SOURCE_ARGS[@]}"; then
+       ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"}; then
     echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
@@ -1777,6 +1777,6 @@ if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && 
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
       --build-number "$SHIPPED_BUILD_NUMBER" \
-      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      ${EXTERNAL_GROUP_SELECTOR[@]+"${EXTERNAL_GROUP_SELECTOR[@]}"} \
       --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi

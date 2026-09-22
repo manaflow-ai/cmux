@@ -631,6 +631,14 @@ def is_macos_neutral(
 ) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
         return True
+    # Review configuration is not a build input. Keep this exact: unknown
+    # policy files retain native coverage, and Linux guards still validate PRs.
+    if path in {
+        ".coderabbit.yaml",
+        ".greptile/rules.md",
+        ".github/review-bot-rules/user-facing-errors.md",
+    }:
+        return True
     # Backend/deploy inputs are covered by required web CI and never enter the
     # desktop Xcode product. Keep the root config carveout narrow because
     # config/IrohRelayPolicyProduction.xcconfig is a real macOS build input.
