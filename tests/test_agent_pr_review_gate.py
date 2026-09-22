@@ -165,6 +165,31 @@ class AgentPRReviewGateTests(unittest.TestCase):
                     self.assertEqual(gate.request_greptile_review(pr), "already-requested")
                     rest.assert_not_called()
 
+    def test_request_greptile_review_does_not_require_gate_opt_in(self):
+        head = "d" * 40
+        pr = make_pr(body="ordinary human PR", head=head)
+        pr["number"] = 42
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return {"check_runs": []}
+            return {}
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.request_greptile_review(pr), "requested")
+
+        marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
+        self.assertEqual(
+            calls[-1],
+            (
+                "POST",
+                "issues/42/comments",
+                {"body": f"{marker}\n@greptile review"},
+            ),
+        )
+
     def test_request_greptile_review_does_not_trust_author_forged_marker(self):
         head = "b" * 40
         marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
