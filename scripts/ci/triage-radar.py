@@ -35,8 +35,8 @@ BROAD_CLUSTER_TERMS = {
 }
 
 STRONG_CLUSTER_TERMS = {
-    "auth", "crash", "drag", "drop", "fail", "freeze", "hang", "index", "input", "reject",
-    "reorder", "route", "socket",
+    "auth", "crash", "drag", "drop", "fail", "freeze", "hang", "index", "input", "reorder",
+    "route", "socket",
 }
 
 NORMALIZE_PREFIXES = {
