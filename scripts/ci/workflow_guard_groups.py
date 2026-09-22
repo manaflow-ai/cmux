@@ -27,11 +27,9 @@ GROUPS = (
 # A step move or rename must update this table in the same change.
 STEP_OWNERS = {
     "Initialize Ghostty for Zig version guard": "release-tooling",
-    "Prepare workflow guard Python dependencies": "ci",
     "Run canonical CMUX CI guard profile": "ci",
     "Test XCStrings catalog lint": "preflight",
     "Test macOS localization catalog tooling": "preflight",
-    "Set up Bun for guard tests": "preflight",
     "Test review fabric contracts": "preflight",
     "Validate Blacksmith Testbox broker trust boundary": "ci",
     "Validate build graph health tooling": "preflight",
@@ -54,7 +52,6 @@ STEP_OWNERS = {
     "Validate Sparkle appcast generation without previous archives": "release-notary",
     "Validate Sparkle delta finalization": "release-notary",
     "Validate Sparkle monotonic guard modes": "release-notary",
-    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Validate Swift Testing suite timeout guard": "app-host-execution",
     "Validate Swift incremental diagnostics tooling": "preflight",
     "Validate Swift warning budget guard": "release-notary",
