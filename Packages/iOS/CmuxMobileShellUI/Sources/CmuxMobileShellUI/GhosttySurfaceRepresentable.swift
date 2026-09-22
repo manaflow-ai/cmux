@@ -1092,7 +1092,21 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             } else {
                 ownsCurrentStream = false
             }
-            guard outputTask == nil || !ownsCurrentStream else { return }
+            if outputTask != nil, ownsCurrentStream {
+                // The connection can drop the Mac's sticky viewport lease while
+                // the local AsyncStream remains alive. Revalidate the current
+                // alternate-screen capacity on every foreground return so a
+                // stale effective grid cannot survive a reconnect. Primary
+                // screens retain their existing foreground behavior.
+                if surfaceView.hostedAltScreenActive,
+                   !surfaceView.useLegacyTerminalSizing {
+                    MobileDebugLog.anchormux(
+                        "terminal.output.foreground_viewport_refresh surface=\(surfaceID)"
+                    )
+                    surfaceView.requestForegroundViewportRefresh()
+                }
+                return
+            }
 
             // Backgrounding can cancel the AsyncStream task without UIKit
             // detaching the surface. Clear the old viewport owner before

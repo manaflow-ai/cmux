@@ -1423,6 +1423,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setNeedsGeometrySync()
     }
 
+    /// Reassert the host viewport after a foreground reconnect. The local
+    /// output stream may survive while the Mac drops its sticky viewport
+    /// lease, so an alternate-screen surface needs a fresh report and layout
+    /// pass before it can safely render again.
+    public func requestForegroundViewportRefresh() {
+        requestViewportReportForMount()
+        setNeedsGeometrySync(reassertNaturalSize: true)
+    }
+
     /// True while the mirrored terminal is on the ALTERNATE screen (a
     /// full-screen TUI that owns the whole grid). Injected by the hosting
     /// representable from the shell store; the keyboard blank-space
