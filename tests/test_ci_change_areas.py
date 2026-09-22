@@ -1325,7 +1325,7 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
     ])
 
     assert "classifying product inputs with the trusted base router" in result.stdout
-    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "release_build=true"]
+    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "release_build=true"]
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
