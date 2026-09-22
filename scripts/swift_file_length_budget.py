@@ -9,11 +9,11 @@ def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
-def is_generated(path):
-    """quicktype writes one file per wire contract; it grows with the schema and cannot be split by hand."""
-    with path.open(encoding="utf-8") as handle:
-        head = handle.readline()
-    return "generated from JSON Schema" in head
+GENERATED_CONTRACT_FILES = {
+    # quicktype emits one monolithic Codable model file for this wire contract;
+    # schema additions must change its generated line count atomically.
+    Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift"),
+}
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
     failures = []
     for name in sorted(paths):
         path = Path(name)
-        if not path.is_file() or is_generated(path):
+        if not path.is_file() or path in GENERATED_CONTRACT_FILES:
             continue
         old = subprocess.run(["git", "show", f"{base}:{name}"], capture_output=True, text=True)
         budget = max(500, len(old.stdout.splitlines())) if old.returncode == 0 else 500
