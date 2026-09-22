@@ -908,11 +908,10 @@ final class PhonePushClient {
                       let identity = auth.authenticatedSessionIdentity,
                       identity.accountID == envelope.expectedAccountID,
                       identity.generation == envelope.expectedSessionGeneration,
-                      let targetBundleIdentifier = envelope.targetBundleIdentifier,
                       let reencrypted = makeEncryptedEnvelope(
                           payload: payload,
                           identity: identity,
-                          targetBundleIdentifier: targetBundleIdentifier,
+                          targetBundleIdentifier: envelope.targetBundleIdentifier,
                           expirationEpochSeconds: envelope.expirationEpochSeconds
                       ) else {
                     logQueueStage(
