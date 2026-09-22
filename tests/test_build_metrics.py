@@ -30,8 +30,8 @@ SwiftEmitModule normal arm64 Emitting\\ module\\ for\\ cmux (in target 'cmux' fr
 CodeSign /tmp/cmux.app (in target 'cmux' from project 'cmux')
 
 Build Timing Summary
-CompileSwiftSources 12.500 seconds
-Ld 2.250 seconds
+CompileSwiftSources (8 tasks) | 12.500 seconds
+Ld (1 task) | 2.250 seconds
 ** BUILD SUCCEEDED **
 """
 
@@ -117,10 +117,15 @@ class BuildMetricsTests(unittest.TestCase):
             activity.mkdir(parents=True)
             (activity / "one.xcactivitylog").write_bytes(b"abc")
 
-            receipt = build_metrics.build_receipt(derived, 42.5)
+            receipt = build_metrics.build_receipt(
+                derived,
+                42.5,
+                compile_outcome="failure",
+            )
 
         self.assertEqual(receipt["schema_version"], 1)
         self.assertEqual(receipt["compile_wall_seconds"], 42.5)
+        self.assertEqual(receipt["compile_outcome"], "failure")
         self.assertEqual(receipt["derived_data_log_count"], 1)
         self.assertEqual(receipt["activity_logs"], [{"name": "one.xcactivitylog", "bytes": 3}])
         json.dumps(receipt)
