@@ -93,6 +93,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertFalse(actual.web)
         self.assertFalse(actual.release_build)
 
+    def test_ios_shell_test_only_change_skips_macos(self):
+        actual = module.classify_files([
+            "Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift"
+        ])
+        self.assertFalse(actual.macos)
+        self.assertFalse(actual.web)
+        self.assertFalse(actual.release_build)
+
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
         for changed in (
