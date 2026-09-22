@@ -3638,10 +3638,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private struct PairedMacLoadEntry {
         let id: UUID
         let task: Task<Void, Never>
+        let isForcedRefresh: Bool
     }
 
     @ObservationIgnored private var pairedMacLoadTasks: [
         PairedMacLoadKey: PairedMacLoadEntry
+    ] = [:]
+    @ObservationIgnored private var pairedMacLoadRefreshSourceIDs: [
+        PairedMacLoadKey: UUID
     ] = [:]
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
@@ -4176,8 +4180,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let key = PairedMacLoadKey(scope)
+        var waitedEntryID: UUID?
         while true {
             if let entry = pairedMacLoadTasks[key] {
+                if forceRefresh, entry.isForcedRefresh {
+                    await entry.task.value
+                    return
+                }
+                waitedEntryID = entry.id
                 await entry.task.value
                 // A forced refresh represents a store mutation that happened
                 // while an older read was in flight. The completed task removes
@@ -4185,6 +4195,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // read of the newer snapshot without spinning on a completed
                 // task.
                 if forceRefresh {
+                    if pairedMacLoadRefreshSourceIDs[key] == entry.id {
+                        return
+                    }
                     continue
                 }
                 return
@@ -4192,11 +4205,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             break
         }
         let id = UUID()
+        let isForcedRefresh = forceRefresh
+        let refreshSourceID = isForcedRefresh ? waitedEntryID : nil
         let loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 if self.pairedMacLoadTasks[key]?.id == id {
                     self.pairedMacLoadTasks[key] = nil
+                }
+                if let refreshSourceID,
+                   self.pairedMacLoadTasks[key]?.id != id {
+                    self.pairedMacLoadRefreshSourceIDs[key] = refreshSourceID
                 }
             }
             let load = await Self.raceAgainstDeadline(
@@ -4212,7 +4231,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.pairedMacLoadState = .failed
             }
         }
-        pairedMacLoadTasks[key] = PairedMacLoadEntry(id: id, task: loadTask)
+        pairedMacLoadTasks[key] = PairedMacLoadEntry(
+            id: id,
+            task: loadTask,
+            isForcedRefresh: isForcedRefresh
+        )
         await loadTask.value
     }
 
