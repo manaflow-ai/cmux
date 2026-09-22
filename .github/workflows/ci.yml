@@ -49,6 +49,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
+      cli: ${{ steps.detect.outputs.cli }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
@@ -110,6 +111,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "agent_session_web=true"
+              echo "cli=true"
               echo "release_build=true"
             } >> "$GITHUB_OUTPUT"
           }
@@ -138,6 +140,7 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
+                echo "cli=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -192,6 +195,7 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
+                echo "cli=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -221,6 +225,7 @@ jobs:
                   echo "macos=false"
                   echo "web=false"
                   echo "agent_session_web=false"
+                  echo "cli=false"
                   echo "release_build=false"
                 } >> "$GITHUB_OUTPUT"
                 exit 0
@@ -620,6 +625,11 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
+  cli:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.cli == 'true' }}
+    uses: ./.github/workflows/cli-pipe-regressions.yml
+
   web:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
@@ -834,6 +844,7 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
+      - cli
       - web
       - linux-preflight
       - macos

@@ -70,6 +70,24 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
+      - name: Reject stale pull request rerun
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          run_head="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha' 2>/dev/null || true)"
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          if [ -z "$run_head" ] || [ -z "$current_head" ]; then
+            echo "Could not resolve run/PR head identity; continuing with normal CI."
+            exit 0
+          fi
+          if [ "$current_head" != "$run_head" ]; then
+            echo "Refusing stale PR run: run head $run_head; current head $current_head." >&2
+            exit 1
+          fi
       - name: Start compile admission timers
         run: |
           now="$(python3 -c 'import time; print(time.monotonic())')"

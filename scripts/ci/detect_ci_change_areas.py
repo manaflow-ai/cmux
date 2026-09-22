@@ -19,17 +19,19 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
+    cli: bool
     release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True, release_build=True)
+        return cls(macos=True, web=True, agent_session_web=True, cli=True, release_build=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
+            f"cli={bool_output(self.cli)}",
             f"release_build={bool_output(self.release_build)}",
         ]
 
@@ -49,6 +51,7 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 
@@ -267,6 +270,25 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
     "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
 )
 
+
+def is_cli_change(path: str) -> bool:
+    if path.startswith((
+        "CLI/",
+        "cmux.xcodeproj/",
+        "Packages/macOS/CmuxFoundation/",
+    )):
+        return True
+    return path in {
+        "tests/test_cli_broken_pipe_writes.py",
+        "tests/test_cli_socket_operation_deadline.py",
+        "tests/test_cli_config_doctor.py",
+        "tests/test_cli_glaeda_execution.py",
+        "tests/fixtures/glaeda-external-request.json",
+        "tests/fixtures/glaeda-external-result.json",
+        "scripts/generate-cmux-config-schema.py",
+        "web/data/cmux.schema.json",
+        CLI_WORKFLOW_PATH,
+    }
 
 def is_web_change(path: str) -> bool:
     # The diff-sidecar validation lives in ci-web.yml even for native-only
@@ -609,6 +631,10 @@ def is_macos_neutral(
 ) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
         return True
+    # CLI/ is a standalone Xcode tool target with a dedicated required lane.
+    # App/shared source remains routed through app-host macOS CI.
+    if path.startswith("CLI/"):
+        return True
     # Keep current-main's guaranteed iOS-only test carveouts even if the
     # package graph cannot be parsed and the broader router fails open.
     if path.startswith((
@@ -693,6 +719,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     macos = False
     web = False
     agent_session_web = False
+    cli = False
     release_build = False
     test_references = load_macos_job_test_references()
     macos_ios_packages = load_macos_ios_package_closure()
@@ -701,12 +728,15 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         path = normalize_path(raw_path)
         if not path:
             continue
+        if is_cli_change(path):
+            cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
         if forces_all_areas(path):
             macos = True
             web = True
             agent_session_web = True
+            cli = True
             release_build = True
             continue
         if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
@@ -749,6 +779,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
+        cli=cli,
         release_build=release_build,
     )
 
